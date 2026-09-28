@@ -52,6 +52,10 @@ func (op submitOperation) apply(i *Interpreter) {
 }
 
 func (i *Interpreter) executeNative(raw string, statement promptlang.Statement) bool {
+	if batch, handled := i.workflows.handleSubmission(raw, statement, i.commands); handled {
+		i.applyEffectBatch(batch)
+		return true
+	}
 	return i.executeNativeSession(raw, statement) ||
 		i.executeNativeShell(raw, statement) ||
 		i.executeNativeControl(raw, statement)
@@ -70,9 +74,6 @@ func (i *Interpreter) executeNativeSession(raw string, statement promptlang.Stat
 		return true
 	case promptlang.PolicyEnable:
 		i.executePolicyEnable(raw, statement)
-		return true
-	case promptlang.Loop:
-		i.executeLoop(raw, statement)
 		return true
 	default:
 		return false

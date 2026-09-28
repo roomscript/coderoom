@@ -1,5 +1,9 @@
 # Package design: internal/interpreter
 
+See [`pkg-interpreter-workflows.md`](pkg-interpreter-workflows.md) for the
+workflow and effect boundary used to keep this package's serialized coordinator
+focused.
+
 ## Scope
 
 The interpreter is coderoom's UI-independent application layer. It accepts

@@ -36,10 +36,6 @@ type shellCompletedOperation struct {
 	command string
 	result  shell.Result
 }
-type loopConditionCompletedOperation struct {
-	condition string
-	result    shell.Result
-}
 type shutdownOperation struct{}
 type eventDispatchBarrier struct{ reached chan struct{} }
 
@@ -69,7 +65,7 @@ type Interpreter struct {
 	stateMu      sync.RWMutex
 	approval     *Approval
 	stagePending bool
-	activeLoop   *loopExecution
+	workflows    workflowApplication
 	sessionDown  bool
 
 	sessionEventMu      sync.Mutex
@@ -236,25 +232,39 @@ func (i *Interpreter) recordSessionEvent(event session.Event) {
 
 func (i *Interpreter) drainSessionEvents(clearPending bool) {
 	for {
-		i.sessionEventMu.Lock()
-		if len(i.sessionEvents) == 0 {
-			if clearPending {
-				i.sessionDrainPending = false
-			}
-			i.sessionEventMu.Unlock()
+		events := i.takeSessionEvents(clearPending)
+		if len(events) == 0 {
 			return
 		}
-		events := i.sessionEvents
-		i.sessionEvents = nil
-		i.sessionEventMu.Unlock()
-		for _, event := range events {
-			i.applySessionEvent(event)
-		}
+		i.applyEffectBatch(i.projectSessionEvents(events))
 	}
 }
 
-func (i *Interpreter) applySessionEvent(event session.Event) {
-	i.room.ApplyEvent(event)
+func (i *Interpreter) takeSessionEvents(clearPending bool) []session.Event {
+	i.sessionEventMu.Lock()
+	defer i.sessionEventMu.Unlock()
+	events := i.sessionEvents
+	i.sessionEvents = nil
+	if clearPending && len(events) == 0 {
+		i.sessionDrainPending = false
+	}
+	return events
+}
+
+func (i *Interpreter) projectSessionEvents(events []session.Event) effectBatch {
+	batch := effectBatch{}
+	for _, event := range events {
+		i.room.ApplyEvent(event)
+		if !i.applyApprovalEvent(event) {
+			continue
+		}
+		batch.append(i.workflows.handleSessionEvent(event))
+		batch.publishSnapshot = true
+	}
+	return batch
+}
+
+func (i *Interpreter) applyApprovalEvent(event session.Event) bool {
 	switch event := event.(type) {
 	case session.ApprovalRequested:
 		approval := approvalFromAgent(event.ID, event.Alias, event.Req)
@@ -262,12 +272,9 @@ func (i *Interpreter) applySessionEvent(event session.Event) {
 		i.approval = &approval
 		i.stateMu.Unlock()
 	case session.ApprovalCleared:
-		if !i.clearApproval(event.ID) {
-			return
-		}
+		return i.clearApproval(event.ID)
 	}
-	i.advanceLoop(event)
-	i.publish(StateChanged{Snapshot: i.captureSnapshot()})
+	return true
 }
 
 func (op executeLegacyOperation) apply(i *Interpreter) {
