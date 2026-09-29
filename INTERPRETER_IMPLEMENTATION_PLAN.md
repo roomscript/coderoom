@@ -3,6 +3,9 @@
 This file tracks the incremental implementation of GitHub issue #38. It is
 temporary and must be deleted in the final boundary-enforcement commit.
 
+Implementation is parked after Step 6 and blocked by issue #53. Complete
+`INTERPRETER_DECOMPOSITION_PLAN.md` before resuming Step 7.
+
 Each step should leave the repository working and independently reviewable.
 Run `go test ./...` before completing every step unless a narrower command is
 explicitly listed in addition.

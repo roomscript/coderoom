@@ -3,7 +3,6 @@ package interpreter
 import (
 	"fmt"
 
-	"github.com/trigosec/coderoom/internal/participant"
 	"github.com/trigosec/coderoom/internal/room"
 	"github.com/trigosec/coderoom/internal/session"
 	"github.com/trigosec/coderoom/internal/shell"
@@ -11,10 +10,7 @@ import (
 
 type workflowKind uint8
 
-const (
-	workflowLoop workflowKind = iota + 1
-	workflowStage
-)
+const workflowLoop workflowKind = iota + 1
 
 type workflowRef struct {
 	kind       workflowKind
@@ -34,22 +30,13 @@ type startShellEffect struct {
 	request shellRequest
 }
 
-type planSharedSendEffect struct {
-	target workflowRef
-	alias  string
-}
-
-type readParticipantStateEffect struct{ target workflowRef }
-
 type appendRecordEffect struct{ record room.Record }
 type publishEventEffect struct{ event Event }
 
-func (executeSessionEffect) effect()       {}
-func (startShellEffect) effect()           {}
-func (planSharedSendEffect) effect()       {}
-func (readParticipantStateEffect) effect() {}
-func (appendRecordEffect) effect()         {}
-func (publishEventEffect) effect()         {}
+func (executeSessionEffect) effect() {}
+func (startShellEffect) effect()     {}
+func (appendRecordEffect) effect()   {}
+func (publishEventEffect) effect()   {}
 
 type effectBatch struct {
 	effects         []effect
@@ -69,44 +56,7 @@ type planAndExecuteSharedSendRequest struct {
 	listenersText string
 }
 
-type executePlannedSharedSendRequest struct {
-	plan          session.SharedSendPlan
-	directText    string
-	listenersText string
-}
-
-type broadcastRequest struct{ text string }
-
-type handoffRequest struct {
-	fromAlias   string
-	toAlias     string
-	idleAliases []string
-	source      session.HandoffSource
-}
-
-type cancelRequest struct{ alias string }
-
 func (planAndExecuteSharedSendRequest) sessionRequest() {}
-func (executePlannedSharedSendRequest) sessionRequest() {}
-func (broadcastRequest) sessionRequest()                {}
-func (handoffRequest) sessionRequest()                  {}
-func (cancelRequest) sessionRequest()                   {}
-
-type participantState struct {
-	alias  string
-	status participant.Status
-	turnID uint64
-}
-
-type participantStateResult struct {
-	barrier  []participantState
-	routable []participantState
-}
-
-type sharedSendPlanResult struct {
-	plan    session.SharedSendPlan
-	targets []string
-}
 
 type shellRequest struct {
 	command string
@@ -127,20 +77,8 @@ type shellCompletion struct {
 	cwd     string
 }
 
-type sharedSendPlanCompletion struct {
-	target workflowRef
-	result sharedSendPlanResult
-}
-
-type participantStateCompletion struct {
-	target workflowRef
-	result participantStateResult
-}
-
-func (sessionCompletion) workflowCompletion()          {}
-func (shellCompletion) workflowCompletion()            {}
-func (sharedSendPlanCompletion) workflowCompletion()   {}
-func (participantStateCompletion) workflowCompletion() {}
+func (sessionCompletion) workflowCompletion() {}
+func (shellCompletion) workflowCompletion()   {}
 
 type executorItem interface{ executorItem() }
 type effectItem struct{ effect effect }
@@ -206,16 +144,6 @@ func (i *Interpreter) applyEffect(value effect) ([]executorItem, bool) {
 		i.startWorkflowShell(value)
 	case executeSessionEffect:
 		return i.executeSessionEffect(value)
-	case planSharedSendEffect:
-		plan := i.session.PlanSharedSend(value.alias)
-		return []executorItem{completionItem{completion: sharedSendPlanCompletion{
-			target: value.target,
-			result: sharedSendPlanResult{plan: plan, targets: plan.Targets()},
-		}}}, false
-	case readParticipantStateEffect:
-		return []executorItem{completionItem{completion: participantStateCompletion{
-			target: value.target, result: i.readParticipantState(),
-		}}}, false
 	default:
 		panic(fmt.Sprintf("unknown workflow effect %T", value))
 	}
@@ -234,49 +162,18 @@ func (i *Interpreter) executeSessionEffect(value executeSessionEffect) ([]execut
 func (i *Interpreter) executeSessionRequest(request sessionRequest) error {
 	switch request := request.(type) {
 	case planAndExecuteSharedSendRequest:
-		return i.executeSessionCommand(session.SharedSendCommand{
+		err := i.session.Execute(session.SharedSendCommand{
 			Plan:          i.session.PlanSharedSend(request.alias),
 			TextDirect:    request.directText,
 			TextListeners: request.listenersText,
 		})
-	case executePlannedSharedSendRequest:
-		return i.executeSessionCommand(session.SharedSendCommand{
-			Plan: request.plan, TextDirect: request.directText, TextListeners: request.listenersText,
-		})
-	case broadcastRequest:
-		return i.executeSessionCommand(session.BroadcastCommand{Text: request.text})
-	case handoffRequest:
-		return i.executeSessionCommand(session.HandoffCommand{
-			FromAlias: request.fromAlias, ToAlias: request.toAlias,
-			IdleAliases: request.idleAliases, Source: request.source,
-		})
-	case cancelRequest:
-		return i.executeSessionCommand(session.CancelCommand{Alias: request.alias})
+		if err != nil {
+			return fmt.Errorf("execute shared send: %w", err)
+		}
+		return nil
 	default:
 		return fmt.Errorf("unsupported session request %T", request)
 	}
-}
-
-// executeSessionCommand deliberately preserves the original session error.
-// Workflows own user-facing context, and delivery errors carry partial-success
-// metadata that must cross the gateway unchanged.
-func (i *Interpreter) executeSessionCommand(command session.Command) error {
-	return i.session.Execute(command) //nolint:wrapcheck // Preserve the workflow boundary contract described above.
-}
-
-func (i *Interpreter) readParticipantState() participantStateResult {
-	return participantStateResult{
-		barrier:  detachedParticipantState(i.session.BarrierParticipants()),
-		routable: detachedParticipantState(i.session.RoutableParticipants()),
-	}
-}
-
-func detachedParticipantState(values []participant.Participant) []participantState {
-	states := make([]participantState, len(values))
-	for index, value := range values {
-		states[index] = participantState{alias: value.Alias, status: value.Status, turnID: value.TurnID()}
-	}
-	return states
 }
 
 func (i *Interpreter) startWorkflowShell(value startShellEffect) {

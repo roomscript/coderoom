@@ -166,20 +166,20 @@ be reimplemented ad hoc on facade methods.
 
 ## 0. Restore the architectural checkpoint
 
-- [ ] Remove the uncommitted staged-batch experiment.
-- [ ] Reassess commit `0b86a45` and remove stage-only gateway vocabulary while
+- [x] Remove the uncommitted staged-batch experiment.
+- [x] Reassess commit `0b86a45` and remove stage-only gateway vocabulary while
       the stage migration is parked, unless a non-stage consumer already needs
       it.
-- [ ] Retain the generic instruction runner, correlation model, causal-ordering
+- [x] Retain the generic instruction runner, correlation model, causal-ordering
       tests, and cohesive `loopWorkflow`.
-- [ ] Reset every Step 7 checkbox in `INTERPRETER_IMPLEMENTATION_PLAN.md` to
+- [x] Reset every Step 7 checkbox in `INTERPRETER_IMPLEMENTATION_PLAN.md` to
       the actual committed Step 6 baseline.
-- [ ] Remove stage-experiment additions from
+- [x] Remove stage-experiment additions from
       `docs/design/pkg-interpreter-workflows.md`, or label them explicitly as
       approved future design rather than implemented behavior.
-- [ ] Verify issue #38, issue #53, and both implementation plans make no claim
+- [x] Verify issue #38, issue #53, and both implementation plans make no claim
       that removed staged-batch work is complete.
-- [ ] Run the full baseline verification before decomposition starts.
+- [x] Run the full baseline verification before decomposition starts.
 
 Stop condition: the worktree contains no partially authoritative stage state,
 API, snapshot, or dispatch path.
