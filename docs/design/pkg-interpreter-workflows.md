@@ -33,8 +33,10 @@ These names describe responsibility boundaries, not field-grouping wrappers:
 - `instructionRunner` is executor-owned and runs instructions through narrow
   model, session, shell, completion, publication, and snapshot ports. It
   contains no workflow-specific branches.
-- `eventDispatcher` owns observers, queued delivery, flush barriers, and event
-  shutdown.
+- `eventDispatcher` owns observers, queued delivery, its delivery goroutine,
+  flush barriers, and event shutdown. Its focused `Publish`, `AddObserver`,
+  `Flush`, and `Close` operations preserve publication order without blocking
+  the serialized interpreter loop on observers.
 - `sessionEventInbox` owns cross-goroutine session-event buffering and its
   coalesced drain wake-up. `Record` reports whether the executor must enqueue a
   drain; `Take` removes the current event burst without changing that marker;

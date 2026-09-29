@@ -36,9 +36,6 @@ type shellCompletedOperation struct {
 	result  shell.Result
 }
 type shutdownOperation struct{}
-type eventDispatchBarrier struct{ reached chan struct{} }
-
-func (eventDispatchBarrier) interpreterEvent() {}
 
 // Interpreter serializes application operations and session dispatch.
 type Interpreter struct {
@@ -49,18 +46,15 @@ type Interpreter struct {
 	runShell ShellRunner
 	shellWG  sync.WaitGroup
 
-	operations   *queue.Queue[operation]
-	events       *queue.Queue[Event]
-	done         chan struct{}
-	dispatchDone chan struct{}
-	lifetime     context.Context
-	cancel       context.CancelFunc
-	closeOnce    sync.Once
-	enqueueMu    sync.Mutex
-	closed       bool
+	operations *queue.Queue[operation]
+	dispatcher *eventDispatcher
+	done       chan struct{}
+	lifetime   context.Context
+	cancel     context.CancelFunc
+	closeOnce  sync.Once
+	enqueueMu  sync.Mutex
+	closed     bool
 
-	observerMu  sync.RWMutex
-	observers   []Observer
 	stateMu     sync.RWMutex
 	approval    *Approval
 	sessionDown bool
@@ -75,16 +69,15 @@ func New(ctx context.Context, sess SessionController, cwd string, opts ...Option
 	}
 	lifetime, cancel := context.WithCancel(ctx)
 	i := &Interpreter{
-		session:      sess,
-		model:        newInterpreterModel(),
-		cwd:          cwd,
-		runShell:     ShellRunnerFunc(shell.Run),
-		operations:   queue.New[operation](),
-		events:       queue.New[Event](),
-		done:         make(chan struct{}),
-		dispatchDone: make(chan struct{}),
-		lifetime:     lifetime,
-		cancel:       cancel,
+		session:    sess,
+		model:      newInterpreterModel(),
+		cwd:        cwd,
+		runShell:   ShellRunnerFunc(shell.Run),
+		operations: queue.New[operation](),
+		dispatcher: newEventDispatcher(),
+		done:       make(chan struct{}),
+		lifetime:   lifetime,
+		cancel:     cancel,
 	}
 	for _, opt := range opts {
 		opt(i)
@@ -92,7 +85,6 @@ func New(ctx context.Context, sess SessionController, cwd string, opts ...Option
 	i.runner = newInstructionRunner(i.model, i)
 	sess.AddObserver(sessionObserver{interpreter: i})
 	go i.run()
-	go i.dispatchEvents()
 	go func() {
 		select {
 		case <-lifetime.Done():
@@ -159,19 +151,13 @@ func (i *Interpreter) Snapshot() Snapshot {
 
 // AddObserver registers an application event observer.
 func (i *Interpreter) AddObserver(observer Observer) {
-	if observer == nil {
-		return
-	}
-	i.observerMu.Lock()
-	defer i.observerMu.Unlock()
-	i.observers = append(i.observers, observer)
+	i.dispatcher.AddObserver(observer)
 }
 
 // Close stops the interpreter and its owned background work.
 func (i *Interpreter) Close() {
 	i.requestClose()
 	<-i.done
-	<-i.dispatchDone
 }
 
 func (i *Interpreter) requestClose() {
@@ -289,8 +275,7 @@ func (shutdownOperation) apply(i *Interpreter) {
 	i.shellWG.Wait()
 	i.operations.Close()
 	i.model.Close()
-	i.flushEvents()
-	i.events.Close()
+	i.dispatcher.Close()
 	close(i.done)
 }
 
@@ -300,15 +285,6 @@ func (i *Interpreter) shutdownSession() {
 	}
 	i.sessionDown = true
 	i.session.Shutdown()
-}
-
-func (i *Interpreter) flushEvents() {
-	reached := make(chan struct{})
-	i.events.Push(eventDispatchBarrier{reached: reached})
-	select {
-	case <-reached:
-	case <-i.dispatchDone:
-	}
 }
 
 func (i *Interpreter) captureSnapshot() Snapshot {
@@ -327,25 +303,5 @@ func (i *Interpreter) captureSnapshot() Snapshot {
 }
 
 func (i *Interpreter) publish(event Event) {
-	i.events.Push(event)
-}
-
-func (i *Interpreter) dispatchEvents() {
-	defer close(i.dispatchDone)
-	for {
-		event, ok := i.events.Pull()
-		if !ok {
-			return
-		}
-		if barrier, ok := event.(eventDispatchBarrier); ok {
-			close(barrier.reached)
-			continue
-		}
-		i.observerMu.RLock()
-		observers := append([]Observer(nil), i.observers...)
-		i.observerMu.RUnlock()
-		for _, observer := range observers {
-			observer.OnEvent(event)
-		}
-	}
+	i.dispatcher.Publish(event)
 }

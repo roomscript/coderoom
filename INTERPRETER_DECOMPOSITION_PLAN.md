@@ -233,13 +233,13 @@ on `Interpreter`.
 
 ## 3. Extract the event dispatcher
 
-- [ ] Introduce `eventDispatcher` owning the event queue, observer set and
+- [x] Introduce `eventDispatcher` owning the event queue, observer set and
       lock, delivery goroutine, flush barriers, and shutdown.
-- [ ] Expose focused `Publish`, `AddObserver`, `Flush`, and `Close` behavior.
-- [ ] Preserve observer ordering and the guarantee that slow observers do not
+- [x] Expose focused `Publish`, `AddObserver`, `Flush`, and `Close` behavior.
+- [x] Preserve observer ordering and the guarantee that slow observers do not
       block the operation loop.
-- [ ] Preserve shutdown delivery and barrier semantics.
-- [ ] Keep interpreter events as values; the dispatcher must not interpret
+- [x] Preserve shutdown delivery and barrier semantics.
+- [x] Keep interpreter events as values; the dispatcher must not interpret
       workflow or command meaning.
 
 Stop condition: observer and event-delivery primitives no longer appear as
