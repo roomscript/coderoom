@@ -28,7 +28,7 @@ func New(ctx context.Context, sess SessionController, cwd string, opts ...Option
 	for _, opt := range opts {
 		opt(i)
 	}
-	i.executor.Start()
+	i.executor.start()
 	return i
 }
 

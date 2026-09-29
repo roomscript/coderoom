@@ -89,7 +89,7 @@ func newInterpreterExecutor(
 	return executor
 }
 
-func (e *interpreterExecutor) Start() {
+func (e *interpreterExecutor) start() {
 	e.session.AddObserver(sessionObserver{executor: e})
 	go e.run()
 	go func() {

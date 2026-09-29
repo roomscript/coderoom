@@ -1,7 +1,7 @@
 # Package design: internal/interpreter
 
 See [`pkg-interpreter-workflows.md`](pkg-interpreter-workflows.md) for the
-workflow and effect boundary used to keep this package's serialized coordinator
+workflow and instruction boundary used to keep this package's serialized coordinator
 focused.
 
 ## Scope
@@ -32,7 +32,8 @@ The interpreter owns:
 - translation of statements into session commands
 - shell-definition invocation and shell-process lifetime
 - bounded-loop state and coordination
-- barrier-batch state, readiness transitions, and interrupt-and-dispatch
+- future barrier-batch state, readiness transitions, and
+  interrupt-and-dispatch once the parked migration resumes
 - the canonical `room.Room` projection used during execution
 - serialized calls to `session.Execute`
 - application-level events and snapshots consumed by front ends
@@ -52,7 +53,8 @@ The interpreter is the application facade presented to the UI:
 
 ```go
 type Interpreter struct {
-    // session, room, registry, execution loop, and observers are private
+    model    *interpreterModel
+    executor *interpreterExecutor
 }
 
 func New(ctx context.Context, sess SessionController, cwd string, opts ...Option) *Interpreter
@@ -60,9 +62,6 @@ func (i *Interpreter) Submit(raw string) error
 func (i *Interpreter) SubmitWithFallback(raw string, fallback session.Command) error
 func (i *Interpreter) ExecuteLegacy(command session.Command) error
 func (i *Interpreter) ResolveApproval(id int64, choice ApprovalChoice) error
-func (i *Interpreter) TakeStageForEdit() (string, bool)
-func (i *Interpreter) DiscardStage() bool
-func (i *Interpreter) InterruptAndDispatchStage() bool
 func (i *Interpreter) Snapshot() Snapshot
 func (i *Interpreter) AddObserver(Observer)
 func (i *Interpreter) Close()
@@ -117,8 +116,9 @@ Session validation remains authoritative. The temporary UI dependency on
 `session.Execute` directly.
 
 Dedicated methods are reserved for structured interactions that are not prompt
-language: resolving an approval; editing, discarding, or interrupting and
-dispatching a staged submission; reading a snapshot; and shutdown. The boundary
+language: resolving an approval, reading a snapshot, and shutdown. Future
+staged-submission editing, discard, and interrupt-and-dispatch operations will
+also use dedicated methods when that parked migration resumes. The boundary
 invariant is that front ends express intent to the interpreter and do not
 receive the underlying `*session.Session`.
 
@@ -128,6 +128,27 @@ live session or room objects. The roster uses `participant.View`, the safe
 observable portion embedded in the live `participant.Participant`. This keeps
 participant fields and domain types canonical while preventing front ends from
 receiving agent capabilities or runtime bookkeeping.
+
+### Internal ownership
+
+`Interpreter` is only the public facade and composition root. Its two fields
+have distinct responsibilities:
+
+- `interpreterModel` owns the canonical room, command registry, approvals, and
+  workflow state. It is confined to the serialized operation loop and returns
+  `instructionSequence` values without executing them.
+- `interpreterExecutor` owns operation serialization, session and shell I/O,
+  asynchronous worker lifetime, the instruction runner, session-event inbox,
+  event dispatcher, shutdown, and the immutable snapshot cache.
+
+The executor depends on the model through a narrow internal port. The model
+does not enqueue operations, perform I/O, publish events, or call back through
+the facade. Operations apply to the executor rather than `*Interpreter`, so
+adding workflow transitions cannot grow facade implementation methods.
+
+The operation loop refreshes the immutable snapshot cache. Accepted snapshot
+reads are serialized after prior session events; reads after shutdown return a
+detached cached value without accessing mutable model state.
 
 ### Session dependency
 
@@ -169,6 +190,13 @@ The distinction between facade operations is semantic:
 | User enters `/cancel ada` | `Submit("/cancel ada")` | It is prompt language |
 | User enters `/invite ada` | `Submit("/invite ada")` | It is prompt language |
 | User chooses an approval option | `ResolveApproval(...)` | Structured response to an active request |
+| User reads observable state | `Snapshot()` | Returns a detached current or post-shutdown cached view |
+
+The following operations belong to the parked staged-batch migration and are
+not yet part of the implemented facade:
+
+| Future intent | Planned entry point | Reason |
+|---|---|---|
 | User returns a staged message to editing | `TakeStageForEdit()` | Atomically removes and returns its raw draft |
 | User abandons a staged message | `DiscardStage()` | Removes it without dispatch |
 | User requests interrupt-and-send | `InterruptAndDispatchStage()` | Acts on the staged batch's frozen barrier |
@@ -491,22 +519,13 @@ type ShellCompleted struct {
     Result  shell.Result
 }
 
-type LoopAdvanced struct {
-    Alias    string
-    Turn     int
-    MaxTurns int
-}
-
-type LoopFinished struct {
-    Alias  string
-    Reason LoopFinishReason
-}
+type LoopStatus struct { Message string }
 
 type StateChanged struct {
     Snapshot Snapshot
 }
 
-type QuitRequested struct{}
+type ExitRequested struct{}
 ```
 
 This list describes the semantic boundary, not a required one-to-one API.
@@ -519,15 +538,16 @@ For each session event it:
 
 1. applies the event to its canonical room projection
 2. updates interpreter workflows, such as a loop waiting for an idle agent
-3. captures the resulting room and participant snapshots
+3. refreshes the immutable interpreter snapshot cache when requested
 4. publishes interpreter events to consumers
 
 This explicit order prevents the UI from racing two independently paced
 session observers and removes the need for UI-side observer draining.
 
-## Barrier batches
+## Planned barrier batches (parked)
 
-The interpreter owns the pending barrier-batch state machine for user-authored
+When issue #38 resumes, the interpreter will own the pending barrier-batch
+state machine for user-authored
 `Send`, `Broadcast`, and `Handoff` statements. Composer staging is its UI
 representation, not its source of truth.
 
@@ -614,9 +634,10 @@ results, and loop status, are added through interpreter-owned room operations.
 Presentation-only state such as startup tips, focus, scroll position, and debug
 overlays remains in the UI.
 
-## Handoff source resolution
+## Planned handoff source resolution
 
-The latest eligible handoff source is application state derived from completed
+For the parked staged-batch migration, the latest eligible handoff source is
+application state derived from completed
 room-visible agent output. The interpreter resolves it from its own canonical
 room immediately before dispatch:
 
@@ -677,25 +698,24 @@ shutdown path.
 ## Testing
 
 Interpreter tests use fakes at its session and shell boundaries and preserve
-the existing definition, shell, loop, and barrier-batch scenarios moved from
-`internal/ui`.
+the existing definition, shell, and loop scenarios moved from `internal/ui`.
+Barrier-batch scenarios remain in the UI until the parked migration resumes.
 Coverage must include:
 
 - unchanged parsing and command behavior
 - typed observation of acceptance, rejection, shell, and loop results
-- handoff selection from the canonical room projection
 - synchronous session observer callbacks without deadlock
 - all `session.Execute` calls occurring serially on the execution loop
 - shell cancellation and close waiting for completion
 - participant stop/crash while a loop is active
-- immediate and lifecycle-delayed barrier dispatch
-- target departure, partial delivery, and handoff output/idle ordering
-- interrupt-and-dispatch and staged-batch edit/discard behavior
-- races between auto-dispatch and take-for-edit/discard, accepting either valid
-  serialized ordering without partial mutation
-- concurrent interrupt requests initiate at most one interrupt/dispatch workflow
-- shutdown with accepted or waiting stage operations does not deadlock
+- post-shutdown reads from an immutable, detached snapshot cache
+- model-owned approval transitions without workflow synchronization
 - a package dependency check that rejects UI or Bubble Tea imports
+
+When staged batches migrate, their immediate and lifecycle-delayed dispatch,
+target departure, partial delivery, handoff selection and ordering, stage
+actions, races, and shutdown scenarios move into this package as the second
+workflow consumer.
 
 ### `Submit` contract tests
 
@@ -740,27 +760,14 @@ command must observe that projected state before it plans or executes.
 
 ### Dependency enforcement
 
-The implementation change adds a normal, non-integration architecture test,
-for example `internal/architecture/dependencies_test.go`. It uses `go list`
-rather than source-text matching so aliases and grouped imports cannot bypass
-the rule.
+Package structure and normal Go compilation enforce the interpreter's
+UI-independent direction. `internal/ui/architecture_test.go` additionally
+rejects direct `session.Execute` calls from production UI code. The interpreter
+package has a structural test that fixes `Interpreter` to model/executor
+composition fields and compile-checks that operations target
+`*interpreterExecutor`, not the facade.
 
-Two different graph checks are required:
-
-1. List the complete dependency closure of `./internal/interpreter` with
-   `go list -deps`. Reject the module's `internal/ui` package and subpackages,
-   plus `charm.land/bubbletea`, `charm.land/bubbles`, and
-   `charm.land/lipgloss` package prefixes.
-2. List every package under `./internal/ui/...` with its direct `Imports`.
-   Reject direct imports of the module's `internal/session` and
-   `internal/agent` package prefixes.
-
-The UI check is intentionally direct-only: `ui -> interpreter -> session` is
-the required graph, so session will be present transitively. The interpreter
-presentation check is transitive: none of its implementation dependencies may
-pull in a terminal framework.
-
-These guards are added when `internal/interpreter` is introduced and the UI
-imports have been migrated. Adding them before that refactor would make the
-current, intentionally transitional tree fail while the protected package does
-not yet exist.
+The broader issue #38 migration still permits temporary UI dependencies on
+session command values. Once those compatibility paths are removed, a package
+graph test can tighten the boundary to reject all direct UI imports of session
+and agent packages.

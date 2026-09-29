@@ -109,7 +109,7 @@ session-owned plan at execution time, and frozen staged dispatches require
 their own planning inputs. Instructions therefore carry interpreter-level session
 requests rather than partially constructed `session.Command` values.
 
-The initial closed request vocabulary is:
+The currently implemented closed request vocabulary is:
 
 ```go
 type sessionRequest interface{ sessionRequest() }
@@ -119,7 +119,16 @@ type planAndExecuteSharedSendRequest struct {
     directText    string
     listenersText string
 }
+```
 
+Immediate loop turns use `planAndExecuteSharedSendRequest`, which deliberately
+plans immediately before execution.
+
+The parked staged-batch migration is expected to extend that vocabulary with
+the following requests and correlated planning inputs; these types are design,
+not current implementation:
+
+```go
 type executePlannedSharedSendRequest struct {
     plan          session.SharedSendPlan
     directText    string
@@ -142,9 +151,8 @@ type cancelRequest struct {
 }
 ```
 
-Immediate loop turns use `planAndExecuteSharedSendRequest`, which deliberately
-plans immediately before execution. Staged sends must preserve the routing
-decision made when they were staged, so they use a separate planning instruction and
+Staged sends must preserve the routing decision made when they were staged, so
+they use a separate planning instruction and
 later execute `executePlannedSharedSendRequest` with the opaque, session-bound
 plan returned by the gateway.
 
@@ -186,8 +194,8 @@ session. Their correlated completions freeze the opaque plan, detached target
 aliases, and barrier inputs in staged state. `participantState` deliberately
 omits agents and other live session-owned references.
 
-The centralized session gateway translates execution requests immediately
-before execution:
+The executor-owned session gateway currently translates the loop request
+immediately before execution:
 
 ```go
 func (g sessionGateway) Execute(request sessionRequest) error {
@@ -199,56 +207,36 @@ func (g sessionGateway) Execute(request sessionRequest) error {
             TextDirect:    request.directText,
             TextListeners: request.listenersText,
         })
-    case executePlannedSharedSendRequest:
-        return g.session.Execute(session.SharedSendCommand{
-            Plan:          request.plan,
-            TextDirect:    request.directText,
-            TextListeners: request.listenersText,
-        })
-    // broadcast, handoff, and cancel translate without workflow knowledge.
     }
 }
 ```
 
-The gateway knows session planning, detached participant inspection, and
-command types, but not loops, stages, workflow phases, or reply semantics.
-Planning and inspection occur on the serialized interpreter loop.
-`broadcastRequest`, `handoffRequest`, and `cancelRequest` cover the remaining
-current staged-dispatch and interrupt paths; they do not require a separate
-opaque planning value. Handoff obtains its canonical room-derived source
+The gateway knows session planning and command types, but not loop phases or
+reply semantics. Planning occurs on the serialized interpreter loop. When the
+staged migration resumes, the gateway gains detached participant inspection
+and the planned request cases without learning stage phases.
+`broadcastRequest`, `handoffRequest`, and `cancelRequest` will cover the
+remaining staged-dispatch and interrupt paths; they do not require a separate
+opaque planning value. Handoff will obtain its canonical room-derived source
 through the correlated read instruction described below. If Step 7 exposes
 another session-owned planning primitive, add a generic planning or inspection
 instruction/result pair; do not add stage-specific orchestration to
 `Interpreter`.
 
-Handoff source resolution is also a correlated read instruction. After the
-stage workflow observes the matching completed turn, the runner asks
+The planned handoff source resolution is also a correlated read instruction.
+After the stage workflow observes the matching completed turn, the runner asks
 `modelPort.ReadHandoffSource` for the latest eligible source. This preserves
 the output projection/idle ordering guard without giving either the workflow or
 executor direct room access.
 
 ## Closed instruction vocabulary
 
-The initial package-private instructions are:
+The currently implemented package-private instructions are:
 
 ```go
 type executeSessionInstruction struct {
     target  workflowRef
     request sessionRequest
-}
-
-type planSharedSendInstruction struct {
-    target workflowRef
-    alias  string
-}
-
-type readParticipantStateInstruction struct {
-    target workflowRef
-}
-
-type readHandoffSourceInstruction struct {
-    target workflowRef
-    alias  string
 }
 
 type startShellInstruction struct {
@@ -278,6 +266,10 @@ type publishSnapshotInstruction struct{}
 type requestSnapshotInstruction struct{}
 ```
 
+The planned `planSharedSendInstruction`, `readParticipantStateInstruction`,
+and `readHandoffSourceInstruction` belong to the parked staged-batch migration;
+they are not part of the current runner vocabulary.
+
 The compatibility instructions preserve existing command behavior while issue
 #38 is parked:
 
@@ -305,7 +297,6 @@ dispatcher. The model port owns canonical-room operations:
 - `ApplySessionEvent` updates the room projection and routes the event to
   workflows.
 - `AppendRecord` mutates the canonical room.
-- `ReadHandoffSource` resolves room-derived data.
 - `Snapshot` reads model state.
 
 The runner controls when these operations occur but never reads or mutates the
@@ -320,16 +311,6 @@ type workflowCompletion interface{ workflowCompletion() }
 type sessionCompletion struct {
     target workflowRef
     err    error
-}
-
-type sharedSendPlanCompletion struct {
-    target workflowRef
-    result sharedSendPlanResult
-}
-
-type participantStateCompletion struct {
-    target workflowRef
-    result participantStateResult
 }
 
 type shellCompletion struct {
@@ -349,6 +330,9 @@ type rosterCompletion struct {
     participants []participant.View
 }
 ```
+
+Correlated shared-send planning and participant-state completions are planned
+extensions for the staged workflow, not current completion variants.
 
 `submissionCompletion` and `rosterCompletion` are compatibility completions
 routed through the same model-owned decision boundary. They contain detached
@@ -426,14 +410,6 @@ run(initialSequence):
 
         start shell:
             launch and continue; its result is a future operation
-
-        plan shared send:
-            obtain immutable plan and detached targets from session gateway
-            prepend a correlated completion-delivery item to queue
-
-        read participant state:
-            copy barrier/routable aliases, statuses, and turn IDs
-            prepend a correlated completion-delivery item to queue
 
         execute session request:
             translate and execute request
@@ -539,7 +515,9 @@ func (m *interpreterModel) Submit(
     statement promptlang.Statement,
     fallback session.Command,
 ) instructionSequence
-func (m *interpreterModel) ApplySessionEvent(event session.Event) instructionSequence
+func (m *interpreterModel) ApplySessionEvent(
+    event session.Event,
+) (instructionSequence, bool)
 func (m *interpreterModel) ApplyCompletion(completion workflowCompletion) instructionSequence
 ```
 
@@ -551,6 +529,11 @@ state. Each returns the instructions caused by that transition. The submit
 operation never reads stage or workflow state directly. Unknown-command
 classification is also model-owned: `Submit` returns a `publishEventInstruction`
 for `UnknownCommand` rather than an executor-facing “handled” flag.
+
+`ApplySessionEvent` returns `applied == false` when the event must be discarded
+before room projection, workflow routing, and snapshot publication. This is
+currently used for stale `ApprovalCleared` events; the Boolean therefore forms
+part of the causal-ordering contract rather than being generic “handled” state.
 
 The loop workflow is the first consumer. Staged batches are the second. If the
 same request, instruction, and correlation vocabulary cannot represent both without
@@ -651,9 +634,8 @@ knows which interpreter-level request maps to which session command.
 
 1. Restore the completed Step 6 implementation.
 2. Review and approve this target design and ordering contract.
-3. Complete the responsibility decomposition tracked in
-   `INTERPRETER_DECOMPOSITION_PLAN.md`, including executor ownership of the
-   instruction runner, inbox, and dispatcher.
+3. Complete the responsibility decomposition tracked in issue #53, including
+   executor ownership of the instruction runner, inbox, and dispatcher.
 4. Keep approvals loop-confined and serve external reads through the immutable
    snapshot cache.
 5. Only after decomposition, resume staged batches as the second workflow
