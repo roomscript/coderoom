@@ -217,15 +217,15 @@ their transition procedures as independent fields and methods.
 
 ## 2. Extract the session-event inbox
 
-- [ ] Introduce `sessionEventInbox` owning the event buffer, mutex,
+- [x] Introduce `sessionEventInbox` owning the event buffer, mutex,
       drain-pending flag, and coalesced wake-up decision.
-- [ ] Give it focused operations for recording an event and taking a complete
+- [x] Give it focused operations for recording an event and taking a complete
       captured burst.
-- [ ] Keep enqueueing the drain operation at the executor boundary; the inbox
+- [x] Keep enqueueing the drain operation at the executor boundary; the inbox
       must not know about workflows or model instructions.
-- [ ] Preserve the rule that a pending drain marker is cleared only after the
+- [x] Preserve the rule that a pending drain marker is cleared only after the
       inbox is observed empty by that drain operation.
-- [ ] Move existing burst, wake-up-coalescing, and causal-ordering tests to the
+- [x] Move existing burst, wake-up-coalescing, and causal-ordering tests to the
       narrowest useful level.
 
 Stop condition: no session-event mutex, slice, or pending flag remains directly

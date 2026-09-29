@@ -65,9 +65,7 @@ type Interpreter struct {
 	approval    *Approval
 	sessionDown bool
 
-	sessionEventMu      sync.Mutex
-	sessionEvents       []session.Event
-	sessionDrainPending bool
+	sessionInbox sessionEventInbox
 }
 
 // New starts an Interpreter backed by sess.
@@ -201,35 +199,28 @@ func (i *Interpreter) run() {
 		if !ok {
 			return
 		}
-		i.drainSessionEvents(false)
+		i.applySessionEvents()
 		op.apply(i)
 		if _, stopping := op.(shutdownOperation); stopping {
 			return
 		}
-		i.drainSessionEvents(false)
+		i.applySessionEvents()
 	}
 }
 
 func (drainSessionEventsOperation) apply(i *Interpreter) {
-	i.drainSessionEvents(true)
+	i.drainSessionEvents()
 }
 
 func (i *Interpreter) recordSessionEvent(event session.Event) {
-	i.sessionEventMu.Lock()
-	i.sessionEvents = append(i.sessionEvents, event)
-	shouldWake := !i.sessionDrainPending
-	if shouldWake {
-		i.sessionDrainPending = true
-	}
-	i.sessionEventMu.Unlock()
-	if shouldWake {
+	if i.sessionInbox.Record(event) {
 		i.enqueue(drainSessionEventsOperation{})
 	}
 }
 
-func (i *Interpreter) drainSessionEvents(clearPending bool) {
+func (i *Interpreter) applySessionEvents() {
 	for {
-		events := i.takeSessionEvents(clearPending)
+		events := i.sessionInbox.Take()
 		if len(events) == 0 {
 			return
 		}
@@ -237,15 +228,21 @@ func (i *Interpreter) drainSessionEvents(clearPending bool) {
 	}
 }
 
-func (i *Interpreter) takeSessionEvents(clearPending bool) []session.Event {
-	i.sessionEventMu.Lock()
-	defer i.sessionEventMu.Unlock()
-	events := i.sessionEvents
-	i.sessionEvents = nil
-	if clearPending && len(events) == 0 {
-		i.sessionDrainPending = false
+func (i *Interpreter) drainSessionEvents() {
+	for {
+		events := i.sessionInbox.Take()
+		if len(events) != 0 {
+			i.runner.Run(i.runner.ApplySessionEvents(events))
+			continue
+		}
+		if i.sessionInbox.CompleteDrain() {
+			return
+		}
 	}
-	return events
+}
+
+func (i *Interpreter) takeSessionEvents() []session.Event {
+	return i.sessionInbox.Take()
 }
 
 func (i *Interpreter) applyApprovalEvent(event session.Event) bool {
@@ -263,7 +260,7 @@ func (i *Interpreter) applyApprovalEvent(event session.Event) bool {
 
 func (op executeLegacyOperation) apply(i *Interpreter) {
 	err := i.session.Execute(op.command)
-	i.drainSessionEvents(false)
+	i.applySessionEvents()
 	op.result <- err
 }
 

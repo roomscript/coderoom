@@ -299,10 +299,10 @@ func TestSubmitContract_coalescesSessionEventWakeups(t *testing.T) {
 	close(release)
 	receiveSubmitCommand(t, sess.executed)
 
-	interp.sessionEventMu.Lock()
-	pending := interp.sessionDrainPending
-	remaining := len(interp.sessionEvents)
-	interp.sessionEventMu.Unlock()
+	interp.sessionInbox.mu.Lock()
+	pending := interp.sessionInbox.drainPending
+	remaining := len(interp.sessionInbox.events)
+	interp.sessionInbox.mu.Unlock()
 	if pending || remaining != 0 {
 		t.Fatalf("session event inbox: pending=%v remaining=%d", pending, remaining)
 	}

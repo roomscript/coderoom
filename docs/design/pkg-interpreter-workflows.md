@@ -36,7 +36,10 @@ These names describe responsibility boundaries, not field-grouping wrappers:
 - `eventDispatcher` owns observers, queued delivery, flush barriers, and event
   shutdown.
 - `sessionEventInbox` owns cross-goroutine session-event buffering and its
-  coalesced drain wake-up.
+  coalesced drain wake-up. `Record` reports whether the executor must enqueue a
+  drain; `Take` removes the current event burst without changing that marker;
+  and `CompleteDrain` atomically clears it only if the inbox is still empty.
+  The inbox knows nothing about models, workflows, or instructions.
 - `approvalSnapshotState` temporarily owns active approval state and its lock.
   It is deliberately outside loop-confined `interpreterModel` state because
   `Snapshot` may read it after operation-loop shutdown. It moves into

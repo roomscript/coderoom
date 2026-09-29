@@ -15,7 +15,7 @@ type instructionExecutorPort interface {
 	executeSessionRequest(sessionRequest) error
 	executeCommand(session.Command) error
 	roster() []participant.View
-	takeSessionEvents(bool) []session.Event
+	takeSessionEvents() []session.Event
 	applyApprovalEvent(session.Event) bool
 	captureSnapshot() Snapshot
 	requestClose()
@@ -123,7 +123,7 @@ func (r *instructionRunner) applyLifecycleInstruction(value instruction) ([]exec
 		return nil, true
 	case shutdownSessionInstruction:
 		r.executor.shutdownSession()
-		sequence := materializeSnapshot(r.ApplySessionEvents(r.executor.takeSessionEvents(false)))
+		sequence := materializeSnapshot(r.ApplySessionEvents(r.executor.takeSessionEvents()))
 		return instructionItems(sequence), true
 	default:
 		return nil, false
@@ -133,7 +133,7 @@ func (r *instructionRunner) applyLifecycleInstruction(value instruction) ([]exec
 func (r *instructionRunner) executeCommand(value executeCommandInstruction) ([]executorItem, bool) {
 	completion := value.completion
 	completion.err = r.executor.executeCommand(value.command)
-	eventSequence := materializeSnapshot(r.ApplySessionEvents(r.executor.takeSessionEvents(false)))
+	eventSequence := materializeSnapshot(r.ApplySessionEvents(r.executor.takeSessionEvents()))
 	items := instructionItems(eventSequence)
 	items = append(items, completionItem{completion: completion})
 	return items, false
@@ -157,7 +157,7 @@ func materializeSnapshot(sequence instructionSequence) instructionSequence {
 
 func (r *instructionRunner) executeSession(value executeSessionInstruction) ([]executorItem, bool) {
 	err := r.executor.executeSessionRequest(value.request)
-	events := r.executor.takeSessionEvents(false)
+	events := r.executor.takeSessionEvents()
 	eventSequence := r.ApplySessionEvents(events)
 	items := instructionItems(eventSequence)
 	items = append(items, completionItem{completion: sessionCompletion{target: value.target, err: err}})
