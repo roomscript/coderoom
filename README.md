@@ -1,153 +1,91 @@
 # coderoom
 
-A programmable multi-agent coding room.
+> An interactive, scriptable shell for working with coding agents.
 
-coderoom brings mob programming to the terminal. You and a team of AI coding
-agents work together in a shared room, with git as the common workspace and you
-as the decision authority.
+Work with named agents in a shared terminal room. When an interaction starts to
+repeat, turn it into a command.
 
-Start by collaborating step by step. When a coordination pattern becomes
-repetitive, automate it with the same conversational primitives using Code
-Room's prompt-based programming language.
-
-> Collaborate first. Automate when ready.
-
----
-
-## The Problem
-
-Mob programming is a high-bandwidth way to work. The whole team focuses on one task, sharing ideas, challenging assumptions, and converging on better solutions for hard problems.
-
-AI agents are powerful, but without a mob-style workflow the work can fragment
-across tools and threads. It becomes harder to maintain shared understanding,
-avoid duplicated effort, and review changes with confidence. Workflow
-automation often creates the opposite problem: it hides the work behind a
-fixed pipeline and removes the human from the collaboration.
-
-coderoom combines both modes. Developers can work interactively with named
-agents in a shared terminal room, hand work between them, or compose bounded
-workflows from general language primitives. The human chooses how much control
-to keep at each step and can move between collaboration and automation without
-leaving the room.
-
----
-
-## How it works
-
-coderoom has four layers that build on one another:
-
-1. **Mob programming:** the developer and agents work on the same problem in a
-   shared room and git workspace.
-2. **Multi-agent collaboration:** named participants can be addressed directly
-   and work can be handed between them.
-3. **A prompt-based programming language:** room interactions and deterministic
-   checks become composable commands.
-4. **Progressive automation:** the developer decides whether to interact one
-   step at a time or let a bounded workflow run.
-
-For example, the same session can move from an ordinary participant message:
+For example, start with an ordinary conversation:
 
 ```text
+/invite ada
+/invite turing
 @ada investigate the failing tests
+@turing review Ada's changes for edge cases
 ```
 
-to coordination between agents:
-
-```text
-/handoff ada turing
-```
-
-to an automated, bounded workflow:
+Then capture the pattern as a command:
 
 ```text
 /def tests /shell go test ./...
 /loop @ada make the tests pass without weakening them /until /tests /max 3
 ```
 
-The loop asks Ada to work, evaluates `/tests` after each turn, and continues
-with the latest failure evidence until the command succeeds or three agent
-turns have completed. This behavior is composed from general primitives; it is
-not a built-in "fix tests" workflow.
+After each turn, coderoom runs `/tests`. If they fail, Ada gets the output and
+tries again. Your tests decide when she is done. Three turns at most, and every
+step stays visible in the room.
+
+You do not need to design an agent pipeline up front. Collaborate one step at a
+time, then automate the parts you understand and want to repeat. Like a
+familiar shell, coderoom grows around the way you work.
+
+> Collaborate first. Automate when ready.
+
+## You stay in control
+
+coderoom never interprets an agent's text output as a room command. Commands
+in the room run only when you enter them directly or invoke a definition you
+created.
 
 ---
 
-## Current Prompt-Language Implementation
+## Try it
 
-This repository is early-stage:
-
-- The UI is a **single shared room** for the developer and named agents.
-- The current backend is **Codex app-server** (driven over JSON-RPC via stdio).
-- The prompt language supports direct messages, broadcasts, handoffs, shell
-  commands, shell-backed command definitions, and bounded loops.
-- Definitions are scoped to the running room and accept no parameters.
-- Loop bodies contain one participant prompt and one shell-backed completion
-  condition. Nested or concurrent loops are not supported.
-
----
-
-## Install
+You need Node.js with `npx` and a working Codex CLI setup. Support for other
+agent CLIs is planned.
 
 ### Download a release
 
 Prebuilt archives are published on the [GitHub Releases](https://github.com/trigosec/coderoom/releases/latest) page.
 
-Choose the archive that matches your platform:
-
-- `coderoom_<version>_darwin_arm64.tar.gz`
-- `coderoom_<version>_darwin_amd64.tar.gz`
-- `coderoom_<version>_linux_arm64.tar.gz`
-- `coderoom_<version>_linux_amd64.tar.gz`
-
-Extract the archive and run the binary:
+Choose the archive for your platform, extract it, and run `coderoom`:
 
 ```bash
 tar -xzf coderoom_<version>_<os>_<arch>.tar.gz
 ./coderoom
 ```
 
-Checksums are published with each release as `checksums.txt`.
+Archives are available for macOS and Linux on Arm64 and AMD64. Checksums are
+published with each release as `checksums.txt`.
 
 ### Build from source
 
-Prerequisites:
-
-- Go (see `go.mod`)
-- Node.js + `npx`
-- A working Codex CLI setup (sanity check: `npx @openai/codex app-server` should start)
-
-Build and run:
+You will also need Go (see `go.mod`). Then run:
 
 ```bash
 make build
 ./bin/coderoom
 ```
 
----
+If needed, check the Codex setup with `npx @openai/codex app-server`.
 
-## Quick start
+### Start a room
 
-Start one agent:
+Invite an agent and send it a message:
 
 ```text
 /invite ada
-```
-
-`ada` is the alias you will use to address this agent in the room.
-
-When `.coderoom/participants/ada.yaml` exists, coderoom loads that
-participant definition and any referenced role prompt before starting the
-agent. If no participant definition exists, invite still works with
-identification-only setup.
-
-Send a message:
-
-```text
 @ada implement a small change: ...
 ```
 
-### Participant setup
+`ada` is the name you use to address that agent in the room. All agents work in
+the same git workspace. Invite more agents when you want to divide work or ask
+one to review another.
 
-Participant and role configuration lives under `.coderoom/`:
+## Give agents roles
+
+An invitation works without any configuration. To give an agent a reusable
+role, add a participant definition and role prompt:
 
 ```text
 .coderoom/
@@ -174,15 +112,22 @@ Implement the requested change directly in the codebase.
 Follow existing code patterns and keep edits minimal, focused, and practical.
 ```
 
-See `docs/participants.md` for the full setup and validation rules.
+See [`docs/participants.md`](docs/participants.md) for the full setup and
+validation rules.
+
+## What works today
+
+coderoom is early-stage. Today it provides one shared room, named agents backed
+by Codex app-server, direct messages, broadcasts, handoffs, shell commands,
+reusable command definitions, and bounded loops.
+
+Definitions last for the current room and do not accept parameters. A loop can
+send one prompt to an agent and use one shell-backed command to decide when it
+is done. Nested and concurrent loops are not yet supported.
 
 ## Commands
 
-Useful commands:
-
 ```text
-/policy enable send-notices             # notify other agents after @alias sends
-/policy enable echo-invites             # use echo agents for this room's invitations
 /invite <alias>                         # start an agent
 @<alias> <prompt>                       # send to one agent
 <prompt>                                # broadcast to all agents
@@ -194,12 +139,12 @@ Useful commands:
 /who                                    # show roster
 /cancel <alias>                         # interrupt current work (best-effort)
 /remove <alias>                         # stop and remove an agent
+/policy enable send-notices             # notify other agents after @alias sends
 /help                                   # show commands
 /quit                                   # exit
 ```
 
-If only one agent is present, plain text is broadcast to it (equivalent to
-sending to that agent).
+With one agent in the room, plain text goes to that agent.
 
 Direct `@alias` sends notify only the addressed agent by default. Run
 `/policy enable send-notices` to also send listener notices to the other
@@ -207,21 +152,20 @@ participants for the remainder of the room.
 
 ---
 
-## Design docs
+## Learn more
 
-- `docs/design/concept.md`
-- `docs/design/architecture.md`
-- `docs/design/participant-roles.md`
-- `docs/design/prompt-language.md`
+- [Prompt language](docs/design/prompt-language.md)
+- [Participant roles](docs/design/participant-roles.md)
+- [Architecture](docs/design/architecture.md)
 
 ---
 
 ## Development
 
-```
-make test  # quick test suite
-make pre-commit # golangci-lint and test suite with -race
-make test-all   # full test suite including integration tests
+```bash
+make test          # quick test suite
+make pre-commit    # golangci-lint and test suite with -race
+make test-all      # full suite, including integration tests
 ```
 
 Integration tests (require external CLIs):
