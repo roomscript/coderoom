@@ -2,7 +2,6 @@ package interpreter
 
 import (
 	"errors"
-	"sync"
 
 	"github.com/trigosec/coderoom/internal/agent"
 	"github.com/trigosec/coderoom/internal/session"
@@ -19,13 +18,6 @@ type resolveApprovalOperation struct {
 	choice ApprovalChoice
 }
 
-// approvalSnapshotState is the temporary synchronized approval boundary used
-// until snapshots are served from the immutable cache introduced in Step 5.
-type approvalSnapshotState struct {
-	mu       sync.RWMutex
-	approval *Approval
-}
-
 // ResolveApproval queues a structured response to the active approval.
 func (i *Interpreter) ResolveApproval(id int64, choice ApprovalChoice) error {
 	return i.executor.resolveApproval(id, choice)
@@ -39,7 +31,7 @@ func (e *interpreterExecutor) resolveApproval(id int64, choice ApprovalChoice) e
 }
 
 func (op resolveApprovalOperation) apply(e *interpreterExecutor) {
-	choice, err := e.approval.Choice(op.id, op.choice)
+	choice, err := e.model.ResolveApprovalChoice(op.id, op.choice)
 	if err != nil {
 		e.publish(OperationFailed{Operation: "resolve approval", Err: err})
 		return
@@ -49,8 +41,8 @@ func (op resolveApprovalOperation) apply(e *interpreterExecutor) {
 		e.publish(OperationFailed{Operation: "resolve approval", Err: err})
 		return
 	}
-	e.approval.Clear(op.id)
-	e.publish(StateChanged{Snapshot: e.captureSnapshot()})
+	e.model.ClearApproval(op.id)
+	e.publish(StateChanged{Snapshot: e.refreshSnapshot()})
 }
 
 func agentApprovalChoice(choice ApprovalChoice) (agent.ApprovalOption, bool) {
@@ -63,13 +55,14 @@ func agentApprovalChoice(choice ApprovalChoice) (agent.ApprovalOption, bool) {
 	}
 }
 
-func (s *approvalSnapshotState) Choice(id int64, choice ApprovalChoice) (agent.ApprovalOption, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if s.approval == nil || s.approval.ID != id {
+func (m *interpreterModel) ResolveApprovalChoice(
+	id int64,
+	choice ApprovalChoice,
+) (agent.ApprovalOption, error) {
+	if m.approval == nil || m.approval.ID != id {
 		return "", errApprovalNotActive
 	}
-	for _, option := range s.approval.Options {
+	for _, option := range m.approval.Options {
 		if option.ID != choice.OptionID {
 			continue
 		}
@@ -82,29 +75,30 @@ func (s *approvalSnapshotState) Choice(id int64, choice ApprovalChoice) (agent.A
 	return "", errApprovalChoiceNotOffered
 }
 
-func (s *approvalSnapshotState) Set(approval Approval) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.approval = &approval
-}
-
-func (s *approvalSnapshotState) Clear(id int64) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.approval == nil || s.approval.ID != id {
-		return false
+func (m *interpreterModel) applyApprovalEvent(event session.Event) bool {
+	switch event := event.(type) {
+	case session.ApprovalRequested:
+		approval := approvalFromAgent(event.ID, event.Alias, event.Req)
+		m.approval = &approval
+	case session.ApprovalCleared:
+		return m.ClearApproval(event.ID)
 	}
-	s.approval = nil
 	return true
 }
 
-func (s *approvalSnapshotState) Snapshot() *Approval {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if s.approval == nil {
+func (m *interpreterModel) ClearApproval(id int64) bool {
+	if m.approval == nil || m.approval.ID != id {
+		return false
+	}
+	m.approval = nil
+	return true
+}
+
+func cloneApproval(source *Approval) *Approval {
+	if source == nil {
 		return nil
 	}
-	approval := *s.approval
+	approval := *source
 	approval.Options = append([]ApprovalOption(nil), approval.Options...)
 	return &approval
 }

@@ -263,7 +263,7 @@ func TestSubmitContract_appliesCausalEventBeforeNextExecution(t *testing.T) {
 			observer.OnEvent(session.AgentStarted{Alias: "ada"})
 			return
 		}
-		members := interp.model.Snapshot().Members
+		members := interpreterModelOf(interp).Snapshot().room.Members
 		causalStateObserved <- len(members) == 1 && members[0] == "ada"
 	}
 

@@ -4,10 +4,10 @@ import (
 	"context"
 	"sync"
 
+	"github.com/trigosec/coderoom/internal/agent"
 	"github.com/trigosec/coderoom/internal/participant"
 	"github.com/trigosec/coderoom/internal/promptlang"
 	"github.com/trigosec/coderoom/internal/queue"
-	"github.com/trigosec/coderoom/internal/room"
 	"github.com/trigosec/coderoom/internal/session"
 	"github.com/trigosec/coderoom/internal/shell"
 )
@@ -35,21 +35,23 @@ type executorModelPort interface {
 	PreflightSubmission(string) instructionSequence
 	Submit(string, promptlang.Statement, session.Command) instructionSequence
 	ApplyShellResult(string, string, shell.Result) instructionSequence
+	ResolveApprovalChoice(int64, ApprovalChoice) (agent.ApprovalOption, error)
+	ClearApproval(int64) bool
 	ResolveCommand(promptlang.CommandInvocation) (promptlang.Shell, error)
-	Snapshot() room.Snapshot
+	Snapshot() modelSnapshot
 	Close()
 }
 
 // interpreterExecutor owns serialized execution, asynchronous work, event
 // ingestion and delivery, and interpreter shutdown.
 type interpreterExecutor struct {
-	session  SessionController
-	model    executorModelPort
-	runner   *instructionRunner
-	approval *approvalSnapshotState
-	cwd      string
-	runShell ShellRunner
-	shellWG  sync.WaitGroup
+	session   SessionController
+	model     executorModelPort
+	runner    *instructionRunner
+	snapshots snapshotCache
+	cwd       string
+	runShell  ShellRunner
+	shellWG   sync.WaitGroup
 
 	operations *queue.Queue[operation]
 	dispatcher *eventDispatcher
@@ -69,13 +71,11 @@ func newInterpreterExecutor(
 	sess SessionController,
 	cwd string,
 	model *interpreterModel,
-	approval *approvalSnapshotState,
 ) *interpreterExecutor {
 	lifetime, cancel := context.WithCancel(ctx)
 	executor := &interpreterExecutor{
 		session:    sess,
 		model:      model,
-		approval:   approval,
 		cwd:        cwd,
 		runShell:   ShellRunnerFunc(shell.Run),
 		operations: queue.New[operation](),
@@ -85,6 +85,7 @@ func newInterpreterExecutor(
 		cancel:     cancel,
 	}
 	executor.runner = newInstructionRunner(model, executor)
+	executor.refreshSnapshot()
 	return executor
 }
 
@@ -141,13 +142,13 @@ func (e *interpreterExecutor) executeLegacy(command session.Command) error {
 func (e *interpreterExecutor) snapshot() Snapshot {
 	result := make(chan Snapshot, 1)
 	if !e.enqueue(snapshotOperation{result: result}) {
-		return e.captureSnapshot()
+		return e.snapshots.Load()
 	}
 	select {
 	case snapshot := <-result:
 		return snapshot
 	case <-e.done:
-		return e.captureSnapshot()
+		return e.snapshots.Load()
 	}
 }
 
@@ -231,16 +232,6 @@ func (e *interpreterExecutor) takeSessionEvents() []session.Event {
 	return e.inbox.Take()
 }
 
-func (e *interpreterExecutor) applyApprovalEvent(event session.Event) bool {
-	switch event := event.(type) {
-	case session.ApprovalRequested:
-		e.approval.Set(approvalFromAgent(event.ID, event.Alias, event.Req))
-	case session.ApprovalCleared:
-		return e.approval.Clear(event.ID)
-	}
-	return true
-}
-
 func (op executeLegacyOperation) apply(e *interpreterExecutor) {
 	err := e.session.Execute(op.command)
 	e.applySessionEvents()
@@ -258,7 +249,7 @@ func (e *interpreterExecutor) roster() []participant.View {
 }
 
 func (op snapshotOperation) apply(e *interpreterExecutor) {
-	op.result <- e.captureSnapshot()
+	op.result <- e.refreshSnapshot()
 }
 
 func (op resolveCommandOperation) apply(e *interpreterExecutor) {
@@ -271,6 +262,7 @@ func (shutdownOperation) apply(e *interpreterExecutor) {
 	e.cancel()
 	e.shellWG.Wait()
 	e.operations.Close()
+	e.refreshSnapshot()
 	e.model.Close()
 	e.dispatcher.Close()
 	close(e.done)
@@ -284,13 +276,15 @@ func (e *interpreterExecutor) shutdownSession() {
 	e.session.Shutdown()
 }
 
-func (e *interpreterExecutor) captureSnapshot() Snapshot {
+func (e *interpreterExecutor) refreshSnapshot() Snapshot {
+	model := e.model.Snapshot()
 	snapshot := Snapshot{
-		Room:         e.model.Snapshot(),
+		Room:         model.room,
 		Participants: append([]participant.View(nil), e.session.Roster()...),
+		Approval:     model.approval,
 	}
-	snapshot.Approval = e.approval.Snapshot()
-	return snapshot
+	e.snapshots.Store(snapshot)
+	return cloneSnapshot(snapshot)
 }
 
 func (e *interpreterExecutor) publish(event Event) {

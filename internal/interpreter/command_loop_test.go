@@ -80,7 +80,7 @@ func TestSubmitContract_loopAlternatesTurnsAndConditionsUntilBound(t *testing.T)
 	receiveSubmitEvent[ShellCompleted](t, events)
 	assertLoopStatus(t, events, "[loop] reached /max 2; condition /tests still failing")
 	receiveSubmitEvent[StateChanged](t, events)
-	if interp.model.workflows.loop.active != nil {
+	if interpreterModelOf(interp).workflows.loop.active != nil {
 		t.Fatal("bounded loop remained active")
 	}
 }
@@ -94,7 +94,7 @@ func TestInstructionRunner_projectsCompleteCausalBurstBeforeDerivedInstruction(t
 	projected := make(chan bool, 1)
 	var interp *Interpreter
 	runner := ShellRunnerFunc(func(context.Context, string, string) shell.Result {
-		projected <- slices.Contains(interp.model.Snapshot().Members, "turing")
+		projected <- slices.Contains(interpreterModelOf(interp).Snapshot().room.Members, "turing")
 		return shell.Result{Status: shell.StatusCancelled}
 	})
 	interp = New(t.Context(), sess, "/workspace", WithShellRunner(runner))
@@ -137,7 +137,7 @@ func TestSubmitContract_loopStopsWhenParticipantStopsOrCrashes(t *testing.T) {
 			interp.executor.recordSessionEvent(tt.event)
 			assertLoopStatus(t, events, tt.message)
 			receiveSubmitEvent[StateChanged](t, events)
-			if interp.model.workflows.loop.active != nil {
+			if interpreterModelOf(interp).workflows.loop.active != nil {
 				t.Fatal("loop remained active after participant departure")
 			}
 		})
@@ -157,7 +157,7 @@ func TestSubmitContract_loopRetainsTerminalEventDuringDispatch(t *testing.T) {
 	assertLoopStatus(t, events, "[loop] stopped: participant @ada crashed")
 	receiveSubmitEvent[SubmissionSucceeded](t, events)
 	receiveSubmitEvent[StateChanged](t, events)
-	if interp.model.workflows.loop.active != nil {
+	if interpreterModelOf(interp).workflows.loop.active != nil {
 		t.Fatal("loop remained active after dispatch-time crash")
 	}
 }
@@ -193,7 +193,7 @@ func TestSubmitContract_failedLoopDispatchIgnoresSynchronousIdle(t *testing.T) {
 	assertLoopStatus(t, events, "[loop] stopped: participant turn could not start")
 	receiveSubmitEvent[SubmissionSucceeded](t, events)
 	receiveSubmitEvent[StateChanged](t, events)
-	if interp.model.workflows.loop.active != nil {
+	if interpreterModelOf(interp).workflows.loop.active != nil {
 		t.Fatal("loop remained active after failed dispatch")
 	}
 }
@@ -222,7 +222,7 @@ func TestSubmitContract_loopFinishesForSuccessfulOrCancelledCondition(t *testing
 			receiveSubmitEvent[ShellCompleted](t, events)
 			assertLoopStatus(t, events, tt.message)
 			receiveSubmitEvent[StateChanged](t, events)
-			if interp.model.workflows.loop.active != nil {
+			if interpreterModelOf(interp).workflows.loop.active != nil {
 				t.Fatal("completed loop remained active")
 			}
 		})

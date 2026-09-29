@@ -17,7 +17,13 @@ type interpreterModel struct {
 	room         *room.Room
 	commands     *promptlang.Registry
 	workflows    workflowCollection
+	approval     *Approval
 	stagePending bool
+}
+
+type modelSnapshot struct {
+	room     room.Snapshot
+	approval *Approval
 }
 
 func (m *interpreterModel) PreflightSubmission(raw string) instructionSequence {
@@ -125,9 +131,12 @@ func sessionSubmissionSequence(raw, operation string, command session.Command) i
 	})
 }
 
-func (m *interpreterModel) ApplySessionEvent(event session.Event) instructionSequence {
+func (m *interpreterModel) ApplySessionEvent(event session.Event) (instructionSequence, bool) {
+	if !m.applyApprovalEvent(event) {
+		return nil, false
+	}
 	m.room.ApplyEvent(event)
-	return m.workflows.applySessionEvent(event)
+	return m.workflows.applySessionEvent(event), true
 }
 
 func (m *interpreterModel) ApplyCompletion(completion workflowCompletion) instructionSequence {
@@ -192,8 +201,11 @@ func (m *interpreterModel) ResolveCommand(invocation promptlang.CommandInvocatio
 	return body, nil
 }
 
-func (m *interpreterModel) Snapshot() room.Snapshot {
-	return m.room.Snapshot()
+func (m *interpreterModel) Snapshot() modelSnapshot {
+	return modelSnapshot{
+		room:     m.room.Snapshot(),
+		approval: cloneApproval(m.approval),
+	}
 }
 
 func (m *interpreterModel) Close() {

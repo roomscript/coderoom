@@ -7,6 +7,10 @@ import (
 	"github.com/trigosec/coderoom/internal/session"
 )
 
+func interpreterModelOf(interpreter *Interpreter) *interpreterModel {
+	return interpreter.model
+}
+
 func TestInterpreterModel_SubmitBuildsInstructionsWithoutExecutingThem(t *testing.T) {
 	model := newInterpreterModel()
 	t.Cleanup(model.Close)
@@ -28,7 +32,7 @@ func TestInterpreterModel_SubmitBuildsInstructionsWithoutExecutingThem(t *testin
 	if _, ok := sequence[2].(executeCommandInstruction); !ok {
 		t.Fatalf("instruction 2 = %T, want executeCommandInstruction", sequence[2])
 	}
-	if records := model.Snapshot().Records; len(records) != 0 {
+	if records := model.Snapshot().room.Records; len(records) != 0 {
 		t.Fatalf("model executed returned instructions: records = %d", len(records))
 	}
 }
@@ -59,11 +63,14 @@ func TestInterpreterModel_ApplySessionEventProjectsBeforeWorkflowInstructions(t 
 	model := newInterpreterModel()
 	t.Cleanup(model.Close)
 
-	sequence := model.ApplySessionEvent(session.AgentStarted{Alias: "ada"})
+	sequence, applied := model.ApplySessionEvent(session.AgentStarted{Alias: "ada"})
+	if !applied {
+		t.Fatal("event was not applied")
+	}
 	if len(sequence) != 0 {
 		t.Fatalf("instructions = %d, want 0", len(sequence))
 	}
-	members := model.Snapshot().Members
+	members := model.Snapshot().room.Members
 	if len(members) != 1 || members[0] != "ada" {
 		t.Fatalf("members = %v, want [ada]", members)
 	}

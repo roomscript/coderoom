@@ -3,36 +3,21 @@ package interpreter
 import (
 	"testing"
 
-	"github.com/trigosec/coderoom/internal/room"
 	"github.com/trigosec/coderoom/internal/session"
 )
 
-type recordingInstructionModel struct{ events []session.Event }
-
-func (*recordingInstructionModel) ApplyCompletion(workflowCompletion) instructionSequence {
-	return nil
-}
-
-func (m *recordingInstructionModel) ApplySessionEvent(event session.Event) instructionSequence {
-	m.events = append(m.events, event)
-	return instructionSequence{publishEventInstruction{event: LoopStatus{Message: "unexpected"}}}
-}
-
-func (*recordingInstructionModel) AppendRecord(room.Record) {}
-
-func TestInstructionRunner_discardsStaleApprovalClearBeforeModel(t *testing.T) {
-	model := &recordingInstructionModel{}
-	approval := &approvalSnapshotState{}
-	approval.Set(Approval{ID: 7})
-	executor := &interpreterExecutor{approval: approval}
-	runner := newInstructionRunner(model, executor)
+func TestInstructionRunner_discardsStaleApprovalClear(t *testing.T) {
+	model := newInterpreterModel()
+	t.Cleanup(model.Close)
+	model.approval = &Approval{ID: 7}
+	runner := newInstructionRunner(model, &interpreterExecutor{})
 
 	sequence := runner.ApplySessionEvents([]session.Event{
 		session.ApprovalCleared{ID: 8},
 	})
 
-	if len(model.events) != 0 {
-		t.Fatalf("model received stale approval clear: %#v", model.events)
+	if model.approval == nil || model.approval.ID != 7 {
+		t.Fatalf("approval = %#v, want ID 7", model.approval)
 	}
 	if len(sequence) != 0 {
 		t.Fatalf("instructions = %d, want 0", len(sequence))

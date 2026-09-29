@@ -15,7 +15,6 @@ type Option func(*Interpreter)
 type Interpreter struct {
 	model    *interpreterModel
 	executor *interpreterExecutor
-	approval *approvalSnapshotState
 }
 
 // New starts an Interpreter backed by sess.
@@ -24,12 +23,8 @@ func New(ctx context.Context, sess SessionController, cwd string, opts ...Option
 		ctx = context.Background()
 	}
 	model := newInterpreterModel()
-	approval := &approvalSnapshotState{}
-	i := &Interpreter{
-		model:    model,
-		approval: approval,
-	}
-	i.executor = newInterpreterExecutor(ctx, sess, cwd, model, approval)
+	i := &Interpreter{model: model}
+	i.executor = newInterpreterExecutor(ctx, sess, cwd, model)
 	for _, opt := range opts {
 		opt(i)
 	}

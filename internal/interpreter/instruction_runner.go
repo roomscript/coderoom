@@ -16,15 +16,14 @@ type instructionExecutorPort interface {
 	executeCommand(session.Command) error
 	roster() []participant.View
 	takeSessionEvents() []session.Event
-	applyApprovalEvent(session.Event) bool
-	captureSnapshot() Snapshot
+	refreshSnapshot() Snapshot
 	requestClose()
 	shutdownSession()
 }
 
 type instructionModelPort interface {
 	ApplyCompletion(workflowCompletion) instructionSequence
-	ApplySessionEvent(session.Event) instructionSequence
+	ApplySessionEvent(session.Event) (instructionSequence, bool)
 	AppendRecord(room.Record)
 }
 
@@ -58,7 +57,7 @@ func (r *instructionRunner) Run(sequence instructionSequence) {
 		}
 	}
 	if snapshotRequested {
-		r.executor.publish(StateChanged{Snapshot: r.executor.captureSnapshot()})
+		r.executor.publish(StateChanged{Snapshot: r.executor.refreshSnapshot()})
 	}
 }
 
@@ -84,7 +83,7 @@ func (r *instructionRunner) applyStateInstruction(value instruction) (bool, bool
 		r.executor.publish(value.event)
 		return false, true
 	case publishSnapshotInstruction:
-		r.executor.publish(StateChanged{Snapshot: r.executor.captureSnapshot()})
+		r.executor.publish(StateChanged{Snapshot: r.executor.refreshSnapshot()})
 		return false, true
 	case requestSnapshotInstruction:
 		return true, true
@@ -167,10 +166,11 @@ func (r *instructionRunner) executeSession(value executeSessionInstruction) ([]e
 func (r *instructionRunner) ApplySessionEvents(events []session.Event) instructionSequence {
 	sequence := instructionSequence{}
 	for _, event := range events {
-		if !r.executor.applyApprovalEvent(event) {
+		eventSequence, applied := r.model.ApplySessionEvent(event)
+		if !applied {
 			continue
 		}
-		sequence.append(r.model.ApplySessionEvent(event))
+		sequence.append(eventSequence)
 		sequence = append(sequence, requestSnapshotInstruction{})
 	}
 	return sequence

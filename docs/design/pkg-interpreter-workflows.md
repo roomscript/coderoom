@@ -15,10 +15,6 @@ not implement workflow-specific procedures.
 type Interpreter struct {
     model    interpreterModel
     executor interpreterExecutor
-
-    // Temporary synchronized boundary until cached snapshots replace reads
-    // made after the operation loop has stopped.
-    approval approvalSnapshotState
 }
 ```
 
@@ -42,10 +38,9 @@ These names describe responsibility boundaries, not field-grouping wrappers:
   drain; `Take` removes the current event burst without changing that marker;
   and `CompleteDrain` atomically clears it only if the inbox is still empty.
   The inbox knows nothing about models, workflows, or instructions.
-- `approvalSnapshotState` temporarily owns active approval state and its lock.
-  It is deliberately outside loop-confined `interpreterModel` state because
-  `Snapshot` may read it after operation-loop shutdown. It moves into
-  `interpreterModel` only after snapshots are served from an immutable cache.
+- `snapshotCache` holds the latest immutable interpreter snapshot. The
+  operation loop refreshes it; concurrent and post-shutdown readers receive
+  detached copies without touching mutable model state.
 
 Only components whose extraction makes an invariant clearer should be split
 out. The first proof is a cohesive loop workflow plus the smallest viable
@@ -53,12 +48,10 @@ instruction runner. Executor, dispatcher, and inbox extraction follows only wher
 it makes the resulting coordinator simpler.
 
 The dependency direction is executor to model. The model never calls the
-executor. Before immutable cached snapshots exist, one temporary adapter merges
-the model snapshot with the separately synchronized approval snapshot; the
-model does not know about approval synchronization. `Interpreter.Snapshot`
-delegates to a serialized executor operation and never reads the loop-confined
-model directly from the caller's goroutine. The executor preserves the existing
-shutdown-safe read behavior until the immutable cache replaces it.
+executor. Approval state is loop-confined model state. `Interpreter.Snapshot`
+delegates to the executor: accepted reads settle earlier session events and
+refresh the immutable cache on the operation loop, while reads after shutdown
+return a detached copy from that cache without accessing the model.
 
 ## Confinement rule
 
@@ -448,9 +441,9 @@ run(initialSequence):
 
             eventInstructions = []
             for each causal event in order:
-                if approval boundary rejects the event as stale:
+                eventSequence, applied = model.ApplySessionEvent(event)
+                if not applied:
                     continue
-                eventSequence = model.ApplySessionEvent(event)
                 append eventSequence to eventInstructions
 
             queue = eventInstructions
@@ -472,9 +465,9 @@ run in event and sequence order. Only after those instructions settle does the
 runner deliver the command result to its workflow; result-derived instructions
 then run before instructions that originally followed the session request.
 
-The temporary approval boundary filters stale `ApprovalCleared` events before
-`model.ApplySessionEvent`. A rejected clear is neither projected nor routed and
-does not request a snapshot, preserving the pre-decomposition contract.
+`model.ApplySessionEvent` filters stale `ApprovalCleared` events before room
+projection or workflow routing. A rejected clear does not request a snapshot,
+preserving the pre-decomposition contract.
 
 If an event-derived instruction executes another session request, the runner
 repeats the same capture/project/queue procedure: it projects that nested
@@ -661,7 +654,8 @@ knows which interpreter-level request maps to which session command.
 3. Complete the responsibility decomposition tracked in
    `INTERPRETER_DECOMPOSITION_PLAN.md`, including executor ownership of the
    instruction runner, inbox, and dispatcher.
-4. Revisit approvals and snapshot ownership through immutable cached snapshots.
+4. Keep approvals loop-confined and serve external reads through the immutable
+   snapshot cache.
 5. Only after decomposition, resume staged batches as the second workflow
    consumer and validate the abstraction.
 

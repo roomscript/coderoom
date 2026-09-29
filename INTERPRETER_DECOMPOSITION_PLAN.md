@@ -40,7 +40,6 @@ The target is responsibility-based, not merely nested field grouping:
 type Interpreter struct {
     model    interpreterModel
     executor interpreterExecutor
-    approval approvalSnapshotState // temporary until cached snapshots land
 }
 ```
 
@@ -60,8 +59,9 @@ The supporting components have behavioral boundaries:
   bookkeeping, and wake-up coalescing.
 - `eventDispatcher` owns observers, queued delivery, flush barriers, and event
   shutdown.
-- `approvalSnapshotState` remains a narrow synchronized boundary until reads
-  after operation-loop shutdown are served from an immutable cached snapshot.
+- `snapshotCache` owns the latest immutable interpreter snapshot. The operation
+  loop refreshes it, and concurrent or post-shutdown readers receive detached
+  copies without accessing mutable model state.
 
 Components must encapsulate invariants and operations. Moving fields into a
 sub-struct without moving the behavior that governs them does not complete a
@@ -74,7 +74,6 @@ The dependency graph is deliberately one-way:
 ```text
 Interpreter facade
     ├── interpreterModel (state and decisions -> instructionSequence)
-    ├── approvalSnapshotState
     └── interpreterExecutor
             ├── instructionRunner -> narrow modelPort
             ├── sessionEventInbox
@@ -127,28 +126,25 @@ then publishes one snapshot. Multiple requests coalesce naturally. This also
 allows an otherwise empty state transition to request publication without
 out-of-band result metadata.
 
-## Temporary snapshot composition
+## Snapshot ownership
 
-Until Step 5 introduces immutable cached snapshots, model and approval
-snapshots compose through a narrow adapter on the serialized executor path:
+The operation loop composes model state and the session roster, then stores one
+immutable interpreter snapshot in the executor-owned cache:
 
 ```go
 func (i *Interpreter) Snapshot() Snapshot {
     return i.executor.Snapshot()
 }
 
-// Invoked by the executor as a serialized snapshot operation.
-modelSnapshot := model.Snapshot()
-result := mergeApproval(modelSnapshot, approval.Snapshot())
+// Invoked only on the serialized executor path.
+snapshotCache.Store(composeSnapshot(model.Snapshot(), session.Roster()))
 ```
 
-`interpreterModel.Snapshot` does not know about the externally synchronized
-approval state. The executor-owned runner uses this adapter whenever a causal
-chain requests publication. `Interpreter.Snapshot` delegates to the executor;
-it must never read the loop-confined model directly from the caller's goroutine.
-The executor preserves the existing shutdown-safe snapshot behavior until Step
-5 replaces it with one immutable cached snapshot. Snapshot composition must not
-be reimplemented ad hoc on facade methods.
+Approval state is part of the loop-confined model snapshot. While the executor
+is running, `Interpreter.Snapshot` uses a serialized operation that first
+settles prior session events and refreshes the cache. Once shutdown prevents
+operation acceptance, reads use the cache directly. Every cache read returns a
+detached copy, so callers cannot mutate the cached value.
 
 ## Invariants
 
@@ -206,9 +202,9 @@ API, snapshot, or dispatch path.
 - [x] Keep `instructionRunner` outside `interpreterModel`; its temporary
       facade-level placement is removed when Step 4 makes it executor-owned.
 - [x] Move snapshot construction behind `interpreterModel` while
-      keeping approval at its documented temporary boundary.
+      keeping approval at its documented temporary boundary until Step 5.
 - [x] Compose model and approval snapshots only through the documented
-      temporary snapshot adapter.
+      temporary snapshot adapter until Step 5 replaces it with the cache.
 - [x] Keep facade and operation types free of room, registry, and workflow
       implementation details.
 
@@ -267,14 +263,14 @@ not the owner of queue, goroutine, event-delivery, or shutdown algorithms.
 
 ## 5. Stabilize snapshot and approval ownership
 
-- [ ] Define one immutable cached snapshot published by the operation loop.
-- [ ] Serve reads after shutdown from that cache rather than mutable live
+- [x] Define one immutable cached snapshot published by the operation loop.
+- [x] Serve reads after shutdown from that cache rather than mutable live
       model state.
-- [ ] Move approval state into the loop-confined model only after cached
+- [x] Move approval state into the loop-confined model only after cached
       snapshots remove the external read requirement.
-- [ ] Remove the temporary approval lock only when race tests prove the new
+- [x] Remove the temporary approval lock only when race tests prove the new
       ownership model.
-- [ ] Do not introduce synchronization inside workflow components.
+- [x] Do not introduce synchronization inside workflow components.
 
 Stop condition: mutable model state is operation-loop-confined and
 post-shutdown snapshot reads require no model-state locks.

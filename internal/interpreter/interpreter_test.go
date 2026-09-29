@@ -159,6 +159,36 @@ func TestInterpreter_translatesApprovalState(t *testing.T) {
 	}
 }
 
+func TestInterpreter_snapshotAfterCloseUsesDetachedCache(t *testing.T) {
+	sess := newRecordingSession()
+	sess.roster = []participant.View{{Alias: "ada", Status: participant.StatusIdle}}
+	interp := interpreter.New(context.Background(), sess, t.TempDir())
+	events := make(chan interpreter.Event, 2)
+	interp.AddObserver(eventObserver{events: events})
+
+	sess.emit(session.AgentStarted{Alias: "ada"})
+	receiveEvent[interpreter.StateChanged](t, events)
+	emitApproval(sess, 42, agent.OptionAccept)
+	receiveEvent[interpreter.StateChanged](t, events)
+	interp.Close()
+
+	first := interp.Snapshot()
+	first.Room.Members[0] = "changed"
+	first.Participants[0].Alias = "changed"
+	first.Approval.Options[0].ID = "changed"
+
+	second := interp.Snapshot()
+	if second.Room.Members[0] != "ada" {
+		t.Fatalf("cached room members = %v, want [ada]", second.Room.Members)
+	}
+	if second.Participants[0].Alias != "ada" {
+		t.Fatalf("cached participants = %#v, want ada", second.Participants)
+	}
+	if second.Approval == nil || second.Approval.Options[0].ID != "accept" {
+		t.Fatalf("cached approval = %#v, want detached accept option", second.Approval)
+	}
+}
+
 func TestInterpreter_resolvesOnlyOfferedChoiceAndClearsApproval(t *testing.T) {
 	sess := newRecordingSession()
 	interp := interpreter.New(context.Background(), sess, t.TempDir())
