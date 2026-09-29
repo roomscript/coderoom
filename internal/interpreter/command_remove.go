@@ -5,15 +5,6 @@ import (
 	"github.com/trigosec/coderoom/internal/session"
 )
 
-func (i *Interpreter) executeRemove(raw string, remove promptlang.Remove) {
-	i.room.AppendUserInputRecord(raw, nil)
-	i.publish(InputAccepted{Raw: raw})
-	err := i.session.Execute(session.RemoveCommand{Alias: remove.Alias})
-	i.drainSessionEvents(false)
-	i.publish(StateChanged{Snapshot: i.captureSnapshot()})
-	if err != nil {
-		i.publish(SubmissionFailed{Raw: raw, Operation: "remove", Code: ErrorExecutionFailed, Err: err})
-		return
-	}
-	i.publish(SubmissionSucceeded{Raw: raw})
+func (*interpreterModel) submitRemove(raw string, remove promptlang.Remove) instructionSequence {
+	return sessionSubmissionSequence(raw, "remove", session.RemoveCommand{Alias: remove.Alias})
 }

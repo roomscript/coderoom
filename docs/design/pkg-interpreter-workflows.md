@@ -258,10 +258,46 @@ type startShellInstruction struct {
     request shellRequest
 }
 
+// Compatibility instructions for the existing command and legacy APIs.
+type executeCommandInstruction struct {
+    command    session.Command
+    completion submissionCompletion
+}
+
+type startUserShellInstruction struct {
+    raw     string
+    command string
+    program string
+}
+
+type readRosterInstruction struct { raw string }
+type requestCloseInstruction struct{}
+type shutdownSessionInstruction struct{}
+
 type appendRecordInstruction struct { record room.Record }
 type publishEventInstruction struct { event Event }
+type publishSnapshotInstruction struct{}
 type requestSnapshotInstruction struct{}
 ```
+
+The compatibility instructions preserve existing command behavior while issue
+#38 is parked:
+
+- `executeCommandInstruction` executes native and fallback commands whose
+  complete `session.Command` already exists. The fallback use disappears when
+  `ExecuteLegacy` and `SubmitWithFallback` are removed; planning-dependent
+  workflows continue to use `executeSessionInstruction` and `sessionRequest`.
+- `startUserShellInstruction` preserves ordinary user shell execution, which
+  has different submission timing from a workflow-correlated shell request.
+- `readRosterInstruction` keeps session-owned participant inspection outside
+  the model and returns a detached completion.
+- `requestCloseInstruction` stops accepting operations, while
+  `shutdownSessionInstruction` shuts down the session and projects its final
+  causal events. Their separation preserves `/quit` ordering.
+
+These instructions are part of the closed exhaustive vocabulary for as long as
+their public compatibility APIs remain. They are not workflow-specific runner
+hooks.
 
 The runner uses an exhaustive type switch. Instructions never apply themselves
 to `*Interpreter`; that would only relocate coupling. The runner targets narrow
@@ -303,7 +339,22 @@ type shellCompletion struct {
     request shellRequest
     result  shell.Result
 }
+
+type submissionCompletion struct {
+    raw       string
+    operation string
+    err       error
+}
+
+type rosterCompletion struct {
+    raw          string
+    participants []participant.View
+}
 ```
+
+`submissionCompletion` and `rosterCompletion` are compatibility completions
+routed through the same model-owned decision boundary. They contain detached
+data and introduce no callback from the model to the executor.
 
 There are no `any` payloads, callbacks, or workflow-specific runner hooks.
 
@@ -333,6 +384,13 @@ causal chain, not the point where the instruction appears.
 Room records and explicit public events remain ordered instructions. A final
 snapshot does not replace them.
 
+`publishSnapshotInstruction` is the compatibility form for existing commands
+whose public contract places `StateChanged` at a specific point before their
+terminal event. It publishes immediately when reached. New workflow transitions
+use `requestSnapshotInstruction`, which coalesces publication after the causal
+chain settles. Keeping the distinction explicit preserves event ordering while
+the legacy command surface is still supported.
+
 ## Deterministic instruction algorithm
 
 The operation loop applies one causal chain at a time. Instructions returned by a
@@ -359,6 +417,9 @@ run(initialSequence):
         request final snapshot:
             snapshotRequested = true
 
+        publish compatibility snapshot:
+            publish the current composed snapshot immediately
+
         append record:
             model.AppendRecord(record)
 
@@ -382,6 +443,8 @@ run(initialSequence):
 
             eventInstructions = []
             for each causal event in order:
+                if approval boundary rejects the event as stale:
+                    continue
                 eventSequence = model.ApplySessionEvent(event)
                 append eventSequence to eventInstructions
 
@@ -403,6 +466,10 @@ another session command may run. After projection, event-derived instructions
 run in event and sequence order. Only after those instructions settle does the
 runner deliver the command result to its workflow; result-derived instructions
 then run before instructions that originally followed the session request.
+
+The temporary approval boundary filters stale `ApprovalCleared` events before
+`model.ApplySessionEvent`. A rejected clear is neither projected nor routed and
+does not request a snapshot, preserving the pre-decomposition contract.
 
 If an event-derived instruction executes another session request, the runner
 repeats the same capture/project/queue procedure: it projects that nested
@@ -468,18 +535,24 @@ completion operation can append the command record and publish
 operations:
 
 ```go
+func (m *interpreterModel) PreflightSubmission(raw string) instructionSequence
 func (m *interpreterModel) Submit(
     raw string,
     statement promptlang.Statement,
+    fallback session.Command,
 ) instructionSequence
 func (m *interpreterModel) ApplySessionEvent(event session.Event) instructionSequence
 func (m *interpreterModel) ApplyCompletion(completion workflowCompletion) instructionSequence
 ```
 
 These operations are state transitions, not parsers or instruction factories.
-`Submit` applies an already parsed statement, while the `Apply...` operations
-apply external facts to model state. Each returns the instructions caused by
-that transition.
+`PreflightSubmission` preserves model-owned rejection decisions that must occur
+before parsing, including the pending-stage gate. `Submit` applies an already
+parsed statement, while the `Apply...` operations apply external facts to model
+state. Each returns the instructions caused by that transition. The submit
+operation never reads stage or workflow state directly. Unknown-command
+classification is also model-owned: `Submit` returns a `publishEventInstruction`
+for `UnknownCommand` rather than an executor-facing “handled” flag.
 
 The loop workflow is the first consumer. Staged batches are the second. If the
 same request, instruction, and correlation vocabulary cannot represent both without

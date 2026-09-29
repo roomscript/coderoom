@@ -41,7 +41,7 @@ func TestExecuteLegacy_projectsCausalEventsBeforeReturning(t *testing.T) {
 		t.Fatalf("ExecuteLegacy: %v", err)
 	}
 
-	members := interp.room.Snapshot().Members
+	members := interp.model.Snapshot().Members
 	if len(members) != 1 || members[0] != "ada" {
 		t.Fatalf("projected members = %v, want [ada]", members)
 	}

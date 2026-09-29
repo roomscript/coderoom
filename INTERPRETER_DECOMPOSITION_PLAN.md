@@ -186,26 +186,30 @@ API, snapshot, or dispatch path.
 
 ## 1. Extract the model boundary
 
-- [ ] Introduce `interpreterModel` as the owner of the canonical room, command
+- [x] Introduce `interpreterModel` as the owner of the canonical room, command
       registry, and workflows. Session access remains behind an executor-owned
       gateway.
-- [ ] Move submission routing behind `interpreterModel.Submit(raw, statement)`
-      without adding command-specific methods to `Interpreter`.
-- [ ] Move session-event projection and workflow routing behind
+- [x] Move submission routing behind
+      `interpreterModel.Submit(raw, statement, fallback)`
+      without adding command-specific methods to `Interpreter`. Preserve the
+      pre-parse stage gate through `interpreterModel.PreflightSubmission(raw)`;
+      the operation applies returned instructions without inspecting stage
+      state.
+- [x] Move session-event projection and workflow routing behind
       `interpreterModel.ApplySessionEvent`.
-- [ ] Move completion routing behind the model boundary; it returns an
+- [x] Move completion routing behind the model boundary; it returns an
       `instructionSequence` from `interpreterModel.ApplyCompletion` and has no
       executor dependency.
-- [ ] Extract the current causal-chain algorithm into a generic
+- [x] Extract the current causal-chain algorithm into a generic
       `instructionRunner` using narrow model, session, shell, completion,
       publication, and snapshot ports.
-- [ ] Keep `instructionRunner` outside `interpreterModel`; its temporary
+- [x] Keep `instructionRunner` outside `interpreterModel`; its temporary
       facade-level placement is removed when Step 4 makes it executor-owned.
-- [ ] Move snapshot construction behind `interpreterModel` while
+- [x] Move snapshot construction behind `interpreterModel` while
       keeping approval at its documented temporary boundary.
-- [ ] Compose model and approval snapshots only through the documented
+- [x] Compose model and approval snapshots only through the documented
       temporary snapshot adapter.
-- [ ] Keep facade and operation types free of room, registry, and workflow
+- [x] Keep facade and operation types free of room, registry, and workflow
       implementation details.
 
 Stop condition: `Interpreter` no longer owns room, registry, workflows, or

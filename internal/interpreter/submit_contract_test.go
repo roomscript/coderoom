@@ -263,7 +263,7 @@ func TestSubmitContract_appliesCausalEventBeforeNextExecution(t *testing.T) {
 			observer.OnEvent(session.AgentStarted{Alias: "ada"})
 			return
 		}
-		members := interp.room.Snapshot().Members
+		members := interp.model.Snapshot().Members
 		causalStateObserved <- len(members) == 1 && members[0] == "ada"
 	}
 
@@ -308,16 +308,40 @@ func TestSubmitContract_coalescesSessionEventWakeups(t *testing.T) {
 	}
 }
 
+type setStagePendingOperation struct {
+	pending bool
+	done    chan struct{}
+}
+
+func (op setStagePendingOperation) apply(i *Interpreter) {
+	i.model.stagePending = op.pending
+	close(op.done)
+}
+
+type readStagePendingOperation struct{ result chan bool }
+
+func (op readStagePendingOperation) apply(i *Interpreter) {
+	op.result <- i.model.stagePending
+}
+
 func TestSubmitContract_rejectsSubmissionWhileStagePending(t *testing.T) {
 	interp, sess, events := newSubmitContractInterpreter(t)
-	interp.stagePending = true
+	setDone := make(chan struct{})
+	if !interp.enqueue(setStagePendingOperation{pending: true, done: setDone}) {
+		t.Fatal("enqueue stage setup")
+	}
+	receiveSignal(t, setDone, "stage setup")
 
 	mustSubmit(t, interp.SubmitWithFallback("/cancel ada", session.CancelCommand{Alias: "ada"}))
 	rejected := receiveSubmitEvent[InputRejected](t, events)
 	if !errors.Is(rejected.Err, ErrStagePending) {
 		t.Fatalf("rejection = %v, want ErrStagePending", rejected.Err)
 	}
-	if !interp.stagePending {
+	pending := make(chan bool, 1)
+	if !interp.enqueue(readStagePendingOperation{result: pending}) {
+		t.Fatal("enqueue stage inspection")
+	}
+	if !<-pending {
 		t.Fatal("pending stage was modified")
 	}
 	if records := interp.Snapshot().Room.Records; len(records) != 0 {

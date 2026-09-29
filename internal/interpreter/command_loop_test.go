@@ -24,18 +24,18 @@ type sequenceShellRunner struct {
 type causalBurstProbeOperation struct{ done chan struct{} }
 
 func (op causalBurstProbeOperation) apply(i *Interpreter) {
-	i.workflows.loop.active = &loopState{
+	i.model.workflows.loop.active = &loopState{
 		generation: 1,
 		statement:  testLoopStatement(1),
 		body:       promptlang.Shell{Program: "probe"},
 		phase:      loopWaitingForParticipant,
 	}
-	i.applyEffectBatch(effectBatch{effects: []effect{executeSessionEffect{
+	i.runner.Run(instructionSequence{executeSessionInstruction{
 		target: workflowRef{kind: workflowLoop, generation: 99, requestID: 99},
 		request: planAndExecuteSharedSendRequest{
 			alias: "ada", directText: "work", listenersText: "@ada: work",
 		},
-	}}})
+	}})
 	close(op.done)
 }
 
@@ -79,12 +79,12 @@ func TestSubmitContract_loopAlternatesTurnsAndConditionsUntilBound(t *testing.T)
 	receiveSubmitEvent[ShellCompleted](t, events)
 	assertLoopStatus(t, events, "[loop] reached /max 2; condition /tests still failing")
 	receiveSubmitEvent[StateChanged](t, events)
-	if interp.workflows.loop.active != nil {
+	if interp.model.workflows.loop.active != nil {
 		t.Fatal("bounded loop remained active")
 	}
 }
 
-func TestEffectExecutor_projectsCompleteCausalBurstBeforeDerivedEffect(t *testing.T) {
+func TestInstructionRunner_projectsCompleteCausalBurstBeforeDerivedInstruction(t *testing.T) {
 	sess := newSubmitContractSession()
 	sess.execute = func(_ session.Command, observer session.Observer) {
 		observer.OnEvent(session.ParticipantStatusChanged{Alias: "ada", To: participant.StatusIdle})
@@ -93,7 +93,7 @@ func TestEffectExecutor_projectsCompleteCausalBurstBeforeDerivedEffect(t *testin
 	projected := make(chan bool, 1)
 	var interp *Interpreter
 	runner := ShellRunnerFunc(func(context.Context, string, string) shell.Result {
-		projected <- slices.Contains(interp.room.Snapshot().Members, "turing")
+		projected <- slices.Contains(interp.model.Snapshot().Members, "turing")
 		return shell.Result{Status: shell.StatusCancelled}
 	})
 	interp = New(t.Context(), sess, "/workspace", WithShellRunner(runner))
@@ -106,10 +106,10 @@ func TestEffectExecutor_projectsCompleteCausalBurstBeforeDerivedEffect(t *testin
 	select {
 	case visible := <-projected:
 		if !visible {
-			t.Fatal("event-derived effect ran before later event was projected")
+			t.Fatal("event-derived instruction ran before later event was projected")
 		}
 	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for event-derived effect")
+		t.Fatal("timed out waiting for event-derived instruction")
 	}
 	<-done
 }
@@ -136,7 +136,7 @@ func TestSubmitContract_loopStopsWhenParticipantStopsOrCrashes(t *testing.T) {
 			interp.recordSessionEvent(tt.event)
 			assertLoopStatus(t, events, tt.message)
 			receiveSubmitEvent[StateChanged](t, events)
-			if interp.workflows.loop.active != nil {
+			if interp.model.workflows.loop.active != nil {
 				t.Fatal("loop remained active after participant departure")
 			}
 		})
@@ -156,7 +156,7 @@ func TestSubmitContract_loopRetainsTerminalEventDuringDispatch(t *testing.T) {
 	assertLoopStatus(t, events, "[loop] stopped: participant @ada crashed")
 	receiveSubmitEvent[SubmissionSucceeded](t, events)
 	receiveSubmitEvent[StateChanged](t, events)
-	if interp.workflows.loop.active != nil {
+	if interp.model.workflows.loop.active != nil {
 		t.Fatal("loop remained active after dispatch-time crash")
 	}
 }
@@ -192,7 +192,7 @@ func TestSubmitContract_failedLoopDispatchIgnoresSynchronousIdle(t *testing.T) {
 	assertLoopStatus(t, events, "[loop] stopped: participant turn could not start")
 	receiveSubmitEvent[SubmissionSucceeded](t, events)
 	receiveSubmitEvent[StateChanged](t, events)
-	if interp.workflows.loop.active != nil {
+	if interp.model.workflows.loop.active != nil {
 		t.Fatal("loop remained active after failed dispatch")
 	}
 }
@@ -221,7 +221,7 @@ func TestSubmitContract_loopFinishesForSuccessfulOrCancelledCondition(t *testing
 			receiveSubmitEvent[ShellCompleted](t, events)
 			assertLoopStatus(t, events, tt.message)
 			receiveSubmitEvent[StateChanged](t, events)
-			if interp.workflows.loop.active != nil {
+			if interp.model.workflows.loop.active != nil {
 				t.Fatal("completed loop remained active")
 			}
 		})
@@ -250,11 +250,11 @@ func TestLoopWorkflow_consumesDispatchCompletionOnce(t *testing.T) {
 	}}
 
 	first := workflow.handleSessionCompletion(sessionCompletion{target: target})
-	if len(first.effects) == 0 || workflow.active.phase != loopWaitingForParticipant {
+	if len(first) == 0 || workflow.active.phase != loopWaitingForParticipant {
 		t.Fatalf("first completion did not advance dispatch: %#v", first)
 	}
 	second := workflow.handleSessionCompletion(sessionCompletion{target: target})
-	if len(second.effects) != 0 || workflow.active.turns != 1 {
+	if len(second) != 0 || workflow.active.turns != 1 {
 		t.Fatalf("duplicate completion advanced workflow: %#v", second)
 	}
 }
@@ -273,9 +273,9 @@ func TestLoopWorkflow_staleShellCompletionDoesNotAdvanceCurrentGeneration(t *tes
 		result:  shell.Result{Status: shell.StatusSuccess},
 	}
 
-	batch := workflow.handleShellCompletion(stale)
-	if len(batch.effects) != 2 {
-		t.Fatalf("stale completion observation effects = %d, want 2", len(batch.effects))
+	sequence := workflow.handleShellCompletion(stale)
+	if len(sequence) != 2 {
+		t.Fatalf("stale completion observation instructions = %d, want 2", len(sequence))
 	}
 	if workflow.active == nil || workflow.active.pending != current {
 		t.Fatal("stale completion advanced current generation")

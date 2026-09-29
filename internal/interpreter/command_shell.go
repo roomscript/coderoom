@@ -4,9 +4,8 @@ import (
 	"context"
 	"strings"
 
-	"github.com/trigosec/coderoom/internal/agent"
 	"github.com/trigosec/coderoom/internal/promptlang"
-	roomstate "github.com/trigosec/coderoom/internal/room"
+	"github.com/trigosec/coderoom/internal/room"
 	"github.com/trigosec/coderoom/internal/shell"
 )
 
@@ -34,40 +33,47 @@ func WithShellRunner(runner ShellRunner) Option {
 	}
 }
 
-func (i *Interpreter) executeCommandDefinition(raw string, definition promptlang.CommandDefinition) {
-	i.acceptInput(raw)
-	if err := i.commands.Define(definition); err != nil {
-		i.publish(SubmissionFailed{
-			Raw:       raw,
-			Operation: "define /" + definition.Name,
-			Code:      submissionErrorCode(err),
-			Err:       err,
-		})
-		return
-	}
-	i.room.AppendSystemRecord("[defined] /" + definition.Name)
-	i.publish(StateChanged{Snapshot: i.captureSnapshot()})
-	i.publish(SubmissionSucceeded{Raw: raw})
+func (*interpreterModel) submitShell(raw string, statement promptlang.Shell) instructionSequence {
+	return shellSubmissionSequence(raw, statement.Program, statement.Program)
 }
 
-func (i *Interpreter) executeCommandInvocation(raw string, invocation promptlang.CommandInvocation) {
-	body, err := i.commands.Resolve(invocation)
+func (m *interpreterModel) submitCommandDefinition(
+	raw string,
+	definition promptlang.CommandDefinition,
+) instructionSequence {
+	sequence := acceptedInputSequence(raw)
+	if err := m.commands.Define(definition); err != nil {
+		sequence = append(sequence, publishEventInstruction{event: SubmissionFailed{
+			Raw: raw, Operation: "define /" + definition.Name,
+			Code: submissionErrorCode(err), Err: err,
+		}})
+		return sequence
+	}
+	sequence = append(sequence,
+		appendRecordInstruction{record: room.Record{Kind: room.KindSystem, Text: "[defined] /" + definition.Name}},
+		publishSnapshotInstruction{},
+		publishEventInstruction{event: SubmissionSucceeded{Raw: raw}},
+	)
+	return sequence
+}
+
+func (m *interpreterModel) submitCommandInvocation(
+	raw string,
+	invocation promptlang.CommandInvocation,
+) instructionSequence {
+	body, err := m.commands.Resolve(invocation)
 	if err != nil {
-		i.publish(UnknownCommand{Raw: raw, Name: invocation.Name})
-		return
+		return instructionSequence{
+			publishEventInstruction{event: UnknownCommand{Raw: raw, Name: invocation.Name}},
+		}
 	}
-	i.acceptInput(raw)
-	i.startShell(raw, "/"+invocation.Name, body.Program)
+	return shellSubmissionSequence(raw, "/"+invocation.Name, body.Program)
 }
 
-func (i *Interpreter) executeShell(raw, command, program string) {
-	i.acceptInput(raw)
-	i.startShell(raw, command, program)
-}
-
-func (i *Interpreter) acceptInput(raw string) {
-	i.room.AppendUserInputRecord(raw, nil)
-	i.publish(InputAccepted{Raw: raw})
+func shellSubmissionSequence(raw, command, program string) instructionSequence {
+	return append(acceptedInputSequence(raw), startUserShellInstruction{
+		raw: raw, command: command, program: program,
+	})
 }
 
 func (i *Interpreter) startShell(raw, command, program string) {
@@ -81,22 +87,7 @@ func (i *Interpreter) startShell(raw, command, program string) {
 }
 
 func (op shellCompletedOperation) apply(i *Interpreter) {
-	i.room.AppendRecord(roomstate.NewAgentRecord(shellRecordAlias, agent.Message{
-		Mode: agent.ModeSingle,
-		Content: agent.Command{
-			Command:  op.command,
-			Cwd:      i.cwd,
-			Output:   formatShellResult(op.result),
-			ExitCode: op.result.ExitCode,
-		},
-	}))
-	i.publish(ShellCompleted{
-		Command: op.command,
-		Cwd:     i.cwd,
-		Result:  op.result,
-		Output:  formatShellResult(op.result),
-	})
-	i.publish(StateChanged{Snapshot: i.captureSnapshot()})
+	i.runner.Run(i.model.ApplyShellResult(op.command, i.cwd, op.result))
 }
 
 func formatShellResult(result shell.Result) string {

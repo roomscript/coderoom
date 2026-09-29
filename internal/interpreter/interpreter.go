@@ -8,7 +8,6 @@ import (
 	"github.com/trigosec/coderoom/internal/participant"
 	"github.com/trigosec/coderoom/internal/promptlang"
 	"github.com/trigosec/coderoom/internal/queue"
-	"github.com/trigosec/coderoom/internal/room"
 	"github.com/trigosec/coderoom/internal/session"
 	"github.com/trigosec/coderoom/internal/shell"
 )
@@ -44,8 +43,8 @@ func (eventDispatchBarrier) interpreterEvent() {}
 // Interpreter serializes application operations and session dispatch.
 type Interpreter struct {
 	session  SessionController
-	room     *room.Room
-	commands *promptlang.Registry
+	model    *interpreterModel
+	runner   *instructionRunner
 	cwd      string
 	runShell ShellRunner
 	shellWG  sync.WaitGroup
@@ -60,13 +59,11 @@ type Interpreter struct {
 	enqueueMu    sync.Mutex
 	closed       bool
 
-	observerMu   sync.RWMutex
-	observers    []Observer
-	stateMu      sync.RWMutex
-	approval     *Approval
-	stagePending bool
-	workflows    workflowApplication
-	sessionDown  bool
+	observerMu  sync.RWMutex
+	observers   []Observer
+	stateMu     sync.RWMutex
+	approval    *Approval
+	sessionDown bool
 
 	sessionEventMu      sync.Mutex
 	sessionEvents       []session.Event
@@ -81,8 +78,7 @@ func New(ctx context.Context, sess SessionController, cwd string, opts ...Option
 	lifetime, cancel := context.WithCancel(ctx)
 	i := &Interpreter{
 		session:      sess,
-		room:         room.New(),
-		commands:     promptlang.NewRegistry(),
+		model:        newInterpreterModel(),
 		cwd:          cwd,
 		runShell:     ShellRunnerFunc(shell.Run),
 		operations:   queue.New[operation](),
@@ -95,6 +91,7 @@ func New(ctx context.Context, sess SessionController, cwd string, opts ...Option
 	for _, opt := range opts {
 		opt(i)
 	}
+	i.runner = newInstructionRunner(i.model, i)
 	sess.AddObserver(sessionObserver{interpreter: i})
 	go i.run()
 	go i.dispatchEvents()
@@ -236,7 +233,7 @@ func (i *Interpreter) drainSessionEvents(clearPending bool) {
 		if len(events) == 0 {
 			return
 		}
-		i.applyEffectBatch(i.projectSessionEvents(events))
+		i.runner.Run(i.runner.ApplySessionEvents(events))
 	}
 }
 
@@ -249,19 +246,6 @@ func (i *Interpreter) takeSessionEvents(clearPending bool) []session.Event {
 		i.sessionDrainPending = false
 	}
 	return events
-}
-
-func (i *Interpreter) projectSessionEvents(events []session.Event) effectBatch {
-	batch := effectBatch{}
-	for _, event := range events {
-		i.room.ApplyEvent(event)
-		if !i.applyApprovalEvent(event) {
-			continue
-		}
-		batch.append(i.workflows.handleSessionEvent(event))
-		batch.publishSnapshot = true
-	}
-	return batch
 }
 
 func (i *Interpreter) applyApprovalEvent(event session.Event) bool {
@@ -283,12 +267,22 @@ func (op executeLegacyOperation) apply(i *Interpreter) {
 	op.result <- err
 }
 
+func (i *Interpreter) executeCommand(command session.Command) error {
+	// Preserve session error identity and partial-delivery metadata across the
+	// executor boundary; the model owns presentation and error classification.
+	return i.session.Execute(command) //nolint:wrapcheck
+}
+
+func (i *Interpreter) roster() []participant.View {
+	return append([]participant.View(nil), i.session.Roster()...)
+}
+
 func (op snapshotOperation) apply(i *Interpreter) {
 	op.result <- i.captureSnapshot()
 }
 
 func (op resolveCommandOperation) apply(i *Interpreter) {
-	body, err := i.commands.Resolve(op.invocation)
+	body, err := i.model.ResolveCommand(op.invocation)
 	op.result <- resolveCommandResult{body: body, err: err}
 }
 
@@ -297,7 +291,7 @@ func (shutdownOperation) apply(i *Interpreter) {
 	i.cancel()
 	i.shellWG.Wait()
 	i.operations.Close()
-	i.room.Close()
+	i.model.Close()
 	i.flushEvents()
 	i.events.Close()
 	close(i.done)
@@ -322,7 +316,7 @@ func (i *Interpreter) flushEvents() {
 
 func (i *Interpreter) captureSnapshot() Snapshot {
 	snapshot := Snapshot{
-		Room:         i.room.Snapshot(),
+		Room:         i.model.Snapshot(),
 		Participants: append([]participant.View(nil), i.session.Roster()...),
 	}
 	i.stateMu.RLock()

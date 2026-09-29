@@ -1,11 +1,11 @@
 package interpreter
 
-func (i *Interpreter) executeHelp(raw string) {
-	i.room.AppendUserInputRecord(raw, nil)
-	i.publish(InputAccepted{Raw: raw})
-	i.publish(StateChanged{Snapshot: i.captureSnapshot()})
-	i.publish(helpListing())
-	i.publish(SubmissionSucceeded{Raw: raw})
+func (*interpreterModel) submitHelp(raw string) instructionSequence {
+	return append(acceptedInputSequence(raw),
+		publishSnapshotInstruction{},
+		publishEventInstruction{event: helpListing()},
+		publishEventInstruction{event: SubmissionSucceeded{Raw: raw}},
+	)
 }
 
 func helpListing() HelpListed {

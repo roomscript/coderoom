@@ -47,21 +47,21 @@ func (w *loopWorkflow) start(
 	raw string,
 	statement promptlang.Loop,
 	commands *promptlang.Registry,
-) effectBatch {
-	batch := acceptedInputBatch(raw)
+) instructionSequence {
+	sequence := acceptedInputSequence(raw)
 	if w.active != nil {
-		batch.effects = append(batch.effects, publishEventEffect{event: SubmissionFailed{
+		sequence = append(sequence, publishEventInstruction{event: SubmissionFailed{
 			Raw: raw, Operation: "loop", Code: ErrorExecutionFailed, Err: errLoopAlreadyActive,
 		}})
-		return batch
+		return sequence
 	}
 	body, err := commands.Resolve(promptlang.CommandInvocation{Name: statement.Condition})
 	if err != nil {
-		batch.effects = append(batch.effects, publishEventEffect{event: SubmissionFailed{
+		sequence = append(sequence, publishEventInstruction{event: SubmissionFailed{
 			Raw: raw, Operation: "loop condition /" + statement.Condition,
 			Code: ErrorExecutionFailed, Err: err,
 		}})
-		return batch
+		return sequence
 	}
 	w.nextGeneration++
 	w.active = &loopState{
@@ -72,22 +72,22 @@ func (w *loopWorkflow) start(
 		phase:             loopDispatchingParticipant,
 		submissionPending: true,
 	}
-	batch.effects = append(batch.effects, w.dispatchEffect(statement.Prompt))
-	return batch
+	sequence = append(sequence, w.dispatchInstruction(statement.Prompt))
+	return sequence
 }
 
-func acceptedInputBatch(raw string) effectBatch {
-	return effectBatch{effects: []effect{
-		appendRecordEffect{record: room.Record{Kind: room.KindUserInput, Text: raw}},
-		publishEventEffect{event: InputAccepted{Raw: raw}},
-	}}
+func acceptedInputSequence(raw string) instructionSequence {
+	return instructionSequence{
+		appendRecordInstruction{record: room.Record{Kind: room.KindUserInput, Text: raw}},
+		publishEventInstruction{event: InputAccepted{Raw: raw}},
+	}
 }
 
-func (w *loopWorkflow) dispatchEffect(prompt string) executeSessionEffect {
+func (w *loopWorkflow) dispatchInstruction(prompt string) executeSessionInstruction {
 	state := w.active
 	state.phase = loopDispatchingParticipant
 	state.pending = w.nextRef(state.generation)
-	return executeSessionEffect{
+	return executeSessionInstruction{
 		target: state.pending,
 		request: planAndExecuteSharedSendRequest{
 			alias:         state.statement.Participant,
@@ -102,36 +102,36 @@ func (w *loopWorkflow) nextRef(generation uint64) workflowRef {
 	return workflowRef{kind: workflowLoop, generation: generation, requestID: w.nextRequestID}
 }
 
-func (w *loopWorkflow) handleSessionEvent(event session.Event) effectBatch {
+func (w *loopWorkflow) handleSessionEvent(event session.Event) instructionSequence {
 	if w.active == nil {
-		return effectBatch{}
+		return nil
 	}
 	if w.active.phase == loopDispatchingParticipant {
 		w.retainDispatchTerminalEvent(event)
-		return effectBatch{}
+		return nil
 	}
 	if w.active.phase != loopWaitingForParticipant {
-		return effectBatch{}
+		return nil
 	}
 	return w.handleWaitingEvent(event)
 }
 
-func (w *loopWorkflow) handleWaitingEvent(event session.Event) effectBatch {
+func (w *loopWorkflow) handleWaitingEvent(event session.Event) instructionSequence {
 	alias := w.active.statement.Participant
 	switch event := event.(type) {
 	case session.ParticipantStatusChanged:
 		if event.Alias != alias || event.To != participant.StatusIdle {
-			return effectBatch{}
+			return nil
 		}
 		w.active.phase = loopEvaluating
 		w.active.pending = w.nextRef(w.active.generation)
-		return effectBatch{effects: []effect{startShellEffect{
+		return instructionSequence{startShellInstruction{
 			target: w.active.pending,
 			request: shellRequest{
 				command: "/" + w.active.statement.Condition,
 				program: w.active.body.Program,
 			},
-		}}}
+		}}
 	case session.AgentStopped:
 		if event.Alias == alias {
 			return w.finish("[loop] stopped: participant @" + alias + " stopped")
@@ -141,7 +141,7 @@ func (w *loopWorkflow) handleWaitingEvent(event session.Event) effectBatch {
 			return w.finish("[loop] stopped: participant @" + alias + " crashed")
 		}
 	}
-	return effectBatch{}
+	return nil
 }
 
 func (w *loopWorkflow) retainDispatchTerminalEvent(event session.Event) {
@@ -158,9 +158,9 @@ func (w *loopWorkflow) retainDispatchTerminalEvent(event session.Event) {
 	}
 }
 
-func (w *loopWorkflow) handleSessionCompletion(completion sessionCompletion) effectBatch {
+func (w *loopWorkflow) handleSessionCompletion(completion sessionCompletion) instructionSequence {
 	if !w.matches(completion.target, loopDispatchingParticipant) {
-		return effectBatch{}
+		return nil
 	}
 	state := w.active
 	state.pending = workflowRef{}
@@ -175,68 +175,68 @@ func (w *loopWorkflow) handleSessionCompletion(completion sessionCompletion) eff
 	}
 	state.turns++
 	state.phase = loopWaitingForParticipant
-	batch := loopStatusBatch(fmt.Sprintf("[loop] turn %d/%d sent to @%s",
+	sequence := loopStatusSequence(fmt.Sprintf("[loop] turn %d/%d sent to @%s",
 		state.turns, state.statement.MaxTurns, state.statement.Participant))
-	w.appendSubmissionSuccess(&batch)
-	return batch
+	w.appendSubmissionSuccess(&sequence)
+	return sequence
 }
 
-func (w *loopWorkflow) finishDispatch(message string) effectBatch {
-	batch := loopStatusBatch(message)
-	w.appendSubmissionSuccess(&batch)
+func (w *loopWorkflow) finishDispatch(message string) instructionSequence {
+	sequence := loopStatusSequence(message)
+	w.appendSubmissionSuccess(&sequence)
 	w.active = nil
-	return batch
+	return sequence
 }
 
-func (w *loopWorkflow) appendSubmissionSuccess(batch *effectBatch) {
+func (w *loopWorkflow) appendSubmissionSuccess(sequence *instructionSequence) {
 	if w.active == nil || !w.active.submissionPending {
 		return
 	}
 	raw := w.active.raw
 	w.active.submissionPending = false
-	batch.effects = append(batch.effects, publishEventEffect{event: SubmissionSucceeded{Raw: raw}})
+	*sequence = append(*sequence, publishEventInstruction{event: SubmissionSucceeded{Raw: raw}})
 }
 
-func (w *loopWorkflow) handleShellCompletion(completion shellCompletion) effectBatch {
-	batch := shellObservationBatch(completion)
+func (w *loopWorkflow) handleShellCompletion(completion shellCompletion) instructionSequence {
+	sequence := shellObservationSequence(completion)
 	if !w.matches(completion.target, loopEvaluating) {
-		return batch
+		return sequence
 	}
 	state := w.active
 	state.pending = workflowRef{}
 	switch completion.result.Status {
 	case shell.StatusSuccess:
-		batch.append(w.finish("[loop] condition /" + state.statement.Condition + " succeeded"))
+		sequence.append(w.finish("[loop] condition /" + state.statement.Condition + " succeeded"))
 	case shell.StatusCancelled:
-		batch.append(w.finish("[loop] condition /" + state.statement.Condition + " cancelled"))
+		sequence.append(w.finish("[loop] condition /" + state.statement.Condition + " cancelled"))
 	case shell.StatusFailure:
 		if state.turns >= state.statement.MaxTurns {
-			batch.append(w.finish(fmt.Sprintf("[loop] reached /max %d; condition /%s still failing",
+			sequence.append(w.finish(fmt.Sprintf("[loop] reached /max %d; condition /%s still failing",
 				state.statement.MaxTurns, state.statement.Condition)))
 		} else {
 			prompt := formatLoopPrompt(state.statement, completion.result)
-			batch.effects = append(batch.effects, w.dispatchEffect(prompt))
+			sequence = append(sequence, w.dispatchInstruction(prompt))
 		}
 	}
-	batch.publishSnapshot = true
-	return batch
+	sequence = append(sequence, requestSnapshotInstruction{})
+	return sequence
 }
 
-func shellObservationBatch(completion shellCompletion) effectBatch {
+func shellObservationSequence(completion shellCompletion) instructionSequence {
 	output := formatLoopConditionResult(completion.result)
-	return effectBatch{effects: []effect{
-		appendRecordEffect{record: room.NewAgentRecord(shellRecordAlias, agent.Message{
+	return instructionSequence{
+		appendRecordInstruction{record: room.NewAgentRecord(shellRecordAlias, agent.Message{
 			Mode: agent.ModeSingle,
 			Content: agent.Command{
 				Command: completion.request.command, Cwd: completion.cwd,
 				Output: output, ExitCode: completion.result.ExitCode,
 			},
 		})},
-		publishEventEffect{event: ShellCompleted{
+		publishEventInstruction{event: ShellCompleted{
 			Command: completion.request.command, Cwd: completion.cwd,
 			Result: completion.result, Output: output,
 		}},
-	}}
+	}
 }
 
 func (w *loopWorkflow) matches(target workflowRef, phase loopPhase) bool {
@@ -244,16 +244,16 @@ func (w *loopWorkflow) matches(target workflowRef, phase loopPhase) bool {
 		w.active.pending == target && w.active.phase == phase
 }
 
-func (w *loopWorkflow) finish(message string) effectBatch {
+func (w *loopWorkflow) finish(message string) instructionSequence {
 	w.active = nil
-	return loopStatusBatch(message)
+	return loopStatusSequence(message)
 }
 
-func loopStatusBatch(message string) effectBatch {
-	return effectBatch{effects: []effect{
-		appendRecordEffect{record: room.Record{Kind: room.KindSystem, Text: message}},
-		publishEventEffect{event: LoopStatus{Message: message}},
-	}}
+func loopStatusSequence(message string) instructionSequence {
+	return instructionSequence{
+		appendRecordInstruction{record: room.Record{Kind: room.KindSystem, Text: message}},
+		publishEventInstruction{event: LoopStatus{Message: message}},
+	}
 }
 
 func formatLoopPrompt(statement promptlang.Loop, result shell.Result) string {
