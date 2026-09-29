@@ -1,21 +1,20 @@
 # Interpreter workflow architecture
 
-This document defines the target boundary for extracting application workflows
+This document defines the target boundary for extracting interpreter workflows
 without weakening the interpreter's serialized ordering guarantees. It guides
 GitHub issue #53 and the staged-batch migration.
 
 ## Target shape
 
 `Interpreter` remains the public facade and composition root. Its operation
-loop is the single serialized owner of mutable application workflows, but the
-facade does not implement workflow-specific procedures.
+loop is the sole serialized execution context for mutable interpreter
+workflows; `interpreterModel` is their structural owner, and the facade does
+not implement workflow-specific procedures.
 
 ```go
 type Interpreter struct {
-    app        application
-    runtime    interpreterRuntime
-    dispatcher eventDispatcher
-    inbox      sessionEventInbox
+    model    interpreterModel
+    executor interpreterExecutor
 
     // Temporary synchronized boundary until cached snapshots replace reads
     // made after the operation loop has stopped.
@@ -25,36 +24,50 @@ type Interpreter struct {
 
 These names describe responsibility boundaries, not field-grouping wrappers:
 
-- `application` owns the canonical room, command registry, staging, and the
-  loop/stage workflows. It routes inputs to workflows and returns effects.
-- `interpreterRuntime` owns operation serialization, lifetime cancellation,
-  shutdown acceptance, and interpreter-owned asynchronous work.
+- `interpreterModel` owns the canonical room, command registry, and loop/future
+  stage workflows. It routes inputs, owns decisions, and returns instruction
+  sequences. It never runs instructions or calls the executor.
+- `interpreterExecutor` owns operation serialization, lifetime cancellation,
+  shutdown acceptance, interpreter-owned asynchronous work, the generic
+  causal instruction runner, event dispatcher, and session-event inbox.
+- `instructionRunner` is executor-owned and runs instructions through narrow
+  model, session, shell, completion, publication, and snapshot ports. It
+  contains no workflow-specific branches.
 - `eventDispatcher` owns observers, queued delivery, flush barriers, and event
   shutdown.
 - `sessionEventInbox` owns cross-goroutine session-event buffering and its
   coalesced drain wake-up.
 - `approvalSnapshotState` temporarily owns active approval state and its lock.
-  It is deliberately outside loop-confined `application` state because
+  It is deliberately outside loop-confined `interpreterModel` state because
   `Snapshot` may read it after operation-loop shutdown. It moves into
-  `application` only after snapshots are served from an immutable cache.
+  `interpreterModel` only after snapshots are served from an immutable cache.
 
 Only components whose extraction makes an invariant clearer should be split
 out. The first proof is a cohesive loop workflow plus the smallest viable
-effect executor. Runtime, dispatcher, and inbox extraction follows only where
+instruction runner. Executor, dispatcher, and inbox extraction follows only where
 it makes the resulting coordinator simpler.
+
+The dependency direction is executor to model. The model never calls the
+executor. Before immutable cached snapshots exist, one temporary adapter merges
+the model snapshot with the separately synchronized approval snapshot; the
+model does not know about approval synchronization. `Interpreter.Snapshot`
+delegates to a serialized executor operation and never reads the loop-confined
+model directly from the caller's goroutine. The executor preserves the existing
+shutdown-safe read behavior until the immutable cache replaces it.
 
 ## Confinement rule
 
-Application workflows are confined to the interpreter operation loop. They do
+Interpreter workflows are confined to the interpreter operation loop. They do
 not use locks, start goroutines, perform I/O, execute session commands, mutate
 the room, or publish observer events. They own complete decision processes and
-return application effects.
+return interpreter instructions.
 
 The boundary has three acceptance rules:
 
 1. Adding or changing a loop transition does not require adding a loop-specific
    method to `Interpreter`.
-2. `Interpreter` applies effects without knowing which workflow produced them.
+2. The executor-owned runner executes instructions without knowing which workflow
+   produced them.
 3. Workflow components never execute I/O, publish events, start goroutines, or
    synchronize themselves.
 
@@ -82,11 +95,11 @@ type workflowRef struct {
 - `generation` changes whenever a workflow instance is replaced or finished.
 - `requestID` is allocated monotonically by the owning workflow. It is unique
   within that workflow's scope; the `(kind, generation, requestID)` tuple is
-  globally unambiguous to the application. The application does not allocate
+  globally unambiguous to the model. The model does not allocate
   request IDs on a workflow's behalf.
 
 Session planning, session execution, and shell requests carry a `workflowRef`.
-The application routes their typed completions through one data-oriented entry
+The model routes their typed completions through one data-oriented entry
 point. A workflow accepts a completion only when all three fields match its
 current pending request. Otherwise the completion is stale and cannot change
 workflow state.
@@ -95,7 +108,7 @@ workflow state.
 
 Workflows cannot construct every `session.Command`. Some commands require a
 session-owned plan at execution time, and frozen staged dispatches require
-their own planning inputs. Effects therefore carry application-level session
+their own planning inputs. Instructions therefore carry interpreter-level session
 requests rather than partially constructed `session.Command` values.
 
 The initial closed request vocabulary is:
@@ -133,18 +146,23 @@ type cancelRequest struct {
 
 Immediate loop turns use `planAndExecuteSharedSendRequest`, which deliberately
 plans immediately before execution. Staged sends must preserve the routing
-decision made when they were staged, so they use a separate planning effect and
+decision made when they were staged, so they use a separate planning instruction and
 later execute `executePlannedSharedSendRequest` with the opaque, session-bound
 plan returned by the gateway.
 
 ```go
-type planSharedSendEffect struct {
+type planSharedSendInstruction struct {
     target workflowRef
     alias  string
 }
 
-type readParticipantStateEffect struct {
+type readParticipantStateInstruction struct {
     target workflowRef
+}
+
+type readHandoffSourceInstruction struct {
+    target workflowRef
+    alias  string
 }
 
 type sharedSendPlanResult struct {
@@ -165,7 +183,7 @@ type participantStateResult struct {
 ```
 
 Planning and participant inspection are synchronous and serialized but still
-cross the workflow boundary as effects: the workflow does not call the
+cross the workflow boundary as instructions: the workflow does not call the
 session. Their correlated completions freeze the opaque plan, detached target
 aliases, and barrier inputs in staged state. `participantState` deliberately
 omits agents and other live session-owned references.
@@ -199,44 +217,66 @@ command types, but not loops, stages, workflow phases, or reply semantics.
 Planning and inspection occur on the serialized interpreter loop.
 `broadcastRequest`, `handoffRequest`, and `cancelRequest` cover the remaining
 current staged-dispatch and interrupt paths; they do not require a separate
-opaque planning value. The application supplies canonical room-derived values,
-such as a resolved handoff source, as data when invoking a workflow. If Step 7
-exposes another session-owned planning primitive, add a generic planning or
-inspection effect/result pair; do not add stage-specific orchestration to
+opaque planning value. Handoff obtains its canonical room-derived source
+through the correlated read instruction described below. If Step 7 exposes
+another session-owned planning primitive, add a generic planning or inspection
+instruction/result pair; do not add stage-specific orchestration to
 `Interpreter`.
 
-## Closed effect vocabulary
+Handoff source resolution is also a correlated read instruction. After the
+stage workflow observes the matching completed turn, the runner asks
+`modelPort.ReadHandoffSource` for the latest eligible source. This preserves
+the output projection/idle ordering guard without giving either the workflow or
+executor direct room access.
 
-The initial package-private effects are:
+## Closed instruction vocabulary
+
+The initial package-private instructions are:
 
 ```go
-type executeSessionEffect struct {
+type executeSessionInstruction struct {
     target  workflowRef
     request sessionRequest
 }
 
-type planSharedSendEffect struct {
+type planSharedSendInstruction struct {
     target workflowRef
     alias  string
 }
 
-type readParticipantStateEffect struct {
+type readParticipantStateInstruction struct {
     target workflowRef
 }
 
-type startShellEffect struct {
+type readHandoffSourceInstruction struct {
+    target workflowRef
+    alias  string
+}
+
+type startShellInstruction struct {
     target  workflowRef
     request shellRequest
 }
 
-type appendRecordEffect struct { record room.Record }
-type publishEventEffect struct { event Event }
+type appendRecordInstruction struct { record room.Record }
+type publishEventInstruction struct { event Event }
+type requestSnapshotInstruction struct{}
 ```
 
-The executor uses an exhaustive type switch. Effects never apply themselves to
-`*Interpreter`; that would only relocate coupling. The executor targets narrow
-capabilities: the session gateway, shell executor, canonical room, and event
-dispatcher.
+The runner uses an exhaustive type switch. Instructions never apply themselves
+to `*Interpreter`; that would only relocate coupling. The runner targets narrow
+capabilities: `modelPort`, the session gateway, shell executor, and event
+dispatcher. The model port owns canonical-room operations:
+
+- `ApplySessionEvent` updates the room projection and routes the event to
+  workflows.
+- `AppendRecord` mutates the canonical room.
+- `ReadHandoffSource` resolves room-derived data.
+- `Snapshot` reads model state.
+
+The runner controls when these operations occur but never reads or mutates the
+room directly. The session gateway is executor-owned; it is not part of
+`interpreterModel`.
 
 Completions form a closed data-only vocabulary as well:
 
@@ -265,59 +305,65 @@ type shellCompletion struct {
 }
 ```
 
-There are no `any` payloads, callbacks, or workflow-specific executor hooks.
+There are no `any` payloads, callbacks, or workflow-specific runner hooks.
 
-## Effect batches and snapshots
+## Instruction sequences and snapshots
 
-Every application or workflow transition returns an `effectBatch`:
+Every model or workflow transition returns a finite ordered sequence:
 
 ```go
-type effectBatch struct {
-    effects         []effect
-    publishSnapshot bool
-}
+type instruction interface { instruction() }
+type instructionSequence []instruction
 ```
 
-Snapshot publication belongs to the whole causal chain, not one effect.
+There is no batch or transition wrapper. Snapshot publication is requested by
+adding `requestSnapshotInstruction{}` to the sequence. It belongs to the whole
+causal chain, not the point where the instruction appears.
 
-- The executor ORs `publishSnapshot` across the initial batch, causal
-  session-event batches, and result-derived batches.
-- Nested replies inherit the accumulated flag.
-- Empty transitions may request a snapshot with an empty effect list.
+- The runner records whether it encounters a snapshot request in the initial
+  sequence or any causal event- or completion-derived sequence.
+- Nested sequences contribute to the same coalesced request.
+- A transition that otherwise has no work returns a sequence containing only
+  `requestSnapshotInstruction{}`.
 - At most one snapshot is published after the complete synchronous chain has
   settled and all causal session events have been applied.
 - An asynchronous shell completion begins a new causal chain and therefore may
   publish its own final snapshot.
 
-Room records and explicit public events remain ordered effects. A final
+Room records and explicit public events remain ordered instructions. A final
 snapshot does not replace them.
 
-## Deterministic effect algorithm
+## Deterministic instruction algorithm
 
-The operation loop applies one causal chain at a time. Effects returned by a
+The operation loop applies one causal chain at a time. Instructions returned by a
 causal session event are completed before the session-command result is sent
 back to its workflow.
 
-The executor's private work queue contains either an effect item or a typed
-completion-delivery item. Completion delivery is not a workflow effect and is
-never returned by a workflow; it is how the generic executor delays calling
-`application.HandleCompletion` until earlier event-derived effects settle.
+The runner's private work queue contains either an instruction or a typed
+completion-delivery item. Completion delivery is not a workflow instruction
+and is never returned by a workflow; it is how the runner delays calling
+`interpreterModel.ApplyCompletion` until earlier event-derived instructions settle.
 
 ```text
-applyBatch(initial):
-    queue = effect items from initial.effects
-    publishSnapshot |= initial.publishSnapshot
+run(initialSequence):
+    queue = instructions from initialSequence
+    snapshotRequested = false
 
     while queue is not empty:
         item = pop front
 
         deliver completion:
-            resultBatch = application.HandleCompletion(item.completion)
-            queue = effect items from resultBatch.effects + queue
-            publishSnapshot |= resultBatch.publishSnapshot
+            resultSequence = model.ApplyCompletion(item.completion)
+            queue = instructions from resultSequence + queue
 
-        append record / publish event:
-            apply immediately
+        request final snapshot:
+            snapshotRequested = true
+
+        append record:
+            model.AppendRecord(record)
+
+        publish event:
+            dispatcher.Publish(event)
 
         start shell:
             launch and continue; its result is a future operation
@@ -334,64 +380,65 @@ applyBatch(initial):
             translate and execute request
             collect session events queued before the post-execution drain
 
-            eventEffects = []
+            eventInstructions = []
             for each causal event in order:
-                update canonical room projection
-                eventBatch = application.HandleSessionEvent(event)
-                append eventBatch.effects to eventEffects
-                publishSnapshot |= eventBatch.publishSnapshot
+                eventSequence = model.ApplySessionEvent(event)
+                append eventSequence to eventInstructions
 
-            queue = eventEffects
+            queue = eventInstructions
                 + deliver-completion(target, result)
                 + queue
 
     drain any session events queued before the chain boundary
-    if publishSnapshot:
+    if snapshotRequested:
         publish exactly one snapshot
 ```
 
-Every captured event is projected into the room and offered to the application
-before any event-derived effect executes. This preserves the invariant that all
-synchronous events from one session command update application state before
-another session command may run. After projection, event-derived effects run
-in event and batch order. Only after those effects settle does the executor
-deliver the command result to its workflow; result-derived effects then run
-before effects that originally followed the session request.
+`model.ApplySessionEvent` projects each captured event into the room and routes
+it to workflows. The runner invokes it for every event in the captured burst
+before any event-derived instruction executes. This preserves the invariant
+that all
+synchronous events from one session command update model state before
+another session command may run. After projection, event-derived instructions
+run in event and sequence order. Only after those instructions settle does the
+runner deliver the command result to its workflow; result-derived instructions
+then run before instructions that originally followed the session request.
 
-If an event-derived effect executes another session request, the executor
+If an event-derived instruction executes another session request, the runner
 repeats the same capture/project/queue procedure: it projects that nested
-command's complete captured event burst before executing effects derived from
-the burst.
+command's complete captured event burst before executing instructions derived
+from the burst.
 
 External operations retain the existing outer rule: drain previously queued
 session events before applying the operation and again after it completes. A
 drained burst uses the same two-phase rule: project and route every event first,
-then execute the concatenated event-derived effects.
+then run the concatenated event-derived instructions.
 
 ## Progress invariants
 
-Effect execution has no arbitrary count limit. A valid operation may involve
-any number of participants or records, so effect volume is not evidence of a
-cycle.
+Instruction execution has no arbitrary count limit. A valid operation may
+involve any number of participants or records, so instruction volume is not
+evidence of a cycle.
 
 Progress is instead enforced structurally:
 
-- Every planning, session, or shell effect expecting a result registers one
+- Every planning, session, or shell instruction expecting a result registers one
   unique pending `workflowRef` in its workflow generation.
 - A matching completion consumes that pending request exactly once before it
-  may return further effects.
-- Duplicate, unknown, and stale completions return an empty batch.
-- A workflow phase defines which result-producing effects it may issue. For
+  may return further instructions.
+- Duplicate, unknown, and stale completions return an empty sequence.
+- A workflow phase defines which result-producing instructions it may issue. For
   example, a waiting loop cannot issue another participant dispatch until an
   idle event advances it to condition evaluation.
-- The executor uses an iterative queue rather than recursive Go calls, so a
-  large valid batch does not grow the call stack.
-- State-machine tests cover every phase's permitted effects and ensure one
+- The runner uses an iterative queue rather than recursive Go calls, so a
+  large valid sequence does not grow the call stack.
+- State-machine tests cover every phase's permitted instructions and ensure one
   input cannot synchronously re-enter the same phase with another pending
   request.
 
-A non-progressing effect cycle is therefore a workflow programming bug caught
-by phase and correlation tests, not a user-visible “too many effects” outcome.
+A non-progressing instruction cycle is therefore a workflow programming bug
+caught by phase and correlation tests, not a user-visible “too many
+instructions” outcome.
 
 ## Shell execution and stale completions
 
@@ -404,34 +451,39 @@ type shellRequest struct {
 }
 ```
 
-The `startShellEffect.target` supplies correlation. The shell executor starts a
+The `startShellInstruction.target` supplies correlation. The shell executor starts a
 child process and enqueues a completion operation containing the unchanged
 `workflowRef`, request, and result. It never invokes workflow code from the
 shell goroutine.
 
-On the operation loop, `application.HandleCompletion` checks correlation. A
-stale completion returns no workflow-transition effects. Existing observable
+On the operation loop, `interpreterModel.ApplyCompletion` checks correlation. A
+stale completion returns no workflow-transition instructions. Existing observable
 shell-result recording is preserved independently when required: the
 completion operation can append the command record and publish
 `ShellCompleted`, but it cannot advance a newer workflow generation.
 
 ## Workflow composition
 
-`application` owns a small workflow collection and exposes coordinator-level
+`interpreterModel` owns a small workflow collection and exposes coordinator-level
 operations:
 
 ```go
-func (a *application) HandleSubmission(
+func (m *interpreterModel) Submit(
     raw string,
     statement promptlang.Statement,
-) effectBatch
-func (a *application) HandleSessionEvent(event session.Event) effectBatch
-func (a *application) HandleCompletion(completion workflowCompletion) effectBatch
+) instructionSequence
+func (m *interpreterModel) ApplySessionEvent(event session.Event) instructionSequence
+func (m *interpreterModel) ApplyCompletion(completion workflowCompletion) instructionSequence
 ```
 
+These operations are state transitions, not parsers or instruction factories.
+`Submit` applies an already parsed statement, while the `Apply...` operations
+apply external facts to model state. Each returns the instructions caused by
+that transition.
+
 The loop workflow is the first consumer. Staged batches are the second. If the
-same request, effect, and correlation vocabulary cannot represent both without
-workflow-specific cases in `Interpreter`, revise the application-level
+same request, instruction, and correlation vocabulary cannot represent both without
+workflow-specific cases in `Interpreter`, revise the model-level
 vocabulary rather than adding `applyLoop...` or `applyStage...` methods.
 
 ## Worked sequence: loop participant turn
@@ -442,13 +494,13 @@ Input:
 /loop @ada fix tests /until /tests /max 3
 ```
 
-1. `application.HandleSubmission(raw, statement)` validates the condition and
+1. `interpreterModel.Submit(raw, statement)` validates the condition and
    asks the loop workflow to start generation 7. The unchanged `raw` value is
    retained for room records and submission events.
-2. The workflow returns input-record and `InputAccepted` effects followed by:
+2. The workflow returns input-record and `InputAccepted` instructions followed by:
 
    ```text
-   executeSessionEffect{
+   executeSessionInstruction{
        target:  {kind: loop, generation: 7, requestID: 21},
        request: planAndExecuteSharedSendRequest{alias: "ada", ...},
    }
@@ -456,12 +508,12 @@ Input:
 
 3. The session gateway plans and executes the shared send.
 4. Synchronous `ParticipantStatusChanged` and `SharedSend` events update the
-   room and are offered to all workflows. Event-derived effects settle first.
+   room and are offered to all workflows. Event-derived instructions settle first.
 5. The successful result is routed to loop generation 7/request 21.
-6. The loop moves from dispatching to waiting and returns effects for the
+6. The loop moves from dispatching to waiting and returns instructions for the
    `[loop] turn 1/3...` record/event plus `SubmissionSucceeded`.
-7. The chain publishes one final snapshot if any constituent batch requested
-   it.
+7. A `requestSnapshotInstruction` causes one final snapshot after the causal
+   sequence settles.
 
 A stop or crash received during step 4 is retained by the loop workflow and
 reconciled when step 5 arrives. An idle rollback during dispatch does not start
@@ -473,7 +525,7 @@ condition evaluation.
 2. The workflow enters evaluating, allocates request 22, and returns:
 
    ```text
-   startShellEffect{
+   startShellInstruction{
        target:  {kind: loop, generation: 7, requestID: 22},
        request: shellRequest{command: "/tests", program: "go test ./..."},
    }
@@ -481,19 +533,19 @@ condition evaluation.
 
 3. The shell executor runs outside the operation loop and enqueues its result.
 4. The completion operation records/publishes the shell result and routes the
-   correlated completion to the application.
+   correlated completion to the model.
 5. On failure below `/max`, the loop enters dispatching, allocates request 23,
-   and returns another `executeSessionEffect` with the evidence-bearing prompt.
+   and returns another `executeSessionInstruction` with the evidence-bearing prompt.
 6. On success, cancellation, or maximum turns, it clears generation 7 and
-   returns the corresponding loop-status effects.
+   returns the corresponding loop-status instructions.
 
 ## Worked sequence: staged dispatch
 
 1. The stage workflow allocates request 29 and returns
-   `readParticipantStateEffect`. Its completion provides detached barrier and
+   `readParticipantStateInstruction`. Its completion provides detached barrier and
    routable participants used to decide immediate dispatch versus staging.
 2. For a staged direct send, the workflow then allocates request 30 and returns
-   `planSharedSendEffect{target: {stage, 4, 30}, alias: "ada"}`.
+   `planSharedSendInstruction{target: {stage, 4, 30}, alias: "ada"}`.
 3. The correlated planning completion returns an opaque immutable plan and its
    detached targets. The workflow freezes those values with its action, barrier
    aliases, and generation 4. Broadcast and handoff do not need this second
@@ -507,10 +559,10 @@ condition evaluation.
    workflows before the command result is returned.
 7. The correlated result commits delivered aliases or clears/discards the
    stage according to existing partial-delivery rules, returning record/event
-   effects and requesting one final snapshot.
+   instructions including `requestSnapshotInstruction{}`.
 
-The effect executor contains no staging branches. Only the session gateway
-knows which application-level request maps to which session command.
+The instruction runner contains no staging branches. Only the session gateway
+knows which interpreter-level request maps to which session command.
 
 ## Worked sequence: stale shell completion
 
@@ -520,30 +572,30 @@ knows which application-level request maps to which session command.
 4. Completion `{loop, 7, 22}` arrives.
 5. The completion's shell command record and public completion event are
    preserved if required by current behavior.
-6. `application.HandleCompletion` rejects the stale correlation because the
-   active loop is generation 8. It returns no loop-transition effects and does
+6. `interpreterModel.ApplyCompletion` rejects the stale correlation because the
+   active loop is generation 8. It returns no loop-transition instructions and does
    not alter generation 8.
 
 ## Implementation sequence
 
 1. Restore the completed Step 6 implementation.
 2. Review and approve this target design and ordering contract.
-3. Extract runtime infrastructure only where needed for a readable coordinator.
-4. Introduce the minimal request/effect executor and progress-invariant tests.
-5. Move the complete loop decision process behind `loopWorkflow`.
-6. Verify unchanged loop syntax, output, failure behavior, and ordering.
-7. Move staged batches as the second consumer and validate the abstraction.
-8. Revisit approvals and snapshot ownership after immutable cached snapshots
-   have a separate design.
+3. Complete the responsibility decomposition tracked in
+   `INTERPRETER_DECOMPOSITION_PLAN.md`, including executor ownership of the
+   instruction runner, inbox, and dispatcher.
+4. Revisit approvals and snapshot ownership through immutable cached snapshots.
+5. Only after decomposition, resume staged batches as the second workflow
+   consumer and validate the abstraction.
 
 ## Acceptance criteria
 
-- `Interpreter` contains no loop- or stage-specific transition executors.
-- `Interpreter` applies effects without knowing their originating workflow.
+- `Interpreter` contains no loop- or stage-specific instruction handlers.
+- The executor-owned runner executes instructions without knowing their
+  originating workflow.
 - Workflows contain no synchronization, goroutines, I/O, room mutation, or
   observer publication.
 - Session planning and execution remain serialized behind the session gateway.
-- Causal session-event effects settle before command-result workflow replies.
+- Causal session-event instructions settle before command-result workflow replies.
 - Snapshot requests coalesce across one complete causal chain.
 - Stale asynchronous completions cannot advance a newer workflow generation.
 - Pending requests are unique and consumed exactly once; stale, duplicate, and
