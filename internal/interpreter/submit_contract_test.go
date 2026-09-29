@@ -82,7 +82,7 @@ type blockingSubmitContractOperation struct {
 	release chan struct{}
 }
 
-func (op blockingSubmitContractOperation) apply(*Interpreter) {
+func (op blockingSubmitContractOperation) apply(*interpreterExecutor) {
 	close(op.entered)
 	<-op.release
 }
@@ -285,7 +285,7 @@ func TestSubmitContract_coalescesSessionEventWakeups(t *testing.T) {
 	interp, sess, _ := newSubmitContractInterpreter(t)
 	entered := make(chan struct{})
 	release := make(chan struct{})
-	interp.enqueue(blockingSubmitContractOperation{entered: entered, release: release})
+	interp.executor.enqueue(blockingSubmitContractOperation{entered: entered, release: release})
 	receiveSignal(t, entered, "blocking operation")
 
 	sess.mu.Lock()
@@ -299,10 +299,10 @@ func TestSubmitContract_coalescesSessionEventWakeups(t *testing.T) {
 	close(release)
 	receiveSubmitCommand(t, sess.executed)
 
-	interp.sessionInbox.mu.Lock()
-	pending := interp.sessionInbox.drainPending
-	remaining := len(interp.sessionInbox.events)
-	interp.sessionInbox.mu.Unlock()
+	interp.executor.inbox.mu.Lock()
+	pending := interp.executor.inbox.drainPending
+	remaining := len(interp.executor.inbox.events)
+	interp.executor.inbox.mu.Unlock()
 	if pending || remaining != 0 {
 		t.Fatalf("session event inbox: pending=%v remaining=%d", pending, remaining)
 	}
@@ -313,21 +313,21 @@ type setStagePendingOperation struct {
 	done    chan struct{}
 }
 
-func (op setStagePendingOperation) apply(i *Interpreter) {
-	i.model.stagePending = op.pending
+func (op setStagePendingOperation) apply(e *interpreterExecutor) {
+	e.model.(*interpreterModel).stagePending = op.pending
 	close(op.done)
 }
 
 type readStagePendingOperation struct{ result chan bool }
 
-func (op readStagePendingOperation) apply(i *Interpreter) {
-	op.result <- i.model.stagePending
+func (op readStagePendingOperation) apply(e *interpreterExecutor) {
+	op.result <- e.model.(*interpreterModel).stagePending
 }
 
 func TestSubmitContract_rejectsSubmissionWhileStagePending(t *testing.T) {
 	interp, sess, events := newSubmitContractInterpreter(t)
 	setDone := make(chan struct{})
-	if !interp.enqueue(setStagePendingOperation{pending: true, done: setDone}) {
+	if !interp.executor.enqueue(setStagePendingOperation{pending: true, done: setDone}) {
 		t.Fatal("enqueue stage setup")
 	}
 	receiveSignal(t, setDone, "stage setup")
@@ -338,7 +338,7 @@ func TestSubmitContract_rejectsSubmissionWhileStagePending(t *testing.T) {
 		t.Fatalf("rejection = %v, want ErrStagePending", rejected.Err)
 	}
 	pending := make(chan bool, 1)
-	if !interp.enqueue(readStagePendingOperation{result: pending}) {
+	if !interp.executor.enqueue(readStagePendingOperation{result: pending}) {
 		t.Fatal("enqueue stage inspection")
 	}
 	if !<-pending {

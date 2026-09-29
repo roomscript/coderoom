@@ -22,7 +22,9 @@ func (*recordingInstructionModel) AppendRecord(room.Record) {}
 
 func TestInstructionRunner_discardsStaleApprovalClearBeforeModel(t *testing.T) {
 	model := &recordingInstructionModel{}
-	executor := &Interpreter{approval: &Approval{ID: 7}}
+	approval := &approvalSnapshotState{}
+	approval.Set(Approval{ID: 7})
+	executor := &interpreterExecutor{approval: approval}
 	runner := newInstructionRunner(model, executor)
 
 	sequence := runner.ApplySessionEvents([]session.Event{

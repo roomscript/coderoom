@@ -20,8 +20,8 @@ type SessionController interface {
 
 var _ SessionController = (*session.Session)(nil)
 
-type sessionObserver struct{ interpreter *Interpreter }
+type sessionObserver struct{ executor *interpreterExecutor }
 
 func (o sessionObserver) OnEvent(event session.Event) {
-	o.interpreter.recordSessionEvent(event)
+	o.executor.recordSessionEvent(event)
 }

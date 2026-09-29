@@ -19,6 +19,11 @@ type ShellRunner interface {
 // ShellRunnerFunc adapts a function to ShellRunner.
 type ShellRunnerFunc func(context.Context, string, string) shell.Result
 
+type shellCompletedOperation struct {
+	command string
+	result  shell.Result
+}
+
 // Run executes the adapted function.
 func (f ShellRunnerFunc) Run(ctx context.Context, cwd, program string) shell.Result {
 	return f(ctx, cwd, program)
@@ -28,9 +33,13 @@ func (f ShellRunnerFunc) Run(ctx context.Context, cwd, program string) shell.Res
 func WithShellRunner(runner ShellRunner) Option {
 	return func(i *Interpreter) {
 		if runner != nil {
-			i.runShell = runner
+			i.executor.setShellRunner(runner)
 		}
 	}
+}
+
+func (e *interpreterExecutor) setShellRunner(runner ShellRunner) {
+	e.runShell = runner
 }
 
 func (*interpreterModel) submitShell(raw string, statement promptlang.Shell) instructionSequence {
@@ -76,18 +85,18 @@ func shellSubmissionSequence(raw, command, program string) instructionSequence {
 	})
 }
 
-func (i *Interpreter) startShell(raw, command, program string) {
-	i.shellWG.Add(1)
+func (e *interpreterExecutor) startShell(raw, command, program string) {
+	e.shellWG.Add(1)
 	go func() {
-		defer i.shellWG.Done()
-		result := i.runShell.Run(i.lifetime, i.cwd, program)
-		i.enqueue(shellCompletedOperation{command: command, result: result})
+		defer e.shellWG.Done()
+		result := e.runShell.Run(e.lifetime, e.cwd, program)
+		e.enqueue(shellCompletedOperation{command: command, result: result})
 	}()
-	i.publish(SubmissionSucceeded{Raw: raw})
+	e.publish(SubmissionSucceeded{Raw: raw})
 }
 
-func (op shellCompletedOperation) apply(i *Interpreter) {
-	i.runner.Run(i.model.ApplyShellResult(op.command, i.cwd, op.result))
+func (op shellCompletedOperation) apply(e *interpreterExecutor) {
+	e.runner.Run(e.model.ApplyShellResult(op.command, e.cwd, op.result))
 }
 
 func formatShellResult(result shell.Result) string {

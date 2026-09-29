@@ -59,9 +59,9 @@ func TestClose_flushesPublishedEventsThroughObservers(t *testing.T) {
 		delivered: delivered,
 	})
 
-	interp.publish(UnknownCommand{Raw: "/not-defined", Name: "not-defined"})
+	interp.executor.publish(UnknownCommand{Raw: "/not-defined", Name: "not-defined"})
 	receiveSignal(t, entered, "first event delivery")
-	interp.publish(InputRejected{Raw: "/invite", Err: errors.New("invalid input")})
+	interp.executor.publish(InputRejected{Raw: "/invite", Err: errors.New("invalid input")})
 
 	closed := make(chan struct{})
 	go func() {

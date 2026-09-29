@@ -127,12 +127,12 @@ type workflowShellCompletedOperation struct {
 	result  shell.Result
 }
 
-func (op workflowShellCompletedOperation) apply(i *Interpreter) {
-	i.runner.Run(i.model.ApplyCompletion(shellCompletion{
+func (op workflowShellCompletedOperation) apply(e *interpreterExecutor) {
+	e.runner.Run(e.model.ApplyCompletion(shellCompletion{
 		target:  op.target,
 		request: op.request,
 		result:  op.result,
-		cwd:     i.cwd,
+		cwd:     e.cwd,
 	}))
 }
 
@@ -144,11 +144,11 @@ func instructionItems(instructions instructionSequence) []executorItem {
 	return items
 }
 
-func (i *Interpreter) executeSessionRequest(request sessionRequest) error {
+func (e *interpreterExecutor) executeSessionRequest(request sessionRequest) error {
 	switch request := request.(type) {
 	case planAndExecuteSharedSendRequest:
-		err := i.session.Execute(session.SharedSendCommand{
-			Plan:          i.session.PlanSharedSend(request.alias),
+		err := e.session.Execute(session.SharedSendCommand{
+			Plan:          e.session.PlanSharedSend(request.alias),
 			TextDirect:    request.directText,
 			TextListeners: request.listenersText,
 		})
@@ -161,12 +161,12 @@ func (i *Interpreter) executeSessionRequest(request sessionRequest) error {
 	}
 }
 
-func (i *Interpreter) startWorkflowShell(value startShellInstruction) {
-	i.shellWG.Add(1)
+func (e *interpreterExecutor) startWorkflowShell(value startShellInstruction) {
+	e.shellWG.Add(1)
 	go func() {
-		defer i.shellWG.Done()
-		result := i.runShell.Run(i.lifetime, i.cwd, value.request.program)
-		i.enqueue(workflowShellCompletedOperation{
+		defer e.shellWG.Done()
+		result := e.runShell.Run(e.lifetime, e.cwd, value.request.program)
+		e.enqueue(workflowShellCompletedOperation{
 			target: value.target, request: value.request, result: result,
 		})
 	}()

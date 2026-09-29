@@ -247,19 +247,19 @@ independent fields or procedures on `Interpreter`.
 
 ## 4. Extract the executor
 
-- [ ] Introduce `interpreterExecutor` owning the operation queue, lifetime
+- [x] Introduce `interpreterExecutor` owning the operation queue, lifetime
       context, cancellation, close state, accepted-work guarantees, worker
       tracking, inbox, dispatcher, and the existing `instructionRunner`.
-- [ ] Make the run loop read as a coordination algorithm: drain prior events,
+- [x] Make the run loop read as a coordination algorithm: drain prior events,
       apply one operation, drain causal events, and handle shutdown.
-- [ ] Keep operations data-oriented; they may invoke only narrow executor and
+- [x] Keep operations data-oriented; they may invoke only narrow executor and
       model ports. They must not call back through the public `Interpreter`
       facade or grow command- or workflow-specific execution logic.
-- [ ] Preserve serialization between submissions, legacy execution, snapshots,
+- [x] Preserve serialization between submissions, legacy execution, snapshots,
       approvals, shell completions, and shutdown.
-- [ ] Preserve rejection after shutdown and completion of accepted synchronous
+- [x] Preserve rejection after shutdown and completion of accepted synchronous
       requests.
-- [ ] Ensure the executor depends on `modelPort`, while the model has no
+- [x] Ensure the executor depends on `modelPort`, while the model has no
       executor, dispatcher, enqueue, shell, or instruction-runner dependency.
 
 Stop condition: `Interpreter` is primarily construction and public delegation,

@@ -23,14 +23,15 @@ type sequenceShellRunner struct {
 
 type causalBurstProbeOperation struct{ done chan struct{} }
 
-func (op causalBurstProbeOperation) apply(i *Interpreter) {
-	i.model.workflows.loop.active = &loopState{
+func (op causalBurstProbeOperation) apply(e *interpreterExecutor) {
+	model := e.model.(*interpreterModel)
+	model.workflows.loop.active = &loopState{
 		generation: 1,
 		statement:  testLoopStatement(1),
 		body:       promptlang.Shell{Program: "probe"},
 		phase:      loopWaitingForParticipant,
 	}
-	i.runner.Run(instructionSequence{executeSessionInstruction{
+	e.runner.Run(instructionSequence{executeSessionInstruction{
 		target: workflowRef{kind: workflowLoop, generation: 99, requestID: 99},
 		request: planAndExecuteSharedSendRequest{
 			alias: "ada", directText: "work", listenersText: "@ada: work",
@@ -100,7 +101,7 @@ func TestInstructionRunner_projectsCompleteCausalBurstBeforeDerivedInstruction(t
 	t.Cleanup(interp.Close)
 
 	done := make(chan struct{})
-	if !interp.enqueue(causalBurstProbeOperation{done: done}) {
+	if !interp.executor.enqueue(causalBurstProbeOperation{done: done}) {
 		t.Fatal("enqueue causal burst probe")
 	}
 	select {
@@ -133,7 +134,7 @@ func TestSubmitContract_loopStopsWhenParticipantStopsOrCrashes(t *testing.T) {
 			receiveSubmitEvent[LoopStatus](t, events)
 			receiveSubmitEvent[SubmissionSucceeded](t, events)
 
-			interp.recordSessionEvent(tt.event)
+			interp.executor.recordSessionEvent(tt.event)
 			assertLoopStatus(t, events, tt.message)
 			receiveSubmitEvent[StateChanged](t, events)
 			if interp.model.workflows.loop.active != nil {
@@ -302,7 +303,7 @@ func defineLoopCondition(t *testing.T, interp *Interpreter, events <-chan Event)
 
 func completeInterpreterLoopTurn(t *testing.T, interp *Interpreter, events <-chan Event) {
 	t.Helper()
-	interp.recordSessionEvent(session.ParticipantStatusChanged{Alias: "ada", To: participant.StatusIdle})
+	interp.executor.recordSessionEvent(session.ParticipantStatusChanged{Alias: "ada", To: participant.StatusIdle})
 	receiveSubmitEvent[StateChanged](t, events)
 }
 
