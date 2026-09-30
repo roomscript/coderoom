@@ -102,6 +102,21 @@ func (p SharedSendPlan) Targets() []string {
 	return append(targets, p.listenerAliases...)
 }
 
+// DiscardUnavailableListeners returns a copied plan without the named
+// unavailable listeners. It cannot add recipients or remove the addressed
+// participant.
+func (p SharedSendPlan) DiscardUnavailableListeners(aliases []string) SharedSendPlan {
+	if len(aliases) == 0 || len(p.listenerAliases) == 0 {
+		return p
+	}
+	filtered := p
+	filtered.listenerAliases = slices.DeleteFunc(
+		slices.Clone(p.listenerAliases),
+		func(alias string) bool { return slices.Contains(aliases, alias) },
+	)
+	return filtered
+}
+
 func (p SharedSendPlan) validate(s *Session) error {
 	if p.session == nil || p.addressedAlias == "" {
 		return fmt.Errorf("shared send plan is invalid")

@@ -207,9 +207,9 @@ go test ./...
 
 ### 7a. Establish interpreter-owned staged state
 
-- [ ] Move frozen routing plans, barrier aliases, and staged state into the
+- [x] Move frozen routing plans, barrier aliases, and staged state into the
       interpreter.
-- [ ] Route send, broadcast, and handoff into the stage workflow and move
+- [x] Route send, broadcast, and handoff into the stage workflow and move
       their mutable routing and barrier planning inputs with them; dispatch
       translation lands with each action's migration checkpoint.
 - [x] Add a `stageWorkflow` to the interpreter workflow collection without
@@ -219,21 +219,17 @@ go test ./...
 - [x] Preserve the single-stage submission gate and prove that a rejected
       submission cannot parse, mutate the room, or execute a fallback.
 
-Stop condition: the interpreter is the sole owner of the frozen stage and can
-either dispatch an immediately ready submission or publish a pending stage;
-the TUI does not own a second authoritative copy.
-
-Current status: the interpreter path and snapshot representation exist, but
-the production TUI still routes these statements through its legacy stage
-owner. This checkpoint remains open until that routing switches atomically;
-do not treat the two implementations as concurrent authorities.
+Stop condition: the interpreter owns the frozen state for its native submission
+path and can either dispatch an immediately ready submission or publish a
+pending stage. Production TUI authority moves atomically in 7e after the full
+workflow and stage-operation surface exists.
 
 ### 7b. Move lifecycle-driven dispatch
 
-- [ ] Preserve immediate and lifecycle-delayed dispatch.
-- [ ] Advance pending stages from queued participant lifecycle events.
-- [ ] Preserve target departure and partial-delivery behavior.
-- [ ] Freeze routing and barrier membership at submission time so later joins
+- [x] Preserve immediate and lifecycle-delayed dispatch.
+- [x] Advance pending stages from queued participant lifecycle events.
+- [x] Preserve target departure and partial-delivery behavior.
+- [x] Freeze routing and barrier membership at submission time so later joins
       cannot alter a pending stage.
 
 Stop condition: send and broadcast stages dispatch or terminate entirely from
@@ -269,6 +265,8 @@ defined shutdown outcome.
 
 ### 7e. Remove TUI stage ownership
 
+- [ ] Make the interpreter the sole authoritative stage owner in the running
+      application; do not keep a second UI-owned workflow after cutover.
 - [ ] Invoke synchronous stage operations from `tea.Cmd` and return their
       results through Bubble Tea messages.
 - [ ] Render interpreter-owned staged snapshots without calculating readiness

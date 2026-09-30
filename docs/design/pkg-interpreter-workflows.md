@@ -602,20 +602,22 @@ condition evaluation.
 
 ## Worked sequence: staged dispatch
 
-1. The stage workflow allocates request 29 and returns
-   `readParticipantStateInstruction`. Its completion provides detached barrier and
-   routable participants used to decide immediate dispatch versus staging.
-2. For a staged direct send, the workflow then allocates request 30 and returns
-   `planSharedSendInstruction{target: {stage, 4, 30}, alias: "ada"}`.
-3. The correlated planning completion returns an opaque immutable plan and its
-   detached targets. The workflow freezes those values with its action, barrier
-   aliases, and generation 4. Broadcast and handoff do not need this second
-   planning round trip.
+1. The stage workflow allocates request 29 and returns a typed planning
+   instruction: `planSharedSendInstruction` for an addressed send,
+   `planBroadcastInstruction` for a broadcast, or participant inspection for a
+   handoff.
+2. A send or broadcast planning completion freezes its detached targets. The
+   workflow then allocates request 30 and returns
+   `readParticipantStateInstruction` to obtain detached barrier state.
+3. The workflow filters send and broadcast barriers to the frozen routing
+   aliases and stores those values with its action and generation 4. Handoff
+   retains the complete barrier snapshot.
 4. Lifecycle events update the frozen barrier. Once dispatchable, the workflow
    allocates request 31 and returns `executePlannedSharedSendRequest`,
    `broadcastRequest`, or `handoffRequest` with target `{stage, 4, 31}`.
 5. The session gateway translates and executes the request. A planned shared
-   send uses the exact plan frozen in step 3 and cannot gain later listeners.
+   send uses the plan frozen in step 3 after removing listeners that departed
+   while staged; it cannot gain later or same-alias replacement listeners.
 6. Causal departure, delivery, handoff, and status events update the room and
    workflows before the command result is returned.
 7. The correlated result commits delivered aliases or clears/discards the

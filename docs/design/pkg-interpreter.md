@@ -713,10 +713,10 @@ migration checkpoint. Coverage must include:
 - a package dependency check that rejects UI or Bubble Tea imports
 
 The interpreter now covers frozen stage planning, pending snapshots, immediate
-send/broadcast dispatch, and the pending-stage submission gate. Lifecycle-delayed
-dispatch, target departure, partial delivery, handoff selection and ordering,
-stage actions, races, and shutdown scenarios move here in the remaining
-checkpoints. The TUI still selects its legacy stage path until the ownership
+and lifecycle-delayed send/broadcast dispatch, target departure, partial
+delivery, and the pending-stage submission gate. Handoff selection and
+ordering, stage actions, races, and shutdown scenarios move here in the
+remaining checkpoints. The TUI still selects its legacy stage path until the ownership
 cutover; therefore the interpreter workflow is not yet authoritative in the
 interactive application.
 

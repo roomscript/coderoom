@@ -28,7 +28,8 @@ func (w *workflowCollection) submit(
 }
 
 func (w *workflowCollection) applySessionEvent(event session.Event) instructionSequence {
-	return w.loop.handleSessionEvent(event)
+	sequence := w.loop.handleSessionEvent(event)
+	return append(sequence, w.stage.handleSessionEvent(event)...)
 }
 
 func (w *workflowCollection) applyCompletion(completion workflowCompletion) instructionSequence {

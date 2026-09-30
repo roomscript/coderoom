@@ -12,19 +12,30 @@ import (
 )
 
 var errNoStageTargets = errors.New("no participants available for staged submission")
+var errStageTargetUnavailable = errors.New("staged submission target unavailable")
 
 type stageState struct {
-	generation  uint64
-	raw         string
-	statement   promptlang.Statement
-	pending     workflowRef
-	plan        session.SharedSendPlan
-	broadcast   []string
-	routing     []string
-	barrier     []participantState
-	blocking    []string
-	unavailable []string
+	generation        uint64
+	raw               string
+	statement         promptlang.Statement
+	pending           workflowRef
+	plan              session.SharedSendPlan
+	routing           []string
+	barrier           []participantState
+	blocking          []string
+	unavailable       []string
+	phase             stagePhase
+	dispatchRouting   []string
+	submissionPending bool
 }
+
+type stagePhase uint8
+
+const (
+	stagePlanning stagePhase = iota
+	stageWaiting
+	stageDispatching
+)
 
 type stageWorkflow struct {
 	active         *stageState
@@ -37,9 +48,11 @@ func (w *stageWorkflow) pending() bool { return w.active != nil }
 func (w *stageWorkflow) start(raw string, statement promptlang.Statement) instructionSequence {
 	w.nextGeneration++
 	w.active = &stageState{
-		generation: w.nextGeneration,
-		raw:        raw,
-		statement:  statement,
+		generation:        w.nextGeneration,
+		raw:               raw,
+		statement:         statement,
+		phase:             stagePlanning,
+		submissionPending: true,
 	}
 	ref := w.nextRef()
 	w.active.pending = ref
@@ -71,7 +84,6 @@ func (w *stageWorkflow) handleBroadcastPlan(result broadcastPlanResult) instruct
 	if !w.matches(result.target) {
 		return nil
 	}
-	w.active.broadcast = slices.Clone(result.targets)
 	w.active.routing = slices.Clone(result.targets)
 	ref := w.nextRef()
 	w.active.pending = ref
@@ -108,9 +120,22 @@ func (w *stageWorkflow) handleParticipantState(result participantStateResult) in
 			Err: errNoStageTargets,
 		}})
 	}
+	if w.mustDiscard() {
+		err := errNoStageTargets
+		if send, ok := state.statement.(promptlang.Send); ok {
+			err = fmt.Errorf("%w: %s", errStageTargetUnavailable, send.Alias)
+		}
+		raw := state.raw
+		w.active = nil
+		return append(sequence, publishEventInstruction{event: SubmissionFailed{
+			Raw: raw, Operation: "staged dispatch", Code: ErrorExecutionFailed, Err: err,
+		}})
+	}
 	if w.readyToDispatch() {
 		return append(sequence, w.dispatchInstruction())
 	}
+	state.phase = stageWaiting
+	state.submissionPending = false
 	sequence = append(sequence,
 		requestSnapshotInstruction{},
 		publishEventInstruction{event: SubmissionSucceeded{Raw: state.raw}},
@@ -120,7 +145,7 @@ func (w *stageWorkflow) handleParticipantState(result participantStateResult) in
 
 func (w *stageWorkflow) readyToDispatch() bool {
 	if w.active == nil || len(w.active.routing) == 0 ||
-		len(w.active.blocking) != 0 || len(w.active.unavailable) != 0 {
+		len(w.active.blocking) != 0 {
 		return false
 	}
 	_, handoff := w.active.statement.(promptlang.Handoff)
@@ -129,17 +154,20 @@ func (w *stageWorkflow) readyToDispatch() bool {
 
 func (w *stageWorkflow) dispatchInstruction() executeSessionInstruction {
 	state := w.active
+	state.phase = stageDispatching
 	ref := w.nextRef()
 	state.pending = ref
 	var request sessionRequest
 	switch statement := state.statement.(type) {
 	case promptlang.Send:
+		state.dispatchRouting = activeAliases(state.routing, state.unavailable)
 		request = executePlannedSharedSendRequest{
-			plan: state.plan, directText: statement.Text,
+			plan: state.plan.DiscardUnavailableListeners(state.unavailable), directText: statement.Text,
 			listenersText: fmt.Sprintf("@%s: %s", statement.Alias, statement.Text),
 		}
 	case promptlang.Broadcast:
-		request = broadcastRequest{aliases: slices.Clone(state.broadcast), text: statement.Text}
+		state.dispatchRouting = activeAliases(state.routing, state.unavailable)
+		request = broadcastRequest{aliases: slices.Clone(state.dispatchRouting), text: statement.Text}
 	default:
 		panic(fmt.Sprintf("unsupported immediate stage dispatch %T", state.statement))
 	}
@@ -150,15 +178,109 @@ func (w *stageWorkflow) handleSessionCompletion(completion sessionCompletion) in
 	if !w.matches(completion.target) {
 		return nil
 	}
-	raw := w.active.raw
+	state := w.active
 	w.active = nil
 	sequence := instructionSequence{requestSnapshotInstruction{}}
+	delivered := slices.Clone(state.dispatchRouting)
 	if completion.err != nil {
-		return append(sequence, publishEventInstruction{event: SubmissionFailed{
-			Raw: raw, Operation: "staged dispatch", Code: ErrorExecutionFailed, Err: completion.err,
+		delivered = session.DeliveredAliases(completion.err)
+	}
+	if len(delivered) != 0 {
+		sequence = append(sequence, appendRecordInstruction{record: room.Record{
+			Kind: room.KindUserInput, Text: state.raw, Routing: slices.Clone(delivered),
 		}})
 	}
-	return append(sequence, publishEventInstruction{event: SubmissionSucceeded{Raw: raw}})
+	if completion.err != nil {
+		if !state.submissionPending {
+			return append(sequence, publishEventInstruction{event: OperationFailed{
+				Operation: "staged dispatch", Err: completion.err,
+			}})
+		}
+		return append(sequence, publishEventInstruction{event: SubmissionFailed{
+			Raw: state.raw, Operation: "staged dispatch",
+			Code: ErrorExecutionFailed, Err: completion.err,
+		}})
+	}
+	if state.submissionPending {
+		sequence = append(sequence, publishEventInstruction{event: SubmissionSucceeded{Raw: state.raw}})
+	}
+	return sequence
+}
+
+func (w *stageWorkflow) handleSessionEvent(event session.Event) instructionSequence {
+	if w.active == nil || w.active.phase != stageWaiting {
+		return nil
+	}
+	if _, handoff := w.active.statement.(promptlang.Handoff); handoff {
+		return nil
+	}
+	switch event := event.(type) {
+	case session.ParticipantStatusChanged:
+		w.updateBarrierStatus(event.Alias, event.To)
+	case session.AgentStarted:
+		w.updateBarrierStatus(event.Alias, participant.StatusIdle)
+	case session.AgentStopped:
+		w.markUnavailable(event.Alias)
+	case session.AgentCrashed:
+		w.markUnavailable(event.Alias)
+	default:
+		return nil
+	}
+	return w.advanceWaitingStage()
+}
+
+func (w *stageWorkflow) updateBarrierStatus(alias string, status participant.Status) {
+	if slices.Contains(w.active.unavailable, alias) {
+		return
+	}
+	for index := range w.active.barrier {
+		if w.active.barrier[index].alias == alias {
+			w.active.barrier[index].status = status
+			return
+		}
+	}
+}
+
+func (w *stageWorkflow) markUnavailable(alias string) {
+	if !containsParticipant(w.active.barrier, alias) || slices.Contains(w.active.unavailable, alias) {
+		return
+	}
+	w.active.unavailable = append(w.active.unavailable, alias)
+	slices.Sort(w.active.unavailable)
+}
+
+func (w *stageWorkflow) advanceWaitingStage() instructionSequence {
+	state := w.active
+	state.blocking = blockedAliases(state.barrier, state.unavailable)
+	if w.mustDiscard() {
+		return w.discardUnavailableStage()
+	}
+	if len(state.blocking) != 0 {
+		return instructionSequence{requestSnapshotInstruction{}}
+	}
+	return instructionSequence{w.dispatchInstruction(), requestSnapshotInstruction{}}
+}
+
+func (w *stageWorkflow) mustDiscard() bool {
+	state := w.active
+	if send, ok := state.statement.(promptlang.Send); ok {
+		return slices.Contains(state.unavailable, send.Alias)
+	}
+	_, broadcast := state.statement.(promptlang.Broadcast)
+	return broadcast && len(activeAliases(state.routing, state.unavailable)) == 0
+}
+
+func (w *stageWorkflow) discardUnavailableStage() instructionSequence {
+	state := w.active
+	message := "staged submission discarded: no active targets"
+	if send, ok := state.statement.(promptlang.Send); ok {
+		message = fmt.Sprintf("staged submission discarded: %q is no longer available", send.Alias)
+	}
+	w.active = nil
+	return instructionSequence{
+		appendRecordInstruction{record: room.Record{Kind: room.KindSystem, Text: message}},
+		requestSnapshotInstruction{},
+	}
 }
 
 func (w *stageWorkflow) snapshot() *StagedSubmission {
@@ -183,9 +305,6 @@ func (w *stageWorkflow) nextRef() workflowRef {
 
 func acceptedStageInputSequence(raw string, routing []string) instructionSequence {
 	return instructionSequence{
-		appendRecordInstruction{record: room.Record{
-			Kind: room.KindUserInput, Text: raw, Routing: slices.Clone(routing),
-		}},
 		publishEventInstruction{event: InputAccepted{Raw: raw, Routing: slices.Clone(routing)}},
 	}
 }
@@ -211,12 +330,8 @@ func freezeStageBarrier(state *stageState, participants []participantState) []pa
 
 func stageReadiness(barrier []participantState, routing []string) ([]string, []string) {
 	byAlias := make(map[string]participant.Status, len(barrier))
-	var blocking []string
 	for _, value := range barrier {
 		byAlias[value.alias] = value.status
-		if value.status != participant.StatusIdle {
-			blocking = append(blocking, value.alias)
-		}
 	}
 	var unavailable []string
 	for _, alias := range routing {
@@ -225,9 +340,35 @@ func stageReadiness(barrier []participantState, routing []string) ([]string, []s
 			unavailable = append(unavailable, alias)
 		}
 	}
-	slices.Sort(blocking)
 	slices.Sort(unavailable)
-	return blocking, unavailable
+	return blockedAliases(barrier, unavailable), unavailable
+}
+
+func blockedAliases(barrier []participantState, unavailable []string) []string {
+	var blocked []string
+	for _, value := range barrier {
+		if value.status != participant.StatusIdle && !slices.Contains(unavailable, value.alias) {
+			blocked = append(blocked, value.alias)
+		}
+	}
+	slices.Sort(blocked)
+	return blocked
+}
+
+func activeAliases(routing, unavailable []string) []string {
+	active := make([]string, 0, len(routing))
+	for _, alias := range routing {
+		if !slices.Contains(unavailable, alias) {
+			active = append(active, alias)
+		}
+	}
+	return active
+}
+
+func containsParticipant(participants []participantState, alias string) bool {
+	return slices.ContainsFunc(participants, func(value participantState) bool {
+		return value.alias == alias
+	})
 }
 
 func handoffRouting(statement promptlang.Handoff) []string {

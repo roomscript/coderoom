@@ -1080,6 +1080,55 @@ func TestSharedSendPlanReportsListenerRemovedBeforeExecution(t *testing.T) {
 	}
 }
 
+func TestSharedSendPlanDiscardUnavailableListenersExcludesSameAliasRejoin(t *testing.T) {
+	obs := newTestObserver()
+	ada := newMockAgent()
+	firstBob := newMockAgent()
+	rejoinedBob := newMockAgent()
+	bobInvites := 0
+	s := newSession(t, session.WithObserver(obs), session.WithAgentFactory(
+		func(_ *session.Session, cfg roomconfig.ParticipantConfig, _ session.AgentBackend) agent.Agent {
+			if cfg.Alias == "ada" {
+				return ada
+			}
+			bobInvites++
+			if bobInvites == 1 {
+				return firstBob
+			}
+			return rejoinedBob
+		},
+	))
+	t.Cleanup(func() {
+		_ = s.Execute(session.RemoveCommand{Alias: "ada"})
+		_ = s.Execute(session.RemoveCommand{Alias: "bob"})
+	})
+
+	for _, alias := range []string{"ada", "bob"} {
+		invite(t, s, alias)
+		mustReceive[session.AgentStarted](t, obs.ch)
+	}
+	enableSendNotices(t, s)
+	plan := s.PlanSharedSend("ada")
+	if err := s.Execute(session.RemoveCommand{Alias: "bob"}); err != nil {
+		t.Fatalf("remove bob: %v", err)
+	}
+	mustReceive[session.AgentStopped](t, obs.ch)
+	invite(t, s, "bob")
+	mustReceive[session.AgentStarted](t, obs.ch)
+
+	if err := s.Execute(session.SharedSendCommand{
+		Plan:       plan.DiscardUnavailableListeners([]string{"bob"}),
+		TextDirect: "do it", TextListeners: "notice",
+	}); err != nil {
+		t.Fatalf("SharedSendCommand: %v", err)
+	}
+	rejoinedBob.mu.Lock()
+	defer rejoinedBob.mu.Unlock()
+	if len(rejoinedBob.sends) != 0 {
+		t.Fatalf("rejoined listener received frozen send: %v", rejoinedBob.sends)
+	}
+}
+
 func TestSharedSend_noticeMarksListenerWorkingUntilFlush(t *testing.T) {
 	obs := newTestObserver()
 	ada := newMockAgent()

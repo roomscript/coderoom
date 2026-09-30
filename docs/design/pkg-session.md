@@ -90,6 +90,7 @@ type SharedSendPlan struct {
 
 func (s *Session) PlanSharedSend(alias string) SharedSendPlan
 func (p SharedSendPlan) Targets() []string
+func (p SharedSendPlan) DiscardUnavailableListeners(aliases []string) SharedSendPlan
 
 type EnablePolicyCommand struct {
     Name policy.Name
