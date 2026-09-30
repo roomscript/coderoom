@@ -2,6 +2,7 @@ package interpreter
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/trigosec/coderoom/internal/participant"
 	"github.com/trigosec/coderoom/internal/room"
@@ -11,7 +12,10 @@ import (
 
 type workflowKind uint8
 
-const workflowLoop workflowKind = iota + 1
+const (
+	workflowLoop workflowKind = iota + 1
+	workflowStage
+)
 
 type workflowRef struct {
 	kind       workflowKind
@@ -43,6 +47,12 @@ type startUserShellInstruction struct {
 }
 
 type readRosterInstruction struct{ raw string }
+type planSharedSendInstruction struct {
+	target workflowRef
+	alias  string
+}
+type planBroadcastInstruction struct{ target workflowRef }
+type readParticipantStateInstruction struct{ target workflowRef }
 type publishSnapshotInstruction struct{}
 type requestSnapshotInstruction struct{}
 type requestCloseInstruction struct{}
@@ -51,17 +61,20 @@ type shutdownSessionInstruction struct{}
 type appendRecordInstruction struct{ record room.Record }
 type publishEventInstruction struct{ event Event }
 
-func (executeSessionInstruction) instruction()  {}
-func (startShellInstruction) instruction()      {}
-func (executeCommandInstruction) instruction()  {}
-func (startUserShellInstruction) instruction()  {}
-func (readRosterInstruction) instruction()      {}
-func (publishSnapshotInstruction) instruction() {}
-func (requestSnapshotInstruction) instruction() {}
-func (requestCloseInstruction) instruction()    {}
-func (shutdownSessionInstruction) instruction() {}
-func (appendRecordInstruction) instruction()    {}
-func (publishEventInstruction) instruction()    {}
+func (executeSessionInstruction) instruction()       {}
+func (startShellInstruction) instruction()           {}
+func (executeCommandInstruction) instruction()       {}
+func (startUserShellInstruction) instruction()       {}
+func (readRosterInstruction) instruction()           {}
+func (planSharedSendInstruction) instruction()       {}
+func (planBroadcastInstruction) instruction()        {}
+func (readParticipantStateInstruction) instruction() {}
+func (publishSnapshotInstruction) instruction()      {}
+func (requestSnapshotInstruction) instruction()      {}
+func (requestCloseInstruction) instruction()         {}
+func (shutdownSessionInstruction) instruction()      {}
+func (appendRecordInstruction) instruction()         {}
+func (publishEventInstruction) instruction()         {}
 
 type instructionSequence []instruction
 
@@ -77,7 +90,20 @@ type planAndExecuteSharedSendRequest struct {
 	listenersText string
 }
 
+type executePlannedSharedSendRequest struct {
+	plan          session.SharedSendPlan
+	directText    string
+	listenersText string
+}
+
+type broadcastRequest struct {
+	aliases []string
+	text    string
+}
+
 func (planAndExecuteSharedSendRequest) sessionRequest() {}
+func (executePlannedSharedSendRequest) sessionRequest() {}
+func (broadcastRequest) sessionRequest()                {}
 
 type shellRequest struct {
 	command string
@@ -109,10 +135,35 @@ type rosterCompletion struct {
 	participants []participant.View
 }
 
-func (sessionCompletion) workflowCompletion()    {}
-func (shellCompletion) workflowCompletion()      {}
-func (submissionCompletion) workflowCompletion() {}
-func (rosterCompletion) workflowCompletion()     {}
+type sharedSendPlanResult struct {
+	target  workflowRef
+	plan    session.SharedSendPlan
+	targets []string
+}
+
+type broadcastPlanResult struct {
+	target  workflowRef
+	targets []string
+}
+
+type participantState struct {
+	alias  string
+	status participant.Status
+	turnID uint64
+}
+
+type participantStateResult struct {
+	target  workflowRef
+	barrier []participantState
+}
+
+func (sessionCompletion) workflowCompletion()      {}
+func (shellCompletion) workflowCompletion()        {}
+func (submissionCompletion) workflowCompletion()   {}
+func (rosterCompletion) workflowCompletion()       {}
+func (sharedSendPlanResult) workflowCompletion()   {}
+func (broadcastPlanResult) workflowCompletion()    {}
+func (participantStateResult) workflowCompletion() {}
 
 type executorItem interface{ executorItem() }
 type instructionItem struct{ instruction instruction }
@@ -154,6 +205,23 @@ func (e *interpreterExecutor) executeSessionRequest(request sessionRequest) erro
 		})
 		if err != nil {
 			return fmt.Errorf("execute shared send: %w", err)
+		}
+		return nil
+	case executePlannedSharedSendRequest:
+		err := e.session.Execute(session.SharedSendCommand{
+			Plan:          request.plan,
+			TextDirect:    request.directText,
+			TextListeners: request.listenersText,
+		})
+		if err != nil {
+			return fmt.Errorf("execute planned shared send: %w", err)
+		}
+		return nil
+	case broadcastRequest:
+		if err := e.session.Execute(session.BroadcastCommand{
+			Aliases: slices.Clone(request.aliases), Text: request.text,
+		}); err != nil {
+			return fmt.Errorf("execute broadcast: %w", err)
 		}
 		return nil
 	default:

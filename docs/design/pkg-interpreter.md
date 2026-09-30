@@ -32,8 +32,8 @@ The interpreter owns:
 - translation of statements into session commands
 - shell-definition invocation and shell-process lifetime
 - bounded-loop state and coordination
-- future barrier-batch state, readiness transitions, and
-  interrupt-and-dispatch once the parked migration resumes
+- staged-submission planning, frozen routing, and pending state; lifecycle
+  transitions and interrupt-and-dispatch land in later migration checkpoints
 - the canonical `room.Room` projection used during execution
 - serialized calls to `session.Execute`
 - application-level events and snapshots consumed by front ends
@@ -108,9 +108,9 @@ caller has moved to `Submit`,
 `SubmitWithFallback`, or a dedicated interpreter operation.
 
 Fallback construction must not query mutable session or room state outside the
-interpreter loop. Workflows that require such planning, including barrier
-staging and handoff source selection, continue planning in their existing TUI
-workflow and use synchronous `ExecuteLegacy` until they migrate as a unit.
+interpreter loop. Workflows that still require unmigrated planning, including
+handoff source selection, continue in their existing TUI workflow and use
+synchronous `ExecuteLegacy` until they migrate as a unit.
 Session validation remains authoritative. The temporary UI dependency on
 `internal/session` is limited to constructing command values; it never calls
 `session.Execute` directly.
@@ -118,13 +118,14 @@ Session validation remains authoritative. The temporary UI dependency on
 Dedicated methods are reserved for structured interactions that are not prompt
 language: resolving an approval, reading a snapshot, and shutdown. Future
 staged-submission editing, discard, and interrupt-and-dispatch operations will
-also use dedicated methods when that parked migration resumes. The boundary
+also use dedicated methods in later migration checkpoints. The boundary
 invariant is that front ends express intent to the interpreter and do not
 receive the underlying `*session.Session`.
 
 `Snapshot` contains the application state needed for presentation, including
-the canonical room snapshot and participant roster. It contains values, not
-live session or room objects. The roster uses `participant.View`, the safe
+the canonical room snapshot, participant roster, and optional detached
+`StagedSubmission`. It contains values, not live session or room objects. The
+roster uses `participant.View`, the safe
 observable portion embedded in the live `participant.Participant`. This keeps
 participant fields and domain types canonical while preventing front ends from
 receiving agent capabilities or runtime bookkeeping.
@@ -162,7 +163,6 @@ type SessionController interface {
     PlanSharedSend(alias string) session.SharedSendPlan
     Roster() []participant.View
     Participant(alias string) (participant.Participant, bool)
-    RoutableParticipants() []participant.Participant
     BarrierParticipants() []participant.Participant
     Shutdown()
 }
@@ -192,17 +192,17 @@ The distinction between facade operations is semantic:
 | User chooses an approval option | `ResolveApproval(...)` | Structured response to an active request |
 | User reads observable state | `Snapshot()` | Returns a detached current or post-shutdown cached view |
 
-The following operations belong to the parked staged-batch migration and are
+The following operations belong to the staged-submission migration and are
 not yet part of the implemented facade:
 
 | Future intent | Planned entry point | Reason |
 |---|---|---|
 | User returns a staged message to editing | `TakeStageForEdit()` | Atomically removes and returns its raw draft |
 | User abandons a staged message | `DiscardStage()` | Removes it without dispatch |
-| User requests interrupt-and-send | `InterruptAndDispatchStage()` | Acts on the staged batch's frozen barrier |
+| User requests interrupt-and-send | `InterruptAndDispatchStage()` | Acts on the staged submission's frozen barrier |
 
 `InterruptAndDispatchStage` is not an alias for `/cancel`: it derives the
-blocking participants from the staged batch, requests their cancellation
+blocking participants from the staged submission, requests their cancellation
 through the serialized execution loop, and waits for lifecycle events before
 dispatch. Its `true` result means the workflow was initiated, not that dispatch
 has completed. `TakeStageForEdit` atomically removes and returns the raw draft
@@ -407,7 +407,7 @@ not introduce an extra asynchronous planning window.
 errors and unknown commands become interpreter events; they are not rendered
 inside the interpreter.
 
-Before parsing, both `Submit` and `SubmitWithFallback` check staged-batch state
+Before parsing, both `Submit` and `SubmitWithFallback` check staged-submission state
 on the interpreter loop. If a stage exists, the submission is rejected with
 `InputRejected{Raw: raw, Err: ErrStagePending}`. This preserves the current
 single-stage policy:
@@ -544,9 +544,9 @@ For each session event it:
 This explicit order prevents the UI from racing two independently paced
 session observers and removes the need for UI-side observer draining.
 
-## Planned barrier batches (parked)
+## Staged submissions
 
-When issue #38 resumes, the interpreter will own the pending barrier-batch
+The interpreter workflow is becoming the owner of the pending staged-submission
 state machine for user-authored
 `Send`, `Broadcast`, and `Handoff` statements. Composer staging is its UI
 representation, not its source of truth.
@@ -556,7 +556,7 @@ the required participants are ready, it dispatches immediately. Otherwise it
 stores the pending execution and publishes its state. Relevant session events
 then advance it:
 
-- idle or started participants may make the batch dispatchable
+- idle or started participants may make the submission dispatchable
 - stopped or crashed targets are marked unavailable
 - a handoff waits for the source output event as well as the terminal idle
   transition, preserving the existing ordering guard
@@ -571,16 +571,16 @@ to session events independently.
 Representative state supplied to front ends is structured:
 
 ```go
-type StagedBatch struct {
+type StagedSubmission struct {
     Raw        string
     Routing    []string
     Blocking   []string
     Unavailable []string
-    Phase      BatchPhase
+    Phase      StagePhase
 }
 ```
 
-There is at most one composer-originated staged batch, matching current
+There is at most one composer-originated staged submission, matching current
 behavior. Interpreter-owned command composition may later schedule independent
 child executions; it must not reuse this single composer slot.
 
@@ -636,7 +636,7 @@ overlays remains in the UI.
 
 ## Planned handoff source resolution
 
-For the parked staged-batch migration, the latest eligible handoff source is
+For the staged-submission migration, the latest eligible handoff source is
 application state derived from completed
 room-visible agent output. The interpreter resolves it from its own canonical
 room immediately before dispatch:
@@ -699,8 +699,8 @@ shutdown path.
 
 Interpreter tests use fakes at its session and shell boundaries and preserve
 the existing definition, shell, and loop scenarios moved from `internal/ui`.
-Barrier-batch scenarios remain in the UI until the parked migration resumes.
-Coverage must include:
+Lifecycle-driven staged-submission scenarios remain in the UI until their
+migration checkpoint. Coverage must include:
 
 - unchanged parsing and command behavior
 - typed observation of acceptance, rejection, shell, and loop results
@@ -712,10 +712,13 @@ Coverage must include:
 - model-owned approval transitions without workflow synchronization
 - a package dependency check that rejects UI or Bubble Tea imports
 
-When staged batches migrate, their immediate and lifecycle-delayed dispatch,
-target departure, partial delivery, handoff selection and ordering, stage
-actions, races, and shutdown scenarios move into this package as the second
-workflow consumer.
+The interpreter now covers frozen stage planning, pending snapshots, immediate
+send/broadcast dispatch, and the pending-stage submission gate. Lifecycle-delayed
+dispatch, target departure, partial delivery, handoff selection and ordering,
+stage actions, races, and shutdown scenarios move here in the remaining
+checkpoints. The TUI still selects its legacy stage path until the ownership
+cutover; therefore the interpreter workflow is not yet authoritative in the
+interactive application.
 
 ### `Submit` contract tests
 

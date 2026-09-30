@@ -16,6 +16,8 @@ type submitContractSession struct {
 	mu         sync.Mutex
 	observer   session.Observer
 	roster     []participant.View
+	barrier    []participant.Participant
+	routable   []participant.Participant
 	executed   chan session.Command
 	executeErr error
 	execute    func(session.Command, session.Observer)
@@ -69,9 +71,13 @@ func (*submitContractSession) Participant(string) (participant.Participant, bool
 	return participant.Participant{}, false
 }
 
-func (*submitContractSession) RoutableParticipants() []participant.Participant { return nil }
-func (*submitContractSession) BarrierParticipants() []participant.Participant  { return nil }
-func (s *submitContractSession) Shutdown()                                     { s.shutdowns.Add(1) }
+func (s *submitContractSession) RoutableParticipants() []participant.Participant {
+	return append([]participant.Participant(nil), s.routable...)
+}
+func (s *submitContractSession) BarrierParticipants() []participant.Participant {
+	return append([]participant.Participant(nil), s.barrier...)
+}
+func (s *submitContractSession) Shutdown() { s.shutdowns.Add(1) }
 
 type submitContractObserver struct{ events chan Event }
 
@@ -314,14 +320,19 @@ type setStagePendingOperation struct {
 }
 
 func (op setStagePendingOperation) apply(e *interpreterExecutor) {
-	e.model.(*interpreterModel).stagePending = op.pending
+	stage := &e.model.(*interpreterModel).workflows.stage
+	if op.pending {
+		stage.active = &stageState{generation: 1, raw: "pending"}
+	} else {
+		stage.active = nil
+	}
 	close(op.done)
 }
 
 type readStagePendingOperation struct{ result chan bool }
 
 func (op readStagePendingOperation) apply(e *interpreterExecutor) {
-	op.result <- e.model.(*interpreterModel).stagePending
+	op.result <- e.model.(*interpreterModel).workflows.stage.pending()
 }
 
 func TestSubmitContract_rejectsSubmissionWhileStagePending(t *testing.T) {

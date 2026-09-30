@@ -13,7 +13,6 @@ type SessionController interface {
 	PlanSharedSend(alias string) session.SharedSendPlan
 	Roster() []participant.View
 	Participant(alias string) (participant.Participant, bool)
-	RoutableParticipants() []participant.Participant
 	BarrierParticipants() []participant.Participant
 	Shutdown()
 }

@@ -12,7 +12,7 @@ import (
 var (
 	// ErrClosed reports that the interpreter can no longer accept operations.
 	ErrClosed = errors.New("interpreter closed")
-	// ErrStagePending rejects new input while a staged batch awaits a stage action.
+	// ErrStagePending rejects new input while a staged submission awaits a stage action.
 	ErrStagePending = errors.New("submission blocked by pending stage")
 )
 
@@ -63,6 +63,24 @@ type Snapshot struct {
 	Room         roomstate.Snapshot
 	Participants []participant.View
 	Approval     *Approval
+	Stage        *StagedSubmission
+}
+
+// StagePhase describes the externally observable state of a staged submission.
+type StagePhase string
+
+const (
+	// StagePhasePending means the submission is waiting for its frozen barrier.
+	StagePhasePending StagePhase = "pending"
+)
+
+// StagedSubmission is the detached presentation state of one pending composer submission.
+type StagedSubmission struct {
+	Raw         string
+	Routing     []string
+	Blocking    []string
+	Unavailable []string
+	Phase       StagePhase
 }
 
 // Event is an application event emitted by the interpreter.

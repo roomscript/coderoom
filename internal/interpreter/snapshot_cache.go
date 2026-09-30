@@ -33,7 +33,19 @@ func cloneSnapshot(source Snapshot) Snapshot {
 		Room:         cloneRoomSnapshot(source.Room),
 		Participants: append([]participant.View(nil), source.Participants...),
 		Approval:     cloneApproval(source.Approval),
+		Stage:        cloneStagedSubmission(source.Stage),
 	}
+}
+
+func cloneStagedSubmission(source *StagedSubmission) *StagedSubmission {
+	if source == nil {
+		return nil
+	}
+	clone := *source
+	clone.Routing = append([]string(nil), source.Routing...)
+	clone.Blocking = append([]string(nil), source.Blocking...)
+	clone.Unavailable = append([]string(nil), source.Unavailable...)
+	return &clone
 }
 
 func cloneRoomSnapshot(source room.Snapshot) room.Snapshot {

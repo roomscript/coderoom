@@ -14,20 +14,20 @@ import (
 // interpreterModel owns mutable interpreter state and deterministic decisions.
 // It is confined to the serialized interpreter operation loop.
 type interpreterModel struct {
-	room         *room.Room
-	commands     *promptlang.Registry
-	workflows    workflowCollection
-	approval     *Approval
-	stagePending bool
+	room      *room.Room
+	commands  *promptlang.Registry
+	workflows workflowCollection
+	approval  *Approval
 }
 
 type modelSnapshot struct {
 	room     room.Snapshot
 	approval *Approval
+	stage    *StagedSubmission
 }
 
 func (m *interpreterModel) PreflightSubmission(raw string) instructionSequence {
-	if !m.stagePending {
+	if !m.workflows.stage.pending() {
 		return nil
 	}
 	return instructionSequence{publishEventInstruction{event: InputRejected{
@@ -205,6 +205,7 @@ func (m *interpreterModel) Snapshot() modelSnapshot {
 	return modelSnapshot{
 		room:     m.room.Snapshot(),
 		approval: cloneApproval(m.approval),
+		stage:    m.workflows.stage.snapshot(),
 	}
 }
 

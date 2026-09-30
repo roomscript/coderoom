@@ -709,6 +709,39 @@ func TestBroadcast_emitsAndSendsToAllAgents(t *testing.T) {
 	}
 }
 
+func TestBroadcastCommand_excludesParticipantsOutsideFrozenAliases(t *testing.T) {
+	obs := newTestObserver()
+	ada := newMockAgent()
+	turing := newMockAgent()
+	s := newSession(t, session.WithObserver(obs), mappedFactory(map[string]agent.Agent{
+		"ada": ada, "turing": turing,
+	}))
+	t.Cleanup(func() {
+		_ = s.Execute(session.RemoveCommand{Alias: "ada"})
+		_ = s.Execute(session.RemoveCommand{Alias: "turing"})
+	})
+
+	invite(t, s, "ada")
+	mustReceive[session.AgentStarted](t, obs.ch)
+	invite(t, s, "turing")
+	mustReceive[session.AgentStarted](t, obs.ch)
+
+	if err := s.Execute(session.BroadcastCommand{Aliases: []string{"ada"}, Text: "hello"}); err != nil {
+		t.Fatalf("BroadcastCommand: %v", err)
+	}
+	mustReceive[session.Broadcast](t, obs.ch)
+
+	ada.mu.Lock()
+	adaSends := slices.Clone(ada.sends)
+	ada.mu.Unlock()
+	turing.mu.Lock()
+	turingSends := slices.Clone(turing.sends)
+	turing.mu.Unlock()
+	if !slices.Equal(adaSends, []string{"hello"}) || len(turingSends) != 0 {
+		t.Fatalf("sends: ada=%v turing=%v", adaSends, turingSends)
+	}
+}
+
 func TestBroadcast_sendError_doesNotMarkWorking(t *testing.T) {
 	obs := newTestObserver()
 	a1 := newMockAgent()

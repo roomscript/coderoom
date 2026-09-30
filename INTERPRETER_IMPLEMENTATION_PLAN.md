@@ -203,25 +203,30 @@ go test -race ./internal/interpreter
 go test ./...
 ```
 
-## 7. Move staged barrier batches
+## 7. Move staged submissions
 
 ### 7a. Establish interpreter-owned staged state
 
 - [ ] Move frozen routing plans, barrier aliases, and staged state into the
       interpreter.
-- [ ] Move send, broadcast, and handoff translation with their mutable
-      planning/staging workflows; until then they use `ExecuteLegacy` rather
-      than precomputed asynchronous fallbacks.
-- [ ] Add a `stageWorkflow` to the interpreter workflow collection without
+- [ ] Route send, broadcast, and handoff into the stage workflow and move
+      their mutable routing and barrier planning inputs with them; dispatch
+      translation lands with each action's migration checkpoint.
+- [x] Add a `stageWorkflow` to the interpreter workflow collection without
       adding stage-specific orchestration to the facade or executor.
-- [ ] Publish immutable staged state for presentation while keeping composer
+- [x] Publish immutable staged state for presentation while keeping composer
       and terminal rendering state in the TUI.
-- [ ] Preserve the single-stage submission gate and prove that a rejected
+- [x] Preserve the single-stage submission gate and prove that a rejected
       submission cannot parse, mutate the room, or execute a fallback.
 
 Stop condition: the interpreter is the sole owner of the frozen stage and can
 either dispatch an immediately ready submission or publish a pending stage;
 the TUI does not own a second authoritative copy.
+
+Current status: the interpreter path and snapshot representation exist, but
+the production TUI still routes these statements through its legacy stage
+owner. This checkpoint remains open until that routing switches atomically;
+do not treat the two implementations as concurrent authorities.
 
 ### 7b. Move lifecycle-driven dispatch
 

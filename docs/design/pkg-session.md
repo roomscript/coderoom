@@ -65,10 +65,12 @@ type RemoveCommand struct {
     Alias string
 }
 
-// BroadcastCommand sends a message to the shared room and to all agents.
-// A broadcast is explicitly addressed to all agents (it is a real `Send` to each).
+// BroadcastCommand sends a message to the shared room and to its recipients.
+// Aliases freezes staged routing. A nil value preserves the legacy behavior of
+// selecting all routable participants at execution time.
 type BroadcastCommand struct {
-    Text string
+    Aliases []string
+    Text    string
 }
 
 // SharedSendCommand sends a message to one agent in the shared room.
@@ -298,7 +300,7 @@ when it exits), then calls `agent.Stop`.
 
 | Command | Routing |
 |---|---|
-| `BroadcastCommand` | Emits `Broadcast`; sends text to all agents regardless of initiative |
+| `BroadcastCommand` | Emits `Broadcast`; sends text to the frozen `Aliases`, or to all currently routable participants when `Aliases` is nil for legacy callers |
 | `SharedSendCommand` | Executes a session-created `SharedSendPlan`: sends `TextDirect` to its addressed participant and `TextListeners` to its frozen listeners; emits one `SharedSend` event and one `SharedNotice` event per delivered listener |
 | `EnablePolicyCommand` | Idempotently enables a room-local runtime policy; unknown policies fail |
 | `PrivateSendCommand` | Sends text to the addressed agent only; no shared room event; no other agents notified |

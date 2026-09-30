@@ -2,6 +2,7 @@ package interpreter
 
 import (
 	"context"
+	"slices"
 	"sync"
 
 	"github.com/trigosec/coderoom/internal/agent"
@@ -248,6 +249,35 @@ func (e *interpreterExecutor) roster() []participant.View {
 	return append([]participant.View(nil), e.session.Roster()...)
 }
 
+func (e *interpreterExecutor) planSharedSend(alias string) (session.SharedSendPlan, []string) {
+	plan := e.session.PlanSharedSend(alias)
+	return plan, plan.Targets()
+}
+
+func (e *interpreterExecutor) planBroadcast() []string {
+	participants := e.session.BarrierParticipants()
+	targets := make([]string, len(participants))
+	for index, value := range participants {
+		targets[index] = value.Alias
+	}
+	slices.Sort(targets)
+	return targets
+}
+
+func (e *interpreterExecutor) participantState() []participantState {
+	return participantStates(e.session.BarrierParticipants())
+}
+
+func participantStates(participants []participant.Participant) []participantState {
+	states := make([]participantState, len(participants))
+	for index, value := range participants {
+		states[index] = participantState{
+			alias: value.Alias, status: value.Status, turnID: value.TurnID(),
+		}
+	}
+	return states
+}
+
 func (op snapshotOperation) apply(e *interpreterExecutor) {
 	op.result <- e.refreshSnapshot()
 }
@@ -282,6 +312,7 @@ func (e *interpreterExecutor) refreshSnapshot() Snapshot {
 		Room:         model.room,
 		Participants: append([]participant.View(nil), e.session.Roster()...),
 		Approval:     model.approval,
+		Stage:        model.stage,
 	}
 	e.snapshots.Store(snapshot)
 	return cloneSnapshot(snapshot)

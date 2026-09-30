@@ -205,11 +205,11 @@ The TUI owns:
 - Bubble Tea model, update, and view
 - Interpreter-observer channel and `awaitEvent` wiring
 - Rendering room state as styled text
-- Presentation of interpreter-owned staged batches, plus compose editing,
+- Presentation of interpreter-owned staged submissions, plus compose editing,
   focus, scrolling, and shortcuts
 
 The interpreter owns parsing coordination, one command registry for the room,
-shell lifetime, bounded-loop and barrier-batch state, session dispatch, and the
+shell lifetime, bounded-loop and staged-submission state, session dispatch, and the
 live canonical room projection. The TUI never reads session internals directly.
 
 More specifically:

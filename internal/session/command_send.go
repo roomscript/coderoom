@@ -10,16 +10,29 @@ import (
 	"github.com/trigosec/coderoom/internal/policy"
 )
 
-// BroadcastCommand sends a message to all agents.
+// BroadcastCommand sends a message to its frozen recipients. When Aliases is
+// nil, execution selects all currently routable participants for legacy callers.
 type BroadcastCommand struct {
-	Text string
+	Aliases []string
+	Text    string
 }
 
 func (c BroadcastCommand) execute(s *Session) error {
-	s.notify(Broadcast(c))
+	aliases := c.Aliases
+	if aliases == nil {
+		for _, value := range s.RoutableParticipants() {
+			aliases = append(aliases, value.Alias)
+		}
+	}
+	s.notify(Broadcast{Text: c.Text})
 	var errs []error
 	var delivered []string
-	for _, p := range s.RoutableParticipants() {
+	for _, alias := range aliases {
+		p, ok := s.Participant(alias)
+		if !ok {
+			errs = append(errs, fmt.Errorf("broadcast to %q: %w", alias, errParticipantNotFound))
+			continue
+		}
 		err := s.prepareParticipantForWork(p.Alias)
 		if err != nil {
 			if !errors.Is(err, errParticipantNotFound) {

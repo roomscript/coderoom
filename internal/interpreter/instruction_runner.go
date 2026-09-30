@@ -14,6 +14,9 @@ type instructionExecutorPort interface {
 	startShell(string, string, string)
 	executeSessionRequest(sessionRequest) error
 	executeCommand(session.Command) error
+	planSharedSend(string) (session.SharedSendPlan, []string)
+	planBroadcast() []string
+	participantState() []participantState
 	roster() []participant.View
 	takeSessionEvents() []session.Event
 	refreshSnapshot() Snapshot
@@ -103,6 +106,21 @@ func (r *instructionRunner) applyExecutionInstruction(value instruction) ([]exec
 	case readRosterInstruction:
 		return []executorItem{completionItem{completion: rosterCompletion{
 			raw: value.raw, participants: r.executor.roster(),
+		}}}, false, true
+	case planSharedSendInstruction:
+		plan, targets := r.executor.planSharedSend(value.alias)
+		return []executorItem{completionItem{completion: sharedSendPlanResult{
+			target: value.target, plan: plan, targets: targets,
+		}}}, false, true
+	case planBroadcastInstruction:
+		targets := r.executor.planBroadcast()
+		return []executorItem{completionItem{completion: broadcastPlanResult{
+			target: value.target, targets: targets,
+		}}}, false, true
+	case readParticipantStateInstruction:
+		barrier := r.executor.participantState()
+		return []executorItem{completionItem{completion: participantStateResult{
+			target: value.target, barrier: barrier,
 		}}}, false, true
 	default:
 		return nil, false, false

@@ -2,7 +2,7 @@
 
 This document defines the target boundary for extracting interpreter workflows
 without weakening the interpreter's serialized ordering guarantees. It guides
-GitHub issue #53 and the staged-batch migration.
+GitHub issue #53 and the staged-submission migration.
 
 ## Target shape
 
@@ -20,7 +20,7 @@ type Interpreter struct {
 
 These names describe responsibility boundaries, not field-grouping wrappers:
 
-- `interpreterModel` owns the canonical room, command registry, and loop/future
+- `interpreterModel` owns the canonical room, command registry, and loop and
   stage workflows. It routes inputs, owns decisions, and returns instruction
   sequences. It never runs instructions or calls the executor.
 - `interpreterExecutor` owns operation serialization, lifetime cancellation,
@@ -119,16 +119,7 @@ type planAndExecuteSharedSendRequest struct {
     directText    string
     listenersText string
 }
-```
 
-Immediate loop turns use `planAndExecuteSharedSendRequest`, which deliberately
-plans immediately before execution.
-
-The parked staged-batch migration is expected to extend that vocabulary with
-the following requests and correlated planning inputs; these types are design,
-not current implementation:
-
-```go
 type executePlannedSharedSendRequest struct {
     plan          session.SharedSendPlan
     directText    string
@@ -136,9 +127,18 @@ type executePlannedSharedSendRequest struct {
 }
 
 type broadcastRequest struct {
-    text string
+    aliases []string
+    text    string
 }
+```
 
+Immediate loop turns use `planAndExecuteSharedSendRequest`, which deliberately
+plans immediately before execution.
+
+The remaining staged-submission migration extends that vocabulary with handoff and
+cancel requests:
+
+```go
 type handoffRequest struct {
     fromAlias   string
     toAlias     string
@@ -211,16 +211,14 @@ func (g sessionGateway) Execute(request sessionRequest) error {
 }
 ```
 
-The gateway knows session planning and command types, but not loop phases or
-reply semantics. Planning occurs on the serialized interpreter loop. When the
-staged migration resumes, the gateway gains detached participant inspection
-and the planned request cases without learning stage phases.
-`broadcastRequest`, `handoffRequest`, and `cancelRequest` will cover the
-remaining staged-dispatch and interrupt paths; they do not require a separate
-opaque planning value. Handoff will obtain its canonical room-derived source
-through the correlated read instruction described below. If Step 7 exposes
-another session-owned planning primitive, add a generic planning or inspection
-instruction/result pair; do not add stage-specific orchestration to
+The gateway knows session planning and command types, but not loop or stage
+phases or reply semantics. Planning and detached participant inspection occur
+on the serialized interpreter loop. `handoffRequest` and `cancelRequest` will
+cover the remaining staged-dispatch and interrupt paths; they do not require a
+separate opaque planning value. Handoff will obtain its canonical room-derived
+source through the correlated read instruction described below. If Step 7
+exposes another session-owned planning primitive, add a generic planning or
+inspection instruction/result pair; do not add stage-specific orchestration to
 `Interpreter`.
 
 The planned handoff source resolution is also a correlated read instruction.
@@ -257,6 +255,12 @@ type startUserShellInstruction struct {
 }
 
 type readRosterInstruction struct { raw string }
+type planSharedSendInstruction struct {
+    target workflowRef
+    alias  string
+}
+type planBroadcastInstruction struct { target workflowRef }
+type readParticipantStateInstruction struct { target workflowRef }
 type requestCloseInstruction struct{}
 type shutdownSessionInstruction struct{}
 
@@ -266,12 +270,15 @@ type publishSnapshotInstruction struct{}
 type requestSnapshotInstruction struct{}
 ```
 
-The planned `planSharedSendInstruction`, `readParticipantStateInstruction`,
-and `readHandoffSourceInstruction` belong to the parked staged-batch migration;
-they are not part of the current runner vocabulary.
+`planSharedSendInstruction`, `planBroadcastInstruction`, and
+`readParticipantStateInstruction` provide the implemented frozen-stage inputs.
+The planned `readHandoffSourceInstruction` joins the vocabulary with handoff
+dispatch. Shared sends carry their policy-aware frozen plan; broadcasts carry
+their frozen alias list directly. Participants joining after planning cannot
+become recipients.
 
-The compatibility instructions preserve existing command behavior while issue
-#38 is parked:
+The compatibility instructions preserve existing command behavior during the
+incremental issue #38 migration:
 
 - `executeCommandInstruction` executes native and fallback commands whose
   complete `session.Command` already exists. The fallback use disappears when
@@ -638,7 +645,7 @@ knows which interpreter-level request maps to which session command.
    executor ownership of the instruction runner, inbox, and dispatcher.
 4. Keep approvals loop-confined and serve external reads through the immutable
    snapshot cache.
-5. Only after decomposition, resume staged batches as the second workflow
+5. Only after decomposition, resume staged submissions as the second workflow
    consumer and validate the abstraction.
 
 ## Acceptance criteria
@@ -654,6 +661,6 @@ knows which interpreter-level request maps to which session command.
 - Stale asynchronous completions cannot advance a newer workflow generation.
 - Pending requests are unique and consumed exactly once; stale, duplicate, and
   phase-invalid completions cannot advance a workflow.
-- Loop and staged-batch behavior, output, and ordering remain unchanged except
+- Loop and staged-submission behavior, output, and ordering remain unchanged except
   for separately documented intentional behavior.
 - Race tests, lint, and the full repository test suite pass.
