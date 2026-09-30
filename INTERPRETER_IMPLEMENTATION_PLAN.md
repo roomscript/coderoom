@@ -4,8 +4,7 @@ This file tracks the incremental implementation of GitHub issue #38. It is
 temporary and must be deleted in the final boundary-enforcement commit.
 
 Implementation was parked after Step 6 while issue #53 established the model
-and executor boundaries. That decomposition is complete; Step 7 may resume
-after its final review and commit.
+and executor boundaries. That decomposition is complete and Step 7 is active.
 
 Each step should leave the repository working and independently reviewable.
 Run `go test ./...` before completing every step unless a narrower command is
@@ -206,14 +205,49 @@ go test ./...
 
 ## 7. Move staged barrier batches
 
+### 7a. Establish interpreter-owned staged state
+
 - [ ] Move frozen routing plans, barrier aliases, and staged state into the
       interpreter.
 - [ ] Move send, broadcast, and handoff translation with their mutable
       planning/staging workflows; until then they use `ExecuteLegacy` rather
       than precomputed asynchronous fallbacks.
+- [ ] Add a `stageWorkflow` to the interpreter workflow collection without
+      adding stage-specific orchestration to the facade or executor.
+- [ ] Publish immutable staged state for presentation while keeping composer
+      and terminal rendering state in the TUI.
+- [ ] Preserve the single-stage submission gate and prove that a rejected
+      submission cannot parse, mutate the room, or execute a fallback.
+
+Stop condition: the interpreter is the sole owner of the frozen stage and can
+either dispatch an immediately ready submission or publish a pending stage;
+the TUI does not own a second authoritative copy.
+
+### 7b. Move lifecycle-driven dispatch
+
 - [ ] Preserve immediate and lifecycle-delayed dispatch.
-- [ ] Preserve target departure, partial delivery, and handoff output/idle
-      ordering.
+- [ ] Advance pending stages from queued participant lifecycle events.
+- [ ] Preserve target departure and partial-delivery behavior.
+- [ ] Freeze routing and barrier membership at submission time so later joins
+      cannot alter a pending stage.
+
+Stop condition: send and broadcast stages dispatch or terminate entirely from
+interpreter-owned state and queued events, with equivalent interpreter tests
+covering the migrated UI scenarios.
+
+### 7c. Preserve handoff ordering
+
+- [ ] Resolve handoff sources from the interpreter-owned canonical room only
+      immediately before dispatch.
+- [ ] Preserve handoff output/idle ordering and latest-source-turn readiness.
+- [ ] Preserve source or target departure, unrelated participant events, and
+      late-joiner behavior.
+
+Stop condition: handoff staging no longer depends on TUI-projected turn state
+or room callbacks, and its audit source matches the canonical room snapshot.
+
+### 7d. Add atomic stage operations
+
 - [ ] Implement `TakeStageForEdit() (string, bool)`.
 - [ ] Implement `DiscardStage() bool`.
 - [ ] Implement `InterruptAndDispatchStage() bool`.
@@ -223,6 +257,24 @@ go test ./...
       completion.
 - [ ] Add auto-dispatch/edit/discard races, duplicate interrupt, and shutdown
       tests.
+
+Stop condition: edit, discard, and interrupt requests act on whichever stage
+exists when their serialized operation runs, and every accepted request has a
+defined shutdown outcome.
+
+### 7e. Remove TUI stage ownership
+
+- [ ] Invoke synchronous stage operations from `tea.Cmd` and return their
+      results through Bubble Tea messages.
+- [ ] Render interpreter-owned staged snapshots without calculating readiness
+      or reacting independently to lifecycle events.
+- [ ] Remove UI-owned frozen plans, barrier coordination, projected handoff
+      readiness, and staged dispatch through `ExecuteLegacy`.
+- [ ] Remove obsolete UI stage tests and helpers only after equivalent
+      interpreter coverage exists.
+
+Stop condition: the TUI is a stage presenter and input adapter only; all stage
+planning, transitions, and dispatch are interpreter-owned.
 
 Verification:
 
@@ -243,9 +295,7 @@ go test ./...
 - [ ] Remove `ExecuteLegacy` after the final TUI workflow moves into the
       interpreter.
 - [ ] Complete rendering of interpreter events and snapshots.
-- [ ] Run synchronous stage operations inside `tea.Cmd`.
-- [ ] Remove UI-owned registry, shell execution, loop state, and barrier
-      coordination.
+- [ ] Remove remaining UI-owned registry, shell execution, and loop state.
 - [ ] Remove direct UI session observation, commands, and snapshot queries.
 - [ ] Remove UI imports of `internal/session` and `internal/agent`.
 - [ ] Remove obsolete UI tests and helpers only after equivalent interpreter
