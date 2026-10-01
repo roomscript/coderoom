@@ -249,14 +249,14 @@ or room callbacks, and its audit source matches the canonical room snapshot.
 
 ### 7d. Add atomic stage operations
 
-- [ ] Implement `TakeStageForEdit() (string, bool)`.
-- [ ] Implement `DiscardStage() bool`.
-- [ ] Implement `InterruptAndDispatchStage() bool`.
-- [ ] Process all stage operations atomically on the interpreter loop.
-- [ ] Reject operations cleanly after shutdown.
-- [ ] Ensure accepted synchronous requests resolve or observe interpreter
+- [x] Implement `TakeStageForEdit() (string, bool)`.
+- [x] Implement `DiscardStage() bool`.
+- [x] Implement `InterruptAndDispatchStage() bool`.
+- [x] Process all stage operations atomically on the interpreter loop.
+- [x] Reject operations cleanly after shutdown.
+- [x] Ensure accepted synchronous requests resolve or observe interpreter
       completion.
-- [ ] Add auto-dispatch/edit/discard races, duplicate interrupt, and shutdown
+- [x] Add auto-dispatch/edit/discard races, duplicate interrupt, and shutdown
       tests.
 
 Stop condition: edit, discard, and interrupt requests act on whichever stage

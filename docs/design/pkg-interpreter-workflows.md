@@ -135,8 +135,8 @@ type broadcastRequest struct {
 Immediate loop turns use `planAndExecuteSharedSendRequest`, which deliberately
 plans immediately before execution.
 
-The implemented staged-submission vocabulary includes handoff requests; the
-remaining interrupt migration adds cancel requests:
+The implemented staged-submission vocabulary includes handoff and cancellation
+requests:
 
 ```go
 type handoffRequest struct {
@@ -218,12 +218,18 @@ func (g sessionGateway) Execute(request sessionRequest) error {
 The gateway knows session planning and command types, but not loop or stage
 phases or reply semantics. Planning and detached participant inspection occur
 on the serialized interpreter loop. `handoffRequest` covers handoff dispatch;
-the later `cancelRequest` covers interrupt paths. Neither requires a separate
+`cancelRequest` covers interrupt paths. Neither requires a separate
 opaque planning value. Handoff obtains its canonical room-derived source
 through the correlated read instruction described below. If Step 7
 exposes another session-owned planning primitive, add a generic planning or
 inspection instruction/result pair; do not add stage-specific orchestration to
 `Interpreter`.
+
+Interrupt-and-dispatch emits one correlated `cancelRequest` per currently
+blocked, unacknowledged alias. Each successful request records its own progress
+before causal events and remains acknowledged in stage state. A retry after a
+partial failure therefore targets only failed aliases and cannot cancel a
+successful alias twice.
 
 Handoff source resolution is a correlated read instruction.
 After the stage workflow observes the matching completed turn, the runner asks

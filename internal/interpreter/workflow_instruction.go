@@ -109,6 +109,8 @@ type broadcastRequest struct {
 	text    string
 }
 
+type cancelRequest struct{ alias string }
+
 type handoffRequest struct {
 	fromAlias   string
 	toAlias     string
@@ -119,6 +121,7 @@ type handoffRequest struct {
 func (planAndExecuteSharedSendRequest) sessionRequest() {}
 func (executePlannedSharedSendRequest) sessionRequest() {}
 func (broadcastRequest) sessionRequest()                {}
+func (cancelRequest) sessionRequest()                   {}
 func (handoffRequest) sessionRequest()                  {}
 
 type shellRequest struct {
@@ -244,12 +247,9 @@ func (e *interpreterExecutor) executeSessionRequest(request sessionRequest) erro
 		}
 		return nil
 	case broadcastRequest:
-		if err := e.session.Execute(session.BroadcastCommand{
-			Aliases: slices.Clone(request.aliases), Text: request.text,
-		}); err != nil {
-			return fmt.Errorf("execute broadcast: %w", err)
-		}
-		return nil
+		return e.executeBroadcastRequest(request)
+	case cancelRequest:
+		return e.executeCancelRequest(request)
 	case handoffRequest:
 		if err := e.session.Execute(session.HandoffCommand{
 			FromAlias: request.fromAlias, ToAlias: request.toAlias,
@@ -261,6 +261,22 @@ func (e *interpreterExecutor) executeSessionRequest(request sessionRequest) erro
 	default:
 		return fmt.Errorf("unsupported session request %T", request)
 	}
+}
+
+func (e *interpreterExecutor) executeBroadcastRequest(request broadcastRequest) error {
+	if err := e.session.Execute(session.BroadcastCommand{
+		Aliases: slices.Clone(request.aliases), Text: request.text,
+	}); err != nil {
+		return fmt.Errorf("execute broadcast: %w", err)
+	}
+	return nil
+}
+
+func (e *interpreterExecutor) executeCancelRequest(request cancelRequest) error {
+	if err := e.session.Execute(session.CancelCommand{Alias: request.alias}); err != nil {
+		return fmt.Errorf("cancel %q: %w", request.alias, err)
+	}
+	return nil
 }
 
 func (e *interpreterExecutor) startWorkflowShell(value startShellInstruction) {

@@ -36,6 +36,9 @@ type executorModelPort interface {
 	PreflightSubmission(string) instructionSequence
 	Submit(string, promptlang.Statement, session.Command) instructionSequence
 	ApplyShellResult(string, string, shell.Result) instructionSequence
+	TakeStageForEdit() (instructionSequence, string, bool)
+	DiscardStage() (instructionSequence, bool)
+	InterruptAndDispatchStage() (instructionSequence, bool)
 	ResolveApprovalChoice(int64, ApprovalChoice) (agent.ApprovalOption, error)
 	ClearApproval(int64) bool
 	ResolveCommand(promptlang.CommandInvocation) (promptlang.Shell, error)

@@ -35,6 +35,18 @@ func (m *interpreterModel) PreflightSubmission(raw string) instructionSequence {
 	}}}
 }
 
+func (m *interpreterModel) TakeStageForEdit() (instructionSequence, string, bool) {
+	return m.workflows.stage.takeForEdit()
+}
+
+func (m *interpreterModel) DiscardStage() (instructionSequence, bool) {
+	return m.workflows.stage.discard()
+}
+
+func (m *interpreterModel) InterruptAndDispatchStage() (instructionSequence, bool) {
+	return m.workflows.stage.interruptAndDispatch()
+}
+
 func newInterpreterModel() *interpreterModel {
 	return &interpreterModel{
 		room:     room.New(),

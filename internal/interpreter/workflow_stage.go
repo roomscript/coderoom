@@ -29,6 +29,9 @@ type stageState struct {
 	dispatchRouting       []string
 	submissionPending     bool
 	sourceNeedsCompletion bool
+	interruptRequested    bool
+	interruptPending      map[workflowRef]string
+	interrupted           []string
 }
 
 type stagePhase uint8
@@ -47,6 +50,66 @@ type stageWorkflow struct {
 }
 
 func (w *stageWorkflow) pending() bool { return w.active != nil }
+
+func (w *stageWorkflow) takeForEdit() (instructionSequence, string, bool) {
+	if w.active == nil {
+		return nil, "", false
+	}
+	raw := w.active.raw
+	w.active = nil
+	return instructionSequence{requestSnapshotInstruction{}}, raw, true
+}
+
+func (w *stageWorkflow) discard() (instructionSequence, bool) {
+	if w.active == nil {
+		return nil, false
+	}
+	w.active = nil
+	return instructionSequence{requestSnapshotInstruction{}}, true
+}
+
+func (w *stageWorkflow) interruptAndDispatch() (instructionSequence, bool) {
+	if w.active == nil || len(w.active.interruptPending) != 0 {
+		return nil, false
+	}
+	state := w.active
+	state.blocking = blockedAliases(state.barrier, state.unavailable)
+	if len(state.blocking) == 0 {
+		if state.interruptRequested {
+			return nil, false
+		}
+		state.interruptRequested = true
+		return w.advanceInterruptedStage(), true
+	}
+	aliases := activeAliases(state.blocking, state.interrupted)
+	if len(aliases) == 0 {
+		return nil, false
+	}
+	state.interruptRequested = true
+	state.interruptPending = make(map[workflowRef]string, len(aliases))
+	sequence := make(instructionSequence, 0, len(aliases)+1)
+	for _, alias := range aliases {
+		ref := w.nextRef()
+		state.interruptPending[ref] = alias
+		sequence = append(sequence, executeSessionInstruction{
+			target: ref, request: cancelRequest{alias: alias},
+			recordsOnSuccess: []room.Record{{
+				Kind: room.KindSystem, Text: fmt.Sprintf("[→ %s] interrupt requested", alias),
+			}},
+		})
+	}
+	return append(sequence, requestSnapshotInstruction{}), true
+}
+
+func (w *stageWorkflow) advanceInterruptedStage() instructionSequence {
+	if _, handoff := w.active.statement.(promptlang.Handoff); handoff {
+		if w.active.sourceNeedsCompletion {
+			return instructionSequence{requestSnapshotInstruction{}}
+		}
+		return instructionSequence{w.readHandoffSourceInstruction(), requestSnapshotInstruction{}}
+	}
+	return instructionSequence{w.dispatchInstruction(), requestSnapshotInstruction{}}
+}
 
 func (w *stageWorkflow) start(raw string, statement promptlang.Statement) instructionSequence {
 	w.nextGeneration++
@@ -248,6 +311,11 @@ func (w *stageWorkflow) dispatchInstruction() executeSessionInstruction {
 }
 
 func (w *stageWorkflow) handleSessionCompletion(completion sessionCompletion) instructionSequence {
+	if w.active != nil {
+		if alias, ok := w.active.interruptPending[completion.target]; ok {
+			return w.handleInterruptCompletion(completion, alias)
+		}
+	}
 	if !w.matches(completion.target) {
 		return nil
 	}
@@ -278,6 +346,22 @@ func (w *stageWorkflow) handleSessionCompletion(completion sessionCompletion) in
 		sequence = append(sequence, publishEventInstruction{event: SubmissionSucceeded{Raw: state.raw}})
 	}
 	return sequence
+}
+
+func (w *stageWorkflow) handleInterruptCompletion(
+	completion sessionCompletion,
+	alias string,
+) instructionSequence {
+	delete(w.active.interruptPending, completion.target)
+	sequence := instructionSequence{requestSnapshotInstruction{}}
+	if completion.err == nil {
+		w.active.interrupted = append(w.active.interrupted, alias)
+		slices.Sort(w.active.interrupted)
+		return sequence
+	}
+	return append(sequence, publishEventInstruction{event: OperationFailed{
+		Operation: "interrupt staged submission", Err: completion.err,
+	}})
 }
 
 func (w *stageWorkflow) handleSessionEvent(event session.Event) instructionSequence {
@@ -456,8 +540,10 @@ func (w *stageWorkflow) snapshot() *StagedSubmission {
 	}
 	return &StagedSubmission{
 		Raw: w.active.raw, Routing: slices.Clone(w.active.routing),
-		Blocking:    slices.Clone(w.active.blocking),
-		Unavailable: slices.Clone(w.active.unavailable), Phase: StagePhasePending,
+		Blocking:           slices.Clone(w.active.blocking),
+		Unavailable:        slices.Clone(w.active.unavailable),
+		InterruptRequested: w.active.interruptRequested,
+		Phase:              StagePhasePending,
 	}
 }
 

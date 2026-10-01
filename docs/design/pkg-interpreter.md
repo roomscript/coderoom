@@ -192,10 +192,9 @@ The distinction between facade operations is semantic:
 | User chooses an approval option | `ResolveApproval(...)` | Structured response to an active request |
 | User reads observable state | `Snapshot()` | Returns a detached current or post-shutdown cached view |
 
-The following operations belong to the staged-submission migration and are
-not yet part of the implemented facade:
+The staged-submission facade also exposes atomic structured operations:
 
-| Future intent | Planned entry point | Reason |
+| Intent | Entry point | Reason |
 |---|---|---|
 | User returns a staged message to editing | `TakeStageForEdit()` | Atomically removes and returns its raw draft |
 | User abandons a staged message | `DiscardStage()` | Removes it without dispatch |
@@ -205,9 +204,12 @@ not yet part of the implemented facade:
 blocking participants from the staged submission, requests their cancellation
 through the serialized execution loop, and waits for lifecycle events before
 dispatch. Its `true` result means the workflow was initiated, not that dispatch
-has completed. `TakeStageForEdit` atomically removes and returns the raw draft
-so the UI can restore it to the composer. `DiscardStage` permanently abandons
-the staged submission. A `false` result means no stage existed when the
+has completed. Successful per-alias cancellations remain acknowledged; after a
+partial failure, retries target only the failed aliases. A request with no
+uncancelled blocker returns `false`, so cancel commands are not issued twice.
+`TakeStageForEdit` atomically removes and returns the raw draft so the UI can
+restore it to the composer. `DiscardStage` permanently abandons the staged
+submission. A `false` result means no applicable stage action existed when the
 interpreter processed the operation and no action was taken.
 
 ### Approval boundary
@@ -576,6 +578,7 @@ type StagedSubmission struct {
     Routing    []string
     Blocking   []string
     Unavailable []string
+    InterruptRequested bool
     Phase      StagePhase
 }
 ```
@@ -593,11 +596,11 @@ the resulting state change, and replies as one serialized operation. No stage
 state is read or modified outside that loop.
 
 ```go
-type takeStageForEdit struct {
-    result chan stageResult
-}
+type takeStageForEditOperation struct { result chan stageOperationResult }
+type discardStageOperation struct { result chan stageOperationResult }
+type interruptAndDispatchStageOperation struct { result chan stageOperationResult }
 
-type stageResult struct {
+type stageOperationResult struct {
     raw string
     ok  bool
 }
@@ -720,9 +723,8 @@ migration checkpoint. Coverage must include:
 
 The interpreter now covers frozen stage planning, pending snapshots, immediate
 and lifecycle-delayed send/broadcast dispatch, target departure, partial
-delivery, and the pending-stage submission gate. Handoff selection and
-ordering, stage actions, races, and shutdown scenarios move here in the
-remaining checkpoints. The TUI still selects its legacy stage path until the ownership
+delivery, the pending-stage submission gate, handoff ordering, and atomic
+stage actions with race and shutdown scenarios. The TUI still selects its legacy stage path until the ownership
 cutover; therefore the interpreter workflow is not yet authoritative in the
 interactive application.
 

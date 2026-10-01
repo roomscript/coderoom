@@ -76,11 +76,12 @@ const (
 
 // StagedSubmission is the detached presentation state of one pending composer submission.
 type StagedSubmission struct {
-	Raw         string
-	Routing     []string
-	Blocking    []string
-	Unavailable []string
-	Phase       StagePhase
+	Raw                string
+	Routing            []string
+	Blocking           []string
+	Unavailable        []string
+	InterruptRequested bool
+	Phase              StagePhase
 }
 
 // Event is an application event emitted by the interpreter.
