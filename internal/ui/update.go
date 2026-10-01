@@ -50,6 +50,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m Model) handleNonSessionMessage(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case stageTakenForEditMsg:
+		return m.handleStageTakenForEdit(msg), nil
+	case stageDiscardedMsg, stageInterruptRequestedMsg:
+		return m, nil
 	case room.SubmitMsg:
 		return m.submit(msg.Text)
 	case room.UpdateMsg:
@@ -65,6 +69,17 @@ func (m Model) handleNonSessionMessage(msg tea.Msg) (tea.Model, tea.Cmd) {
 	default:
 		return m.forwardMessage(msg)
 	}
+}
+
+func (m Model) handleStageTakenForEdit(msg stageTakenForEditMsg) Model {
+	if !msg.ok {
+		return m
+	}
+	m.room = m.room.ClearComposerStaged()
+	if m.room.ComposeValue() == "" {
+		m.room = m.room.SetComposeValue(msg.raw)
+	}
+	return m
 }
 
 func (m Model) handleRoomUpdate(msg room.UpdateMsg) (tea.Model, tea.Cmd) {

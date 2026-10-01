@@ -272,13 +272,13 @@ room projection, or presentation-record migration with this phase.
 
 #### 7e.1. Add the TUI stage-operation adapter
 
-- [ ] Invoke `TakeStageForEdit`, `DiscardStage`, and
+- [x] Invoke `TakeStageForEdit`, `DiscardStage`, and
       `InterruptAndDispatchStage` from `tea.Cmd` and return typed Bubble Tea
       result messages.
-- [ ] Do not connect the existing staged-composer key handlers to the new
+- [x] Do not connect the existing staged-composer key handlers to the new
       commands yet; the UI-owned workflow remains authoritative and the new
       adapter is exercised directly in boundary tests only.
-- [ ] Add ordering tests for operation result versus interpreter snapshot,
+- [x] Add ordering tests for operation result versus interpreter snapshot,
       including typing immediately after taking a stage for edit.
 
 Stop condition: all three interpreter operations can be driven safely through
