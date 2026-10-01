@@ -175,6 +175,33 @@ func TestStageWorkflow_discardsSendWhenAddressedTargetDeparts(t *testing.T) {
 	}
 }
 
+func TestStageWorkflow_namesDepartedSendTargetWhenListenerRemains(t *testing.T) {
+	workflow := stageWorkflow{}
+	sequence := workflow.start("@ada hello", promptlang.Send{Alias: "ada", Text: "hello"})
+	plan := sequence[0].(planSharedSendInstruction)
+	sequence = workflow.handleCompletion(sharedSendPlanResult{
+		target: plan.target, targets: []string{"ada", "turing"},
+	})
+	read := sequence[0].(readParticipantStateInstruction)
+	workflow.handleCompletion(participantStateResult{
+		target: read.target,
+		barrier: []participantState{
+			{alias: "ada", status: participant.StatusWorking},
+			{alias: "turing", status: participant.StatusIdle},
+		},
+	})
+
+	sequence = workflow.handleSessionEvent(session.AgentStopped{Alias: "ada"})
+	record := sequence[0].(appendRecordInstruction).record
+	discarded := sequence[1].(publishEventInstruction).event.(StagedInputDiscarded)
+	if record.Text != `staged submission discarded: "ada" is no longer available` {
+		t.Fatalf("record = %#v", record)
+	}
+	if discarded.Reason != `staged message discarded: "ada" is no longer available` {
+		t.Fatalf("discard event = %#v", discarded)
+	}
+}
+
 func TestInterpreterExecutor_planBroadcastSortsDetachedAliases(t *testing.T) {
 	session := newSubmitContractSession()
 	session.barrier = []participant.Participant{

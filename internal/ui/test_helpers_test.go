@@ -74,6 +74,29 @@ func processInterpreterSubmission(t *testing.T, m Model) Model {
 	}
 }
 
+func consumeInterpreterStateChange(t *testing.T, m Model) Model {
+	t.Helper()
+	return consumeInterpreterUntil(t, m, func(event interpreter.Event) bool {
+		_, ok := event.(interpreter.StateChanged)
+		return ok
+	})
+}
+
+func consumeInterpreterUntil(t *testing.T, m Model, done func(interpreter.Event) bool) Model {
+	t.Helper()
+	for {
+		event, ok := m.interpreterQueue.PullTimeout(2 * time.Second)
+		if !ok {
+			t.Fatal("timed out waiting for interpreter event")
+		}
+		next, _ := m.Update(interpreterEventMsg{event: event})
+		m = next.(Model)
+		if done(event) {
+			return m
+		}
+	}
+}
+
 // pushEvent sends a session event into the model via Update and returns the result.
 func pushEvent(m Model, e session.Event) Model {
 	m.room.SessionObserver().OnEvent(e)

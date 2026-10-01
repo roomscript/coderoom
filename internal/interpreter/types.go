@@ -102,6 +102,19 @@ type InputAccepted struct {
 	Routing []string
 }
 
+// StagedInputDispatched reports the delivered routing for a staged input.
+// Front ends use it to preserve transcript insertion at the dispatch boundary.
+type StagedInputDispatched struct {
+	Raw     string
+	Routing []string
+}
+
+// StagedInputDiscarded reports a staged input abandoned by lifecycle changes.
+type StagedInputDiscarded struct {
+	Raw    string
+	Reason string
+}
+
 // InputRejected reports input rejected before acceptance.
 type InputRejected struct {
 	Raw  string
@@ -158,18 +171,20 @@ type SubmissionFailed struct {
 	Err       error
 }
 
-func (StateChanged) interpreterEvent()        {}
-func (OperationFailed) interpreterEvent()     {}
-func (InputAccepted) interpreterEvent()       {}
-func (InputRejected) interpreterEvent()       {}
-func (UnknownCommand) interpreterEvent()      {}
-func (RosterListed) interpreterEvent()        {}
-func (HelpListed) interpreterEvent()          {}
-func (ExitRequested) interpreterEvent()       {}
-func (ShellCompleted) interpreterEvent()      {}
-func (LoopStatus) interpreterEvent()          {}
-func (SubmissionSucceeded) interpreterEvent() {}
-func (SubmissionFailed) interpreterEvent()    {}
+func (StateChanged) interpreterEvent()          {}
+func (OperationFailed) interpreterEvent()       {}
+func (InputAccepted) interpreterEvent()         {}
+func (StagedInputDispatched) interpreterEvent() {}
+func (StagedInputDiscarded) interpreterEvent()  {}
+func (InputRejected) interpreterEvent()         {}
+func (UnknownCommand) interpreterEvent()        {}
+func (RosterListed) interpreterEvent()          {}
+func (HelpListed) interpreterEvent()            {}
+func (ExitRequested) interpreterEvent()         {}
+func (ShellCompleted) interpreterEvent()        {}
+func (LoopStatus) interpreterEvent()            {}
+func (SubmissionSucceeded) interpreterEvent()   {}
+func (SubmissionFailed) interpreterEvent()      {}
 
 // Observer consumes application events. Implementations should return quickly.
 type Observer interface{ OnEvent(Event) }

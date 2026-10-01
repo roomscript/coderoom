@@ -300,13 +300,13 @@ changing transcript records or calculating workflow readiness.
 
 #### 7e.3. Route one staged action through the interpreter
 
-- [ ] Cut over `Send` first while retaining the legacy broadcast and handoff
+- [x] Cut over `Send` first while retaining the legacy broadcast and handoff
       paths.
-- [ ] Preserve the existing UI transcript append at the dispatch boundary;
+- [x] Preserve the existing UI transcript append at the dispatch boundary;
       canonical transcript migration is explicitly out of scope.
-- [ ] Verify immediate dispatch, delayed dispatch, frozen listeners, target
+- [x] Verify immediate dispatch, delayed dispatch, frozen listeners, target
       departure, zero delivery, partial delivery, edit, discard, and interrupt.
-- [ ] Keep the existing end-to-end UI tests until the cut-over path has direct
+- [x] Keep the existing end-to-end UI tests until the cut-over path has direct
       replacement coverage.
 
 Stop condition: `Send` has exactly one stage authority in production and its

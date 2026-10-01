@@ -311,16 +311,35 @@ func (w *stageWorkflow) dispatchInstruction() executeSessionInstruction {
 }
 
 func (w *stageWorkflow) handleSessionCompletion(completion sessionCompletion) instructionSequence {
-	if w.active != nil {
-		if alias, ok := w.active.interruptPending[completion.target]; ok {
-			return w.handleInterruptCompletion(completion, alias)
-		}
+	if sequence, handled := w.handlePendingInterruptCompletion(completion); handled {
+		return sequence
 	}
 	if !w.matches(completion.target) {
 		return nil
 	}
 	state := w.active
 	w.active = nil
+	sequence := stageDispatchRecordSequence(state, completion)
+	return append(sequence, stageDispatchOutcomeInstruction(state, completion)...)
+}
+
+func (w *stageWorkflow) handlePendingInterruptCompletion(
+	completion sessionCompletion,
+) (instructionSequence, bool) {
+	if w.active == nil {
+		return nil, false
+	}
+	alias, ok := w.active.interruptPending[completion.target]
+	if !ok {
+		return nil, false
+	}
+	return w.handleInterruptCompletion(completion, alias), true
+}
+
+func stageDispatchRecordSequence(
+	state *stageState,
+	completion sessionCompletion,
+) instructionSequence {
 	sequence := instructionSequence{requestSnapshotInstruction{}}
 	delivered := slices.Clone(state.dispatchRouting)
 	if completion.err != nil {
@@ -331,21 +350,33 @@ func (w *stageWorkflow) handleSessionCompletion(completion sessionCompletion) in
 			Kind: room.KindUserInput, Text: state.raw, Routing: slices.Clone(delivered),
 		}})
 	}
-	if completion.err != nil {
-		if !state.submissionPending {
-			return append(sequence, publishEventInstruction{event: OperationFailed{
-				Operation: "staged dispatch", Err: completion.err,
-			}})
-		}
-		return append(sequence, publishEventInstruction{event: SubmissionFailed{
-			Raw: state.raw, Operation: "staged dispatch",
-			Code: ErrorExecutionFailed, Err: completion.err,
+	if _, send := state.statement.(promptlang.Send); send && len(delivered) != 0 {
+		sequence = append(sequence, publishEventInstruction{event: StagedInputDispatched{
+			Raw: state.raw, Routing: slices.Clone(delivered),
 		}})
 	}
-	if state.submissionPending {
-		sequence = append(sequence, publishEventInstruction{event: SubmissionSucceeded{Raw: state.raw}})
-	}
 	return sequence
+}
+
+func stageDispatchOutcomeInstruction(
+	state *stageState,
+	completion sessionCompletion,
+) instructionSequence {
+	if completion.err != nil {
+		if !state.submissionPending {
+			return instructionSequence{publishEventInstruction{event: OperationFailed{
+				Operation: "staged dispatch", Err: completion.err,
+			}}}
+		}
+		return instructionSequence{publishEventInstruction{event: SubmissionFailed{
+			Raw: state.raw, Operation: "staged dispatch",
+			Code: ErrorExecutionFailed, Err: completion.err,
+		}}}
+	}
+	if state.submissionPending {
+		return instructionSequence{publishEventInstruction{event: SubmissionSucceeded{Raw: state.raw}}}
+	}
+	return nil
 }
 
 func (w *stageWorkflow) handleInterruptCompletion(
@@ -518,8 +549,11 @@ func (w *stageWorkflow) mustDiscard() bool {
 func (w *stageWorkflow) discardUnavailableStage() instructionSequence {
 	state := w.active
 	message := "staged submission discarded: no active targets"
-	if send, ok := state.statement.(promptlang.Send); ok {
+	presentationMessage := "staged message discarded: no active targets"
+	if send, ok := state.statement.(promptlang.Send); ok &&
+		len(activeAliases(state.routing, state.unavailable)) != 0 {
 		message = fmt.Sprintf("staged submission discarded: %q is no longer available", send.Alias)
+		presentationMessage = fmt.Sprintf("staged message discarded: %q is no longer available", send.Alias)
 	} else if handoff, ok := state.statement.(promptlang.Handoff); ok {
 		missing := handoff.FromAlias
 		if !slices.Contains(state.unavailable, missing) {
@@ -528,10 +562,15 @@ func (w *stageWorkflow) discardUnavailableStage() instructionSequence {
 		message = fmt.Sprintf("staged submission discarded: %q is no longer available", missing)
 	}
 	w.active = nil
-	return instructionSequence{
+	sequence := instructionSequence{
 		appendRecordInstruction{record: room.Record{Kind: room.KindSystem, Text: message}},
-		requestSnapshotInstruction{},
 	}
+	if _, send := state.statement.(promptlang.Send); send {
+		sequence = append(sequence, publishEventInstruction{event: StagedInputDiscarded{
+			Raw: state.raw, Reason: presentationMessage,
+		}})
+	}
+	return append(sequence, requestSnapshotInstruction{})
 }
 
 func (w *stageWorkflow) snapshot() *StagedSubmission {

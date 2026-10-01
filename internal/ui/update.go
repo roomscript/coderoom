@@ -49,6 +49,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleNonSessionMessage(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if next, cmd, handled := m.handleStageOperationMessage(msg); handled {
+		return next, cmd
+	}
 	switch msg := msg.(type) {
 	case stageTakenForEditMsg:
 		return m.handleStageTakenForEdit(msg), nil
@@ -60,14 +63,33 @@ func (m Model) handleNonSessionMessage(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleRoomUpdate(msg)
 	case room.ApprovalDecisionMsg:
 		return m.handleApprovalDecision(msg)
-	case room.StagedEditMsg, room.StagedClearMsg:
-		m.room = m.room.ClearComposerStaged()
-		return m, nil
-	case room.StagedInterruptMsg:
-		next := m.handleStagedInterrupt()
-		return next, nil
 	default:
 		return m.forwardMessage(msg)
+	}
+}
+
+func (m Model) handleStageOperationMessage(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
+	switch msg.(type) {
+	case room.StagedEditMsg:
+		if m.interpreterStagePresented {
+			return m, takeStageForEdit(m.interpreter), true
+		}
+		m.room = m.room.ClearComposerStaged()
+		return m, nil, true
+	case room.StagedClearMsg:
+		if m.interpreterStagePresented {
+			return m, discardStage(m.interpreter), true
+		}
+		m.room = m.room.ClearComposerStaged()
+		return m, nil, true
+	case room.StagedInterruptMsg:
+		if m.interpreterStagePresented {
+			return m, interruptAndDispatchStage(m.interpreter), true
+		}
+		next := m.handleStagedInterrupt()
+		return next, nil, true
+	default:
+		return m, nil, false
 	}
 }
 
@@ -108,7 +130,7 @@ func isNativeInterpreterStatement(statement promptlang.Statement) bool {
 	switch statement.(type) {
 	case promptlang.Invite, promptlang.Remove, promptlang.Cancel, promptlang.PolicyEnable,
 		promptlang.Shell, promptlang.CommandDefinition, promptlang.CommandInvocation,
-		promptlang.Loop, promptlang.Who, promptlang.Help, promptlang.Quit:
+		promptlang.Loop, promptlang.Who, promptlang.Help, promptlang.Quit, promptlang.Send:
 		return true
 	default:
 		return false
@@ -198,12 +220,12 @@ func (m Model) renderSubmissionSuccess(raw string) Model {
 }
 
 func (m Model) handleInterpreterPresentationEvent(event interpreter.Event) (Model, tea.Cmd, bool) {
+	if next, handled := m.handleInterpreterTranscriptEvent(event); handled {
+		return next, nil, true
+	}
 	switch event := event.(type) {
 	case interpreter.StateChanged:
 		return m.presentInterpreterStage(event.Snapshot), nil, true
-	case interpreter.InputAccepted:
-		m.room = m.room.AppendUserInput(event.Raw, event.Routing)
-		return m, nil, true
 	case interpreter.RosterListed:
 		return m.renderRoster(event.Participants), nil, true
 	case interpreter.HelpListed:
@@ -220,6 +242,30 @@ func (m Model) handleInterpreterPresentationEvent(event interpreter.Event) (Mode
 		return m, nil, true
 	default:
 		return m, nil, false
+	}
+}
+
+func (m Model) handleInterpreterTranscriptEvent(event interpreter.Event) (Model, bool) {
+	switch event := event.(type) {
+	case interpreter.InputAccepted:
+		statement, err := promptlang.Parse(event.Raw)
+		if err != nil {
+			return m, true
+		}
+		if _, stagedSend := statement.(promptlang.Send); !stagedSend {
+			m.room = m.room.AppendUserInput(event.Raw, event.Routing)
+		}
+		return m, true
+	case interpreter.StagedInputDispatched:
+		m.room = m.room.AppendUserInput(event.Raw, event.Routing)
+		return m, true
+	case interpreter.StagedInputDiscarded:
+		m.room = m.room.AppendSystem(event.Reason)
+		m = m.restoreSubmittedComposer(event.Raw)
+		m.preserveStageDraft = true
+		return m, true
+	default:
+		return m, false
 	}
 }
 

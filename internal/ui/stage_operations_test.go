@@ -1,10 +1,12 @@
 package ui
 
 import (
+	"reflect"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/trigosec/coderoom/internal/interpreter"
+	"github.com/trigosec/coderoom/internal/ui/room"
 )
 
 type recordingStageOperator struct {
@@ -114,5 +116,32 @@ func TestStageOperationFailureMessagesLeaveComposerUnchanged(t *testing.T) {
 
 	if got := m.room.ComposeValue(); got != "hello" || !m.room.IsComposerStaged() {
 		t.Fatalf("composer = %q, staged = %v", got, m.room.IsComposerStaged())
+	}
+}
+
+func TestInterpreterStageMessagesUseStageOperationCommands(t *testing.T) {
+	tests := []struct {
+		name string
+		msg  tea.Msg
+		want any
+	}{
+		{name: "edit", msg: room.StagedEditMsg{}, want: stageTakenForEditMsg{}},
+		{name: "discard", msg: room.StagedClearMsg{}, want: stageDiscardedMsg{}},
+		{name: "interrupt", msg: room.StagedInterruptMsg{}, want: stageInterruptRequestedMsg{}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := makeReadyModel(t)
+			m.interpreterStagePresented = true
+			m.room = m.room.SetComposerStaged("@ada hello", "waiting")
+
+			_, cmd := m.Update(tt.msg)
+			if cmd == nil {
+				t.Fatal("stage message did not return an interpreter operation command")
+			}
+			if got := cmd(); reflect.TypeOf(got) != reflect.TypeOf(tt.want) {
+				t.Fatalf("result type = %T, want %T", got, tt.want)
+			}
+		})
 	}
 }

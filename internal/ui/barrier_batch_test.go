@@ -2,12 +2,14 @@ package ui
 
 import (
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/trigosec/coderoom/internal/agent"
 	roomconfig "github.com/trigosec/coderoom/internal/config"
+	"github.com/trigosec/coderoom/internal/interpreter"
 	"github.com/trigosec/coderoom/internal/participant"
 	roomstate "github.com/trigosec/coderoom/internal/room"
 	"github.com/trigosec/coderoom/internal/session"
@@ -329,19 +331,20 @@ func TestBarrierBatch_sendNoticesPolicyIncludesBusyListener(t *testing.T) {
 
 	next = submitThroughInterpreter(t, m, "@ada do it")
 	m = next.(Model)
+	m = consumeInterpreterStateChange(t, m)
 
-	if !m.room.HasStagedBatch() {
+	if m.room.HasStagedBatch() || !m.room.IsComposerStaged() {
 		t.Fatal("direct send should wait for a listener when send-notices is enabled")
 	}
-	action, targets, ok := m.room.StagedDispatchCandidate()
-	if !ok || len(targets) != 2 || targets[0] != "ada" || targets[1] != "turing" {
-		t.Fatalf("staged targets = %v, want [ada turing]", targets)
+	stage := m.interpreter.Snapshot().Stage
+	if stage == nil || !slices.Equal(stage.Routing, []string{"ada", "turing"}) {
+		t.Fatalf("stage = %#v, want frozen routing [ada turing]", stage)
 	}
 
 	inviteParticipant(t, s, "ben")
 	m = pumpUntilAgentsStarted(t, m, "ben")
-	if got := action.SendPlan.Targets(); len(got) != 2 || got[0] != "ada" || got[1] != "turing" {
-		t.Fatalf("plan targets after ben starts = %v, want [ada turing]", got)
+	if got := m.interpreter.Snapshot().Stage.Routing; !slices.Equal(got, []string{"ada", "turing"}) {
+		t.Fatalf("stage routing after ben starts = %v, want [ada turing]", got)
 	}
 }
 
@@ -516,7 +519,8 @@ func TestBarrierBatch_discardedTargetRestoresDraft(t *testing.T) {
 	}
 	next = submitThroughInterpreter(t, m, "@ada hi")
 	m = next.(Model)
-	if !m.room.HasStagedBatch() {
+	m = consumeInterpreterStateChange(t, m)
+	if m.room.HasStagedBatch() || !m.room.IsComposerStaged() {
 		t.Fatal("expected staged batch before target disappears")
 	}
 
@@ -527,6 +531,11 @@ func TestBarrierBatch_discardedTargetRestoresDraft(t *testing.T) {
 		stopped, ok := ev.(session.AgentStopped)
 		return ok && stopped.Alias == "ada"
 	})
+	m = consumeInterpreterUntil(t, m, func(event interpreter.Event) bool {
+		_, ok := event.(interpreter.StagedInputDiscarded)
+		return ok
+	})
+	m = consumeInterpreterStateChange(t, m)
 
 	assertHistoryDoesNotContainUserInput(t, m, "@ada hi")
 	if !hasRecord(m, record.KindSystem, "staged message discarded: no active targets") {
