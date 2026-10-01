@@ -294,7 +294,11 @@ func (m Model) IsComposerStaged() bool { return m.input.kind == inputStaged }
 // The compose buffer is shown read-only and keystrokes are blocked until the
 // user exits staged mode.
 func (m Model) SetComposerStaged(text string, status string) Model {
-	m.input.kind = inputStaged
+	if m.input.kind == inputApproval {
+		m.approval.previousInputKind = inputStaged
+	} else {
+		m.input.kind = inputStaged
+	}
 	m.input.staged.status = status
 	m.input.compose = m.input.compose.SetValue(text).Blur()
 	if m.lastSize.Width > 0 && m.lastSize.Height > 0 {
@@ -306,7 +310,8 @@ func (m Model) SetComposerStaged(text string, status string) Model {
 // SetComposerStagedStatus updates the staged status line without changing
 // staged text.
 func (m Model) SetComposerStagedStatus(status string) Model {
-	if m.input.kind != inputStaged {
+	if m.input.kind != inputStaged &&
+		(m.input.kind != inputApproval || m.approval.previousInputKind != inputStaged) {
 		return m
 	}
 	m.input.staged.status = status
@@ -318,10 +323,16 @@ func (m Model) SetComposerStagedStatus(status string) Model {
 
 // ClearComposerStaged exits staged mode and clears the status line.
 func (m Model) ClearComposerStaged() Model {
-	if m.input.kind != inputStaged {
+	stagedBehindApproval := m.input.kind == inputApproval &&
+		m.approval.previousInputKind == inputStaged
+	if m.input.kind != inputStaged && !stagedBehindApproval {
 		return m
 	}
-	m.input.kind = inputCompose
+	if stagedBehindApproval {
+		m.approval.previousInputKind = inputCompose
+	} else {
+		m.input.kind = inputCompose
+	}
 	m.input.staged.status = ""
 	m.input.staged.batch = nil
 	// If we blurred the textarea while staged, ensure we restore focus when the

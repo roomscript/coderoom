@@ -286,13 +286,13 @@ Bubble Tea without changing production stage ownership or behavior.
 
 #### 7e.2. Present interpreter stage state
 
-- [ ] Add a narrow presenter that maps `Snapshot.Stage` to staged composer text
+- [x] Add a narrow presenter that maps `Snapshot.Stage` to staged composer text
       and status only.
-- [ ] Preserve approval overlays when stage snapshots arrive or clear.
-- [ ] Do not replace, merge, reconcile, or otherwise migrate transcript state;
+- [x] Preserve approval overlays when stage snapshots arrive or clear.
+- [x] Do not replace, merge, reconcile, or otherwise migrate transcript state;
       the existing UI room projection remains the transcript authority for
       this phase.
-- [ ] Add focused tests for stage appearance, status refresh, clearing, draft
+- [x] Add focused tests for stage appearance, status refresh, clearing, draft
       restoration, approval overlap, and event-order permutations.
 
 Stop condition: the TUI can render interpreter-owned stage state without

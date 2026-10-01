@@ -90,6 +90,8 @@ type Model struct {
 	activeApprovalID           int64
 	submissionPending          bool
 	submissionAwaitingDispatch string
+	interpreterStagePresented  bool
+	preserveStageDraft         bool
 
 	// showStartupHelpTip is a one-shot flag. When true, the tip will be shown on
 	// the next resize/layout if the room transcript is empty, and then set to false.

@@ -75,6 +75,9 @@ func (m Model) handleStageTakenForEdit(msg stageTakenForEditMsg) Model {
 	if !msg.ok {
 		return m
 	}
+	// A successful take may race with already queued snapshots. If the clear
+	// snapshot has not arrived yet, ignore older non-nil snapshots until it does.
+	m.preserveStageDraft = m.interpreterStagePresented
 	m.room = m.room.ClearComposerStaged()
 	if m.room.ComposeValue() == "" {
 		m.room = m.room.SetComposeValue(msg.raw)
@@ -196,6 +199,8 @@ func (m Model) renderSubmissionSuccess(raw string) Model {
 
 func (m Model) handleInterpreterPresentationEvent(event interpreter.Event) (Model, tea.Cmd, bool) {
 	switch event := event.(type) {
+	case interpreter.StateChanged:
+		return m.presentInterpreterStage(event.Snapshot), nil, true
 	case interpreter.InputAccepted:
 		m.room = m.room.AppendUserInput(event.Raw, event.Routing)
 		return m, nil, true
