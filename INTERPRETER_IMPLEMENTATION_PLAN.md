@@ -265,19 +265,88 @@ defined shutdown outcome.
 
 ### 7e. Remove TUI stage ownership
 
-- [ ] Make the interpreter the sole authoritative stage owner in the running
-      application; do not keep a second UI-owned workflow after cutover.
-- [ ] Invoke synchronous stage operations from `tea.Cmd` and return their
-      results through Bubble Tea messages.
-- [ ] Render interpreter-owned staged snapshots without calculating readiness
-      or reacting independently to lifecycle events.
+Complete this cutover as a sequence of small changes. Each checkpoint must be
+reviewable, pass the full test suite, and leave the application in a working
+state before the next checkpoint begins. Do not combine transcript ownership,
+room projection, or presentation-record migration with this phase.
+
+#### 7e.1. Add the TUI stage-operation adapter
+
+- [ ] Invoke `TakeStageForEdit`, `DiscardStage`, and
+      `InterruptAndDispatchStage` from `tea.Cmd` and return typed Bubble Tea
+      result messages.
+- [ ] Do not connect the existing staged-composer key handlers to the new
+      commands yet; the UI-owned workflow remains authoritative and the new
+      adapter is exercised directly in boundary tests only.
+- [ ] Add ordering tests for operation result versus interpreter snapshot,
+      including typing immediately after taking a stage for edit.
+
+Stop condition: all three interpreter operations can be driven safely through
+Bubble Tea without changing production stage ownership or behavior.
+
+#### 7e.2. Present interpreter stage state
+
+- [ ] Add a narrow presenter that maps `Snapshot.Stage` to staged composer text
+      and status only.
+- [ ] Preserve approval overlays when stage snapshots arrive or clear.
+- [ ] Do not replace, merge, reconcile, or otherwise migrate transcript state;
+      the existing UI room projection remains the transcript authority for
+      this phase.
+- [ ] Add focused tests for stage appearance, status refresh, clearing, draft
+      restoration, approval overlap, and event-order permutations.
+
+Stop condition: the TUI can render interpreter-owned stage state without
+changing transcript records or calculating workflow readiness.
+
+#### 7e.3. Route one staged action through the interpreter
+
+- [ ] Cut over `Send` first while retaining the legacy broadcast and handoff
+      paths.
+- [ ] Preserve the existing UI transcript append at the dispatch boundary;
+      canonical transcript migration is explicitly out of scope.
+- [ ] Verify immediate dispatch, delayed dispatch, frozen listeners, target
+      departure, zero delivery, partial delivery, edit, discard, and interrupt.
+- [ ] Keep the existing end-to-end UI tests until the cut-over path has direct
+      replacement coverage.
+
+Stop condition: `Send` has exactly one stage authority in production and its
+legacy UI path can be removed independently.
+
+#### 7e.4. Route the remaining staged actions
+
+- [ ] Cut over `Broadcast` as its own reviewed change and verify immediate,
+      delayed, partial-delivery, departure, edit, discard, and interrupt paths.
+- [ ] Cut over `Handoff` as a separate reviewed change and verify canonical
+      source selection, source-turn ordering, departure, late joiners, edit,
+      discard, and interrupt paths.
+- [ ] Do not remove shared legacy helpers until both actions no longer use
+      them.
+
+Stop condition: send, broadcast, and handoff each use interpreter-owned stage
+planning, transitions, and dispatch in the running application.
+
+#### 7e.5. Remove dead TUI stage ownership
+
 - [ ] Remove UI-owned frozen plans, barrier coordination, projected handoff
       readiness, and staged dispatch through `ExecuteLegacy`.
-- [ ] Remove obsolete UI stage tests and helpers only after equivalent
-      interpreter coverage exists.
+- [ ] Remove obsolete helpers and tests only after mapping each deleted
+      scenario to retained interpreter or UI-boundary coverage.
+- [ ] Update the architecture documentation to describe the final ownership
+      boundary without claiming broader transcript migration.
 
 Stop condition: the TUI is a stage presenter and input adapter only; all stage
-planning, transitions, and dispatch are interpreter-owned.
+workflow decisions are interpreter-owned, and transcript ownership is
+unchanged.
+
+Working agreement for 7e:
+
+- One numbered checkpoint per change; 7e.4 uses separate changes for
+  broadcast and handoff.
+- No opportunistic architecture migration or unrelated cleanup.
+- Do not delete broad legacy coverage in the same change that introduces a new
+  production path.
+- If a checkpoint requires dual transcript reconciliation or another new
+  subsystem, stop and revise the plan before implementing it.
 
 Verification:
 
