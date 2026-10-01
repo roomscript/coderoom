@@ -28,6 +28,7 @@ type instructionModelPort interface {
 	ApplyCompletion(workflowCompletion) instructionSequence
 	ApplySessionEvent(session.Event) (instructionSequence, bool)
 	AppendRecord(room.Record)
+	ReadHandoffSource(string) (session.HandoffSource, bool)
 }
 
 // instructionRunner owns causal instruction ordering. It knows how to execute
@@ -54,6 +55,12 @@ func (r *instructionRunner) Run(sequence instructionSequence) {
 			snapshotRequested = snapshotRequested || snapshot
 		case completionItem:
 			follow := r.model.ApplyCompletion(item.completion)
+			queue = append(instructionItems(follow), queue...)
+		case sessionEventItem:
+			follow, applied := r.model.ApplySessionEvent(item.event)
+			if applied {
+				follow = append(follow, requestSnapshotInstruction{})
+			}
 			queue = append(instructionItems(follow), queue...)
 		default:
 			panic(fmt.Sprintf("unknown instruction runner item %T", item))
@@ -101,8 +108,7 @@ func (r *instructionRunner) applyExecutionInstruction(value instruction) ([]exec
 		items, snapshot := r.executeCommand(value)
 		return items, snapshot, true
 	case executeSessionInstruction:
-		items, snapshot := r.executeSession(value)
-		return items, snapshot, true
+		return r.executeSession(value), false, true
 	case readRosterInstruction:
 		return []executorItem{completionItem{completion: rosterCompletion{
 			raw: value.raw, participants: r.executor.roster(),
@@ -121,6 +127,11 @@ func (r *instructionRunner) applyExecutionInstruction(value instruction) ([]exec
 		barrier := r.executor.participantState()
 		return []executorItem{completionItem{completion: participantStateResult{
 			target: value.target, barrier: barrier,
+		}}}, false, true
+	case readHandoffSourceInstruction:
+		source, ok := r.model.ReadHandoffSource(value.alias)
+		return []executorItem{completionItem{completion: handoffSourceResult{
+			target: value.target, source: source, ok: ok,
 		}}}, false, true
 	default:
 		return nil, false, false
@@ -172,13 +183,25 @@ func materializeSnapshot(sequence instructionSequence) instructionSequence {
 	return result
 }
 
-func (r *instructionRunner) executeSession(value executeSessionInstruction) ([]executorItem, bool) {
+func (r *instructionRunner) executeSession(value executeSessionInstruction) []executorItem {
 	err := r.executor.executeSessionRequest(value.request)
 	events := r.executor.takeSessionEvents()
-	eventSequence := r.ApplySessionEvents(events)
-	items := instructionItems(eventSequence)
-	items = append(items, completionItem{completion: sessionCompletion{target: value.target, err: err}})
-	return items, false
+	applySuccessRecords := err == nil && len(value.recordsOnSuccess) != 0
+	items := []executorItem{}
+	if applySuccessRecords {
+		for _, record := range value.recordsOnSuccess {
+			items = append(items, instructionItem{instruction: appendRecordInstruction{record: record}})
+		}
+	}
+	for _, event := range events {
+		items = append(items, sessionEventItem{event: event})
+	}
+	items = append(items, completionItem{completion: sessionCompletion{
+		target:                value.target,
+		err:                   err,
+		successRecordsApplied: applySuccessRecords,
+	}})
+	return items
 }
 
 func (r *instructionRunner) ApplySessionEvents(events []session.Event) instructionSequence {

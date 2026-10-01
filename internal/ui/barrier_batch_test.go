@@ -207,11 +207,19 @@ func stageHandoffWithCompletedAdaOutput(t *testing.T, agents map[string]agent.Ag
 	}
 	m = pumpUntilAgentsStarted(t, m, "ada", "turing")
 
-	m = pushEvent(m, session.AgentMessage{Alias: "ada", Msg: agent.Message{
+	if err := s.Execute(session.PrivateSendCommand{Alias: "ada", Text: "seed handoff source"}); err != nil {
+		t.Fatalf("seed handoff source: %v", err)
+	}
+	ada.push(agent.Message{
 		StreamID: "completed-output",
 		Mode:     agent.ModeSingle,
 		Content:  agent.Output{Text: "prior completed output"},
-	}})
+	})
+	ada.push(agent.Message{StreamID: testTurnAnchor, Mode: agent.ModeFlush, Content: agent.Output{}})
+	m = pumpUntil(t, m, func(ev session.Event) bool {
+		msg, ok := ev.(session.AgentMessage)
+		return ok && msg.Alias == "ada" && msg.TurnCompleted
+	})
 
 	return ada, s, m
 }

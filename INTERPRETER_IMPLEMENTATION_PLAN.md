@@ -238,10 +238,10 @@ covering the migrated UI scenarios.
 
 ### 7c. Preserve handoff ordering
 
-- [ ] Resolve handoff sources from the interpreter-owned canonical room only
+- [x] Resolve handoff sources from the interpreter-owned canonical room only
       immediately before dispatch.
-- [ ] Preserve handoff output/idle ordering and latest-source-turn readiness.
-- [ ] Preserve source or target departure, unrelated participant events, and
+- [x] Preserve handoff output/idle ordering and latest-source-turn readiness.
+- [x] Preserve source or target departure, unrelated participant events, and
       late-joiner behavior.
 
 Stop condition: handoff staging no longer depends on TUI-projected turn state

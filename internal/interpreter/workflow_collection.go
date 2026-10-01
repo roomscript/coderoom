@@ -46,6 +46,8 @@ func (w *workflowCollection) applyCompletion(completion workflowCompletion) inst
 		return w.stage.handleCompletion(completion)
 	case participantStateResult:
 		return w.stage.handleCompletion(completion)
+	case handoffSourceResult:
+		return w.stage.handleCompletion(completion)
 	}
 	return nil
 }

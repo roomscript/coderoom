@@ -634,25 +634,25 @@ results, and loop status, are added through interpreter-owned room operations.
 Presentation-only state such as startup tips, focus, scroll position, and debug
 overlays remains in the UI.
 
-## Planned handoff source resolution
+## Handoff source resolution
 
-For the staged-submission migration, the latest eligible handoff source is
+For staged submissions, the latest eligible handoff source is
 application state derived from completed
 room-visible agent output. The interpreter resolves it from its own canonical
 room immediately before dispatch:
 
 ```go
-source, ok := i.room.LatestHandoffSource(fromAlias)
+source, ok := model.ReadHandoffSource(fromAlias)
 if !ok {
     // publish a rejected execution result
     return
 }
 
-err := i.execute(session.HandoffCommand{
+err := gateway.Execute(handoffRequest{
     FromAlias:   fromAlias,
     ToAlias:     toAlias,
-    IdleAliases: idleAliases,
-    Source:      source,
+    idleAliases: idleAliases,
+    source:      source,
 })
 ```
 
@@ -664,6 +664,12 @@ event. The interpreter is responsible for selecting the room-visible source.
 The source's record index refers to the interpreter-owned canonical room
 snapshot. Because the UI renders snapshots from that same room, the audit index
 and handoff-source marker cannot diverge between execution and presentation.
+
+If the source is working, the stage waits for both its terminal idle status and
+the matching completed `AgentMessage` projection before reading the source.
+Either event may arrive first. This prevents dispatch from racing canonical
+room projection while ignoring unrelated or late-joining participants outside
+the frozen barrier.
 
 ## Loops
 

@@ -5,6 +5,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/trigosec/coderoom/internal/agent"
 	"github.com/trigosec/coderoom/internal/participant"
 	"github.com/trigosec/coderoom/internal/promptlang"
 	"github.com/trigosec/coderoom/internal/room"
@@ -95,6 +96,12 @@ func TestStageWorkflow_lifecycleDispatchUsesFrozenBroadcastTargets(t *testing.T)
 		},
 	})
 
+	sequence = workflow.handleSessionEvent(session.AgentMessage{
+		Alias: "ada", TurnCompleted: true, TurnID: 6,
+	})
+	if len(sequence) != 0 {
+		t.Fatalf("stale source completion produced instructions: %#v", sequence)
+	}
 	sequence = workflow.handleSessionEvent(session.ParticipantStatusChanged{
 		Alias: "grace", To: participant.StatusWorking,
 	})
@@ -203,6 +210,107 @@ func TestStageWorkflow_keepsHandoffPendingForSourceResolution(t *testing.T) {
 		t.Fatalf("stage = %#v", snapshot)
 	} else if !slices.Equal(snapshot.Blocking, []string{"grace"}) {
 		t.Fatalf("handoff barrier = %#v, want busy bystander", snapshot)
+	}
+	sequence = workflow.handleSessionEvent(session.AgentStopped{Alias: "grace"})
+	if _, ok := sequence[0].(readHandoffSourceInstruction); !ok {
+		t.Fatalf("instruction = %T, want source read after bystander departure", sequence[0])
+	}
+}
+
+func TestStageWorkflow_handoffWaitsForSourceProjectionAndIdle(t *testing.T) {
+	workflow := stageWorkflow{}
+	statement := promptlang.Handoff{FromAlias: "ada", ToAlias: "turing"}
+	sequence := workflow.start("/handoff ada turing", statement)
+	readParticipants := sequence[0].(readParticipantStateInstruction)
+	workflow.handleCompletion(participantStateResult{
+		target: readParticipants.target,
+		barrier: []participantState{
+			{alias: "ada", status: participant.StatusWorking, turnID: 7},
+			{alias: "turing", status: participant.StatusIdle},
+		},
+	})
+
+	sequence = workflow.handleSessionEvent(session.ParticipantStatusChanged{
+		Alias: "ada", From: participant.StatusWorking, To: participant.StatusIdle,
+	})
+	if _, read := sequence[0].(readHandoffSourceInstruction); read {
+		t.Fatal("handoff read source before completed output projection")
+	}
+	sequence = workflow.handleSessionEvent(session.AgentMessage{
+		Alias: "ada", TurnCompleted: true, TurnID: 7,
+	})
+	readSource, ok := sequence[0].(readHandoffSourceInstruction)
+	if !ok || readSource.alias != "ada" {
+		t.Fatalf("instruction = %#v, want source read for ada", sequence[0])
+	}
+
+	source := session.HandoffSource{Text: "finished", RecordIndex: 4}
+	sequence = workflow.handleCompletion(handoffSourceResult{
+		target: readSource.target, source: source, ok: true,
+	})
+	dispatch := sequence[0].(executeSessionInstruction)
+	request := dispatch.request.(handoffRequest)
+	if request.source != source ||
+		!slices.Equal(request.idleAliases, []string{"ada", "turing"}) {
+		t.Fatalf("request = %#v", request)
+	}
+}
+
+func TestStageWorkflow_handoffDiscardsDepartedTarget(t *testing.T) {
+	workflow := stageWorkflow{}
+	statement := promptlang.Handoff{FromAlias: "ada", ToAlias: "turing"}
+	sequence := workflow.start("/handoff ada turing", statement)
+	read := sequence[0].(readParticipantStateInstruction)
+	workflow.handleCompletion(participantStateResult{
+		target: read.target,
+		barrier: []participantState{
+			{alias: "ada", status: participant.StatusWorking},
+			{alias: "turing", status: participant.StatusIdle},
+		},
+	})
+
+	sequence = workflow.handleSessionEvent(session.AgentStopped{Alias: "turing"})
+	record := sequence[0].(appendRecordInstruction).record
+	if record.Kind != room.KindSystem || workflow.pending() {
+		t.Fatalf("record = %#v, pending = %v", record, workflow.pending())
+	}
+}
+
+func TestStageWorkflow_handoffIgnoresBusyLateJoiner(t *testing.T) {
+	workflow := stageWorkflow{}
+	statement := promptlang.Handoff{FromAlias: "ada", ToAlias: "turing"}
+	sequence := workflow.start("/handoff ada turing", statement)
+	read := sequence[0].(readParticipantStateInstruction)
+	workflow.handleCompletion(participantStateResult{
+		target: read.target,
+		barrier: []participantState{
+			{alias: "ada", status: participant.StatusWorking},
+			{alias: "turing", status: participant.StatusIdle},
+		},
+	})
+
+	workflow.handleSessionEvent(session.ParticipantStatusChanged{
+		Alias: "grace", To: participant.StatusWorking,
+	})
+	if snapshot := workflow.snapshot(); !slices.Equal(snapshot.Blocking, []string{"ada"}) {
+		t.Fatalf("late join changed handoff barrier: %#v", snapshot)
+	}
+}
+
+func TestInterpreterModel_readsCanonicalHandoffSource(t *testing.T) {
+	model := newInterpreterModel()
+	t.Cleanup(model.Close)
+	model.ApplySessionEvent(session.AgentStarted{Alias: "ada"})
+	model.ApplySessionEvent(session.AgentMessage{
+		Alias:         "ada",
+		Msg:           agent.Message{Mode: agent.ModeSingle, Content: agent.Output{Text: "finished"}},
+		TurnCompleted: true,
+		TurnID:        3,
+	})
+
+	source, ok := model.ReadHandoffSource("ada")
+	if !ok || source.Text != "finished" || source.RecordIndex != 1 {
+		t.Fatalf("source = %#v, %v", source, ok)
 	}
 }
 
@@ -341,4 +449,88 @@ func TestSubmitContract_lifecycleDispatchesPendingBroadcast(t *testing.T) {
 		t.Fatalf("records = %#v", records)
 	}
 	assertNoSubmitEvent(t, events)
+}
+
+func TestSubmitContract_handoffUsesCanonicalRoomSource(t *testing.T) {
+	interp, sess, events := newSubmitContractInterpreter(t)
+	sess.execute = func(command session.Command, observer session.Observer) {
+		handoff, ok := command.(session.HandoffCommand)
+		if !ok {
+			return
+		}
+		observer.OnEvent(session.ContextHandoff{
+			FromAlias: handoff.FromAlias,
+			ToAlias:   handoff.ToAlias,
+			Preview:   "[handoff ada -> turing]",
+		})
+	}
+	sess.barrier = []participant.Participant{
+		{View: participant.View{Alias: "ada", Status: participant.StatusIdle}},
+		{View: participant.View{Alias: "turing", Status: participant.StatusIdle}},
+	}
+	interp.executor.recordSessionEvent(session.AgentStarted{Alias: "ada"})
+	receiveSubmitEvent[StateChanged](t, events)
+	interp.executor.recordSessionEvent(session.AgentStarted{Alias: "turing"})
+	receiveSubmitEvent[StateChanged](t, events)
+	interp.executor.recordSessionEvent(session.AgentMessage{
+		Alias:         "ada",
+		Msg:           agent.Message{Mode: agent.ModeSingle, Content: agent.Output{Text: "finished"}},
+		TurnCompleted: true,
+		TurnID:        3,
+	})
+	receiveSubmitEvent[StateChanged](t, events)
+
+	mustSubmit(t, interp.Submit("/handoff ada turing"))
+	receiveSubmitEvent[InputAccepted](t, events)
+	command := receiveSubmitCommand(t, sess.executed)
+	handoff, ok := command.(session.HandoffCommand)
+	if !ok || handoff.Source.Text != "finished" || handoff.Source.RecordIndex < 0 {
+		t.Fatalf("command = %#v", command)
+	}
+	if !slices.Equal(handoff.IdleAliases, []string{"ada", "turing"}) {
+		t.Fatalf("barrier = %v", handoff.IdleAliases)
+	}
+	receiveSubmitEvent[SubmissionSucceeded](t, events)
+	changed := receiveSubmitEvent[StateChanged](t, events)
+	if changed.Snapshot.Stage != nil {
+		t.Fatalf("stage remained after handoff: %#v", changed.Snapshot.Stage)
+	}
+	records := changed.Snapshot.Room.Records
+	if len(records) < 2 || records[len(records)-2].Text != "/handoff ada turing" ||
+		records[len(records)-1].Text != "[handoff ada -> turing]" {
+		t.Fatalf("handoff record order = %#v", records)
+	}
+}
+
+func TestSubmitContract_failedHandoffDoesNotRecordInput(t *testing.T) {
+	interp, sess, events := newSubmitContractInterpreter(t)
+	sess.executeErr = errors.New("handoff failed")
+	sess.barrier = []participant.Participant{
+		{View: participant.View{Alias: "ada", Status: participant.StatusIdle}},
+		{View: participant.View{Alias: "turing", Status: participant.StatusIdle}},
+	}
+	interp.executor.recordSessionEvent(session.AgentStarted{Alias: "ada"})
+	receiveSubmitEvent[StateChanged](t, events)
+	interp.executor.recordSessionEvent(session.AgentStarted{Alias: "turing"})
+	receiveSubmitEvent[StateChanged](t, events)
+	interp.executor.recordSessionEvent(session.AgentMessage{
+		Alias: "ada",
+		Msg: agent.Message{
+			Mode: agent.ModeSingle, Content: agent.Output{Text: "finished"},
+		},
+		TurnCompleted: true,
+		TurnID:        3,
+	})
+	receiveSubmitEvent[StateChanged](t, events)
+
+	mustSubmit(t, interp.Submit("/handoff ada turing"))
+	receiveSubmitEvent[InputAccepted](t, events)
+	receiveSubmitCommand(t, sess.executed)
+	receiveSubmitEvent[SubmissionFailed](t, events)
+	changed := receiveSubmitEvent[StateChanged](t, events)
+	for _, record := range changed.Snapshot.Room.Records {
+		if record.Text == "/handoff ada turing" {
+			t.Fatalf("failed handoff recorded input: %#v", changed.Snapshot.Room.Records)
+		}
+	}
 }

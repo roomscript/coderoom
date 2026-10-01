@@ -193,6 +193,10 @@ func (m *interpreterModel) AppendRecord(record room.Record) {
 	m.room.AppendRecord(record)
 }
 
+func (m *interpreterModel) ReadHandoffSource(alias string) (session.HandoffSource, bool) {
+	return m.room.LatestHandoffSource(alias)
+}
+
 func (m *interpreterModel) ResolveCommand(invocation promptlang.CommandInvocation) (promptlang.Shell, error) {
 	body, err := m.commands.Resolve(invocation)
 	if err != nil {

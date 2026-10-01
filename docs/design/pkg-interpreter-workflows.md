@@ -135,8 +135,8 @@ type broadcastRequest struct {
 Immediate loop turns use `planAndExecuteSharedSendRequest`, which deliberately
 plans immediately before execution.
 
-The remaining staged-submission migration extends that vocabulary with handoff and
-cancel requests:
+The implemented staged-submission vocabulary includes handoff requests; the
+remaining interrupt migration adds cancel requests:
 
 ```go
 type handoffRequest struct {
@@ -184,7 +184,11 @@ type participantState struct {
 
 type participantStateResult struct {
     barrier []participantState
-    routable []participantState
+}
+
+type handoffSourceResult struct {
+    source session.HandoffSource
+    ok     bool
 }
 ```
 
@@ -213,15 +217,15 @@ func (g sessionGateway) Execute(request sessionRequest) error {
 
 The gateway knows session planning and command types, but not loop or stage
 phases or reply semantics. Planning and detached participant inspection occur
-on the serialized interpreter loop. `handoffRequest` and `cancelRequest` will
-cover the remaining staged-dispatch and interrupt paths; they do not require a
-separate opaque planning value. Handoff will obtain its canonical room-derived
-source through the correlated read instruction described below. If Step 7
+on the serialized interpreter loop. `handoffRequest` covers handoff dispatch;
+the later `cancelRequest` covers interrupt paths. Neither requires a separate
+opaque planning value. Handoff obtains its canonical room-derived source
+through the correlated read instruction described below. If Step 7
 exposes another session-owned planning primitive, add a generic planning or
 inspection instruction/result pair; do not add stage-specific orchestration to
 `Interpreter`.
 
-The planned handoff source resolution is also a correlated read instruction.
+Handoff source resolution is a correlated read instruction.
 After the stage workflow observes the matching completed turn, the runner asks
 `modelPort.ReadHandoffSource` for the latest eligible source. This preserves
 the output projection/idle ordering guard without giving either the workflow or
@@ -233,8 +237,9 @@ The currently implemented package-private instructions are:
 
 ```go
 type executeSessionInstruction struct {
-    target  workflowRef
-    request sessionRequest
+    target           workflowRef
+    request          sessionRequest
+    recordsOnSuccess []room.Record
 }
 
 type startShellInstruction struct {
@@ -261,6 +266,10 @@ type planSharedSendInstruction struct {
 }
 type planBroadcastInstruction struct { target workflowRef }
 type readParticipantStateInstruction struct { target workflowRef }
+type readHandoffSourceInstruction struct {
+    target workflowRef
+    alias  string
+}
 type requestCloseInstruction struct{}
 type shutdownSessionInstruction struct{}
 
@@ -270,12 +279,16 @@ type publishSnapshotInstruction struct{}
 type requestSnapshotInstruction struct{}
 ```
 
-`planSharedSendInstruction`, `planBroadcastInstruction`, and
-`readParticipantStateInstruction` provide the implemented frozen-stage inputs.
-The planned `readHandoffSourceInstruction` joins the vocabulary with handoff
-dispatch. Shared sends carry their policy-aware frozen plan; broadcasts carry
-their frozen alias list directly. Participants joining after planning cannot
-become recipients.
+On successful execution, `recordsOnSuccess` are applied before every causal
+session event produced by that execution; workflow completion follows those
+events. On failure they are not applied. An empty list preserves the normal
+event-then-completion order.
+
+`planSharedSendInstruction`, `planBroadcastInstruction`,
+`readParticipantStateInstruction`, and `readHandoffSourceInstruction` provide
+the frozen-stage inputs. Shared sends carry their policy-aware frozen plan;
+broadcasts carry their frozen alias list directly. Participants joining after
+planning cannot become recipients.
 
 The compatibility instructions preserve existing command behavior during the
 incremental issue #38 migration:
@@ -613,19 +626,28 @@ condition evaluation.
    aliases and stores those values with its action and generation 4. Handoff
    retains the complete barrier snapshot.
 4. Lifecycle events update the frozen barrier. Once dispatchable, the workflow
-   allocates request 31 and returns `executePlannedSharedSendRequest`,
-   `broadcastRequest`, or `handoffRequest` with target `{stage, 4, 31}`.
+   allocates request 31. Handoffs first return
+   `readHandoffSourceInstruction`, then use its correlated canonical-room
+   result; sends and broadcasts proceed directly to execution.
 5. The session gateway translates and executes the request. A planned shared
    send uses the plan frozen in step 3 after removing listeners that departed
    while staged; it cannot gain later or same-alias replacement listeners.
-6. Causal departure, delivery, handoff, and status events update the room and
-   workflows before the command result is returned.
+   Handoff execution receives the resolved source value and frozen active
+   barrier aliases in `handoffRequest`.
+6. After successful handoff execution, the generic `recordsOnSuccess` list
+   commits the submitted user record. Causal
+   departure, delivery, handoff, and status events then update the room and
+   workflows before the command result is returned. Other session requests
+   leave the pre-event sequence empty.
 7. The correlated result commits delivered aliases or clears/discards the
    stage according to existing partial-delivery rules, returning record/event
    instructions including `requestSnapshotInstruction{}`.
 
-The instruction runner contains no staging branches. Only the session gateway
-knows which interpreter-level request maps to which session command.
+The instruction runner contains no staging branches. It applies the generic,
+record-only success-before-events data carried by an execution instruction
+without knowing which workflow or request selected it. The narrow record list
+cannot introduce nested execution or workflow control. Only the session
+gateway knows which interpreter-level request maps to which session command.
 
 ## Worked sequence: stale shell completion
 

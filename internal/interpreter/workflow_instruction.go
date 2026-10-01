@@ -28,6 +28,9 @@ type instruction interface{ instruction() }
 type executeSessionInstruction struct {
 	target  workflowRef
 	request sessionRequest
+	// recordsOnSuccess are applied before causal events from the execution;
+	// workflow completion follows those events.
+	recordsOnSuccess []room.Record
 }
 
 type startShellInstruction struct {
@@ -53,6 +56,10 @@ type planSharedSendInstruction struct {
 }
 type planBroadcastInstruction struct{ target workflowRef }
 type readParticipantStateInstruction struct{ target workflowRef }
+type readHandoffSourceInstruction struct {
+	target workflowRef
+	alias  string
+}
 type publishSnapshotInstruction struct{}
 type requestSnapshotInstruction struct{}
 type requestCloseInstruction struct{}
@@ -69,6 +76,7 @@ func (readRosterInstruction) instruction()           {}
 func (planSharedSendInstruction) instruction()       {}
 func (planBroadcastInstruction) instruction()        {}
 func (readParticipantStateInstruction) instruction() {}
+func (readHandoffSourceInstruction) instruction()    {}
 func (publishSnapshotInstruction) instruction()      {}
 func (requestSnapshotInstruction) instruction()      {}
 func (requestCloseInstruction) instruction()         {}
@@ -101,9 +109,17 @@ type broadcastRequest struct {
 	text    string
 }
 
+type handoffRequest struct {
+	fromAlias   string
+	toAlias     string
+	idleAliases []string
+	source      session.HandoffSource
+}
+
 func (planAndExecuteSharedSendRequest) sessionRequest() {}
 func (executePlannedSharedSendRequest) sessionRequest() {}
 func (broadcastRequest) sessionRequest()                {}
+func (handoffRequest) sessionRequest()                  {}
 
 type shellRequest struct {
 	command string
@@ -113,8 +129,9 @@ type shellRequest struct {
 type workflowCompletion interface{ workflowCompletion() }
 
 type sessionCompletion struct {
-	target workflowRef
-	err    error
+	target                workflowRef
+	err                   error
+	successRecordsApplied bool
 }
 
 type shellCompletion struct {
@@ -157,6 +174,12 @@ type participantStateResult struct {
 	barrier []participantState
 }
 
+type handoffSourceResult struct {
+	target workflowRef
+	source session.HandoffSource
+	ok     bool
+}
+
 func (sessionCompletion) workflowCompletion()      {}
 func (shellCompletion) workflowCompletion()        {}
 func (submissionCompletion) workflowCompletion()   {}
@@ -164,13 +187,16 @@ func (rosterCompletion) workflowCompletion()       {}
 func (sharedSendPlanResult) workflowCompletion()   {}
 func (broadcastPlanResult) workflowCompletion()    {}
 func (participantStateResult) workflowCompletion() {}
+func (handoffSourceResult) workflowCompletion()    {}
 
 type executorItem interface{ executorItem() }
 type instructionItem struct{ instruction instruction }
 type completionItem struct{ completion workflowCompletion }
+type sessionEventItem struct{ event session.Event }
 
-func (instructionItem) executorItem() {}
-func (completionItem) executorItem()  {}
+func (instructionItem) executorItem()  {}
+func (completionItem) executorItem()   {}
+func (sessionEventItem) executorItem() {}
 
 type workflowShellCompletedOperation struct {
 	target  workflowRef
@@ -222,6 +248,14 @@ func (e *interpreterExecutor) executeSessionRequest(request sessionRequest) erro
 			Aliases: slices.Clone(request.aliases), Text: request.text,
 		}); err != nil {
 			return fmt.Errorf("execute broadcast: %w", err)
+		}
+		return nil
+	case handoffRequest:
+		if err := e.session.Execute(session.HandoffCommand{
+			FromAlias: request.fromAlias, ToAlias: request.toAlias,
+			IdleAliases: slices.Clone(request.idleAliases), Source: request.source,
+		}); err != nil {
+			return fmt.Errorf("execute handoff: %w", err)
 		}
 		return nil
 	default:

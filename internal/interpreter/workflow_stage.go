@@ -13,20 +13,22 @@ import (
 
 var errNoStageTargets = errors.New("no participants available for staged submission")
 var errStageTargetUnavailable = errors.New("staged submission target unavailable")
+var errNoHandoffSource = errors.New("handoff source has no completed room-visible output")
 
 type stageState struct {
-	generation        uint64
-	raw               string
-	statement         promptlang.Statement
-	pending           workflowRef
-	plan              session.SharedSendPlan
-	routing           []string
-	barrier           []participantState
-	blocking          []string
-	unavailable       []string
-	phase             stagePhase
-	dispatchRouting   []string
-	submissionPending bool
+	generation            uint64
+	raw                   string
+	statement             promptlang.Statement
+	pending               workflowRef
+	plan                  session.SharedSendPlan
+	routing               []string
+	barrier               []participantState
+	blocking              []string
+	unavailable           []string
+	phase                 stagePhase
+	dispatchRouting       []string
+	submissionPending     bool
+	sourceNeedsCompletion bool
 }
 
 type stagePhase uint8
@@ -34,6 +36,7 @@ type stagePhase uint8
 const (
 	stagePlanning stagePhase = iota
 	stageWaiting
+	stageReadingHandoffSource
 	stageDispatching
 )
 
@@ -73,6 +76,8 @@ func (w *stageWorkflow) handleCompletion(completion workflowCompletion) instruct
 		return w.handleBroadcastPlan(completion)
 	case participantStateResult:
 		return w.handleParticipantState(completion)
+	case handoffSourceResult:
+		return w.handleHandoffSource(completion)
 	case sessionCompletion:
 		return w.handleSessionCompletion(completion)
 	default:
@@ -111,7 +116,13 @@ func (w *stageWorkflow) handleParticipantState(result participantStateResult) in
 		state.routing = handoffRouting(handoff)
 	}
 	state.blocking, state.unavailable = stageReadiness(state.barrier, state.routing)
+	state.sourceNeedsCompletion = handoffSourceIsWorking(state)
 	sequence := acceptedStageInputSequence(state.raw, state.routing)
+	return w.completeParticipantPlanning(sequence)
+}
+
+func (w *stageWorkflow) completeParticipantPlanning(sequence instructionSequence) instructionSequence {
+	state := w.active
 	if len(state.routing) == 0 {
 		raw := state.raw
 		w.active = nil
@@ -131,6 +142,17 @@ func (w *stageWorkflow) handleParticipantState(result participantStateResult) in
 			Raw: raw, Operation: "staged dispatch", Code: ErrorExecutionFailed, Err: err,
 		}})
 	}
+	if _, handoff := state.statement.(promptlang.Handoff); handoff {
+		if len(state.blocking) == 0 && !state.sourceNeedsCompletion {
+			return append(sequence, w.readHandoffSourceInstruction())
+		}
+		state.phase = stageWaiting
+		state.submissionPending = false
+		return append(sequence,
+			requestSnapshotInstruction{},
+			publishEventInstruction{event: SubmissionSucceeded{Raw: state.raw}},
+		)
+	}
 	if w.readyToDispatch() {
 		return append(sequence, w.dispatchInstruction())
 	}
@@ -141,6 +163,57 @@ func (w *stageWorkflow) handleParticipantState(result participantStateResult) in
 		publishEventInstruction{event: SubmissionSucceeded{Raw: state.raw}},
 	)
 	return sequence
+}
+
+func (w *stageWorkflow) readHandoffSourceInstruction() readHandoffSourceInstruction {
+	state := w.active
+	state.phase = stageReadingHandoffSource
+	ref := w.nextRef()
+	state.pending = ref
+	handoff := state.statement.(promptlang.Handoff)
+	return readHandoffSourceInstruction{target: ref, alias: handoff.FromAlias}
+}
+
+func (w *stageWorkflow) handleHandoffSource(result handoffSourceResult) instructionSequence {
+	if !w.matches(result.target) || w.active.phase != stageReadingHandoffSource {
+		return nil
+	}
+	if !result.ok {
+		return w.failHandoffSource()
+	}
+	state := w.active
+	handoff := state.statement.(promptlang.Handoff)
+	state.phase = stageDispatching
+	state.dispatchRouting = activeAliases(state.routing, state.unavailable)
+	ref := w.nextRef()
+	state.pending = ref
+	return instructionSequence{executeSessionInstruction{
+		target: ref,
+		request: handoffRequest{
+			fromAlias: handoff.FromAlias, toAlias: handoff.ToAlias,
+			idleAliases: activeBarrierAliases(state.barrier, state.unavailable),
+			source:      result.source,
+		},
+		recordsOnSuccess: []room.Record{{
+			Kind: room.KindUserInput, Text: state.raw,
+			Routing: slices.Clone(state.dispatchRouting),
+		}},
+	}}
+}
+
+func (w *stageWorkflow) failHandoffSource() instructionSequence {
+	state := w.active
+	w.active = nil
+	sequence := instructionSequence{requestSnapshotInstruction{}}
+	if !state.submissionPending {
+		return append(sequence, publishEventInstruction{event: OperationFailed{
+			Operation: "handoff source", Err: errNoHandoffSource,
+		}})
+	}
+	return append(sequence, publishEventInstruction{event: SubmissionFailed{
+		Raw: state.raw, Operation: "handoff source",
+		Code: ErrorExecutionFailed, Err: errNoHandoffSource,
+	}})
 }
 
 func (w *stageWorkflow) readyToDispatch() bool {
@@ -185,7 +258,7 @@ func (w *stageWorkflow) handleSessionCompletion(completion sessionCompletion) in
 	if completion.err != nil {
 		delivered = session.DeliveredAliases(completion.err)
 	}
-	if len(delivered) != 0 {
+	if len(delivered) != 0 && !completion.successRecordsApplied {
 		sequence = append(sequence, appendRecordInstruction{record: room.Record{
 			Kind: room.KindUserInput, Text: state.raw, Routing: slices.Clone(delivered),
 		}})
@@ -212,7 +285,7 @@ func (w *stageWorkflow) handleSessionEvent(event session.Event) instructionSeque
 		return nil
 	}
 	if _, handoff := w.active.statement.(promptlang.Handoff); handoff {
-		return nil
+		return w.handleHandoffSessionEvent(event)
 	}
 	switch event := event.(type) {
 	case session.ParticipantStatusChanged:
@@ -227,6 +300,87 @@ func (w *stageWorkflow) handleSessionEvent(event session.Event) instructionSeque
 		return nil
 	}
 	return w.advanceWaitingStage()
+}
+
+func (w *stageWorkflow) handleHandoffSessionEvent(event session.Event) instructionSequence {
+	if !w.applyHandoffSessionEvent(event) {
+		return nil
+	}
+	return w.advanceWaitingHandoff()
+}
+
+func (w *stageWorkflow) applyHandoffSessionEvent(event session.Event) bool {
+	handoff := w.active.statement.(promptlang.Handoff)
+	switch event := event.(type) {
+	case session.ParticipantStatusChanged:
+		w.applyHandoffStatus(event, handoff)
+	case session.AgentMessage:
+		return w.applyHandoffMessage(event, handoff)
+	case session.AgentStarted:
+		w.updateBarrierStatus(event.Alias, participant.StatusIdle)
+	case session.AgentStopped:
+		w.markUnavailable(event.Alias)
+	case session.AgentCrashed:
+		w.markUnavailable(event.Alias)
+	default:
+		return false
+	}
+	return true
+}
+
+func (w *stageWorkflow) applyHandoffStatus(
+	event session.ParticipantStatusChanged,
+	handoff promptlang.Handoff,
+) {
+	w.updateBarrierStatus(event.Alias, event.To)
+	if event.Alias == handoff.FromAlias && event.To != participant.StatusIdle {
+		w.active.sourceNeedsCompletion = true
+	}
+}
+
+func (w *stageWorkflow) applyHandoffMessage(
+	event session.AgentMessage,
+	handoff promptlang.Handoff,
+) bool {
+	if event.Alias != handoff.FromAlias || !event.TurnCompleted {
+		return false
+	}
+	if expected := barrierTurnID(w.active.barrier, event.Alias); event.TurnID < expected {
+		return false
+	}
+	w.active.sourceNeedsCompletion = false
+	w.updateBarrierTurn(event.Alias, event.TurnID)
+	return true
+}
+
+func barrierTurnID(barrier []participantState, alias string) uint64 {
+	for _, value := range barrier {
+		if value.alias == alias {
+			return value.turnID
+		}
+	}
+	return 0
+}
+
+func (w *stageWorkflow) updateBarrierTurn(alias string, turnID uint64) {
+	for index := range w.active.barrier {
+		if w.active.barrier[index].alias == alias {
+			w.active.barrier[index].turnID = turnID
+			return
+		}
+	}
+}
+
+func (w *stageWorkflow) advanceWaitingHandoff() instructionSequence {
+	state := w.active
+	state.blocking = blockedAliases(state.barrier, state.unavailable)
+	if w.mustDiscard() {
+		return w.discardUnavailableStage()
+	}
+	if len(state.blocking) != 0 || state.sourceNeedsCompletion {
+		return instructionSequence{requestSnapshotInstruction{}}
+	}
+	return instructionSequence{w.readHandoffSourceInstruction(), requestSnapshotInstruction{}}
 }
 
 func (w *stageWorkflow) updateBarrierStatus(alias string, status participant.Status) {
@@ -267,7 +421,14 @@ func (w *stageWorkflow) mustDiscard() bool {
 		return slices.Contains(state.unavailable, send.Alias)
 	}
 	_, broadcast := state.statement.(promptlang.Broadcast)
-	return broadcast && len(activeAliases(state.routing, state.unavailable)) == 0
+	if broadcast {
+		return len(activeAliases(state.routing, state.unavailable)) == 0
+	}
+	if handoff, ok := state.statement.(promptlang.Handoff); ok {
+		return slices.Contains(state.unavailable, handoff.FromAlias) ||
+			slices.Contains(state.unavailable, handoff.ToAlias)
+	}
+	return false
 }
 
 func (w *stageWorkflow) discardUnavailableStage() instructionSequence {
@@ -275,6 +436,12 @@ func (w *stageWorkflow) discardUnavailableStage() instructionSequence {
 	message := "staged submission discarded: no active targets"
 	if send, ok := state.statement.(promptlang.Send); ok {
 		message = fmt.Sprintf("staged submission discarded: %q is no longer available", send.Alias)
+	} else if handoff, ok := state.statement.(promptlang.Handoff); ok {
+		missing := handoff.FromAlias
+		if !slices.Contains(state.unavailable, missing) {
+			missing = handoff.ToAlias
+		}
+		message = fmt.Sprintf("staged submission discarded: %q is no longer available", missing)
 	}
 	w.active = nil
 	return instructionSequence{
@@ -363,6 +530,30 @@ func activeAliases(routing, unavailable []string) []string {
 		}
 	}
 	return active
+}
+
+func activeBarrierAliases(barrier []participantState, unavailable []string) []string {
+	aliases := make([]string, 0, len(barrier))
+	for _, value := range barrier {
+		if !slices.Contains(unavailable, value.alias) {
+			aliases = append(aliases, value.alias)
+		}
+	}
+	slices.Sort(aliases)
+	return aliases
+}
+
+func handoffSourceIsWorking(state *stageState) bool {
+	handoff, ok := state.statement.(promptlang.Handoff)
+	if !ok {
+		return false
+	}
+	for _, value := range state.barrier {
+		if value.alias == handoff.FromAlias {
+			return value.status != participant.StatusIdle
+		}
+	}
+	return false
 }
 
 func containsParticipant(participants []participantState, alias string) bool {
