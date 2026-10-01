@@ -130,7 +130,8 @@ func isNativeInterpreterStatement(statement promptlang.Statement) bool {
 	switch statement.(type) {
 	case promptlang.Invite, promptlang.Remove, promptlang.Cancel, promptlang.PolicyEnable,
 		promptlang.Shell, promptlang.CommandDefinition, promptlang.CommandInvocation,
-		promptlang.Loop, promptlang.Who, promptlang.Help, promptlang.Quit, promptlang.Send:
+		promptlang.Loop, promptlang.Who, promptlang.Help, promptlang.Quit, promptlang.Send,
+		promptlang.Broadcast:
 		return true
 	default:
 		return false
@@ -175,15 +176,34 @@ func (m Model) handleInterpreterEvent(event interpreter.Event) (Model, tea.Cmd) 
 		return m, nil
 	case interpreter.SubmissionSucceeded:
 		m.releaseSubmissionGate()
+		m.stagedDispatchRaw = ""
 		m = m.renderSubmissionSuccess(event.Raw)
 		return m, nil
 	case interpreter.SubmissionFailed:
 		m.releaseSubmissionGate()
+		m = m.restoreFailedStagedDraft(event.Raw)
+		m.stagedDispatchRaw = ""
 		m.room = m.room.AppendSystem(formatSubmissionFailure(event))
 		return m, nil
 	default:
 		return m, nil
 	}
+}
+
+func (m Model) restoreFailedStagedDraft(raw string) Model {
+	statement, err := promptlang.Parse(raw)
+	if err != nil {
+		return m
+	}
+	switch statement.(type) {
+	case promptlang.Send, promptlang.Broadcast:
+	default:
+		return m
+	}
+	if m.stagedDispatchRaw == raw {
+		return m
+	}
+	return m.restoreSubmittedComposer(raw)
 }
 
 func formatSubmissionFailure(event interpreter.SubmissionFailed) string {
@@ -248,18 +268,23 @@ func (m Model) handleInterpreterPresentationEvent(event interpreter.Event) (Mode
 func (m Model) handleInterpreterTranscriptEvent(event interpreter.Event) (Model, bool) {
 	switch event := event.(type) {
 	case interpreter.InputAccepted:
+		m.stagedDispatchRaw = ""
 		statement, err := promptlang.Parse(event.Raw)
 		if err != nil {
 			return m, true
 		}
-		if _, stagedSend := statement.(promptlang.Send); !stagedSend {
+		switch statement.(type) {
+		case promptlang.Send, promptlang.Broadcast:
+		default:
 			m.room = m.room.AppendUserInput(event.Raw, event.Routing)
 		}
 		return m, true
 	case interpreter.StagedInputDispatched:
+		m.stagedDispatchRaw = event.Raw
 		m.room = m.room.AppendUserInput(event.Raw, event.Routing)
 		return m, true
 	case interpreter.StagedInputDiscarded:
+		m.stagedDispatchRaw = ""
 		m.room = m.room.AppendSystem(event.Reason)
 		m = m.restoreSubmittedComposer(event.Raw)
 		m.preserveStageDraft = true

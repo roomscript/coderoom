@@ -256,8 +256,9 @@ func TestBarrierBatch_stagesThenDispatchesWhenIdle(t *testing.T) {
 	// Submit a broadcast; should stage, not dispatch.
 	next = submitThroughInterpreter(t, m, "next turn")
 	m = next.(Model)
-	if !m.room.HasStagedBatch() || !m.room.IsComposerStaged() {
-		t.Fatalf("expected staged batch and staged composer")
+	m = consumeInterpreterStateChange(t, m)
+	if m.room.HasStagedBatch() || !m.room.IsComposerStaged() {
+		t.Fatalf("expected interpreter-owned stage and staged composer")
 	}
 	assertHistoryDoesNotContainUserInput(t, m, "next turn")
 
@@ -266,6 +267,11 @@ func TestBarrierBatch_stagesThenDispatchesWhenIdle(t *testing.T) {
 	agents["ada"].push(agent.Message{StreamID: "out1", Mode: agent.ModeFlush, Content: agent.Output{}})
 	agents["ada"].push(agent.Message{StreamID: testTurnAnchor, Mode: agent.ModeFlush, Content: agent.Output{}})
 	m = pumpUntil(t, m, isIdleStatusChange("ada"))
+	m = consumeInterpreterUntil(t, m, func(event interpreter.Event) bool {
+		_, ok := event.(interpreter.StagedInputDispatched)
+		return ok
+	})
+	m = consumeInterpreterStateChange(t, m)
 
 	if m.room.HasStagedBatch() || m.room.IsComposerStaged() {
 		t.Fatalf("expected staged batch cleared after dispatch")
@@ -370,8 +376,9 @@ func TestBarrierBatch_autoDispatchPreservesFirstOutputRecord(t *testing.T) {
 	}
 	next = submitThroughInterpreter(t, m, "next turn")
 	m = next.(Model)
-	if !m.room.HasStagedBatch() {
-		t.Fatal("expected staged batch before ada becomes idle")
+	m = consumeInterpreterStateChange(t, m)
+	if m.room.HasStagedBatch() || !m.room.IsComposerStaged() {
+		t.Fatal("expected interpreter-owned stage before ada becomes idle")
 	}
 
 	agents["ada"].push(agent.Message{
@@ -382,6 +389,11 @@ func TestBarrierBatch_autoDispatchPreservesFirstOutputRecord(t *testing.T) {
 	agents["ada"].push(agent.Message{StreamID: "turn-old-output", Mode: agent.ModeFlush, Content: agent.Output{}})
 	agents["ada"].push(agent.Message{StreamID: testTurnAnchor, Mode: agent.ModeFlush, Content: agent.Output{}})
 	m = pumpUntil(t, m, isIdleStatusChange("ada"))
+	m = consumeInterpreterUntil(t, m, func(event interpreter.Event) bool {
+		_, ok := event.(interpreter.StagedInputDispatched)
+		return ok
+	})
+	m = consumeInterpreterStateChange(t, m)
 
 	agents["ada"].push(agent.Message{
 		StreamID: "turn-new-output",
@@ -416,7 +428,7 @@ func TestBarrierBatch_failedDispatchDoesNotCommitUserInput(t *testing.T) {
 	m = next.(Model)
 
 	assertHistoryDoesNotContainUserInput(t, m, "next turn")
-	if !hasRecord(m, record.KindSystem, `error: broadcast: broadcast to "ada"`) {
+	if !hasRecord(m, record.KindSystem, `error: staged dispatch: execute broadcast: broadcast to "ada"`) {
 		t.Fatalf("expected dispatch error to be surfaced; records: %v", m.room.HistoryRecords())
 	}
 	if m.room.ComposeValue() != "next turn" {
@@ -487,7 +499,7 @@ func TestBarrierBatch_partialDispatchCommitsUserInput(t *testing.T) {
 	m = next.(Model)
 
 	assertHistoryContainsUserInput(t, m, "next turn")
-	if !hasRecord(m, record.KindSystem, `error: broadcast: broadcast to "ada"`) {
+	if !hasRecord(m, record.KindSystem, `error: staged dispatch: execute broadcast: broadcast to "ada"`) {
 		t.Fatalf("expected dispatch error to be surfaced; records: %v", m.room.HistoryRecords())
 	}
 	if m.room.ComposeValue() != "" {

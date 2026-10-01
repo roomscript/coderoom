@@ -439,6 +439,10 @@ func TestSubmitContract_immediatelyDispatchesReadyBroadcast(t *testing.T) {
 	if !ok || broadcast.Text != "hello" || !slices.Equal(broadcast.Aliases, []string{"ada"}) {
 		t.Fatalf("command = %#v", command)
 	}
+	dispatched := receiveSubmitEvent[StagedInputDispatched](t, events)
+	if !slices.Equal(dispatched.Routing, []string{"ada"}) {
+		t.Fatalf("routing = %v, want [ada]", dispatched.Routing)
+	}
 	receiveSubmitEvent[SubmissionSucceeded](t, events)
 	changed := receiveSubmitEvent[StateChanged](t, events)
 	if changed.Snapshot.Stage != nil {
@@ -465,6 +469,10 @@ func TestSubmitContract_lifecycleDispatchesPendingBroadcast(t *testing.T) {
 	broadcast, ok := command.(session.BroadcastCommand)
 	if !ok || !slices.Equal(broadcast.Aliases, []string{"ada"}) {
 		t.Fatalf("command = %#v", command)
+	}
+	dispatched := receiveSubmitEvent[StagedInputDispatched](t, events)
+	if !slices.Equal(dispatched.Routing, []string{"ada"}) {
+		t.Fatalf("routing = %v, want [ada]", dispatched.Routing)
 	}
 	changed := receiveSubmitEvent[StateChanged](t, events)
 	if changed.Snapshot.Stage != nil {

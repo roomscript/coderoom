@@ -350,7 +350,11 @@ func stageDispatchRecordSequence(
 			Kind: room.KindUserInput, Text: state.raw, Routing: slices.Clone(delivered),
 		}})
 	}
-	if _, send := state.statement.(promptlang.Send); send && len(delivered) != 0 {
+	switch state.statement.(type) {
+	case promptlang.Send, promptlang.Broadcast:
+		if len(delivered) == 0 {
+			break
+		}
 		sequence = append(sequence, publishEventInstruction{event: StagedInputDispatched{
 			Raw: state.raw, Routing: slices.Clone(delivered),
 		}})

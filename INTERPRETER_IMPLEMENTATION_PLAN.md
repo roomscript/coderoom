@@ -314,7 +314,7 @@ legacy UI path can be removed independently.
 
 #### 7e.4. Route the remaining staged actions
 
-- [ ] Cut over `Broadcast` as its own reviewed change and verify immediate,
+- [x] Cut over `Broadcast` as its own reviewed change and verify immediate,
       delayed, partial-delivery, departure, edit, discard, and interrupt paths.
 - [ ] Cut over `Handoff` as a separate reviewed change and verify canonical
       source selection, source-turn ordering, departure, late joiners, edit,
