@@ -16,8 +16,6 @@ func (m Model) toStagedAction(a promptlang.Statement) staging.Action {
 			Text:     act.Text,
 			SendPlan: m.sess.PlanSharedSend(act.Alias),
 		}
-	case promptlang.Handoff:
-		return staging.Action{Kind: staging.ActionHandoff, FromAlias: act.FromAlias, ToAlias: act.ToAlias}
 	default:
 		return staging.Action{Kind: staging.ActionUnknown}
 	}

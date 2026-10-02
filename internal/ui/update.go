@@ -10,7 +10,6 @@ import (
 	"github.com/trigosec/coderoom/internal/interpreter"
 	"github.com/trigosec/coderoom/internal/participant"
 	"github.com/trigosec/coderoom/internal/promptlang"
-	roomstate "github.com/trigosec/coderoom/internal/room"
 	"github.com/trigosec/coderoom/internal/session"
 	"github.com/trigosec/coderoom/internal/ui/room"
 	"github.com/trigosec/coderoom/internal/ui/room/staging"
@@ -110,7 +109,6 @@ func (m Model) handleStageTakenForEdit(msg stageTakenForEditMsg) Model {
 func (m Model) handleRoomUpdate(msg room.UpdateMsg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	m.room, cmd = m.room.Update(msg)
-	m = m.maybeAdvanceProjectedHandoff(msg.Trigger())
 	return m, cmd
 }
 
@@ -131,7 +129,7 @@ func isNativeInterpreterStatement(statement promptlang.Statement) bool {
 	case promptlang.Invite, promptlang.Remove, promptlang.Cancel, promptlang.PolicyEnable,
 		promptlang.Shell, promptlang.CommandDefinition, promptlang.CommandInvocation,
 		promptlang.Loop, promptlang.Who, promptlang.Help, promptlang.Quit, promptlang.Send,
-		promptlang.Broadcast:
+		promptlang.Broadcast, promptlang.Handoff:
 		return true
 	default:
 		return false
@@ -196,7 +194,7 @@ func (m Model) restoreFailedStagedDraft(raw string) Model {
 		return m
 	}
 	switch statement.(type) {
-	case promptlang.Send, promptlang.Broadcast:
+	case promptlang.Send, promptlang.Broadcast, promptlang.Handoff:
 	default:
 		return m
 	}
@@ -274,7 +272,7 @@ func (m Model) handleInterpreterTranscriptEvent(event interpreter.Event) (Model,
 			return m, true
 		}
 		switch statement.(type) {
-		case promptlang.Send, promptlang.Broadcast:
+		case promptlang.Send, promptlang.Broadcast, promptlang.Handoff:
 		default:
 			m.room = m.room.AppendUserInput(event.Raw, event.Routing)
 		}
@@ -282,6 +280,9 @@ func (m Model) handleInterpreterTranscriptEvent(event interpreter.Event) (Model,
 	case interpreter.StagedInputDispatched:
 		m.stagedDispatchRaw = event.Raw
 		m.room = m.room.AppendUserInput(event.Raw, event.Routing)
+		return m, true
+	case interpreter.HandoffCompleted:
+		m.room = m.room.AppendSystem(event.Preview)
 		return m, true
 	case interpreter.StagedInputDiscarded:
 		m.stagedDispatchRaw = ""
@@ -395,9 +396,9 @@ func (m Model) handleSubmit(raw string) (Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Barrier-batch applies to user-authored Send/Broadcast/Handoff only.
+	// Legacy barrier-batch applies to user-authored Send/Broadcast only.
 	switch action.(type) {
-	case promptlang.Send, promptlang.Broadcast, promptlang.Handoff:
+	case promptlang.Send, promptlang.Broadcast:
 		return m.handleBarrierBatchSubmit(raw, action), nil
 	default:
 	}
@@ -450,23 +451,7 @@ func routingFor(a promptlang.Statement, ps []participant.Participant, sharedSend
 	if _, ok := a.(promptlang.Send); ok {
 		return sharedSendRecipients
 	}
-	if h, ok := a.(promptlang.Handoff); ok {
-		if h.FromAlias == h.ToAlias {
-			return []string{h.FromAlias}
-		}
-		return []string{h.FromAlias, h.ToAlias}
-	}
 	return nil
-}
-
-func missingHandoffTarget(act staging.Action, targets []string) string {
-	if !slices.Contains(targets, act.FromAlias) {
-		return act.FromAlias
-	}
-	if !slices.Contains(targets, act.ToAlias) {
-		return act.ToAlias
-	}
-	return ""
 }
 
 func (m Model) discardStagedBatch(message string) Model {
@@ -481,8 +466,6 @@ func (m Model) executeStagedDispatch(act staging.Action, targets []string) (Mode
 		return m.executeBroadcastAll(act.Text)
 	case staging.ActionSend:
 		return m.executeStagedSend(act, targets)
-	case staging.ActionHandoff:
-		return m.executeStagedHandoff(act, targets)
 	default:
 		m.room = m.room.AppendSystem("error: internal: staged action invalid")
 		return m, nil, errInvalidStagedAction
@@ -495,14 +478,6 @@ func (m Model) executeStagedSend(act staging.Action, targets []string) (Model, [
 		return m.discardStagedBatch(message), nil, nil
 	}
 	return m.executePlannedSendToAgent(act.SendPlan, act.Text)
-}
-
-func (m Model) executeStagedHandoff(act staging.Action, targets []string) (Model, []string, error) {
-	if missing := missingHandoffTarget(act, targets); missing != "" {
-		message := fmt.Sprintf("staged message discarded: %q is no longer available", missing)
-		return m.discardStagedBatch(message), nil, nil
-	}
-	return m.executeHandoff(act.FromAlias, act.ToAlias, targets)
 }
 
 var errInvalidStagedAction = errors.New("invalid staged action")
@@ -536,11 +511,7 @@ func (m Model) dispatchRoomStagedBatch() Model {
 func (m Model) handleEvent(e session.Event) (Model, tea.Cmd) {
 	next := m.handleMessageEvent(e)
 	// Best-effort only — see DrainObserverUpdates' doc comment.
-	var triggers []roomstate.UpdateTrigger
-	next.room, triggers = next.room.DrainObserverUpdateTriggers()
-	for _, trigger := range triggers {
-		next = next.maybeAdvanceProjectedHandoff(trigger)
-	}
+	next.room, _ = next.room.DrainObserverUpdateTriggers()
 	next = next.maybeAdvanceStagedBatch(e)
 	var toolboxCmd tea.Cmd
 	next.toolbox, toolboxCmd = next.toolbox.SetParticipants(next.sess.Roster())
@@ -590,9 +561,6 @@ func (m Model) handleBarrierBatchSubmit(raw string, action promptlang.Statement)
 	nextRoom, shouldDispatch := m.room.StageBatchOrDispatch(b, m.stagedSnapshotStatus)
 	m.room = nextRoom
 	if shouldDispatch {
-		if m.stagedHandoffSourcePending() {
-			return m
-		}
 		return m.dispatchRoomStagedBatch()
 	}
 	return m
@@ -623,9 +591,6 @@ func (m Model) handleStagedInterrupt() Model {
 		m.room = m.room.AppendSystem("[→ " + alias + "] interrupt requested")
 	}
 	if shouldDispatch {
-		if m.stagedHandoffSourcePending() {
-			return m
-		}
 		return m.dispatchRoomStagedBatch()
 	}
 	return m
@@ -634,10 +599,6 @@ func (m Model) handleStagedInterrupt() Model {
 func (m Model) maybeAdvanceStagedBatch(e session.Event) Model {
 	if !m.room.HasStagedBatch() {
 		return m
-	}
-	staged := m.room.StagedBatch()
-	if staged.Action.Kind == staging.ActionHandoff && !m.stagedHandoffSourceReady(staged) {
-		return m.handleHandoffEventBeforeSourceReady(staged, e)
 	}
 	switch e := e.(type) {
 	case session.AgentStopped:
@@ -650,79 +611,6 @@ func (m Model) maybeAdvanceStagedBatch(e session.Event) Model {
 		return m
 	}
 
-	nextRoom, shouldDispatch := m.room.RefreshStagedStatus(m.stagedSnapshotStatus)
-	m.room = nextRoom
-	if shouldDispatch {
-		return m.dispatchRoomStagedBatch()
-	}
-	return m
-}
-
-func (m Model) stagedHandoffSourcePending() bool {
-	staged := m.room.StagedBatch()
-	return staged != nil && staged.Action.Kind == staging.ActionHandoff &&
-		!m.stagedHandoffSourceReady(staged)
-}
-
-func (m Model) stagedHandoffSourceReady(staged *staging.Batch) bool {
-	p, ok := m.sess.Participant(staged.Action.FromAlias)
-	if !ok {
-		return false
-	}
-	return projectedTurnReady(
-		p.Status,
-		p.TurnID(),
-		m.projectedTurnByAlias[staged.Action.FromAlias],
-	)
-}
-
-func projectedTurnReady(status participant.Status, currentTurn, projectedTurn uint64) bool {
-	return status == participant.StatusIdle &&
-		(currentTurn == 0 || currentTurn == projectedTurn)
-}
-
-func (m Model) handleHandoffEventBeforeSourceReady(staged *staging.Batch, e session.Event) Model {
-	var alias string
-	switch event := e.(type) {
-	case session.AgentStopped:
-		alias = event.Alias
-	case session.AgentCrashed:
-		alias = event.Alias
-	default:
-		return m
-	}
-	m.room = m.room.MarkStagedDiscarded(alias)
-	if alias == staged.Action.FromAlias || alias == staged.Action.ToAlias {
-		return m.dispatchRoomStagedBatch()
-	}
-	nextRoom, _ := m.room.RefreshStagedStatus(m.stagedSnapshotStatus)
-	m.room = nextRoom
-	return m
-}
-
-func (m Model) maybeAdvanceProjectedHandoff(trigger roomstate.UpdateTrigger) Model {
-	if trigger.Kind != roomstate.UpdateTriggerAgentTurnCompleted {
-		return m
-	}
-	p, ok := m.sess.Participant(trigger.Alias)
-	if !ok || p.TurnID() != trigger.TurnID {
-		return m
-	}
-	if m.projectedTurnByAlias == nil {
-		m.projectedTurnByAlias = make(map[string]uint64)
-	}
-	m.projectedTurnByAlias[trigger.Alias] = trigger.TurnID
-
-	staged := m.room.StagedBatch()
-	if staged == nil || staged.Action.Kind != staging.ActionHandoff {
-		return m
-	}
-	if trigger.Alias != staged.Action.FromAlias {
-		return m
-	}
-	if !m.stagedHandoffSourceReady(staged) {
-		return m
-	}
 	nextRoom, shouldDispatch := m.room.RefreshStagedStatus(m.stagedSnapshotStatus)
 	m.room = nextRoom
 	if shouldDispatch {
@@ -747,8 +635,6 @@ func (m Model) executeAgentAction(a promptlang.Statement) (Model, bool) {
 		return m.sendToAgent(act.Alias, act.Text), true
 	case promptlang.Broadcast:
 		return m.broadcastAll(act.Text), true
-	case promptlang.Handoff:
-		return m.handoff(act.FromAlias, act.ToAlias), true
 	default:
 		return m, false
 	}
@@ -776,33 +662,6 @@ func (m Model) executeDebugAction(a promptlang.Statement) (Model, bool) {
 
 func (m Model) executeUIAction(promptlang.Statement) (Model, tea.Cmd) {
 	return m, nil
-}
-
-func (m Model) executeHandoff(fromAlias, toAlias string, idleAliases []string) (Model, []string, error) {
-	source, _ := m.room.LatestHandoffSource(fromAlias)
-	err := m.interpreter.ExecuteLegacy(session.HandoffCommand{
-		FromAlias:   fromAlias,
-		ToAlias:     toAlias,
-		IdleAliases: append([]string(nil), idleAliases...),
-		Source:      source,
-	})
-	if err != nil {
-		m.room = m.room.AppendSystem(fmt.Sprintf("error: handoff %q -> %q: %v", fromAlias, toAlias, err))
-		return m, nil, fmt.Errorf("handoff %q -> %q: %w", fromAlias, toAlias, err)
-	}
-	if fromAlias == toAlias {
-		return m, []string{fromAlias}, nil
-	}
-	return m, []string{fromAlias, toAlias}, nil
-}
-
-func (m Model) handoff(fromAlias, toAlias string) Model {
-	var idleAliases []string
-	for _, p := range m.sess.BarrierParticipants() {
-		idleAliases = append(idleAliases, p.Alias)
-	}
-	m, _, _ = m.executeHandoff(fromAlias, toAlias, idleAliases)
-	return m
 }
 
 func (m Model) executeSendToAgent(alias, text string) (Model, []string, error) {

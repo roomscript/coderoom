@@ -21,18 +21,14 @@ const (
 	ActionSend
 	// ActionBroadcast represents a broadcast send to all routed participants.
 	ActionBroadcast
-	// ActionHandoff represents a staged /handoff command.
-	ActionHandoff
 )
 
 // Action is the normalized staged action payload.
 type Action struct {
-	Kind      ActionKind
-	Alias     string // for ActionSend
-	SendPlan  session.SharedSendPlan
-	FromAlias string // for ActionHandoff
-	ToAlias   string // for ActionHandoff
-	Text      string
+	Kind     ActionKind
+	Alias    string // for ActionSend
+	SendPlan session.SharedSendPlan
+	Text     string
 }
 
 // Batch represents a staged submission waiting on a barrier of participants.

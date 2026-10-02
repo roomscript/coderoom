@@ -173,6 +173,11 @@ func TestStageWorkflow_discardsSendWhenAddressedTargetDeparts(t *testing.T) {
 	if record.Kind != room.KindSystem || workflow.pending() {
 		t.Fatalf("record = %#v, pending = %v", record, workflow.pending())
 	}
+	discarded := sequence[1].(publishEventInstruction).event.(StagedInputDiscarded)
+	if discarded.Raw != "@ada hello" ||
+		discarded.Reason != "staged message discarded: no active targets" {
+		t.Fatalf("discarded = %#v", discarded)
+	}
 }
 
 func TestStageWorkflow_namesDepartedSendTargetWhenListenerRemains(t *testing.T) {
@@ -301,6 +306,11 @@ func TestStageWorkflow_handoffDiscardsDepartedTarget(t *testing.T) {
 	if record.Kind != room.KindSystem || workflow.pending() {
 		t.Fatalf("record = %#v, pending = %v", record, workflow.pending())
 	}
+	discarded := sequence[1].(publishEventInstruction).event.(StagedInputDiscarded)
+	if discarded.Raw != "/handoff ada turing" ||
+		discarded.Reason != `staged message discarded: "turing" is no longer available` {
+		t.Fatalf("discarded = %#v", discarded)
+	}
 }
 
 func TestStageWorkflow_handoffIgnoresBusyLateJoiner(t *testing.T) {
@@ -321,6 +331,47 @@ func TestStageWorkflow_handoffIgnoresBusyLateJoiner(t *testing.T) {
 	})
 	if snapshot := workflow.snapshot(); !slices.Equal(snapshot.Blocking, []string{"ada"}) {
 		t.Fatalf("late join changed handoff barrier: %#v", snapshot)
+	}
+}
+
+func TestStageWorkflow_capturesOnlyActiveHandoffCompletion(t *testing.T) {
+	tests := []struct {
+		name      string
+		statement promptlang.Statement
+		event     session.ContextHandoff
+		want      bool
+	}{
+		{
+			name:      "matching handoff",
+			statement: promptlang.Handoff{FromAlias: "ada", ToAlias: "turing"},
+			event:     session.ContextHandoff{FromAlias: "ada", ToAlias: "turing"},
+			want:      true,
+		},
+		{
+			name:      "different handoff",
+			statement: promptlang.Handoff{FromAlias: "ada", ToAlias: "turing"},
+			event:     session.ContextHandoff{FromAlias: "grace", ToAlias: "turing"},
+		},
+		{
+			name:      "different staged action",
+			statement: promptlang.Broadcast{Text: "hello"},
+			event:     session.ContextHandoff{FromAlias: "ada", ToAlias: "turing"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			workflow := stageWorkflow{active: &stageState{
+				statement: tt.statement,
+				phase:     stageDispatching,
+			}}
+
+			workflow.handleSessionEvent(tt.event)
+
+			if got := workflow.active.handoffCompleted != nil; got != tt.want {
+				t.Fatalf("completion captured = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }
 
@@ -488,21 +539,35 @@ func TestSubmitContract_lifecycleDispatchesPendingBroadcast(t *testing.T) {
 
 func TestSubmitContract_handoffUsesCanonicalRoomSource(t *testing.T) {
 	interp, sess, events := newSubmitContractInterpreter(t)
+	configureSuccessfulHandoff(sess)
+	sess.barrier = []participant.Participant{
+		{View: participant.View{Alias: "ada", Status: participant.StatusIdle}},
+		{View: participant.View{Alias: "turing", Status: participant.StatusIdle}},
+	}
+	seedCanonicalHandoffSource(t, interp, events)
+
+	mustSubmit(t, interp.Submit("/handoff ada turing"))
+	receiveSubmitEvent[InputAccepted](t, events)
+	assertCanonicalHandoffDispatch(t, sess, events)
+}
+
+func configureSuccessfulHandoff(sess *submitContractSession) {
 	sess.execute = func(command session.Command, observer session.Observer) {
 		handoff, ok := command.(session.HandoffCommand)
 		if !ok {
 			return
 		}
 		observer.OnEvent(session.ContextHandoff{
-			FromAlias: handoff.FromAlias,
-			ToAlias:   handoff.ToAlias,
-			Preview:   "[handoff ada -> turing]",
+			FromAlias:         handoff.FromAlias,
+			ToAlias:           handoff.ToAlias,
+			SourceRecordIndex: handoff.Source.RecordIndex,
+			Preview:           "[handoff ada -> turing]",
 		})
 	}
-	sess.barrier = []participant.Participant{
-		{View: participant.View{Alias: "ada", Status: participant.StatusIdle}},
-		{View: participant.View{Alias: "turing", Status: participant.StatusIdle}},
-	}
+}
+
+func seedCanonicalHandoffSource(t *testing.T, interp *Interpreter, events chan Event) {
+	t.Helper()
 	interp.executor.recordSessionEvent(session.AgentStarted{Alias: "ada"})
 	receiveSubmitEvent[StateChanged](t, events)
 	interp.executor.recordSessionEvent(session.AgentStarted{Alias: "turing"})
@@ -514,9 +579,14 @@ func TestSubmitContract_handoffUsesCanonicalRoomSource(t *testing.T) {
 		TurnID:        3,
 	})
 	receiveSubmitEvent[StateChanged](t, events)
+}
 
-	mustSubmit(t, interp.Submit("/handoff ada turing"))
-	receiveSubmitEvent[InputAccepted](t, events)
+func assertCanonicalHandoffDispatch(
+	t *testing.T,
+	sess *submitContractSession,
+	events chan Event,
+) {
+	t.Helper()
 	command := receiveSubmitCommand(t, sess.executed)
 	handoff, ok := command.(session.HandoffCommand)
 	if !ok || handoff.Source.Text != "finished" || handoff.Source.RecordIndex < 0 {
@@ -525,12 +595,25 @@ func TestSubmitContract_handoffUsesCanonicalRoomSource(t *testing.T) {
 	if !slices.Equal(handoff.IdleAliases, []string{"ada", "turing"}) {
 		t.Fatalf("barrier = %v", handoff.IdleAliases)
 	}
+	dispatched := receiveSubmitEvent[StagedInputDispatched](t, events)
+	if !slices.Equal(dispatched.Routing, []string{"ada", "turing"}) {
+		t.Fatalf("routing = %v, want [ada turing]", dispatched.Routing)
+	}
+	completed := receiveSubmitEvent[HandoffCompleted](t, events)
+	if completed.Preview != "[handoff ada -> turing]" {
+		t.Fatalf("completed = %#v", completed)
+	}
 	receiveSubmitEvent[SubmissionSucceeded](t, events)
 	changed := receiveSubmitEvent[StateChanged](t, events)
-	if changed.Snapshot.Stage != nil {
-		t.Fatalf("stage remained after handoff: %#v", changed.Snapshot.Stage)
+	assertCanonicalHandoffSnapshot(t, changed.Snapshot)
+}
+
+func assertCanonicalHandoffSnapshot(t *testing.T, snapshot Snapshot) {
+	t.Helper()
+	if snapshot.Stage != nil {
+		t.Fatalf("stage remained after handoff: %#v", snapshot.Stage)
 	}
-	records := changed.Snapshot.Room.Records
+	records := snapshot.Room.Records
 	if len(records) < 2 || records[len(records)-2].Text != "/handoff ada turing" ||
 		records[len(records)-1].Text != "[handoff ada -> turing]" {
 		t.Fatalf("handoff record order = %#v", records)

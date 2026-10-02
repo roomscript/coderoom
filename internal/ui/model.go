@@ -49,6 +49,15 @@ type channelObserver struct {
 	queue *queue.Queue[session.Event]
 }
 
+type handoffFilteringObserver struct{ next session.Observer }
+
+func (o handoffFilteringObserver) OnEvent(event session.Event) {
+	if _, ok := event.(session.ContextHandoff); ok {
+		return
+	}
+	o.next.OnEvent(event)
+}
+
 type interpreterEventMsg struct{ event interpreter.Event }
 
 type interpreterObserver struct {
@@ -85,8 +94,6 @@ type Model struct {
 	cwd              string
 	lastSize         tea.WindowSizeMsg
 
-	projectedTurnByAlias map[string]uint64
-
 	activeApprovalID           int64
 	submissionPending          bool
 	submissionAwaitingDispatch string
@@ -118,7 +125,7 @@ func New(ctx context.Context, sess *session.Session, cwd string, opts ...Option)
 	}
 
 	roomModel := room.New(colorByAlias, palette.ColorDeparted)
-	sess.AddObserver(roomModel.SessionObserver())
+	sess.AddObserver(handoffFilteringObserver{next: roomModel.SessionObserver()})
 
 	m := Model{
 		sess:             sess,

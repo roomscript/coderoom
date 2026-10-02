@@ -99,15 +99,15 @@ func TestHandleEvent_broadcastAndSharedSendProduceNoSystemRecord(t *testing.T) {
 	}
 }
 
-func TestHandleEvent_contextHandoffProducesHistoryRecord(t *testing.T) {
+func TestHandleEvent_contextHandoffProducesNoHistoryRecord(t *testing.T) {
 	m := makeReadyModel(t)
 	m = pushEvent(m, session.ContextHandoff{FromAlias: "ada",
 		ToAlias: "turing",
 		Text:    "final answer",
 		Preview: "[handoff ada -> turing]\n  ↦ source: ada latest output\n  > final answer",
 	})
-	if !hasRecord(m, record.KindSystem, "[handoff ada -> turing]") {
-		t.Fatalf("expected handoff history record; records: %v", m.room.HistoryRecords())
+	if len(m.room.HistoryRecords()) != 0 {
+		t.Fatalf("expected interpreter-owned handoff event to remain presentation-inert; records: %v", m.room.HistoryRecords())
 	}
 }
 
@@ -297,9 +297,6 @@ func TestRoutingFor(t *testing.T) {
 	}
 	if got := routingFor(promptlang.Send{Alias: "nobody", Text: "hi"}, ps, []string{"nobody"}); !slices.Equal(got, []string{"nobody"}) {
 		t.Errorf("send routing for missing alias: got %v, want [nobody]", got)
-	}
-	if got := routingFor(promptlang.Handoff{FromAlias: "ada", ToAlias: "bob"}, ps, nil); !slices.Equal(got, []string{"ada", "bob"}) {
-		t.Errorf("handoff routing: got %v, want [ada bob]", got)
 	}
 	if got := routingFor(promptlang.Help{}, ps, nil); got != nil {
 		t.Errorf("help routing: got %v, want nil", got)

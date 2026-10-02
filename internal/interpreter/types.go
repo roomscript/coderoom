@@ -109,6 +109,10 @@ type StagedInputDispatched struct {
 	Routing []string
 }
 
+// HandoffCompleted presents the audit record for a completed handoff after
+// its staged input has been presented.
+type HandoffCompleted struct{ Preview string }
+
 // StagedInputDiscarded reports a staged input abandoned by lifecycle changes.
 type StagedInputDiscarded struct {
 	Raw    string
@@ -175,6 +179,7 @@ func (StateChanged) interpreterEvent()          {}
 func (OperationFailed) interpreterEvent()       {}
 func (InputAccepted) interpreterEvent()         {}
 func (StagedInputDispatched) interpreterEvent() {}
+func (HandoffCompleted) interpreterEvent()      {}
 func (StagedInputDiscarded) interpreterEvent()  {}
 func (InputRejected) interpreterEvent()         {}
 func (UnknownCommand) interpreterEvent()        {}

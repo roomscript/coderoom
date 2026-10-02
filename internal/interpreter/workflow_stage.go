@@ -32,6 +32,7 @@ type stageState struct {
 	interruptRequested    bool
 	interruptPending      map[workflowRef]string
 	interrupted           []string
+	handoffCompleted      *session.ContextHandoff
 }
 
 type stagePhase uint8
@@ -351,12 +352,18 @@ func stageDispatchRecordSequence(
 		}})
 	}
 	switch state.statement.(type) {
-	case promptlang.Send, promptlang.Broadcast:
+	case promptlang.Send, promptlang.Broadcast, promptlang.Handoff:
 		if len(delivered) == 0 {
 			break
 		}
 		sequence = append(sequence, publishEventInstruction{event: StagedInputDispatched{
 			Raw: state.raw, Routing: slices.Clone(delivered),
+		}})
+	}
+	if state.handoffCompleted != nil && completion.err == nil {
+		handoff := state.handoffCompleted
+		sequence = append(sequence, publishEventInstruction{event: HandoffCompleted{
+			Preview: handoff.Preview,
 		}})
 	}
 	return sequence
@@ -400,7 +407,14 @@ func (w *stageWorkflow) handleInterruptCompletion(
 }
 
 func (w *stageWorkflow) handleSessionEvent(event session.Event) instructionSequence {
-	if w.active == nil || w.active.phase != stageWaiting {
+	if w.active == nil {
+		return nil
+	}
+	if w.active.phase == stageDispatching {
+		w.captureHandoffCompletion(event)
+		return nil
+	}
+	if w.active.phase != stageWaiting {
 		return nil
 	}
 	if _, handoff := w.active.statement.(promptlang.Handoff); handoff {
@@ -419,6 +433,17 @@ func (w *stageWorkflow) handleSessionEvent(event session.Event) instructionSeque
 		return nil
 	}
 	return w.advanceWaitingStage()
+}
+
+func (w *stageWorkflow) captureHandoffCompletion(event session.Event) {
+	statement, isHandoff := w.active.statement.(promptlang.Handoff)
+	handoff, completed := event.(session.ContextHandoff)
+	if !isHandoff || !completed ||
+		handoff.FromAlias != statement.FromAlias || handoff.ToAlias != statement.ToAlias {
+		return
+	}
+	handoffCopy := handoff
+	w.active.handoffCompleted = &handoffCopy
 }
 
 func (w *stageWorkflow) handleHandoffSessionEvent(event session.Event) instructionSequence {
@@ -564,12 +589,14 @@ func (w *stageWorkflow) discardUnavailableStage() instructionSequence {
 			missing = handoff.ToAlias
 		}
 		message = fmt.Sprintf("staged submission discarded: %q is no longer available", missing)
+		presentationMessage = fmt.Sprintf("staged message discarded: %q is no longer available", missing)
 	}
 	w.active = nil
 	sequence := instructionSequence{
 		appendRecordInstruction{record: room.Record{Kind: room.KindSystem, Text: message}},
 	}
-	if _, send := state.statement.(promptlang.Send); send {
+	switch state.statement.(type) {
+	case promptlang.Send, promptlang.Broadcast, promptlang.Handoff:
 		sequence = append(sequence, publishEventInstruction{event: StagedInputDiscarded{
 			Raw: state.raw, Reason: presentationMessage,
 		}})

@@ -117,7 +117,6 @@ func roomEventProducesUpdate(e session.Event) bool {
 		session.AgentStopped,
 		session.AgentCrashed,
 		session.AgentLog,
-		session.ContextHandoff,
 		session.AgentMessage:
 		return true
 	default:

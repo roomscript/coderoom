@@ -3,6 +3,7 @@ package ui
 import (
 	"errors"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -11,7 +12,6 @@ import (
 	roomconfig "github.com/trigosec/coderoom/internal/config"
 	"github.com/trigosec/coderoom/internal/interpreter"
 	"github.com/trigosec/coderoom/internal/participant"
-	roomstate "github.com/trigosec/coderoom/internal/room"
 	"github.com/trigosec/coderoom/internal/session"
 	"github.com/trigosec/coderoom/internal/ui/room/history/record"
 )
@@ -19,6 +19,7 @@ import (
 type testAgent struct {
 	ch        chan agent.Message
 	sendErr   error
+	noticeErr error
 	sendCalls int
 	sent      []string
 }
@@ -45,6 +46,9 @@ func (a *testAgent) Send(text string) (agent.StreamID, error) {
 	return testTurnAnchor, nil
 }
 func (a *testAgent) SendNotice(string) (agent.StreamID, error) {
+	if a.noticeErr != nil {
+		return "", a.noticeErr
+	}
 	// In this test stub, treat notices as a complete turn that ends immediately.
 	const noticeTurnStream = agent.StreamID("codex:notice-turn")
 	a.push(agent.Message{StreamID: noticeTurnStream, Mode: agent.ModeFlush, Content: agent.Output{}})
@@ -573,11 +577,11 @@ func TestBarrierBatch_handoffIgnoresStartingBystanderOutsideBarrier(t *testing.T
 		t.Fatalf("make ada busy: %v", err)
 	}
 	m = submitThroughInterpreter(t, m, "/handoff ada turing")
-	if !m.room.HasStagedBatch() {
-		t.Fatal("expected staged handoff before ada becomes idle")
-	}
+	m = consumeInterpreterStateChange(t, m)
+	assertInterpreterHandoffStaged(t, m)
 	ada.push(agent.Message{StreamID: testTurnAnchor, Mode: agent.ModeFlush, Content: agent.Output{}})
 	m = pumpUntil(t, m, isHandoff("ada", "turing"))
+	m = consumeInterpreterHandoffDispatch(t, m)
 
 	if m.room.HasStagedBatch() || m.room.IsComposerStaged() {
 		t.Fatal("expected staged handoff cleared after dispatch")
@@ -586,8 +590,45 @@ func TestBarrierBatch_handoffIgnoresStartingBystanderOutsideBarrier(t *testing.T
 	if !hasRecord(m, record.KindSystem, "[handoff ada -> turing]") {
 		t.Fatalf("expected handoff record after dispatch; records: %v", m.room.HistoryRecords())
 	}
+	assertRecordOrder(t, m, "/handoff ada turing", "[handoff ada -> turing]")
 
 	close(cat.startGate)
+}
+
+func assertRecordOrder(t *testing.T, m Model, first, second string) {
+	t.Helper()
+	firstIndex, secondIndex := -1, -1
+	for index, item := range m.room.HistoryRecords() {
+		if strings.HasPrefix(item.Text, first) && firstIndex < 0 {
+			firstIndex = index
+		}
+		if strings.HasPrefix(item.Text, second) && secondIndex < 0 {
+			secondIndex = index
+		}
+	}
+	if firstIndex < 0 || secondIndex < 0 || firstIndex >= secondIndex {
+		t.Fatalf("record order %q before %q not preserved: %v", first, second, m.room.HistoryRecords())
+	}
+}
+
+func TestInterpreterHandoffSendNoticeFailureDoesNotCommitInput(t *testing.T) {
+	agents := map[string]agent.Agent{
+		"ada":    newTestAgent(),
+		"turing": newTestAgent(),
+	}
+	_, _, m := stageHandoffWithCompletedAdaOutput(t, agents)
+	agents["turing"].(*testAgent).noticeErr = errors.New("notice failed")
+
+	m = submitThroughInterpreter(t, m, "/handoff ada turing")
+	m.room = m.room.DrainObserverUpdates()
+
+	assertHistoryDoesNotContainUserInput(t, m, "/handoff ada turing")
+	if got := m.room.ComposeValue(); got != "/handoff ada turing" {
+		t.Fatalf("composer = %q, want restored handoff", got)
+	}
+	if !hasRecord(m, record.KindLog, "handoff rejected:") {
+		t.Fatalf("expected rejected handoff audit log; records: %v", m.room.HistoryRecords())
+	}
 }
 
 func TestBarrierBatch_handoffDispatchRacesSourceFlush(t *testing.T) {
@@ -630,198 +671,13 @@ func TestBarrierBatch_nonCompletingFlushDoesNotSatisfyHandoffSourceReadiness(t *
 		return ok && message.Msg.StreamID == "reasoning" && message.Msg.Mode == agent.ModeFlush
 	})
 
-	if _, ok := m.projectedTurnByAlias["ada"]; ok {
-		t.Fatal("non-completing reasoning flush advanced projected turn watermark")
-	}
-	if !m.room.HasStagedBatch() {
+	if m.interpreter.Snapshot().Stage == nil {
 		t.Fatal("non-completing reasoning flush dispatched staged handoff")
 	}
 
 	pushAnchorOutput(agents["ada"], "fresh output")
 	m = waitForHandoffEvent(t, m)
 	assertHandoffRaceResolved(t, m)
-}
-
-func TestBarrierBatch_handoffReadinessTracksLatestSourceTurn(t *testing.T) {
-	agents := map[string]*testAgent{
-		"ada":    newTestAgent(),
-		"turing": newTestAgent(),
-		"cat":    newTestAgent(),
-	}
-	s := session.New(session.WithAgentFactory(func(_ *session.Session, cfg roomconfig.ParticipantConfig, _ session.AgentBackend) agent.Agent {
-		return agents[cfg.Alias]
-	}))
-	t.Cleanup(s.Shutdown)
-	m := newTestModelWithSession(t, s)
-	next, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
-	m = next.(Model)
-	for _, alias := range []string{"ada", "turing", "cat"} {
-		inviteParticipant(t, s, alias)
-	}
-	m = pumpUntilAgentsStarted(t, m, "ada", "turing", "cat")
-	if err := s.Execute(session.PrivateSendCommand{Alias: "cat", Text: "busy"}); err != nil {
-		t.Fatalf("make cat busy: %v", err)
-	}
-	m = submitThroughInterpreter(t, m, "/handoff ada turing")
-
-	firstTurn := completeSourceTurnBeforeProjection(t, &m, s, agents["ada"], "first")
-	m = m.maybeAdvanceProjectedHandoff(completedTurnTrigger(firstTurn))
-	if !m.stagedHandoffSourceReady(m.room.StagedBatch()) || !m.room.HasStagedBatch() {
-		t.Fatal("first source completion did not leave handoff ready and staged")
-	}
-
-	secondTurn := completeSourceTurnBeforeProjection(t, &m, s, agents["ada"], "second")
-	m = m.maybeAdvanceProjectedHandoff(completedTurnTrigger(firstTurn))
-	if m.stagedHandoffSourceReady(m.room.StagedBatch()) {
-		t.Fatal("delayed completion from previous source turn restored readiness")
-	}
-	m = m.maybeAdvanceProjectedHandoff(completedTurnTrigger(secondTurn))
-	if !m.stagedHandoffSourceReady(m.room.StagedBatch()) {
-		t.Fatal("latest source turn completion did not restore readiness")
-	}
-}
-
-func completeSourceTurnBeforeProjection(t *testing.T, m *Model, s *session.Session, a *testAgent, label string) uint64 {
-	t.Helper()
-	if err := s.Execute(session.PrivateSendCommand{Alias: "ada", Text: label + " turn"}); err != nil {
-		t.Fatalf("start %s ada turn: %v", label, err)
-	}
-	if m.stagedHandoffSourceReady(m.room.StagedBatch()) {
-		t.Fatalf("starting %s source turn did not invalidate handoff readiness", label)
-	}
-	pushAnchorOutput(a, label+" output")
-	return waitForAdaIdle(t, m, s)
-}
-
-func TestProjectedTurnReady_preservesWatermarkAcrossTemporaryStates(t *testing.T) {
-	tests := []struct {
-		name          string
-		status        participant.Status
-		currentTurn   uint64
-		projectedTurn uint64
-		want          bool
-	}{
-		{name: "idle projected turn", status: participant.StatusIdle, currentTurn: 4, projectedTurn: 4, want: true},
-		{name: "keepalive same turn", status: participant.StatusKeepalive, currentTurn: 4, projectedTurn: 4},
-		{name: "idle after keepalive", status: participant.StatusIdle, currentTurn: 4, projectedTurn: 4, want: true},
-		{name: "preparing same turn", status: participant.StatusPreparing, currentTurn: 4, projectedTurn: 4},
-		{name: "idle after prepare abort", status: participant.StatusIdle, currentTurn: 4, projectedTurn: 4, want: true},
-		{name: "working newer turn", status: participant.StatusWorking, currentTurn: 5, projectedTurn: 4},
-		{name: "idle newer turn before projection", status: participant.StatusIdle, currentTurn: 5, projectedTurn: 4},
-		{name: "initial idle without turn", status: participant.StatusIdle, currentTurn: 0, projectedTurn: 0, want: true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := projectedTurnReady(tt.status, tt.currentTurn, tt.projectedTurn); got != tt.want {
-				t.Fatalf("projectedTurnReady() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
-func TestProjectedTurnWatermark_rejectsRemovedParticipantCompletion(t *testing.T) {
-	agents := map[string]*testAgent{
-		"ada":    newTestAgent(),
-		"turing": newTestAgent(),
-	}
-	s := session.New(session.WithAgentFactory(func(_ *session.Session, cfg roomconfig.ParticipantConfig, _ session.AgentBackend) agent.Agent {
-		return agents[cfg.Alias]
-	}))
-	t.Cleanup(s.Shutdown)
-	m := newTestModelWithSession(t, s)
-	for _, alias := range []string{"ada", "turing"} {
-		inviteParticipant(t, s, alias)
-	}
-	m = pumpUntilAgentsStarted(t, m, "ada", "turing")
-
-	if err := s.Execute(session.PrivateSendCommand{Alias: "ada", Text: "old incarnation"}); err != nil {
-		t.Fatalf("start old ada turn: %v", err)
-	}
-	pushAnchorOutput(agents["ada"], "old output")
-	oldTurnID := waitForAdaIdle(t, &m, s)
-	if err := s.Execute(session.RemoveCommand{Alias: "ada"}); err != nil {
-		t.Fatalf("remove old ada: %v", err)
-	}
-
-	agents["ada"] = newTestAgent()
-	inviteParticipant(t, s, "ada")
-	m = pumpUntilAgentsStarted(t, m, "ada")
-	if err := s.Execute(session.PrivateSendCommand{Alias: "ada", Text: "new incarnation"}); err != nil {
-		t.Fatalf("start new ada turn: %v", err)
-	}
-	pushAnchorOutput(agents["ada"], "new output")
-	newTurnID := waitForAdaIdle(t, &m, s)
-	if newTurnID == oldTurnID {
-		t.Fatalf("turn ID reused across alias reincarnation: %d", newTurnID)
-	}
-
-	m = m.maybeAdvanceProjectedHandoff(completedTurnTrigger(oldTurnID))
-	if got := m.projectedTurnByAlias["ada"]; got != 0 {
-		t.Fatalf("delayed old turn advanced watermark to %d", got)
-	}
-	m = m.maybeAdvanceProjectedHandoff(completedTurnTrigger(newTurnID))
-	if got := m.projectedTurnByAlias["ada"]; got != newTurnID {
-		t.Fatalf("new turn watermark = %d, want %d", got, newTurnID)
-	}
-}
-
-func waitForAdaIdle(t *testing.T, m *Model, s *session.Session) uint64 {
-	t.Helper()
-	for {
-		event := mustPullEvent(t, m)
-		status, ok := event.(session.ParticipantStatusChanged)
-		if !ok || status.Alias != "ada" || status.To != participant.StatusIdle {
-			continue
-		}
-		p, ok := s.Participant("ada")
-		if !ok {
-			t.Fatal("participant ada disappeared")
-		}
-		return p.TurnID()
-	}
-}
-
-func completedTurnTrigger(turn uint64) roomstate.UpdateTrigger {
-	return roomstate.UpdateTrigger{
-		Kind:     roomstate.UpdateTriggerAgentTurnCompleted,
-		Alias:    "ada",
-		StreamID: testTurnAnchor,
-		TurnID:   turn,
-	}
-}
-
-func TestBarrierBatch_bystanderDepartureDoesNotBypassHandoffSourceReadiness(t *testing.T) {
-	agents := map[string]*testAgent{
-		"ada":    newTestAgent(),
-		"turing": newTestAgent(),
-		"cat":    newTestAgent(),
-	}
-	s := session.New(session.WithAgentFactory(func(_ *session.Session, cfg roomconfig.ParticipantConfig, _ session.AgentBackend) agent.Agent {
-		return agents[cfg.Alias]
-	}))
-	t.Cleanup(s.Shutdown)
-	m := newTestModelWithSession(t, s)
-	next, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
-	m = next.(Model)
-	for _, alias := range []string{"ada", "turing", "cat"} {
-		inviteParticipant(t, s, alias)
-	}
-	m = pumpUntilAgentsStarted(t, m, "ada", "turing", "cat")
-	m = stageBusyHandoff(t, s, m)
-
-	pushAnchorOutput(agents["ada"], "fresh output")
-	for {
-		event := mustPullEvent(t, &m)
-		status, ok := event.(session.ParticipantStatusChanged)
-		if ok && status.Alias == "ada" && status.To == participant.StatusIdle {
-			break
-		}
-	}
-	m = m.maybeAdvanceStagedBatch(session.AgentStopped{Alias: "cat"})
-
-	if !m.room.HasStagedBatch() {
-		t.Fatal("bystander departure dispatched handoff before source flush projection")
-	}
 }
 
 func newTwoAgentBarrierBatchModel(t *testing.T) (map[string]*testAgent, *session.Session, Model) {
@@ -851,10 +707,25 @@ func stageBusyHandoff(t *testing.T, s *session.Session, m Model) Model {
 		t.Fatalf("make ada busy: %v", err)
 	}
 	m = submitThroughInterpreter(t, m, "/handoff ada turing")
-	if !m.room.HasStagedBatch() {
-		t.Fatal("expected staged handoff before ada becomes idle")
-	}
+	m = consumeInterpreterStateChange(t, m)
+	assertInterpreterHandoffStaged(t, m)
 	return m
+}
+
+func assertInterpreterHandoffStaged(t *testing.T, m Model) {
+	t.Helper()
+	if m.interpreter.Snapshot().Stage == nil || m.room.HasStagedBatch() || !m.room.IsComposerStaged() {
+		t.Fatal("expected interpreter-owned staged handoff")
+	}
+}
+
+func consumeInterpreterHandoffDispatch(t *testing.T, m Model) Model {
+	t.Helper()
+	m = consumeInterpreterUntil(t, m, func(event interpreter.Event) bool {
+		_, ok := event.(interpreter.StagedInputDispatched)
+		return ok
+	})
+	return consumeInterpreterStateChange(t, m)
 }
 
 func pushAnchorOutput(a *testAgent, text string) {
@@ -880,13 +751,13 @@ func waitForHandoffEvent(t *testing.T, m Model) Model {
 			m = next.(Model)
 			if handoff, ok := ev.(session.ContextHandoff); ok &&
 				handoff.FromAlias == "ada" && handoff.ToAlias == "turing" {
-				return m
+				return consumeInterpreterHandoffDispatch(t, m)
 			}
 			continue
 		}
 		if updated, trigger, ok := m.room.WaitObserverUpdateTriggerTimeout(10 * time.Millisecond); ok {
 			m.room = updated
-			m = m.maybeAdvanceProjectedHandoff(trigger)
+			_ = trigger
 		}
 	}
 	t.Fatalf("timed out waiting for handoff event; staged=%v records=%v", m.room.HasStagedBatch(), m.room.HistoryRecords())
@@ -941,9 +812,8 @@ func stageDiscardedTargetHandoff(t *testing.T) (*testAgent, *session.Session, Mo
 	}
 	next = submitThroughInterpreter(t, m, "/handoff ada turing")
 	m = next.(Model)
-	if !m.room.HasStagedBatch() {
-		t.Fatal("expected staged handoff before target disappears")
-	}
+	m = consumeInterpreterStateChange(t, m)
+	assertInterpreterHandoffStaged(t, m)
 
 	return agents["ada"], s, m
 }
@@ -963,6 +833,11 @@ func TestBarrierBatch_handoffDiscardedTargetRestoresDraft(t *testing.T) {
 		msg, ok := ev.(session.AgentMessage)
 		return ok && msg.Alias == "ada"
 	})
+	m = consumeInterpreterUntil(t, m, func(event interpreter.Event) bool {
+		_, ok := event.(interpreter.StagedInputDiscarded)
+		return ok
+	})
+	m = consumeInterpreterStateChange(t, m)
 
 	assertHistoryDoesNotContainUserInput(t, m, "/handoff ada turing")
 	if !hasRecord(m, record.KindSystem, `staged message discarded: "turing" is no longer available`) {
@@ -987,9 +862,8 @@ func TestBarrierBatch_handoffIgnoresBusyParticipantWhoJoinedAfterStaging(t *test
 		t.Fatalf("make ada busy: %v", err)
 	}
 	m = submitThroughInterpreter(t, m, "/handoff ada turing")
-	if !m.room.HasStagedBatch() {
-		t.Fatal("expected staged handoff before ada becomes idle")
-	}
+	m = consumeInterpreterStateChange(t, m)
+	assertInterpreterHandoffStaged(t, m)
 
 	inviteParticipant(t, s, "cat")
 	m = pumpUntilAgentsStarted(t, m, "cat")
@@ -999,6 +873,7 @@ func TestBarrierBatch_handoffIgnoresBusyParticipantWhoJoinedAfterStaging(t *test
 
 	ada.push(agent.Message{StreamID: testTurnAnchor, Mode: agent.ModeFlush, Content: agent.Output{}})
 	m = pumpUntil(t, m, isHandoff("ada", "turing"))
+	m = consumeInterpreterHandoffDispatch(t, m)
 
 	if hasRecord(m, record.KindSystem, `error: handoff "ada" -> "turing"`) {
 		t.Fatalf("did not expect busy late joiner to block staged handoff; records: %v", m.room.HistoryRecords())

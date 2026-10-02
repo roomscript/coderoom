@@ -316,10 +316,15 @@ legacy UI path can be removed independently.
 
 - [x] Cut over `Broadcast` as its own reviewed change and verify immediate,
       delayed, partial-delivery, departure, edit, discard, and interrupt paths.
-- [ ] Cut over `Handoff` as a separate reviewed change and verify canonical
+- [x] Cut over `Handoff` as a separate reviewed change and verify canonical
       source selection, source-turn ordering, departure, late joiners, edit,
       discard, and interrupt paths.
-- [ ] Do not remove shared legacy helpers until both actions no longer use
+- [x] Keep transcript presentation single-owned by the TUI: retain
+      `ContextHandoff` in interpreter room state, exclude it unconditionally
+      from TUI room projection, and emit ordered interpreter presentation
+      events for the dispatched input followed by the handoff audit. Do not
+      optimistically mutate or roll back transcript records.
+- [x] Do not remove shared legacy helpers until both actions no longer use
       them.
 
 Stop condition: send, broadcast, and handoff each use interpreter-owned stage
