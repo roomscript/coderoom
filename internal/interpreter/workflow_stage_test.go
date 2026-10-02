@@ -60,20 +60,7 @@ func TestStageWorkflow_copiesSuppliedPlanTargets(t *testing.T) {
 			workflow := stageWorkflow{}
 			supplied := slices.Clone(tt.targets)
 			sequence := workflow.start("hello", tt.statement)
-			switch request := sequence[0].(type) {
-			case planSharedSendInstruction:
-				sess := session.New()
-				t.Cleanup(sess.Shutdown)
-				sequence = workflow.handleCompletion(sharedSendPlanResult{
-					target: request.target, plan: sess.PlanSharedSend("ada"), targets: supplied,
-				})
-			case planBroadcastInstruction:
-				sequence = workflow.handleCompletion(broadcastPlanResult{
-					target: request.target, targets: supplied,
-				})
-			default:
-				t.Fatalf("plan instruction = %T", request)
-			}
+			sequence = acceptSuppliedStagePlan(t, &workflow, sequence, supplied)
 			// The producer retains its slice after the workflow accepts the plan.
 			for index := range supplied {
 				supplied[index] = "changed"
@@ -94,15 +81,7 @@ func TestStageWorkflow_copiesSuppliedPlanTargets(t *testing.T) {
 				Alias: "ada", To: participant.StatusIdle,
 			})
 			dispatch := sequence[0].(executeSessionInstruction)
-			var recipients []string
-			switch request := dispatch.request.(type) {
-			case executePlannedSharedSendRequest:
-				recipients = request.plan.Targets()
-			case broadcastRequest:
-				recipients = request.aliases
-			default:
-				t.Fatalf("dispatch request = %T", request)
-			}
+			recipients := stageDispatchRecipients(t, dispatch)
 			if !slices.Equal(recipients, tt.targets) {
 				t.Fatalf("dispatch recipients = %v, want %v", recipients, tt.targets)
 			}
@@ -110,6 +89,36 @@ func TestStageWorkflow_copiesSuppliedPlanTargets(t *testing.T) {
 				t.Fatalf("dispatch routing = %v, want %v", workflow.snapshot().Routing, tt.targets)
 			}
 		})
+	}
+}
+
+func acceptSuppliedStagePlan(t *testing.T, workflow *stageWorkflow, sequence instructionSequence, targets []string) instructionSequence {
+	t.Helper()
+	switch request := sequence[0].(type) {
+	case planSharedSendInstruction:
+		sess := session.New()
+		t.Cleanup(sess.Shutdown)
+		return workflow.handleCompletion(sharedSendPlanResult{
+			target: request.target, plan: sess.PlanSharedSend("ada"), targets: targets,
+		})
+	case planBroadcastInstruction:
+		return workflow.handleCompletion(broadcastPlanResult{target: request.target, targets: targets})
+	default:
+		t.Fatalf("plan instruction = %T", request)
+		return nil
+	}
+}
+
+func stageDispatchRecipients(t *testing.T, dispatch executeSessionInstruction) []string {
+	t.Helper()
+	switch request := dispatch.request.(type) {
+	case executePlannedSharedSendRequest:
+		return request.plan.Targets()
+	case broadcastRequest:
+		return request.aliases
+	default:
+		t.Fatalf("dispatch request = %T", request)
+		return nil
 	}
 }
 
