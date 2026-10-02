@@ -12,7 +12,6 @@ import (
 	"github.com/trigosec/coderoom/internal/promptlang"
 	"github.com/trigosec/coderoom/internal/session"
 	"github.com/trigosec/coderoom/internal/ui/room"
-	"github.com/trigosec/coderoom/internal/ui/room/staging"
 )
 
 const (
@@ -85,8 +84,7 @@ func (m Model) handleStageOperationMessage(msg tea.Msg) (tea.Model, tea.Cmd, boo
 		if m.interpreterStagePresented {
 			return m, interruptAndDispatchStage(m.interpreter), true
 		}
-		next := m.handleStagedInterrupt()
-		return next, nil, true
+		return m, nil, true
 	default:
 		return m, nil, false
 	}
@@ -378,11 +376,6 @@ func (m Model) handleSubmit(raw string) (Model, tea.Cmd) {
 	if strings.TrimSpace(raw) == "" {
 		return m, nil
 	}
-	if m.room.HasStagedBatch() {
-		// This should be prevented by the room, but keep it defensive.
-		m.room = m.room.AppendSystem("error: message already staged (Esc to edit, Ctrl+X to send)")
-		return m, nil
-	}
 	action, err := promptlang.Parse(raw)
 	if err != nil {
 		var unknown promptlang.UnknownCommandError
@@ -396,15 +389,7 @@ func (m Model) handleSubmit(raw string) (Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Legacy barrier-batch applies to user-authored Send/Broadcast only.
-	switch action.(type) {
-	case promptlang.Send, promptlang.Broadcast:
-		return m.handleBarrierBatchSubmit(raw, action), nil
-	default:
-	}
-
-	routing := m.routingFor(action)
-	m.room = m.room.AppendUserInput(raw, routing)
+	m.room = m.room.AppendUserInput(raw, nil)
 	m.room = m.clearSubmittedComposer(raw)
 	return m.executeAction(action)
 }
@@ -428,91 +413,10 @@ func (m *Model) releaseSubmissionGate() {
 	m.submissionAwaitingDispatch = ""
 }
 
-// routingFor returns the aliases that will receive the action, used to
-// populate the routing footer on the echoed user-input record.
-func (m Model) routingFor(a promptlang.Statement) []string {
-	ps := m.sess.RoutableParticipants()
-	var sharedSendRecipients []string
-	if send, ok := a.(promptlang.Send); ok {
-		sharedSendRecipients = m.sess.PlanSharedSend(send.Alias).Targets()
-	}
-	return routingFor(a, ps, sharedSendRecipients)
-}
-
-func routingFor(a promptlang.Statement, ps []participant.Participant, sharedSendRecipients []string) []string {
-	if _, ok := a.(promptlang.Broadcast); ok {
-		aliases := make([]string, len(ps))
-		for i, p := range ps {
-			aliases[i] = p.Alias
-		}
-		slices.Sort(aliases)
-		return aliases
-	}
-	if _, ok := a.(promptlang.Send); ok {
-		return sharedSendRecipients
-	}
-	return nil
-}
-
-func (m Model) discardStagedBatch(message string) Model {
-	m.room = m.room.ClearComposerStaged()
-	m.room = m.room.AppendSystem(message)
-	return m
-}
-
-func (m Model) executeStagedDispatch(act staging.Action, targets []string) (Model, []string, error) {
-	switch act.Kind {
-	case staging.ActionBroadcast:
-		return m.executeBroadcastAll(act.Text)
-	case staging.ActionSend:
-		return m.executeStagedSend(act, targets)
-	default:
-		m.room = m.room.AppendSystem("error: internal: staged action invalid")
-		return m, nil, errInvalidStagedAction
-	}
-}
-
-func (m Model) executeStagedSend(act staging.Action, targets []string) (Model, []string, error) {
-	if !slices.Contains(targets, act.Alias) {
-		message := fmt.Sprintf("staged message discarded: %q is no longer available", act.Alias)
-		return m.discardStagedBatch(message), nil, nil
-	}
-	return m.executePlannedSendToAgent(act.SendPlan, act.Text)
-}
-
-var errInvalidStagedAction = errors.New("invalid staged action")
-
-func (m Model) dispatchRoomStagedBatch() Model {
-	act, targets, ok := m.room.StagedDispatchCandidate()
-	if !ok {
-		m.room = m.room.AppendSystem("error: internal: no staged batch to dispatch")
-		return m
-	}
-	if len(targets) == 0 {
-		return m.discardStagedBatch("staged message discarded: no active targets")
-	}
-
-	m, delivered, err := m.executeStagedDispatch(act, targets)
-	if errors.Is(err, errInvalidStagedAction) {
-		return m
-	}
-	if err != nil {
-		if len(delivered) > 0 {
-			m.room = m.room.CommitStagedBatchDispatch(delivered)
-		} else {
-			m.room = m.room.ClearComposerStaged()
-		}
-		return m
-	}
-	m.room = m.room.CommitStagedBatchDispatch(targets)
-	return m
-}
-
 func (m Model) handleEvent(e session.Event) (Model, tea.Cmd) {
 	next := m.handleMessageEvent(e)
 	// Best-effort only — see DrainObserverUpdates' doc comment.
 	next.room, _ = next.room.DrainObserverUpdateTriggers()
-	next = next.maybeAdvanceStagedBatch(e)
 	var toolboxCmd tea.Cmd
 	next.toolbox, toolboxCmd = next.toolbox.SetParticipants(next.sess.Roster())
 	return next, toolboxCmd
@@ -548,96 +452,11 @@ func (m Model) handleApprovalCleared(e session.ApprovalCleared) Model {
 	return m
 }
 
-func (m Model) handleBarrierBatchSubmit(raw string, action promptlang.Statement) Model {
-	ps := m.sess.BarrierParticipants()
-	if len(ps) == 0 {
-		m.room = m.room.AppendSystem("[no agents — use /invite <alias> to start one]")
-		m.room = m.room.SetComposeValue("")
-		return m
-	}
-	stagedAction := m.toStagedAction(action)
-	barrier := barrierAliases(stagedAction, ps)
-	b := staging.NewBatch(raw, stagedAction, barrier)
-	nextRoom, shouldDispatch := m.room.StageBatchOrDispatch(b, m.stagedSnapshotStatus)
-	m.room = nextRoom
-	if shouldDispatch {
-		return m.dispatchRoomStagedBatch()
-	}
-	return m
-}
-
-func barrierAliases(action staging.Action, ps []participant.Participant) []string {
-	if action.Kind == staging.ActionSend {
-		return action.SendPlan.Targets()
-	}
-	aliases := make([]string, len(ps))
-	for i, p := range ps {
-		aliases[i] = p.Alias
-	}
-	return aliases
-}
-
-func (m Model) handleStagedInterrupt() Model {
-	if !m.room.HasStagedBatch() {
-		return m
-	}
-	nextRoom, blocked, shouldDispatch := m.room.RequestStagedInterrupt(m.stagedSnapshotStatus)
-	m.room = nextRoom
-	for _, alias := range blocked {
-		if err := m.interpreter.ExecuteLegacy(session.CancelCommand{Alias: alias}); err != nil {
-			m.room = m.room.AppendSystem(fmt.Sprintf("error: cancel %q: %v", alias, err))
-			continue
-		}
-		m.room = m.room.AppendSystem("[→ " + alias + "] interrupt requested")
-	}
-	if shouldDispatch {
-		return m.dispatchRoomStagedBatch()
-	}
-	return m
-}
-
-func (m Model) maybeAdvanceStagedBatch(e session.Event) Model {
-	if !m.room.HasStagedBatch() {
-		return m
-	}
-	switch e := e.(type) {
-	case session.AgentStopped:
-		m.room = m.room.MarkStagedDiscarded(e.Alias)
-	case session.AgentCrashed:
-		m.room = m.room.MarkStagedDiscarded(e.Alias)
-	case session.ParticipantStatusChanged, session.AgentStarted:
-		// Status changes that may unblock dispatch.
-	default:
-		return m
-	}
-
-	nextRoom, shouldDispatch := m.room.RefreshStagedStatus(m.stagedSnapshotStatus)
-	m.room = nextRoom
-	if shouldDispatch {
-		return m.dispatchRoomStagedBatch()
-	}
-	return m
-}
-
 func (m Model) executeAction(a promptlang.Statement) (Model, tea.Cmd) {
-	if out, ok := m.executeAgentAction(a); ok {
-		return out, nil
-	}
 	if out, ok := m.executeDebugAction(a); ok {
 		return out, nil
 	}
 	return m.executeUIAction(a)
-}
-
-func (m Model) executeAgentAction(a promptlang.Statement) (Model, bool) {
-	switch act := a.(type) {
-	case promptlang.Send:
-		return m.sendToAgent(act.Alias, act.Text), true
-	case promptlang.Broadcast:
-		return m.broadcastAll(act.Text), true
-	default:
-		return m, false
-	}
 }
 
 func (m Model) executeDebugAction(a promptlang.Statement) (Model, bool) {
@@ -662,51 +481,6 @@ func (m Model) executeDebugAction(a promptlang.Statement) (Model, bool) {
 
 func (m Model) executeUIAction(promptlang.Statement) (Model, tea.Cmd) {
 	return m, nil
-}
-
-func (m Model) executeSendToAgent(alias, text string) (Model, []string, error) {
-	return m.executePlannedSendToAgent(m.sess.PlanSharedSend(alias), text)
-}
-
-func (m Model) executePlannedSendToAgent(plan session.SharedSendPlan, text string) (Model, []string, error) {
-	targets := plan.Targets()
-	if len(targets) == 0 {
-		m.room = m.room.AppendSystem("error: invalid shared send plan")
-		return m, nil, fmt.Errorf("invalid shared send plan")
-	}
-	alias := targets[0]
-	err := m.interpreter.ExecuteLegacy(session.SharedSendCommand{
-		Plan:          plan,
-		TextDirect:    text,
-		TextListeners: fmt.Sprintf("@%s: %s", alias, text),
-	})
-	if err != nil {
-		m.room = m.room.AppendSystem(fmt.Sprintf("error: send to %q: %v", alias, err))
-		return m, session.DeliveredAliases(err), fmt.Errorf("send to %q: %w", alias, err)
-	}
-	return m, targets, nil
-}
-
-func (m Model) sendToAgent(alias, text string) Model {
-	m, _, _ = m.executeSendToAgent(alias, text)
-	return m
-}
-
-func (m Model) executeBroadcastAll(text string) (Model, []string, error) {
-	if len(m.sess.RoutableParticipants()) == 0 {
-		m.room = m.room.AppendSystem("[no agents — use /invite <alias> to start one]")
-		return m, nil, fmt.Errorf("no routable agents")
-	}
-	if err := m.interpreter.ExecuteLegacy(session.BroadcastCommand{Text: text}); err != nil {
-		m.room = m.room.AppendSystem(fmt.Sprintf("error: broadcast: %v", err))
-		return m, session.DeliveredAliases(err), fmt.Errorf("broadcast: %w", err)
-	}
-	return m, m.routingFor(promptlang.Broadcast{Text: text}), nil
-}
-
-func (m Model) broadcastAll(text string) Model {
-	m, _, _ = m.executeBroadcastAll(text)
-	return m
 }
 
 const helpKeysText = `General keys:

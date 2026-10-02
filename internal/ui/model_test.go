@@ -1,13 +1,10 @@
 package ui
 
 import (
-	"slices"
 	"testing"
 
 	"github.com/trigosec/coderoom/internal/agent"
 	"github.com/trigosec/coderoom/internal/interpreter"
-	"github.com/trigosec/coderoom/internal/participant"
-	"github.com/trigosec/coderoom/internal/promptlang"
 	"github.com/trigosec/coderoom/internal/queue"
 	"github.com/trigosec/coderoom/internal/session"
 	"github.com/trigosec/coderoom/internal/ui/room/history/record"
@@ -284,32 +281,17 @@ func TestHandleEvent_agentStoppedClearsStreaming(t *testing.T) {
 	}
 }
 
-func TestRoutingFor(t *testing.T) {
-	ps := []participant.Participant{
-		{View: participant.View{Alias: "ada"}},
-		{View: participant.View{Alias: "bob"}},
-	}
-	if got := routingFor(promptlang.Broadcast{Text: "hi"}, ps, nil); !slices.Equal(got, []string{"ada", "bob"}) {
-		t.Errorf("broadcast routing: got %v, want [ada bob]", got)
-	}
-	if got := routingFor(promptlang.Send{Alias: "ada", Text: "hi"}, ps, []string{"ada"}); !slices.Equal(got, []string{"ada"}) {
-		t.Errorf("send routing: got %v, want [ada]", got)
-	}
-	if got := routingFor(promptlang.Send{Alias: "nobody", Text: "hi"}, ps, []string{"nobody"}); !slices.Equal(got, []string{"nobody"}) {
-		t.Errorf("send routing for missing alias: got %v, want [nobody]", got)
-	}
-	if got := routingFor(promptlang.Help{}, ps, nil); got != nil {
-		t.Errorf("help routing: got %v, want nil", got)
-	}
-}
-
-// --- broadcastAll guard ---
-
-func TestBroadcastAll_noAgentsShowsHint(t *testing.T) {
+// Routing assertions are retained in workflow_stage_test.go and the native
+// send/broadcast lifecycle tests in barrier_batch_test.go.
+func TestBroadcast_noAgentsPreservesDraft(t *testing.T) {
 	m := makeReadyModel(t)
-	m = m.broadcastAll("hello")
-	if !hasRecord(m, record.KindSystem, "no agents") {
-		t.Errorf("expected no-agents hint in system records; records: %v", m.room.HistoryRecords())
+	m = submitThroughInterpreter(t, m, "hello")
+	if !hasRecord(m, record.KindSystem, "error:") {
+		t.Errorf("expected dispatch failure presentation; records: %v", m.room.HistoryRecords())
+	}
+	assertHistoryDoesNotContainUserInput(t, m, "hello")
+	if got := m.room.ComposeValue(); got != "hello" {
+		t.Fatalf("draft = %q, want hello", got)
 	}
 }
 

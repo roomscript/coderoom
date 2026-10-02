@@ -332,12 +332,43 @@ planning, transitions, and dispatch in the running application.
 
 #### 7e.5. Remove dead TUI stage ownership
 
-- [ ] Remove UI-owned frozen plans, barrier coordination, projected handoff
-      readiness, and staged dispatch through `ExecuteLegacy`.
-- [ ] Remove obsolete helpers and tests only after mapping each deleted
-      scenario to retained interpreter or UI-boundary coverage.
-- [ ] Update the architecture documentation to describe the final ownership
+Complete the cleanup in three independently reviewable changes. Run
+`go test ./...` for each checkpoint and interpreter race tests before closing
+7e.5. Keep Step 8 API and broader TUI cleanup separate.
+
+##### 7e.5a. Remove legacy UI dispatch and coordination
+
+- [x] Remove UI action translation, frozen routing planning, barrier
+      coordination, lifecycle advancement, interrupt, and staged dispatch
+      through `ExecuteLegacy`.
+- [x] Retain room batch APIs temporarily; keep native lifecycle coverage.
+- [x] Map removed routing assertions to interpreter frozen-routing and native
+      UI send/broadcast lifecycle tests. Preserve the explicit empty-routing
+      assertion in the native `/help` test with a participant present. Exercise
+      the no-agents assertion
+      through native submission (failure presentation, no input commit, and draft
+      preservation).
+
+Verification: `go test ./...` and `git diff --check` passed.
+
+Stop condition: the UI no longer plans or dispatches stages, and session events
+cannot advance a legacy UI stage.
+
+##### 7e.5b. Remove room-owned batch state
+
+- [ ] Remove legacy room batch state/APIs and the UI staging package.
+- [ ] Adapt composer and approval tests to presentation-only staged state.
+- [ ] Map every deleted scenario to retained interpreter or UI-boundary
+      coverage before removing obsolete helpers and tests.
+
+Stop condition: room staged state contains presentation data only, with
+composer and approval behavior preserved.
+
+##### 7e.5c. Document and verify the final stage boundary
+
+- [ ] Update architecture documentation to describe the final ownership
       boundary without claiming broader transcript migration.
+- [ ] Audit for remaining UI stage workflow decisions and mark 7e.5 complete.
 
 Stop condition: the TUI is a stage presenter and input adapter only; all stage
 workflow decisions are interpreter-owned, and transcript ownership is

@@ -42,12 +42,25 @@ func TestSubmit_LegacyCommandBypassesInterpreter(t *testing.T) {
 }
 
 func TestSubmit_HelpUsesNativeInterpreterMetadata(t *testing.T) {
-	m := makeReadyModel(t)
+	sess := session.New(session.WithAgentFactory(func(*session.Session, roomconfig.ParticipantConfig, session.AgentBackend) agent.Agent {
+		return newTestAgent()
+	}))
+	t.Cleanup(sess.Shutdown)
+	m := newTestModelWithSession(t, sess)
+	next, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = next.(Model)
+	inviteParticipant(t, sess, "ada")
+	m = pumpUntilAgentsStarted(t, m, "ada")
 
 	m = submitThroughInterpreter(t, m, "/help")
 
 	if got := countUserInputRecords(m, "/help"); got != 1 {
 		t.Fatalf("user input records = %d, want 1", got)
+	}
+	for _, rec := range m.room.HistoryRecords() {
+		if rec.Kind == record.KindUserInput && rec.Text == "/help" && len(rec.Routing) != 0 {
+			t.Fatalf("help routing = %v, want no recipients", rec.Routing)
+		}
 	}
 	for _, text := range []string{"[help]", "/invite <alias>", "@<alias> <text>", "Ctrl+O"} {
 		if !hasRecord(m, record.KindSystem, text) {
