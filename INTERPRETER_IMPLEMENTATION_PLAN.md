@@ -356,10 +356,26 @@ cannot advance a legacy UI stage.
 
 ##### 7e.5b. Remove room-owned batch state
 
-- [ ] Remove legacy room batch state/APIs and the UI staging package.
-- [ ] Adapt composer and approval tests to presentation-only staged state.
-- [ ] Map every deleted scenario to retained interpreter or UI-boundary
+- [x] Remove legacy room batch state/APIs and the UI staging package.
+- [x] Adapt composer and approval tests to presentation-only staged state.
+- [x] Map every deleted scenario to retained interpreter or UI-boundary
       coverage before removing obsolete helpers and tests.
+
+Coverage mapping for removal of `internal/ui/room/staging`:
+
+| Removed scenario | Retained coverage |
+| --- | --- |
+| Sorted barrier and isolation from supplied plan slices | `TestInterpreterExecutor_planBroadcastSortsDetachedAliases`, `TestStageWorkflow_copiesSuppliedPlanTargets` (send and broadcast; producer mutation after acceptance cannot change staged routing or dispatch recipients) |
+| Discarded targets excluded | `TestStageWorkflow_departedBroadcastTargetDoesNotBlockRemainingTargets` |
+| Missing targets excluded, working targets block, idle targets do not | `TestStageWorkflow_dispatchesRemainingBroadcastTargetAfterPlanningDeparture`, `TestStageWorkflow_stagesBusyBroadcastWithDetachedSnapshot`, `TestStageWorkflow_freezesSendPlanAndDispatchesWhenReady` |
+| Hold/interrupt status text and excluded instructions | `TestRenderInterpreterStageStatus_includesModeAndBusySummary` |
+| Status resize, blocked typing, edit message, focus restoration | Retained room composer tests using `SetComposerStaged`/`ClearComposerStaged` |
+| Approval clear/cancel restores staged input | Retained UI and room approval tests assert staged mode, text, and status |
+
+Native UI lifecycle tests retain their scenarios and now inspect interpreter
+stage state or composer presentation instead of the removed room batch API.
+
+Verification: `go test ./...` and `git diff --check` passed.
 
 Stop condition: room staged state contains presentation data only, with
 composer and approval behavior preserved.

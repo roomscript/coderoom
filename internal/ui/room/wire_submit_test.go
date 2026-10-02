@@ -7,7 +7,6 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/trigosec/coderoom/internal/ui/room/staging"
 )
 
 func assertCmdContainsStagedEditMsg(t *testing.T, cmd tea.Cmd) {
@@ -335,12 +334,7 @@ func TestStagedStatusResize_preservesBottomAnchor(t *testing.T) {
 		t.Fatal("expected to start at bottom")
 	}
 
-	b := staging.NewBatch(
-		"/send a hi",
-		staging.Action{Kind: staging.ActionSend, Alias: "a", Text: "hi"},
-		[]string{"a"},
-	)
-	m = m.StageBatch(b, []string{"a"}) // blocked => staged status line adds a row
+	m = m.SetComposerStaged("@a hi", "Participants busy: a.")
 	if !m.AtBottom() {
 		t.Fatal("expected staged status line resize to keep history anchored to bottom")
 	}
@@ -371,18 +365,12 @@ func TestStagedComposer_blocksKeysAndEscEmitsEditMsg(t *testing.T) {
 	}
 }
 
-func TestDispatchStagedBatch_restoresComposerFocus(t *testing.T) {
+func TestClearComposerStaged_restoresComposerFocus(t *testing.T) {
 	m := newTestModel(t)
 	m = m.HandleResize(80, 20)
 
-	b := staging.NewBatch(
-		"/send a hi",
-		staging.Action{Kind: staging.ActionSend, Alias: "a", Text: "hi"},
-		[]string{"a"},
-	)
-	m = m.StageBatch(b, nil)
-
-	next, _, _ := m.DispatchStagedBatch()
+	m = m.SetComposerStaged("@a hi", "Message on-hold.")
+	next := m.ClearComposerStaged().SetComposeValue("")
 	if next.IsComposerStaged() {
 		t.Fatal("expected staged mode cleared after dispatch")
 	}

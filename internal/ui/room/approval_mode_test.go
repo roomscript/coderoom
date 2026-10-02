@@ -1,12 +1,12 @@
 package room
 
 import (
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/trigosec/coderoom/internal/agent"
 	"github.com/trigosec/coderoom/internal/ui/room/approval"
-	"github.com/trigosec/coderoom/internal/ui/room/staging"
 )
 
 func flattenCmd(cmd tea.Cmd) []tea.Msg {
@@ -136,12 +136,7 @@ func TestApprovalMode_ctrlCEmitsCancelDecisionMsg(t *testing.T) {
 func TestApprovalMode_ctrlCRestoresStagedComposer(t *testing.T) {
 	m := newTestModel(t)
 	m = m.HandleResize(80, 20)
-	batch := staging.NewBatch(
-		"next turn",
-		staging.Action{Kind: staging.ActionBroadcast, Text: "next turn"},
-		[]string{"ada"},
-	)
-	m = m.StageBatch(batch, []string{"ada"})
+	m = m.SetComposerStaged("next turn", "Participants busy: ada.")
 	m = m.ShowApproval(agent.ApprovalRequest{
 		Ask:     "approve?",
 		Options: []agent.ApprovalOption{agent.OptionAccept, agent.OptionCancel, agent.OptionDecline},
@@ -159,11 +154,11 @@ func TestApprovalMode_ctrlCRestoresStagedComposer(t *testing.T) {
 	if !next.IsComposerStaged() {
 		t.Fatal("expected staged composer to be restored after approval cancel")
 	}
-	if !next.HasStagedBatch() {
-		t.Fatal("expected staged batch to remain after approval cancel")
+	if got := next.ComposeValue(); got != "next turn" {
+		t.Fatalf("restored staged text = %q, want next turn", got)
 	}
-	if got := next.StagedBatch(); got != batch {
-		t.Fatalf("staged batch pointer changed: got %#v want %#v", got, batch)
+	if view := next.View(); !strings.Contains(view, "Participants busy: ada.") {
+		t.Fatalf("restored stage status missing: %s", view)
 	}
 }
 

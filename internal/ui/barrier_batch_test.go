@@ -261,7 +261,7 @@ func TestBarrierBatch_stagesThenDispatchesWhenIdle(t *testing.T) {
 	next = submitThroughInterpreter(t, m, "next turn")
 	m = next.(Model)
 	m = consumeInterpreterStateChange(t, m)
-	if m.room.HasStagedBatch() || !m.room.IsComposerStaged() {
+	if m.interpreter.Snapshot().Stage == nil || !m.room.IsComposerStaged() {
 		t.Fatalf("expected interpreter-owned stage and staged composer")
 	}
 	assertHistoryDoesNotContainUserInput(t, m, "next turn")
@@ -277,7 +277,7 @@ func TestBarrierBatch_stagesThenDispatchesWhenIdle(t *testing.T) {
 	})
 	m = consumeInterpreterStateChange(t, m)
 
-	if m.room.HasStagedBatch() || m.room.IsComposerStaged() {
+	if m.interpreter.Snapshot().Stage != nil || m.room.IsComposerStaged() {
 		t.Fatalf("expected staged batch cleared after dispatch")
 	}
 	assertHistoryContainsUserInput(t, m, "next turn")
@@ -306,7 +306,7 @@ func TestBarrierBatch_directSendIgnoresUnrelatedBusyParticipantByDefault(t *test
 	next = submitThroughInterpreter(t, m, "@ada do it")
 	m = next.(Model)
 
-	if m.room.HasStagedBatch() {
+	if m.interpreter.Snapshot().Stage != nil {
 		t.Fatal("direct send should not wait for an unrelated participant")
 	}
 	if agents["ada"].sendCalls != 1 {
@@ -343,7 +343,7 @@ func TestBarrierBatch_sendNoticesPolicyIncludesBusyListener(t *testing.T) {
 	m = next.(Model)
 	m = consumeInterpreterStateChange(t, m)
 
-	if m.room.HasStagedBatch() || !m.room.IsComposerStaged() {
+	if m.interpreter.Snapshot().Stage == nil || !m.room.IsComposerStaged() {
 		t.Fatal("direct send should wait for a listener when send-notices is enabled")
 	}
 	stage := m.interpreter.Snapshot().Stage
@@ -381,7 +381,7 @@ func TestBarrierBatch_autoDispatchPreservesFirstOutputRecord(t *testing.T) {
 	next = submitThroughInterpreter(t, m, "next turn")
 	m = next.(Model)
 	m = consumeInterpreterStateChange(t, m)
-	if m.room.HasStagedBatch() || !m.room.IsComposerStaged() {
+	if m.interpreter.Snapshot().Stage == nil || !m.room.IsComposerStaged() {
 		t.Fatal("expected interpreter-owned stage before ada becomes idle")
 	}
 
@@ -438,7 +438,7 @@ func TestBarrierBatch_failedDispatchDoesNotCommitUserInput(t *testing.T) {
 	if m.room.ComposeValue() != "next turn" {
 		t.Fatalf("expected failed dispatch to preserve composer text, got %q", m.room.ComposeValue())
 	}
-	if m.room.HasStagedBatch() || m.room.IsComposerStaged() {
+	if m.interpreter.Snapshot().Stage != nil || m.room.IsComposerStaged() {
 		t.Fatal("expected failed dispatch to clear staged state")
 	}
 }
@@ -475,7 +475,7 @@ func TestBarrierBatch_failedDispatchDoesNotRetryOnRollbackIdle(t *testing.T) {
 	if agents["ada"].sendCalls != 1 {
 		t.Fatalf("expected no retry after rollback idle events, got %d send attempts", agents["ada"].sendCalls)
 	}
-	if m.room.HasStagedBatch() || m.room.IsComposerStaged() {
+	if m.interpreter.Snapshot().Stage != nil || m.room.IsComposerStaged() {
 		t.Fatal("expected staged state to remain cleared after rollback events")
 	}
 }
@@ -509,7 +509,7 @@ func TestBarrierBatch_partialDispatchCommitsUserInput(t *testing.T) {
 	if m.room.ComposeValue() != "" {
 		t.Fatalf("expected partial dispatch to clear composer, got %q", m.room.ComposeValue())
 	}
-	if m.room.HasStagedBatch() {
+	if m.interpreter.Snapshot().Stage != nil {
 		t.Fatal("expected staged batch cleared after partial dispatch")
 	}
 }
@@ -536,7 +536,7 @@ func TestBarrierBatch_discardedTargetRestoresDraft(t *testing.T) {
 	next = submitThroughInterpreter(t, m, "@ada hi")
 	m = next.(Model)
 	m = consumeInterpreterStateChange(t, m)
-	if m.room.HasStagedBatch() || !m.room.IsComposerStaged() {
+	if m.interpreter.Snapshot().Stage == nil || !m.room.IsComposerStaged() {
 		t.Fatal("expected staged batch before target disappears")
 	}
 
@@ -560,7 +560,7 @@ func TestBarrierBatch_discardedTargetRestoresDraft(t *testing.T) {
 	if m.room.ComposeValue() != "@ada hi" {
 		t.Fatalf("expected discarded staged send to restore draft, got %q", m.room.ComposeValue())
 	}
-	if m.room.HasStagedBatch() || m.room.IsComposerStaged() {
+	if m.interpreter.Snapshot().Stage != nil || m.room.IsComposerStaged() {
 		t.Fatal("expected staged state cleared after target discard")
 	}
 }
@@ -583,7 +583,7 @@ func TestBarrierBatch_handoffIgnoresStartingBystanderOutsideBarrier(t *testing.T
 	m = pumpUntil(t, m, isHandoff("ada", "turing"))
 	m = consumeInterpreterHandoffDispatch(t, m)
 
-	if m.room.HasStagedBatch() || m.room.IsComposerStaged() {
+	if m.interpreter.Snapshot().Stage != nil || m.room.IsComposerStaged() {
 		t.Fatal("expected staged handoff cleared after dispatch")
 	}
 	assertHistoryContainsUserInput(t, m, "/handoff ada turing")
@@ -714,7 +714,7 @@ func stageBusyHandoff(t *testing.T, s *session.Session, m Model) Model {
 
 func assertInterpreterHandoffStaged(t *testing.T, m Model) {
 	t.Helper()
-	if m.interpreter.Snapshot().Stage == nil || m.room.HasStagedBatch() || !m.room.IsComposerStaged() {
+	if m.interpreter.Snapshot().Stage == nil || !m.room.IsComposerStaged() {
 		t.Fatal("expected interpreter-owned staged handoff")
 	}
 }
@@ -760,7 +760,7 @@ func waitForHandoffEvent(t *testing.T, m Model) Model {
 			_ = trigger
 		}
 	}
-	t.Fatalf("timed out waiting for handoff event; staged=%v records=%v", m.room.HasStagedBatch(), m.room.HistoryRecords())
+	t.Fatalf("timed out waiting for handoff event; staged=%v records=%v", m.interpreter.Snapshot().Stage != nil, m.room.HistoryRecords())
 	return m
 }
 
@@ -770,7 +770,7 @@ func assertHandoffRaceResolved(t *testing.T, m Model) {
 	if hasRecord(m, record.KindSystem, `error: handoff "ada" -> "turing"`) {
 		t.Fatalf("did not expect handoff race error after source anchor flush; records: %v", m.room.HistoryRecords())
 	}
-	if m.room.HasStagedBatch() || m.room.IsComposerStaged() {
+	if m.interpreter.Snapshot().Stage != nil || m.room.IsComposerStaged() {
 		t.Fatal("expected staged handoff cleared after dispatch")
 	}
 	assertHistoryContainsUserInput(t, m, "/handoff ada turing")
@@ -846,7 +846,7 @@ func TestBarrierBatch_handoffDiscardedTargetRestoresDraft(t *testing.T) {
 	if m.room.ComposeValue() != "/handoff ada turing" {
 		t.Fatalf("expected discarded staged handoff to restore draft, got %q", m.room.ComposeValue())
 	}
-	if m.room.HasStagedBatch() || m.room.IsComposerStaged() {
+	if m.interpreter.Snapshot().Stage != nil || m.room.IsComposerStaged() {
 		t.Fatal("expected staged state cleared after handoff target discard")
 	}
 }

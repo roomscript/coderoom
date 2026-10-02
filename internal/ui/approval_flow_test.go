@@ -11,7 +11,6 @@ import (
 	"github.com/trigosec/coderoom/internal/session"
 	uiroom "github.com/trigosec/coderoom/internal/ui/room"
 	"github.com/trigosec/coderoom/internal/ui/room/history/record"
-	"github.com/trigosec/coderoom/internal/ui/room/staging"
 )
 
 func TestApprovalDecision_UsesInterpreterAndRendersFailure(t *testing.T) {
@@ -113,14 +112,9 @@ func TestApprovalEvents_IgnoreClearForDifferentApproval(t *testing.T) {
 
 func TestApprovalEvents_ClearRestoresStagedComposer(t *testing.T) {
 	m := makeReadyModel(t)
-	batch := staging.NewBatch(
-		"next turn",
-		staging.Action{Kind: staging.ActionBroadcast, Text: "next turn"},
-		[]string{"ada"},
-	)
-	m.room = m.room.StageBatch(batch, []string{"ada"})
+	m.room = m.room.SetComposerStaged("next turn", "Participants busy: ada.")
 
-	if !m.room.IsComposerStaged() || !m.room.HasStagedBatch() {
+	if !m.room.IsComposerStaged() {
 		t.Fatal("expected staged composer before approval prompt")
 	}
 
@@ -137,11 +131,11 @@ func TestApprovalEvents_ClearRestoresStagedComposer(t *testing.T) {
 	if !m.room.IsComposerStaged() {
 		t.Fatal("expected staged composer to be restored after approval clear")
 	}
-	if !m.room.HasStagedBatch() {
-		t.Fatal("expected staged batch to remain after approval clear")
+	if got := m.room.ComposeValue(); got != "next turn" {
+		t.Fatalf("restored staged text = %q, want next turn", got)
 	}
-	if got := m.room.StagedBatch(); got != batch {
-		t.Fatalf("staged batch pointer changed: got %#v want %#v", got, batch)
+	if view := m.room.View(); !strings.Contains(view, "Participants busy: ada.") {
+		t.Fatalf("restored stage status missing: %s", view)
 	}
 	if strings.Contains(m.room.View(), "approve?") {
 		t.Fatalf("expected cleared approval prompt to disappear, got:\n%s", m.room.View())

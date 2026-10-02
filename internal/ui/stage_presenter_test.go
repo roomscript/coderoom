@@ -154,3 +154,30 @@ func showTestApproval(m Model) Model {
 		},
 	})
 }
+
+func TestRenderInterpreterStageStatus_includesModeAndBusySummary(t *testing.T) {
+	tests := []struct {
+		name   string
+		stage  interpreter.StagedSubmission
+		want   []string
+		absent []string
+	}{
+		{name: "on hold with none busy", want: []string{"Message on-hold.", "Participants busy: none.", "Press Esc to edit.", "Press Ctrl+X to interrupt and send."}, absent: []string{"Interrupt requested.", "Waiting to send…"}},
+		{name: "interrupt waiting", stage: interpreter.StagedSubmission{InterruptRequested: true, Blocking: []string{"ada"}}, want: []string{"Interrupt requested.", "Participants busy: ada.", "Waiting to send…"}, absent: []string{"Press Esc to edit."}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := renderInterpreterStageStatus(&tt.stage, func(string) string { return "" })
+			for _, text := range tt.want {
+				if !strings.Contains(got, text) {
+					t.Fatalf("status = %q, missing %q", got, text)
+				}
+			}
+			for _, text := range tt.absent {
+				if strings.Contains(got, text) {
+					t.Fatalf("status = %q, unexpectedly contains %q", got, text)
+				}
+			}
+		})
+	}
+}

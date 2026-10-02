@@ -46,6 +46,73 @@ func TestStageWorkflow_freezesSendPlanAndDispatchesWhenReady(t *testing.T) {
 	}
 }
 
+func TestStageWorkflow_copiesSuppliedPlanTargets(t *testing.T) {
+	tests := []struct {
+		name      string
+		statement promptlang.Statement
+		targets   []string
+	}{
+		{name: "send", statement: promptlang.Send{Alias: "ada", Text: "hello"}, targets: []string{"ada"}},
+		{name: "broadcast", statement: promptlang.Broadcast{Text: "hello"}, targets: []string{"ada", "turing"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			workflow := stageWorkflow{}
+			supplied := slices.Clone(tt.targets)
+			sequence := workflow.start("hello", tt.statement)
+			switch request := sequence[0].(type) {
+			case planSharedSendInstruction:
+				sess := session.New()
+				t.Cleanup(sess.Shutdown)
+				sequence = workflow.handleCompletion(sharedSendPlanResult{
+					target: request.target, plan: sess.PlanSharedSend("ada"), targets: supplied,
+				})
+			case planBroadcastInstruction:
+				sequence = workflow.handleCompletion(broadcastPlanResult{
+					target: request.target, targets: supplied,
+				})
+			default:
+				t.Fatalf("plan instruction = %T", request)
+			}
+			// The producer retains its slice after the workflow accepts the plan.
+			for index := range supplied {
+				supplied[index] = "changed"
+			}
+			read := sequence[0].(readParticipantStateInstruction)
+			workflow.handleCompletion(participantStateResult{
+				target: read.target,
+				barrier: []participantState{
+					{alias: "ada", status: participant.StatusWorking},
+					{alias: "turing", status: participant.StatusIdle},
+				},
+			})
+			snapshot := workflow.snapshot()
+			if snapshot == nil || snapshot.Phase != StagePhasePending || !slices.Equal(snapshot.Routing, tt.targets) {
+				t.Fatalf("stage = %#v, want pending routing %v", snapshot, tt.targets)
+			}
+			sequence = workflow.handleSessionEvent(session.ParticipantStatusChanged{
+				Alias: "ada", To: participant.StatusIdle,
+			})
+			dispatch := sequence[0].(executeSessionInstruction)
+			var recipients []string
+			switch request := dispatch.request.(type) {
+			case executePlannedSharedSendRequest:
+				recipients = request.plan.Targets()
+			case broadcastRequest:
+				recipients = request.aliases
+			default:
+				t.Fatalf("dispatch request = %T", request)
+			}
+			if !slices.Equal(recipients, tt.targets) {
+				t.Fatalf("dispatch recipients = %v, want %v", recipients, tt.targets)
+			}
+			if !slices.Equal(workflow.snapshot().Routing, tt.targets) {
+				t.Fatalf("dispatch routing = %v, want %v", workflow.snapshot().Routing, tt.targets)
+			}
+		})
+	}
+}
+
 func TestStageWorkflow_stagesBusyBroadcastWithDetachedSnapshot(t *testing.T) {
 	workflow := stageWorkflow{}
 	sequence := workflow.start("hello", promptlang.Broadcast{Text: "hello"})
