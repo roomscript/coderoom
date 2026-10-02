@@ -59,7 +59,6 @@ type Interpreter struct {
 
 func New(ctx context.Context, sess SessionController, cwd string, opts ...Option) *Interpreter
 func (i *Interpreter) Submit(raw string) error
-func (i *Interpreter) ExecuteLegacy(command session.Command) error
 func (i *Interpreter) ResolveApproval(id int64, choice ApprovalChoice) error
 func (i *Interpreter) Snapshot() Snapshot
 func (i *Interpreter) AddObserver(Observer)
@@ -74,29 +73,6 @@ statement and create a second execution path.
 `Submit` returns nil when the operation is enqueued. A front end
 transfers ownership of the submitted input—and may clear its composer—only on
 success. It returns `ErrClosed` after interpreter shutdown begins.
-
-`ExecuteLegacy` is a temporary migration API. It replaces direct TUI
-calls to `session.Execute` before the surrounding parsing, planning, or
-workflow has moved into the interpreter. It queues the supplied data-only
-command on the interpreter loop, waits for that operation to finish, and
-returns the session execution error to the existing TUI caller. It does not
-parse prompt input, append a room record, or render an error. This synchronous
-contract intentionally matches the current TUI call sites and centralizes
-execution ownership without requiring their workflows to migrate at once.
-
-`ExecuteLegacy` uses a buffered one-shot response and returns `ErrClosed` when
-shutdown prevents acceptance. An accepted call must receive its result or
-observe interpreter completion; shutdown must not strand it. The interpreter's
-own projection of synchronous causal events completes before the result is
-sent; TUI observers still consume their separately queued events through
-Bubble Tea. `ExecuteLegacy` must never be called from the interpreter loop or a
-synchronous session observer callback. The method is removed after every
-caller has moved to `Submit` or a dedicated interpreter operation.
-
-Stage planning and handoff source selection have completed
-their migration and do not use these compatibility APIs. Session validation
-remains authoritative. The TUI consumes interpreter events and snapshots for all application state;
-it neither observes nor queries the session directly.
 
 Dedicated methods are reserved for structured interactions that are not prompt
 language: resolving an approval, reading a snapshot, shutdown, and atomic
@@ -324,34 +300,6 @@ sequenceDiagram
     BC-->>TUI: return tea.Msg
     TUI->>TUI: Update(msg)
 ```
-
-### Temporary legacy execution gateway
-
-Before command ownership moves, all existing TUI `session.Execute` call sites
-are redirected through `ExecuteLegacy`. Planning and user-visible success or
-failure handling remain at the call site, but the actual session call has one
-owner and one goroutine.
-
-```mermaid
-sequenceDiagram
-    participant TUI as Bubble Tea goroutine
-    participant IL as Interpreter loop goroutine
-    participant S as Session
-
-    TUI->>TUI: parse/plan legacy workflow
-    TUI-->>IL: enqueue ExecuteLegacy(command, result)
-    TUI->>TUI: wait for one-shot result
-    IL->>S: Execute(command)
-    S-->>IL: synchronous session events
-    IL->>IL: record and drain causal events
-    IL-->>TUI: return execution error or nil
-    TUI->>TUI: preserve existing success/error behavior
-```
-
-This gateway is not a second long-term command API. It exists so execution can
-be centralized before parsing and mutable workflow state move. Because it is
-synchronous, it preserves the current ordering at legacy call sites and does
-not introduce an extra asynchronous planning window.
 
 ## Submission
 
@@ -736,10 +684,11 @@ Every successfully enqueued scenario above publishes exactly one of
 `SubmissionFailed` as its terminal outcome. A submission refused synchronously
 with `ErrClosed` was not enqueued and therefore publishes no event.
 
-`ExecuteLegacy` has separate contract coverage: calls are serialized with
-submissions and with one another; execution errors are returned unchanged;
-synchronous causal events are drained before the caller resumes; calls after
-shutdown return `ErrClosed`; and shutdown cannot strand an accepted caller.
+Execution compatibility has been removed. Native submission contract tests
+cover error identity, causal-event ordering, sequential and concurrent execution,
+and rejection after shutdown. Event dispatcher tests verify that shutdown
+flushes accepted submission outcomes; stage-operation tests verify synchronous
+request completion during shutdown.
 
 The serialization test must cause multiple valid operations to reach
 `session.Execute`; submitting the same consumable approval repeatedly is not
@@ -758,7 +707,7 @@ package has a structural test that fixes `Interpreter` to model/executor
 composition fields and compile-checks that operations target
 `*interpreterExecutor`, not the facade.
 
-The broader issue #38 migration still permits temporary UI dependencies on
-session command values. Once those compatibility paths are removed, a package
-graph test can tighten the boundary to reject all direct UI imports of session
-and agent packages.
+The TUI constructs no session commands and owns no command registry, shell
+execution, or loop workflow state. Its remaining session dependency is interpreter
+construction; agent types remain in presentation adapters. Step 8e removes these
+dependencies before Step 9 adds package-graph enforcement.

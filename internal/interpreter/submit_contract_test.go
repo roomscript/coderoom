@@ -465,3 +465,32 @@ func assertNoSignal(t *testing.T, signals <-chan struct{}, description string) {
 	case <-time.After(20 * time.Millisecond):
 	}
 }
+
+func TestSubmitContract_shutdownWaitsForAcceptedExecution(t *testing.T) {
+	interp, sess := newSubmitContractInterpreterWithoutCleanup(t)
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	events := make(chan Event, 3)
+	interp.AddObserver(submitContractObserver{events: events})
+	sess.execute = func(session.Command, session.Observer) {
+		close(entered)
+		<-release
+	}
+
+	mustSubmit(t, interp.Submit("/cancel ada"))
+	receiveSignal(t, entered, "accepted execution")
+	closed := make(chan struct{})
+	go func() {
+		interp.Close()
+		close(closed)
+	}()
+	assertNoSignal(t, closed, "Close returned while accepted execution was active")
+	close(release)
+	receiveSignal(t, closed, "Close")
+
+	receiveSubmitCommand(t, sess.executed)
+	receiveSubmitEvent[InputAccepted](t, events)
+	receiveSubmitEvent[StateChanged](t, events)
+	receiveSubmitEvent[SubmissionSucceeded](t, events)
+	assertNoSubmitEvent(t, events)
+}

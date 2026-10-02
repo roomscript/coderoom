@@ -5,7 +5,7 @@ temporary and must be deleted in the final boundary-enforcement commit.
 
 Implementation was parked after Step 6 while issue #53 established the model
 and executor boundaries. That decomposition and Step 7 are complete; Step 8
-is in progress; Steps 8a, 8b, and 8c are complete and Step 8d is next.
+is in progress; Steps 8a through 8d are complete and Step 8e is next.
 
 Each step should leave the repository working and independently reviewable.
 Run `go test ./...` before completing every step unless a narrower command is
@@ -501,15 +501,29 @@ ten repeated UI race runs, and `git diff --check` passed.
 
 ### 8d. Remove execution compatibility and residual UI ownership
 
-- [ ] Audit and remove remaining UI-owned registry, shell execution, and loop
+- [x] Audit and remove remaining UI-owned registry, shell execution, and loop
       state, retaining presentation state only.
-- [ ] Remove remaining UI session-command construction and workflow execution.
-- [ ] Remove `ExecuteLegacy` after the final TUI workflow and caller are gone.
-- [ ] Preserve equivalent interpreter and UI adapter coverage for every removed
+- [x] Remove remaining UI session-command construction and workflow execution.
+- [x] Remove `ExecuteLegacy` after the final TUI workflow and caller are gone.
+- [x] Preserve equivalent interpreter and UI adapter coverage for every removed
       behavior; remove obsolete helpers only after that mapping exists.
 
 Stop condition: all application execution and workflow decisions belong to the
 interpreter, and no legacy execution API or duplicate UI execution state remains.
+
+Audit: production UI has no command registry, shell runner, active loop state,
+session-command construction, or workflow dispatch. External-editor execution
+and debug commands remain UI presentation concerns. Removed the unused
+`ExecuteLegacy` facade/executor path and the no-op UI action gateway.
+
+Coverage mapping for removed compatibility tests:
+
+| Removed behavior | Retained coverage |
+| --- | --- |
+| Execution completion/error identity | `TestSubmitContract_reportsNativeExecutionFailure`, `TestSubmitContract_submitReturnsBeforeExecutionCompletes` (completion is delivered through terminal events) |
+| Causal projection ordering | `TestSubmitContract_terminalOutcomeFollowsCausalEvents`, `TestSubmitContract_appliesCausalEventBeforeNextExecution` |
+| Sequential/concurrent serialization | `TestSubmitContract_serializesNativeExecutions`, `TestSubmitContract_serializesConcurrentValidSubmissions` |
+| Shutdown rejection/completion | `TestSubmitContract_ignoresSubmissionAfterShutdown`, `TestClose_flushesAcceptedSubmissionOutcome`, `TestSubmitContract_shutdownWaitsForAcceptedExecution`, `TestStageOperations_acceptedRequestResolvesBeforeShutdown` |
 
 ### 8e. Close the TUI boundary
 

@@ -379,7 +379,8 @@ func (m Model) handleSubmit(raw string) (Model, tea.Cmd) {
 
 	m.room = m.room.AppendUserInput(raw, nil)
 	m.room = m.clearSubmittedComposer(raw)
-	return m.executeAction(action)
+	m, _ = m.executeDebugAction(action)
+	return m, nil
 }
 
 func (m Model) clearSubmittedComposer(raw string) room.Model {
@@ -444,13 +445,6 @@ func (m Model) updateParticipantColors(participants []participant.View) Model {
 	return m
 }
 
-func (m Model) executeAction(a promptlang.Statement) (Model, tea.Cmd) {
-	if out, ok := m.executeDebugAction(a); ok {
-		return out, nil
-	}
-	return m.executeUIAction(a)
-}
-
 func (m Model) executeDebugAction(a promptlang.Statement) (Model, bool) {
 	switch a.(type) {
 	case promptlang.DebugView:
@@ -469,10 +463,6 @@ func (m Model) executeDebugAction(a promptlang.Statement) (Model, bool) {
 	default:
 		return m, false
 	}
-}
-
-func (m Model) executeUIAction(promptlang.Statement) (Model, tea.Cmd) {
-	return m, nil
 }
 
 const helpKeysText = `General keys:

@@ -5,7 +5,6 @@ import (
 	"context"
 
 	"github.com/trigosec/coderoom/internal/promptlang"
-	"github.com/trigosec/coderoom/internal/session"
 )
 
 // Option configures an Interpreter.
@@ -36,12 +35,6 @@ func New(ctx context.Context, sess SessionController, cwd string, opts ...Option
 // shutdown prevents acceptance.
 func (i *Interpreter) ResolveCommand(invocation promptlang.CommandInvocation) (promptlang.Shell, error) {
 	return i.executor.resolveCommand(invocation)
-}
-
-// ExecuteLegacy synchronously executes a transitional session command on the
-// interpreter loop. It returns ErrClosed if shutdown prevents acceptance.
-func (i *Interpreter) ExecuteLegacy(command session.Command) error {
-	return i.executor.executeLegacy(command)
 }
 
 // Snapshot returns a detached view of current application state.

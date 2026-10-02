@@ -89,8 +89,9 @@ the same canonical room used for execution.
 
 Current architecture tests reject direct UI `session.Execute` calls; final
 package-graph enforcement will also reject direct UI session/agent imports and
-transitive interpreter terminal dependencies. Construction and presentation
-type cleanup remain separate migration checkpoints.
+transitive interpreter terminal dependencies. The execution compatibility API has been removed; the TUI constructs no session
+commands and owns no registry, shell execution, or loop workflow state.
+Construction and presentation type cleanup remain separate migration checkpoints.
 
 ---
 

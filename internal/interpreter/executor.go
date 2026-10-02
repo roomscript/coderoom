@@ -16,10 +16,6 @@ import (
 type operation interface{ apply(*interpreterExecutor) }
 
 type drainSessionEventsOperation struct{}
-type executeLegacyOperation struct {
-	command session.Command
-	result  chan error
-}
 type snapshotOperation struct{ result chan Snapshot }
 type resolveCommandResult struct {
 	body promptlang.Shell
@@ -125,24 +121,6 @@ func (e *interpreterExecutor) resolveCommand(
 	}
 }
 
-func (e *interpreterExecutor) executeLegacy(command session.Command) error {
-	result := make(chan error, 1)
-	if !e.enqueue(executeLegacyOperation{command: command, result: result}) {
-		return ErrClosed
-	}
-	select {
-	case err := <-result:
-		return err
-	case <-e.done:
-		select {
-		case err := <-result:
-			return err
-		default:
-			return ErrClosed
-		}
-	}
-}
-
 func (e *interpreterExecutor) snapshot() Snapshot {
 	result := make(chan Snapshot, 1)
 	if !e.enqueue(snapshotOperation{result: result}) {
@@ -234,12 +212,6 @@ func (e *interpreterExecutor) drainSessionEvents() {
 
 func (e *interpreterExecutor) takeSessionEvents() []session.Event {
 	return e.inbox.Take()
-}
-
-func (op executeLegacyOperation) apply(e *interpreterExecutor) {
-	err := e.session.Execute(op.command)
-	e.applySessionEvents()
-	op.result <- err
 }
 
 func (e *interpreterExecutor) executeCommand(command session.Command) error {
