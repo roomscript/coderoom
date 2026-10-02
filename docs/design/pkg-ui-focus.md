@@ -94,7 +94,9 @@ Viewport is read-only.
   - any raw `room.Record` representation behind the rendered view
 - `Left` / `Right`: move one visible cell backward / forward.
 - `Ctrl+Shift+Left` / `Ctrl+Shift+Right`: extend or shrink the selection by
-  one visible word.
+  one visible word. Forward selection stops at the word end, before trailing
+  whitespace or a line break; backward selection stops at the word start.
+  Reversing direction shrinks an existing word selection by one word.
 - `Up` / `Down`: move one visible row up / down, preserving a preferred
   column where possible.
 - `PgUp` / `PgDn`: move by roughly one viewport height while preserving cursor

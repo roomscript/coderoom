@@ -222,8 +222,8 @@ func TestHistoryFocus_shiftLeftShrinksRightwardWordSelectionByCell(t *testing.T)
 	}))
 
 	m, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyLeft, Mod: tea.ModShift}))
-	if got, ok := m.HistorySelectedText(); !ok || got != "one" {
-		t.Fatalf("mixed word/cell selection = (%q,%v), want (%q,true)", got, ok, "one")
+	if got, ok := m.HistorySelectedText(); !ok || got != "on" {
+		t.Fatalf("mixed word/cell selection = (%q,%v), want (%q,true)", got, ok, "on")
 	}
 }
 
@@ -277,8 +277,8 @@ func TestHistoryFocus_ctrlShiftRightStopsAtRenderedLineBoundary(t *testing.T) {
 		Code: tea.KeyRight,
 		Mod:  tea.ModCtrl | tea.ModShift,
 	}))
-	if got, ok := m.HistorySelectedText(); !ok || got != "one\n" {
-		t.Fatalf("cross-line word selection = (%q,%v), want (%q,true)", got, ok, "one\n")
+	if got, ok := m.HistorySelectedText(); !ok || got != "one" {
+		t.Fatalf("line-end word selection = (%q,%v), want (%q,true)", got, ok, "one")
 	}
 }
 

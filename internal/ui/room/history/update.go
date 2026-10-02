@@ -275,17 +275,23 @@ func (m Model) SelectRight() Model {
 	return m.extendSelection(func(next Model) Model { return next.CursorRight() })
 }
 
-// SelectWordLeft extends selection to the previous visible word boundary.
+// SelectWordLeft extends selection to a word start, or shrinks it to a word end.
 func (m Model) SelectWordLeft() Model {
-	cursorEndExclusive := m.selection.CursorEndExclusive
-	m = m.extendSelection(func(next Model) Model { return next.CursorWordLeft() })
-	if cursorEndExclusive && compareSurfacePositions(m.cursor, m.selection.Anchor) > 0 {
-		m.selection.CursorEndExclusive = true
+	if !m.hasCursor() {
+		return m
 	}
-	return m
+	if m.selection.Visible && m.selection.CursorEndExclusive && compareSurfacePositions(m.cursor, m.selection.Anchor) > 0 {
+		m.cursor = m.wordEndBefore(m.cursor)
+		if compareSurfacePositions(m.cursor, m.selection.Anchor) < 0 {
+			m.cursor = m.selection.Anchor
+		}
+		m.cursor.PreferredCol = m.cursor.Col
+		return m.ensureCursorVisible()
+	}
+	return m.extendSelection(func(next Model) Model { return next.CursorWordLeft() })
 }
 
-// SelectWordRight extends selection to the next visible word boundary.
+// SelectWordRight extends selection to a word end, or shrinks it to a word start.
 func (m Model) SelectWordRight() Model {
 	if !m.hasCursor() {
 		return m
@@ -293,9 +299,17 @@ func (m Model) SelectWordRight() Model {
 	if !m.selection.Visible {
 		m.selection = Selection{Anchor: m.cursor, Visible: true}
 	}
-	m = m.CursorWordRight()
+	if compareSurfacePositions(m.cursor, m.selection.Anchor) < 0 {
+		m.cursor = m.wordStartAfter(m.cursor)
+		if compareSurfacePositions(m.cursor, m.selection.Anchor) > 0 {
+			m.cursor = m.selection.Anchor
+		}
+	} else {
+		m.cursor = m.wordEndAfter(m.cursor)
+	}
+	m.cursor.PreferredCol = m.cursor.Col
 	m.selection.CursorEndExclusive = true
-	return m
+	return m.ensureCursorVisible()
 }
 
 // SelectLineStart extends selection to the start of the current visible line.
@@ -413,6 +427,37 @@ func (m Model) wordStartAfter(cursor Cursor) Cursor {
 		}
 		cursor = next
 	}
+	return cursor
+}
+
+func (m Model) wordEndAfter(cursor Cursor) Cursor {
+	for m.cellIsSpace(cursor) {
+		next, ok := m.nextCell(cursor)
+		if !ok {
+			return m.lastCursorPosition()
+		}
+		cursor = next
+	}
+	for !m.cellIsSpace(cursor) {
+		next, ok := m.nextCell(cursor)
+		if !ok {
+			return m.lastCursorPosition()
+		}
+		cursor = next
+	}
+	return cursor
+}
+
+func (m Model) wordEndBefore(cursor Cursor) Cursor {
+	cursor = m.wordStartBefore(cursor)
+	previous, ok := m.previousCell(cursor)
+	for ok && m.cellIsSpace(previous) {
+		previous, ok = m.previousCell(previous)
+	}
+	if !ok {
+		return Cursor{Visible: true}
+	}
+	cursor, _ = m.nextCell(previous)
 	return cursor
 }
 
