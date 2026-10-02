@@ -8,13 +8,10 @@ import (
 	"github.com/trigosec/coderoom/internal/session"
 )
 
-func TestPolicy_nativeHandlerTakesPrecedenceOverFallback(t *testing.T) {
+func TestPolicy_executesNativeHandlerOnce(t *testing.T) {
 	interp, sess, events := newSubmitContractInterpreter(t)
 
-	mustSubmit(t, interp.SubmitWithFallback(
-		"/policy enable send-notices",
-		session.CancelCommand{Alias: "not-cancelled"},
-	))
+	mustSubmit(t, interp.Submit("/policy enable send-notices"))
 	receiveSubmitEvent[InputAccepted](t, events)
 	command := receiveSubmitCommand(t, sess.executed)
 	if command != (session.EnablePolicyCommand{Name: policy.SendNotices}) {

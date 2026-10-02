@@ -7,13 +7,10 @@ import (
 	"github.com/trigosec/coderoom/internal/session"
 )
 
-func TestInvite_nativeHandlerTakesPrecedenceOverFallback(t *testing.T) {
+func TestInvite_executesNativeHandlerOnce(t *testing.T) {
 	interp, sess, events := newSubmitContractInterpreter(t)
 
-	mustSubmit(t, interp.SubmitWithFallback(
-		"/invite ada",
-		session.CancelCommand{Alias: "not-invited"},
-	))
+	mustSubmit(t, interp.Submit("/invite ada"))
 	receiveSubmitEvent[InputAccepted](t, events)
 	command := receiveSubmitCommand(t, sess.executed)
 	if command != (session.InviteCommand{Alias: "ada"}) {

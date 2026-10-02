@@ -126,7 +126,7 @@ type InputRejected struct {
 	Err  error
 }
 
-// UnknownCommand reports valid input with no interpreter handler or fallback.
+// UnknownCommand reports valid input with no interpreter handler.
 type UnknownCommand struct {
 	Raw  string
 	Name string

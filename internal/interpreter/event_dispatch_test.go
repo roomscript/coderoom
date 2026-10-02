@@ -3,8 +3,6 @@ package interpreter
 import (
 	"errors"
 	"testing"
-
-	"github.com/trigosec/coderoom/internal/session"
 )
 
 func TestEventDispatcher_deliversEventsInPublicationOrder(t *testing.T) {
@@ -91,7 +89,7 @@ func TestClose_flushesAcceptedSubmissionOutcome(t *testing.T) {
 		delivered: delivered,
 	})
 
-	mustSubmit(t, interp.SubmitWithFallback("/cancel ada", session.CancelCommand{Alias: "ada"}))
+	mustSubmit(t, interp.Submit("/cancel ada"))
 	receiveSignal(t, entered, "input acceptance delivery")
 	receiveSubmitCommand(t, sess.executed)
 	closed := make(chan struct{})

@@ -58,14 +58,14 @@ func TestExecuteLegacy_serializesWithSubmissions(t *testing.T) {
 
 	legacyResult := executeLegacyAsync(interp, session.CancelCommand{Alias: "ada"})
 	receiveSignal(t, entered, "legacy Execute")
-	mustSubmit(t, interp.SubmitWithFallback("/cancel bob", session.CancelCommand{Alias: "bob"}))
+	mustSubmit(t, interp.Submit("/cancel bob"))
 	assertNoSignal(t, entered, "submission executed while legacy command was active")
 
 	release <- struct{}{}
 	if err := receiveSubmitResult(t, legacyResult); err != nil {
 		t.Fatalf("ExecuteLegacy: %v", err)
 	}
-	receiveSignal(t, entered, "fallback Execute")
+	receiveSignal(t, entered, "native Execute")
 	release <- struct{}{}
 	if maximum := sess.maxActive.Load(); maximum != 1 {
 		t.Fatalf("maximum concurrent Execute calls = %d, want 1", maximum)

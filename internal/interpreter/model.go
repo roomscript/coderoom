@@ -57,13 +57,9 @@ func newInterpreterModel() *interpreterModel {
 func (m *interpreterModel) Submit(
 	raw string,
 	statement promptlang.Statement,
-	fallback session.Command,
 ) instructionSequence {
 	if sequence, handled := m.submitCommand(raw, statement); handled {
 		return sequence
-	}
-	if fallback != nil {
-		return sessionSubmissionSequence(raw, submissionOperation(statement), fallback)
 	}
 	return instructionSequence{publishEventInstruction{event: UnknownCommand{
 		Raw: raw, Name: commandName(statement),

@@ -4,29 +4,20 @@ import (
 	"errors"
 
 	"github.com/trigosec/coderoom/internal/promptlang"
-	"github.com/trigosec/coderoom/internal/session"
 )
 
 type submitOperation struct {
-	raw      string
-	fallback session.Command
+	raw string
 }
 
 // Submit queues prompt-language input. It returns ErrClosed if ownership cannot
 // be accepted because shutdown has begun.
 func (i *Interpreter) Submit(raw string) error {
-	return i.executor.submit(raw, nil)
+	return i.executor.submit(raw)
 }
 
-// SubmitWithFallback queues input with a temporary legacy session command and
-// returns ErrClosed if ownership cannot be accepted. Native handlers take
-// precedence once they are introduced.
-func (i *Interpreter) SubmitWithFallback(raw string, fallback session.Command) error {
-	return i.executor.submit(raw, fallback)
-}
-
-func (e *interpreterExecutor) submit(raw string, fallback session.Command) error {
-	if !e.enqueue(submitOperation{raw: raw, fallback: fallback}) {
+func (e *interpreterExecutor) submit(raw string) error {
+	if !e.enqueue(submitOperation{raw: raw}) {
 		return ErrClosed
 	}
 	return nil
@@ -42,7 +33,7 @@ func (op submitOperation) apply(e *interpreterExecutor) {
 		e.publish(InputRejected{Raw: op.raw, Code: ErrorInvalidInput, Err: err})
 		return
 	}
-	e.runner.Run(e.model.Submit(op.raw, statement, op.fallback))
+	e.runner.Run(e.model.Submit(op.raw, statement))
 }
 
 func submissionErrorCode(err error) ErrorCode {
@@ -55,10 +46,6 @@ func submissionErrorCode(err error) ErrorCode {
 		return ErrorCommandExists
 	}
 	return ErrorExecutionFailed
-}
-
-func submissionOperation(statement promptlang.Statement) string {
-	return commandName(statement)
 }
 
 func commandName(statement promptlang.Statement) string {

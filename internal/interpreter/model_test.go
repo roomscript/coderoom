@@ -18,7 +18,6 @@ func TestInterpreterModel_SubmitBuildsInstructionsWithoutExecutingThem(t *testin
 	sequence := model.Submit(
 		"/invite ada",
 		promptlang.Invite{Alias: "ada"},
-		nil,
 	)
 	if len(sequence) != 3 {
 		t.Fatalf("instructions = %d, want 3", len(sequence))
@@ -44,7 +43,6 @@ func TestInterpreterModel_SubmitDecidesUnknownCommand(t *testing.T) {
 	sequence := model.Submit(
 		"/missing",
 		promptlang.CommandInvocation{Name: "missing"},
-		nil,
 	)
 	if len(sequence) != 1 {
 		t.Fatalf("instructions = %d, want 1", len(sequence))

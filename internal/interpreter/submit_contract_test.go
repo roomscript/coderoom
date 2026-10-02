@@ -123,11 +123,11 @@ func TestSubmitContract_reportsUndefinedCommandWithoutMutation(t *testing.T) {
 	assertNoSubmitEvent(t, events)
 }
 
-func TestSubmitContract_executesFallbackAndAcceptsInputOnce(t *testing.T) {
+func TestSubmitContract_executesNativeCommandAndAcceptsInputOnce(t *testing.T) {
 	interp, sess, events := newSubmitContractInterpreter(t)
 	command := session.CancelCommand{Alias: "ada"}
 
-	mustSubmit(t, interp.SubmitWithFallback("/cancel ada", command))
+	mustSubmit(t, interp.Submit("/cancel ada"))
 	accepted := receiveSubmitEvent[InputAccepted](t, events)
 	if accepted.Raw != "/cancel ada" {
 		t.Fatalf("accepted = %#v", accepted)
@@ -146,21 +146,12 @@ func TestSubmitContract_executesFallbackAndAcceptsInputOnce(t *testing.T) {
 	assertNoSubmitEvent(t, events)
 }
 
-func TestSubmitContract_discardsFallbackForInvalidInput(t *testing.T) {
-	interp, sess, events := newSubmitContractInterpreter(t)
-
-	mustSubmit(t, interp.SubmitWithFallback("/invite", session.InviteCommand{Alias: "ada"}))
-	receiveSubmitEvent[InputRejected](t, events)
-	assertNoSubmitExecution(t, sess.executed)
-	assertNoSubmitEvent(t, events)
-}
-
-func TestSubmitContract_reportsFallbackExecutionFailure(t *testing.T) {
+func TestSubmitContract_reportsNativeExecutionFailure(t *testing.T) {
 	wantErr := errors.New("execute failed")
 	interp, sess, events := newSubmitContractInterpreter(t)
 	sess.executeErr = wantErr
 
-	mustSubmit(t, interp.SubmitWithFallback("/cancel ada", session.CancelCommand{Alias: "ada"}))
+	mustSubmit(t, interp.Submit("/cancel ada"))
 	receiveSubmitEvent[InputAccepted](t, events)
 	receiveSubmitCommand(t, sess.executed)
 	receiveSubmitEvent[StateChanged](t, events)
@@ -180,7 +171,7 @@ func TestSubmitContract_terminalOutcomeFollowsCausalEvents(t *testing.T) {
 		observer.OnEvent(session.AgentStarted{Alias: "ada"})
 	}
 
-	mustSubmit(t, interp.SubmitWithFallback("/cancel ada", session.CancelCommand{Alias: "ada"}))
+	mustSubmit(t, interp.Submit("/cancel ada"))
 	receiveSubmitEvent[InputAccepted](t, events)
 	causal := receiveSubmitEvent[StateChanged](t, events)
 	if len(causal.Snapshot.Room.Members) != 1 || causal.Snapshot.Room.Members[0] != "ada" {
@@ -191,7 +182,7 @@ func TestSubmitContract_terminalOutcomeFollowsCausalEvents(t *testing.T) {
 	assertNoSubmitEvent(t, events)
 }
 
-func TestSubmitContract_serializesFallbackExecutions(t *testing.T) {
+func TestSubmitContract_serializesNativeExecutions(t *testing.T) {
 	interp, sess, _ := newSubmitContractInterpreter(t)
 	entered := make(chan struct{}, 2)
 	release := make(chan struct{})
@@ -200,9 +191,9 @@ func TestSubmitContract_serializesFallbackExecutions(t *testing.T) {
 		<-release
 	}
 
-	mustSubmit(t, interp.SubmitWithFallback("/cancel ada", session.CancelCommand{Alias: "ada"}))
+	mustSubmit(t, interp.Submit("/cancel ada"))
 	receiveSignal(t, entered, "first Execute")
-	mustSubmit(t, interp.SubmitWithFallback("/cancel bob", session.CancelCommand{Alias: "bob"}))
+	mustSubmit(t, interp.Submit("/cancel bob"))
 	assertNoSignal(t, entered, "second Execute entered before first completed")
 	release <- struct{}{}
 	receiveSignal(t, entered, "second Execute")
@@ -214,7 +205,7 @@ func TestSubmitContract_serializesFallbackExecutions(t *testing.T) {
 	}
 }
 
-func TestSubmitContract_submitReturnsBeforeFallbackCompletes(t *testing.T) {
+func TestSubmitContract_submitReturnsBeforeExecutionCompletes(t *testing.T) {
 	interp, sess, _ := newSubmitContractInterpreter(t)
 	entered := make(chan struct{}, 1)
 	release := make(chan struct{})
@@ -225,15 +216,15 @@ func TestSubmitContract_submitReturnsBeforeFallbackCompletes(t *testing.T) {
 
 	returned := make(chan error, 1)
 	go func() {
-		returned <- interp.SubmitWithFallback("/cancel ada", session.CancelCommand{Alias: "ada"})
+		returned <- interp.Submit("/cancel ada")
 	}()
 	mustSubmit(t, receiveSubmitResult(t, returned))
-	receiveSignal(t, entered, "fallback Execute")
+	receiveSignal(t, entered, "native Execute")
 	close(release)
 	receiveSubmitCommand(t, sess.executed)
 }
 
-func TestSubmitContract_serializesConcurrentValidFallbacks(t *testing.T) {
+func TestSubmitContract_serializesConcurrentValidSubmissions(t *testing.T) {
 	interp, sess, _ := newSubmitContractInterpreter(t)
 
 	const submissions = 20
@@ -243,7 +234,7 @@ func TestSubmitContract_serializesConcurrentValidFallbacks(t *testing.T) {
 	for range submissions {
 		go func() {
 			defer submitted.Done()
-			results <- interp.SubmitWithFallback("/cancel ada", session.CancelCommand{Alias: "ada"})
+			results <- interp.Submit("/cancel ada")
 		}()
 	}
 	submitted.Wait()
@@ -273,8 +264,8 @@ func TestSubmitContract_appliesCausalEventBeforeNextExecution(t *testing.T) {
 		causalStateObserved <- len(members) == 1 && members[0] == "ada"
 	}
 
-	mustSubmit(t, interp.SubmitWithFallback("/cancel ada", session.CancelCommand{Alias: "ada"}))
-	mustSubmit(t, interp.SubmitWithFallback("/cancel bob", session.CancelCommand{Alias: "bob"}))
+	mustSubmit(t, interp.Submit("/cancel ada"))
+	mustSubmit(t, interp.Submit("/cancel bob"))
 	receiveSubmitCommand(t, sess.executed)
 	receiveSubmitCommand(t, sess.executed)
 	select {
@@ -301,7 +292,7 @@ func TestSubmitContract_coalescesSessionEventWakeups(t *testing.T) {
 	for id := range eventCount {
 		observer.OnEvent(session.ApprovalCleared{ID: int64(id + 1)})
 	}
-	mustSubmit(t, interp.SubmitWithFallback("/cancel ada", session.CancelCommand{Alias: "ada"}))
+	mustSubmit(t, interp.Submit("/cancel ada"))
 	close(release)
 	receiveSubmitCommand(t, sess.executed)
 
@@ -343,7 +334,7 @@ func TestSubmitContract_rejectsSubmissionWhileStagePending(t *testing.T) {
 	}
 	receiveSignal(t, setDone, "stage setup")
 
-	mustSubmit(t, interp.SubmitWithFallback("/cancel ada", session.CancelCommand{Alias: "ada"}))
+	mustSubmit(t, interp.Submit("/cancel ada"))
 	rejected := receiveSubmitEvent[InputRejected](t, events)
 	if !errors.Is(rejected.Err, ErrStagePending) {
 		t.Fatalf("rejection = %v, want ErrStagePending", rejected.Err)
@@ -369,8 +360,8 @@ func TestSubmitContract_ignoresSubmissionAfterShutdown(t *testing.T) {
 	interp.AddObserver(submitContractObserver{events: events})
 	interp.Close()
 
-	if err := interp.SubmitWithFallback("/cancel ada", session.CancelCommand{Alias: "ada"}); !errors.Is(err, ErrClosed) {
-		t.Fatalf("SubmitWithFallback error = %v, want ErrClosed", err)
+	if err := interp.Submit("/cancel ada"); !errors.Is(err, ErrClosed) {
+		t.Fatalf("Submit error = %v, want ErrClosed", err)
 	}
 	assertNoSubmitExecution(t, sess.executed)
 	assertNoSubmitEvent(t, events)

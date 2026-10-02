@@ -299,9 +299,9 @@ planning cannot become recipients.
 The compatibility instructions preserve existing command behavior during the
 incremental issue #38 migration:
 
-- `executeCommandInstruction` executes native and fallback commands whose
-  complete `session.Command` already exists. The fallback use disappears when
-  `ExecuteLegacy` and `SubmitWithFallback` are removed; planning-dependent
+- `executeCommandInstruction` executes native commands whose complete
+  `session.Command` already exists. `ExecuteLegacy` retains its temporary
+  execution gateway until the final caller migrates; planning-dependent
   workflows continue to use `executeSessionInstruction` and `sessionRequest`.
 - `startUserShellInstruction` preserves ordinary user shell execution, which
   has different submission timing from a workflow-correlated shell request.

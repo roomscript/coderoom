@@ -9,7 +9,7 @@ import (
 	"github.com/trigosec/coderoom/internal/session"
 )
 
-func TestSubmitAPI_reportsUnknownCommandWithoutFallback(t *testing.T) {
+func TestSubmitAPI_reportsUnknownCommand(t *testing.T) {
 	interp, _, events := newSubmitExample()
 	defer interp.Close()
 
@@ -37,15 +37,12 @@ func TestSubmitAPI_rejectsInvalidArguments(t *testing.T) {
 	}
 }
 
-func TestSubmitAPI_executesMigrationFallback(t *testing.T) {
+func TestSubmitAPI_executesNativeCommand(t *testing.T) {
 	interp, sess, events := newSubmitExample()
 	defer interp.Close()
 
-	if err := interp.SubmitWithFallback(
-		"/cancel ada",
-		session.CancelCommand{Alias: "ada"},
-	); err != nil {
-		t.Fatalf("SubmitWithFallback: %v", err)
+	if err := interp.Submit("/cancel ada"); err != nil {
+		t.Fatalf("Submit: %v", err)
 	}
 
 	accepted := receiveEvent[interpreter.InputAccepted](t, events)
@@ -55,7 +52,7 @@ func TestSubmitAPI_executesMigrationFallback(t *testing.T) {
 	command := receiveCommand(t, sess.executed)
 	want := session.CancelCommand{Alias: "ada"}
 	if command != want {
-		t.Fatalf("fallback command = %#v, want %#v", command, want)
+		t.Fatalf("native command = %#v, want %#v", command, want)
 	}
 }
 

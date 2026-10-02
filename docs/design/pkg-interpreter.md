@@ -59,7 +59,6 @@ type Interpreter struct {
 
 func New(ctx context.Context, sess SessionController, cwd string, opts ...Option) *Interpreter
 func (i *Interpreter) Submit(raw string) error
-func (i *Interpreter) SubmitWithFallback(raw string, fallback session.Command) error
 func (i *Interpreter) ExecuteLegacy(command session.Command) error
 func (i *Interpreter) ResolveApproval(id int64, choice ApprovalChoice) error
 func (i *Interpreter) Snapshot() Snapshot
@@ -72,23 +71,11 @@ func (i *Interpreter) Close()
 path. The facade must not add methods such as `Cancel(alias)` that duplicate a
 statement and create a second execution path.
 
-The submission methods return nil when the operation is enqueued. A front end
+`Submit` returns nil when the operation is enqueued. A front end
 transfers ownership of the submitted input—and may clear its composer—only on
-success. They return `ErrClosed` after interpreter shutdown begins.
+success. It returns `ErrClosed` after interpreter shutdown begins.
 
-`SubmitWithFallback` is a temporary migration API. The TUI may provide a
-data-only `session.Command` produced by its legacy translation path. The
-interpreter parses the raw input and, when it has no native handler, executes
-that fallback command on the interpreter-loop goroutine. A native handler
-always takes precedence and the unused fallback is discarded. If neither a
-native handler nor fallback exists, the interpreter emits `UnknownCommand`.
-After the active-stage gate described below, parsing and argument validation
-happen before handler selection; `InputRejected` discards the fallback without
-executing it.
-The method is removed with the last legacy command translator and is not part
-of the intended final facade.
-
-`ExecuteLegacy` is a second temporary migration API. It replaces direct TUI
+`ExecuteLegacy` is a temporary migration API. It replaces direct TUI
 calls to `session.Execute` before the surrounding parsing, planning, or
 workflow has moved into the interpreter. It queues the supplied data-only
 command on the interpreter loop, waits for that operation to finish, and
@@ -104,11 +91,9 @@ own projection of synchronous causal events completes before the result is
 sent; TUI observers still consume their separately queued events through
 Bubble Tea. `ExecuteLegacy` must never be called from the interpreter loop or a
 synchronous session observer callback. The method is removed after every
-caller has moved to `Submit`,
-`SubmitWithFallback`, or a dedicated interpreter operation.
+caller has moved to `Submit` or a dedicated interpreter operation.
 
-Fallback construction must not query mutable session or room state outside the
-interpreter loop. Stage planning and handoff source selection have completed
+Stage planning and handoff source selection have completed
 their migration and do not use these compatibility APIs. Session validation
 remains authoritative. The TUI still observes session events for its transcript
 projection during the remaining migration; it never calls `session.Execute`
@@ -341,38 +326,6 @@ sequenceDiagram
     TUI->>TUI: Update(msg)
 ```
 
-### Temporary migration fallback
-
-`SubmitWithFallback` decides native versus legacy execution inside one
-serialized operation. It does not emit `UnknownCommand` merely because the
-native handler is missing when a fallback was supplied. The chosen native or
-fallback path publishes `InputAccepted` once, and any resulting
-`session.Execute` call occurs on the interpreter-loop goroutine.
-
-```mermaid
-sequenceDiagram
-    participant TUI as Bubble Tea goroutine
-    participant IL as Interpreter loop goroutine
-    participant ED as Event dispatcher goroutine
-
-    TUI->>TUI: build data-only legacy session.Command
-    TUI-->>IL: enqueue SubmitWithFallback(raw, command)
-    Note over TUI: method returns after enqueue
-    IL->>IL: parse raw and select handler
-    alt Native interpreter handler exists
-        IL-->>ED: enqueue InputAccepted
-        IL->>IL: discard fallback and execute native handler
-    else No native handler and fallback exists
-        IL-->>ED: enqueue InputAccepted
-        IL->>IL: call session.Execute(fallback)
-        IL->>IL: drain causal session events
-    else No native handler or fallback
-        IL-->>ED: enqueue UnknownCommand
-        Note over IL: no room or workflow mutation
-    end
-    IL->>IL: process the next submission
-```
-
 ### Temporary legacy execution gateway
 
 Before command ownership moves, all existing TUI `session.Execute` call sites
@@ -407,7 +360,7 @@ not introduce an extra asynchronous planning window.
 errors and unknown commands become interpreter events; they are not rendered
 inside the interpreter.
 
-Before parsing, both `Submit` and `SubmitWithFallback` check staged-submission state
+Before parsing, `Submit` checks staged-submission state
 on the interpreter loop. If a stage exists, the submission is rejected with
 `InputRejected{Raw: raw, Err: ErrStagePending}`. This preserves the current
 single-stage policy:
@@ -416,7 +369,7 @@ single-stage policy:
 - `InputAccepted` and `UnknownCommand` are not published; `InputRejected` is
   the terminal outcome
 - the existing stage is neither replaced nor modified
-- native handlers and migration fallbacks are not executed
+- native handlers are not executed
 - `session.Execute` is not called
 
 The TUI decides how to render `ErrStagePending`. The user may proceed only
@@ -441,7 +394,7 @@ terminates with `SubmissionFailed`, classified as `ErrorReservedCommand` or
 `ErrorCommandExists`. Event consumers can branch on `ErrorCode` without
 inspecting presentation-oriented error strings.
 
-Every successfully enqueued `Submit` or `SubmitWithFallback` produces exactly
+Every successfully enqueued `Submit` produces exactly
 one terminal outcome. Rejection and unknown routing are already complete
 outcomes; they do not need a second confirmation event. Recognized input first
 publishes `InputAccepted`, then finishes with either `SubmissionSucceeded` or
@@ -452,7 +405,7 @@ projected.
 |---|---|
 | Enqueue refused after shutdown begins | No events; the method returns `ErrClosed` |
 | Stage pending or syntax/argument rejection | `InputRejected` |
-| Valid statement with no native handler or supplied fallback | `UnknownCommand` |
+| Valid statement with no native handler | `UnknownCommand` |
 | Recognized command executes or schedules successfully | `InputAccepted` → zero or more domain/`StateChanged` events → `SubmissionSucceeded` |
 | Recognized command execution fails | `InputAccepted` → zero or more causal domain/`StateChanged` events → `SubmissionFailed` |
 
@@ -743,17 +696,13 @@ blocking, synchronous observer callbacks, and active-call counters.
 |---|---|
 | Valid statement | `InputAccepted` is published once before its execution result; the input is represented once in room state. |
 | Known command with invalid arguments | `InputRejected` is published; no room mutation, `InputAccepted`, or session execution occurs. |
-| Undefined command invocation without fallback | `UnknownCommand` contains the raw input and command name; no room mutation, acceptance, or session execution occurs. |
-| Invalid input with fallback supplied | `InputRejected` is published and the fallback is discarded. |
-| Native handler with fallback supplied | The native handler executes exactly once and the fallback is discarded. |
-| Missing native handler with fallback supplied | The fallback reaches `session.Execute` on the interpreter-loop goroutine and `UnknownCommand` is not published. |
-| Missing native handler without fallback | `UnknownCommand` is published and no session execution or state mutation occurs. |
-| Fallback followed by another submission | The fallback execution and its causal session events complete before the later submission plans or executes. |
+| Undefined command invocation | `UnknownCommand` contains the raw input and command name; no room mutation, acceptance, or session execution occurs. |
+| Native submission followed by another submission | The native execution and its causal session events complete before the later submission plans or executes. |
 | Session execution failure | `SubmissionFailed` is the terminal outcome and its error remains structurally inspectable with `errors.Is`; neither `SubmissionSucceeded` nor success-only state is committed. |
 | Synchronous session callback | `Submit` completes without deadlock; the callback is projected only after it is dequeued by the interpreter loop. |
 | Sequential submissions | A later submission cannot execute before an earlier submission and its synchronously emitted session events are fully applied. |
 | Concurrent submissions | Every resulting `session.Execute` call has at most one active invocation; order is the interpreter queue's acceptance order. |
-| Submission during an active stage | `InputRejected.Err` wraps or equals `ErrStagePending`; that rejection is terminal; the input is not parsed or recorded, the existing stage is unchanged, and neither a native handler, fallback, nor `session.Execute` runs. |
+| Submission during an active stage | `InputRejected.Err` wraps or equals `ErrStagePending`; that rejection is terminal; the input is not parsed or recorded, the existing stage is unchanged, and neither a native handler nor `session.Execute` runs. |
 | Submission after shutdown | The submission returns `ErrClosed`, does not execute, and does not publish through the closed dispatcher. |
 
 Every successfully enqueued scenario above publishes exactly one of

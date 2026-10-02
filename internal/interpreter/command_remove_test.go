@@ -7,13 +7,10 @@ import (
 	"github.com/trigosec/coderoom/internal/session"
 )
 
-func TestRemove_nativeHandlerTakesPrecedenceOverFallback(t *testing.T) {
+func TestRemove_executesNativeHandlerOnce(t *testing.T) {
 	interp, sess, events := newSubmitContractInterpreter(t)
 
-	mustSubmit(t, interp.SubmitWithFallback(
-		"/remove ada",
-		session.CancelCommand{Alias: "not-removed"},
-	))
+	mustSubmit(t, interp.Submit("/remove ada"))
 	receiveSubmitEvent[InputAccepted](t, events)
 	command := receiveSubmitCommand(t, sess.executed)
 	if command != (session.RemoveCommand{Alias: "ada"}) {

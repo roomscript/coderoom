@@ -5,7 +5,7 @@ temporary and must be deleted in the final boundary-enforcement commit.
 
 Implementation was parked after Step 6 while issue #53 established the model
 and executor boundaries. That decomposition and Step 7 are complete; Step 8
-is in progress; Step 8a is complete and Step 8b is next.
+is in progress; Steps 8a and 8b are complete and Step 8c is next.
 
 Each step should leave the repository working and independently reviewable.
 Run `go test ./...` before completing every step unless a narrower command is
@@ -448,13 +448,23 @@ dispatch code.
 
 ### 8b. Remove fallback submission
 
-- [ ] Replace remaining `SubmitWithFallback` calls with `Submit`.
-- [ ] Remove the final legacy translators and `SubmitWithFallback` API.
-- [ ] Preserve submission gating, terminal outcomes, causal-event ordering,
+- [x] Replace remaining `SubmitWithFallback` calls with `Submit`.
+- [x] Remove the final legacy translators and `SubmitWithFallback` API.
+- [x] Preserve submission gating, terminal outcomes, causal-event ordering,
       and draft restoration with equivalent native submission coverage.
 
 Stop condition: production submissions use `Submit`, with no fallback execution
 path or legacy submission translator.
+
+Audit: the TUI already submitted all production prompt input through `Submit`;
+no legacy submission translators remained. Removed the fallback facade and
+model path, converted migration tests to native submissions, and retained
+native coverage of terminal outcomes, serialization, causal-event ordering,
+stage gating, shutdown, and UI draft restoration. `ExecuteLegacy` cleanup and
+transcript ownership remain separate checkpoints.
+
+Verification: `go test ./...`, `go test -race ./internal/interpreter`, and
+`git diff --check` passed.
 
 ### 8c. Complete interpreter-driven TUI projection
 

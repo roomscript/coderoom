@@ -7,13 +7,10 @@ import (
 	"github.com/trigosec/coderoom/internal/session"
 )
 
-func TestCancel_nativeHandlerTakesPrecedenceOverFallback(t *testing.T) {
+func TestCancel_executesNativeHandlerOnce(t *testing.T) {
 	interp, sess, events := newSubmitContractInterpreter(t)
 
-	mustSubmit(t, interp.SubmitWithFallback(
-		"/cancel ada",
-		session.RemoveCommand{Alias: "not-cancelled"},
-	))
+	mustSubmit(t, interp.Submit("/cancel ada"))
 	receiveSubmitEvent[InputAccepted](t, events)
 	command := receiveSubmitCommand(t, sess.executed)
 	if command != (session.CancelCommand{Alias: "ada"}) {
