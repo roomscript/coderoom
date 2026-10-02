@@ -59,15 +59,31 @@ The Session Controller is the central orchestrator. All commands, messages, and 
 - Session roster with status indicators
 - Command input
 
-The UI is intentionally lean. It submits raw user input to
-`internal/interpreter` and renders interpreter snapshots and events. It does
-not call or observe the session directly. The interpreter parses input through
-`internal/promptlang`, owns application workflows and the canonical room
-projection, and serializes commands sent to the session controller.
+The intended UI boundary is raw input and structured intent sent to
+`internal/interpreter`, with interpreter snapshots and events rendered by the
+terminal. The interpreter parses input through `internal/promptlang`, owns
+application workflows and the canonical room projection used for execution,
+and serializes commands sent to the session controller.
 
-Architecture tests enforce this boundary: the interpreter's transitive
-dependencies exclude UI and terminal-framework packages, while UI packages may
-reach session and agent behavior only transitively through the interpreter.
+The staged-submission cutover is complete: send, broadcast, and handoff
+planning, frozen recipients, barriers, lifecycle readiness, source selection,
+dispatch, and interrupt coordination belong to the interpreter's `stageWorkflow`.
+The TUI presents detached stage snapshots and invokes atomic edit, discard,
+and interrupt operations through Bubble Tea commands. Its staged composer owns
+text, status, focus, and approval-overlay presentation only.
+
+Transcript presentation still belongs to the TUI during this migration. It
+maintains its existing session-event room projection and appends dispatched
+input from interpreter events. `ContextHandoff` remains in canonical interpreter
+room state but is filtered out of the TUI session projection; ordered
+`StagedInputDispatched` and `HandoffCompleted` events present the input before
+its audit exactly once. Stage snapshots do not replace or reconcile transcript
+records.
+
+The remaining direct UI session observation and session/agent dependencies are
+removed in the later TUI cutover. Current architecture tests reject direct UI
+`session.Execute` calls; final package-graph enforcement will also reject direct
+UI session/agent imports and transitive interpreter terminal dependencies.
 
 ---
 

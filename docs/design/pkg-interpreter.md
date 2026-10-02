@@ -32,8 +32,8 @@ The interpreter owns:
 - translation of statements into session commands
 - shell-definition invocation and shell-process lifetime
 - bounded-loop state and coordination
-- staged-submission planning, frozen routing, and pending state; lifecycle
-  transitions and interrupt-and-dispatch land in later migration checkpoints
+- staged-submission planning, frozen routing, pending state, lifecycle
+  transitions, and atomic edit/discard/interrupt operations
 - the canonical `room.Room` projection used during execution
 - serialized calls to `session.Execute`
 - application-level events and snapshots consumed by front ends
@@ -108,17 +108,15 @@ caller has moved to `Submit`,
 `SubmitWithFallback`, or a dedicated interpreter operation.
 
 Fallback construction must not query mutable session or room state outside the
-interpreter loop. Workflows that still require unmigrated planning, including
-handoff source selection, continue in their existing TUI workflow and use
-synchronous `ExecuteLegacy` until they migrate as a unit.
-Session validation remains authoritative. The temporary UI dependency on
-`internal/session` is limited to constructing command values; it never calls
-`session.Execute` directly.
+interpreter loop. Stage planning and handoff source selection have completed
+their migration and do not use these compatibility APIs. Session validation
+remains authoritative. The TUI still observes session events for its transcript
+projection during the remaining migration; it never calls `session.Execute`
+directly.
 
 Dedicated methods are reserved for structured interactions that are not prompt
-language: resolving an approval, reading a snapshot, and shutdown. Future
-staged-submission editing, discard, and interrupt-and-dispatch operations will
-also use dedicated methods in later migration checkpoints. The boundary
+language: resolving an approval, reading a snapshot, shutdown, and atomic
+staged-submission editing, discard, and interrupt-and-dispatch. The boundary
 invariant is that front ends express intent to the interpreter and do not
 receive the underlying `*session.Session`.
 
@@ -548,10 +546,9 @@ session observers and removes the need for UI-side observer draining.
 
 ## Staged submissions
 
-The interpreter workflow is becoming the owner of the pending staged-submission
-state machine for user-authored
-`Send`, `Broadcast`, and `Handoff` statements. Composer staging is its UI
-representation, not its source of truth.
+The interpreter workflow owns the staged-submission state machine for
+user-authored `Send`, `Broadcast`, and `Handoff` statements in the running TUI.
+Composer staging is its UI representation, not its source of truth.
 
 On submission, the interpreter freezes the routing plan and barrier aliases. If
 the required participants are ready, it dispatches immediately. Otherwise it
@@ -567,8 +564,8 @@ then advance it:
 The front end may request edit/discard or interrupt-and-dispatch. An interrupt
 request causes the interpreter to issue serialized cancel commands for blocking
 participants, publish progress, and dispatch only when the resulting lifecycle
-events satisfy the frozen barrier. The UI never calculates readiness or reacts
-to session events independently.
+events satisfy the frozen barrier. The UI never calculates stage readiness or
+advances stages from its own session-event projection.
 
 Representative state supplied to front ends is structured:
 
@@ -628,14 +625,22 @@ this contract without changing the serialized state owner.
 
 ## Room ownership
 
-The interpreter owns the live `room.Room`. The UI receives immutable room
-snapshots and adapts them to viewport state; it does not hold or mutate the
-canonical room object.
+The interpreter owns the canonical live `room.Room` used for execution. The
+TUI still owns a separate room projection for transcript presentation during
+the remaining migration. It does not replace that projection from interpreter
+room snapshots or mutate the canonical room object.
 
 Local semantic records, including accepted user input, definitions, shell
 results, and loop status, are added through interpreter-owned room operations.
 Presentation-only state such as startup tips, focus, scroll position, and debug
 overlays remains in the UI.
+
+For staged send, broadcast, and handoff, `InputAccepted` does not echo the input
+in the TUI transcript. `StagedInputDispatched` appends it with delivered routing;
+for handoff, the ordered `HandoffCompleted` event follows with the audit preview.
+The TUI filters `ContextHandoff` unconditionally from its session room observer,
+while canonical interpreter room state retains it. This preserves one owner of
+transcript presentation without optimistic records, rollback, or reconciliation.
 
 ## Handoff source resolution
 
@@ -708,8 +713,8 @@ shutdown path.
 
 Interpreter tests use fakes at its session and shell boundaries and preserve
 the existing definition, shell, and loop scenarios moved from `internal/ui`.
-Lifecycle-driven staged-submission scenarios remain in the UI until their
-migration checkpoint. Coverage must include:
+Interpreter tests cover staged planning and lifecycle decisions; native TUI
+tests retain dispatch ordering, transcript, composer, and approval behavior. Coverage must include:
 
 - unchanged parsing and command behavior
 - typed observation of acceptance, rejection, shell, and loop results
@@ -724,9 +729,9 @@ migration checkpoint. Coverage must include:
 The interpreter now covers frozen stage planning, pending snapshots, immediate
 and lifecycle-delayed send/broadcast dispatch, target departure, partial
 delivery, the pending-stage submission gate, handoff ordering, and atomic
-stage actions with race and shutdown scenarios. The TUI still selects its legacy stage path until the ownership
-cutover; therefore the interpreter workflow is not yet authoritative in the
-interactive application.
+stage actions with race and shutdown scenarios. The interpreter workflow is
+authoritative for all three staged actions in the interactive application;
+there is no UI-owned batch state or legacy stage dispatch path.
 
 ### `Submit` contract tests
 

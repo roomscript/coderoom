@@ -4,7 +4,8 @@ This file tracks the incremental implementation of GitHub issue #38. It is
 temporary and must be deleted in the final boundary-enforcement commit.
 
 Implementation was parked after Step 6 while issue #53 established the model
-and executor boundaries. That decomposition is complete and Step 7 is active.
+and executor boundaries. That decomposition and Step 7 are complete; Step 8
+is next.
 
 Each step should leave the repository working and independently reviewable.
 Run `go test ./...` before completing every step unless a narrower command is
@@ -382,9 +383,19 @@ composer and approval behavior preserved.
 
 ##### 7e.5c. Document and verify the final stage boundary
 
-- [ ] Update architecture documentation to describe the final ownership
+- [x] Update architecture documentation to describe the final ownership
       boundary without claiming broader transcript migration.
-- [ ] Audit for remaining UI stage workflow decisions and mark 7e.5 complete.
+- [x] Audit for remaining UI stage workflow decisions and mark 7e.5 complete.
+
+Audit: production UI code contains no stage planning, barrier coordination,
+readiness transitions, session-command dispatch, or handoff source selection.
+Remaining stage code handles snapshot/status presentation, composer focus and
+approval overlays, draft/event ordering, and atomic-operation adapters. The
+unused room handoff source wrapper was removed. Transcript projection and
+compatibility API removal remain in Step 8. Step 7e.5 and Step 7 are complete.
+
+Verification: `go test ./...`, `go test -race ./internal/interpreter`, and
+`git diff --check` passed.
 
 Stop condition: the TUI is a stage presenter and input adapter only; all stage
 workflow decisions are interpreter-owned, and transcript ownership is
