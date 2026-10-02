@@ -286,9 +286,9 @@ func TestLoopWorkflow_staleShellCompletionDoesNotAdvanceCurrentGeneration(t *tes
 func newLoopTestInterpreter(t *testing.T, runner ShellRunner) (*Interpreter, *submitContractSession, chan Event) {
 	t.Helper()
 	sess := newSubmitContractSession()
-	interp := New(t.Context(), sess, "/workspace", WithShellRunner(runner))
 	events := make(chan Event, 32)
-	interp.AddObserver(submitContractObserver{events: events})
+	interp := New(t.Context(), sess, "/workspace", WithShellRunner(runner), WithObserver(submitContractObserver{events: events}))
+	receiveSubmitEvent[StateChanged](t, events)
 	t.Cleanup(interp.Close)
 	return interp, sess, events
 }

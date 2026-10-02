@@ -114,10 +114,10 @@ func TestInterpreter_projectsSessionEventBeforePublishingSnapshot(t *testing.T) 
 		Status:     participant.StatusIdle,
 		Color:      "#4ADE80",
 	}}
-	interp := interpreter.New(context.Background(), sess, t.TempDir())
-	t.Cleanup(interp.Close)
 	events := make(chan interpreter.Event, 1)
-	interp.AddObserver(eventObserver{events: events})
+	interp := interpreter.New(context.Background(), sess, t.TempDir(), interpreter.WithObserver(eventObserver{events: events}))
+	receiveEvent[interpreter.StateChanged](t, events)
+	t.Cleanup(interp.Close)
 
 	sess.emit(session.AgentStarted{Alias: "ada"})
 
@@ -132,10 +132,10 @@ func TestInterpreter_projectsSessionEventBeforePublishingSnapshot(t *testing.T) 
 
 func TestInterpreter_translatesApprovalState(t *testing.T) {
 	sess := newRecordingSession()
-	interp := interpreter.New(context.Background(), sess, t.TempDir())
-	t.Cleanup(interp.Close)
 	events := make(chan interpreter.Event, 2)
-	interp.AddObserver(eventObserver{events: events})
+	interp := interpreter.New(context.Background(), sess, t.TempDir(), interpreter.WithObserver(eventObserver{events: events}))
+	receiveEvent[interpreter.StateChanged](t, events)
+	t.Cleanup(interp.Close)
 
 	sess.emit(session.ApprovalRequested{
 		Alias: "ada",
@@ -166,9 +166,9 @@ func TestInterpreter_translatesApprovalState(t *testing.T) {
 func TestInterpreter_snapshotAfterCloseUsesDetachedCache(t *testing.T) {
 	sess := newRecordingSession()
 	sess.roster = []participant.View{{Alias: "ada", Status: participant.StatusIdle}}
-	interp := interpreter.New(context.Background(), sess, t.TempDir())
 	events := make(chan interpreter.Event, 2)
-	interp.AddObserver(eventObserver{events: events})
+	interp := interpreter.New(context.Background(), sess, t.TempDir(), interpreter.WithObserver(eventObserver{events: events}))
+	receiveEvent[interpreter.StateChanged](t, events)
 
 	sess.emit(session.AgentStarted{Alias: "ada"})
 	receiveEvent[interpreter.StateChanged](t, events)
@@ -195,10 +195,10 @@ func TestInterpreter_snapshotAfterCloseUsesDetachedCache(t *testing.T) {
 
 func TestInterpreter_resolvesOnlyOfferedChoiceAndClearsApproval(t *testing.T) {
 	sess := newRecordingSession()
-	interp := interpreter.New(context.Background(), sess, t.TempDir())
-	t.Cleanup(interp.Close)
 	events := make(chan interpreter.Event, 4)
-	interp.AddObserver(eventObserver{events: events})
+	interp := interpreter.New(context.Background(), sess, t.TempDir(), interpreter.WithObserver(eventObserver{events: events}))
+	receiveEvent[interpreter.StateChanged](t, events)
+	t.Cleanup(interp.Close)
 
 	emitApproval(sess, 42, agent.OptionDecline, agent.OptionCancel)
 	receiveEvent[interpreter.StateChanged](t, events)
@@ -220,10 +220,10 @@ func TestInterpreter_resolvesOnlyOfferedChoiceAndClearsApproval(t *testing.T) {
 
 func TestInterpreter_rejectsResolutionForInactiveApproval(t *testing.T) {
 	sess := newRecordingSession()
-	interp := interpreter.New(context.Background(), sess, t.TempDir())
-	t.Cleanup(interp.Close)
 	events := make(chan interpreter.Event, 3)
-	interp.AddObserver(eventObserver{events: events})
+	interp := interpreter.New(context.Background(), sess, t.TempDir(), interpreter.WithObserver(eventObserver{events: events}))
+	receiveEvent[interpreter.StateChanged](t, events)
+	t.Cleanup(interp.Close)
 
 	emitApproval(sess, 42, agent.OptionAccept)
 	receiveEvent[interpreter.StateChanged](t, events)
@@ -240,10 +240,10 @@ func TestInterpreter_transitionsToNextApprovalAfterResolution(t *testing.T) {
 	sess.executeHook = func(_ session.Command, observer session.Observer) {
 		observer.OnEvent(approvalRequested(43, agent.OptionCancel))
 	}
-	interp := interpreter.New(context.Background(), sess, t.TempDir())
-	t.Cleanup(interp.Close)
 	events := make(chan interpreter.Event, 4)
-	interp.AddObserver(eventObserver{events: events})
+	interp := interpreter.New(context.Background(), sess, t.TempDir(), interpreter.WithObserver(eventObserver{events: events}))
+	receiveEvent[interpreter.StateChanged](t, events)
+	t.Cleanup(interp.Close)
 
 	emitApproval(sess, 42, agent.OptionAccept)
 	receiveEvent[interpreter.StateChanged](t, events)
@@ -262,10 +262,10 @@ func TestInterpreter_transitionsToNextApprovalAfterResolution(t *testing.T) {
 func TestInterpreter_keepsApprovalWhenResolutionFails(t *testing.T) {
 	sess := newRecordingSession()
 	sess.executeErr = errors.New("execute failed")
-	interp := interpreter.New(context.Background(), sess, t.TempDir())
-	t.Cleanup(interp.Close)
 	events := make(chan interpreter.Event, 3)
-	interp.AddObserver(eventObserver{events: events})
+	interp := interpreter.New(context.Background(), sess, t.TempDir(), interpreter.WithObserver(eventObserver{events: events}))
+	receiveEvent[interpreter.StateChanged](t, events)
+	t.Cleanup(interp.Close)
 
 	emitApproval(sess, 42, agent.OptionAccept)
 	receiveEvent[interpreter.StateChanged](t, events)
@@ -279,10 +279,10 @@ func TestInterpreter_keepsApprovalWhenResolutionFails(t *testing.T) {
 
 func TestInterpreter_consumesApprovalOnceUnderConcurrentResolution(t *testing.T) {
 	sess := newRecordingSession()
-	interp := interpreter.New(context.Background(), sess, t.TempDir())
-	t.Cleanup(interp.Close)
 	events := make(chan interpreter.Event, 32)
-	interp.AddObserver(eventObserver{events: events})
+	interp := interpreter.New(context.Background(), sess, t.TempDir(), interpreter.WithObserver(eventObserver{events: events}))
+	receiveEvent[interpreter.StateChanged](t, events)
+	t.Cleanup(interp.Close)
 	emitApproval(sess, 1, agent.OptionAccept)
 	receiveEvent[interpreter.StateChanged](t, events)
 

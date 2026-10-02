@@ -5,7 +5,7 @@ temporary and must be deleted in the final boundary-enforcement commit.
 
 Implementation was parked after Step 6 while issue #53 established the model
 and executor boundaries. That decomposition and Step 7 are complete; Step 8
-is in progress; Steps 8a through 8d are complete and Step 8e is next.
+is in progress; Step 8 is complete; Step 9 is next.
 
 Each step should leave the repository working and independently reviewable.
 Run `go test ./...` before completing every step unless a narrower command is
@@ -527,14 +527,27 @@ Coverage mapping for removed compatibility tests:
 
 ### 8e. Close the TUI boundary
 
-- [ ] Remove UI imports of `internal/session` and `internal/agent`.
-- [ ] Remove obsolete UI tests and helpers only after equivalent interpreter
+- [x] Remove UI imports of `internal/session` and `internal/agent`.
+- [x] Remove obsolete UI tests and helpers only after equivalent interpreter
       or presentation-boundary coverage exists.
-- [ ] Audit the completed cutover and update implementation-status wording in
+- [x] Audit the completed cutover and update implementation-status wording in
       the relevant design documents.
 
 Stop condition: the TUI is an input adapter and presenter using interpreter
 contracts. Step 9 retains final package-graph enforcement and plan-file deletion.
+
+Audit: production UI packages import neither session nor agent. CLI composition
+owns interpreter lifetime and installs `WithObserver` before startup; the UI
+consumes the initial state and later events from the same queue without snapshot
+queries or dynamic observer registration. Approval presentation uses interpreter DTOs; transcript
+renderers use canonical record kinds and detached interpreter tool details.
+Removed the unused room actor constructor, observer/queue adapters, chat refresh
+helpers, and command-append API. Room component fixtures now use `NewPresenter`.
+Native lifecycle and streaming coverage remains in interpreter tests and
+`transcript_projection_test.go`; command/file-change rendering and approval
+mode tests retain their scenarios. Session/agent imports in test-only fixtures
+remain for end-to-end adapter coverage. The record message constructor is now
+a test-only helper. Final package-graph enforcement remains Step 9.
 
 Verification before closing Step 8:
 

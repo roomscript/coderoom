@@ -11,14 +11,11 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/atotto/clipboard"
-	"github.com/trigosec/coderoom/internal/agent"
-	"github.com/trigosec/coderoom/internal/queue"
+	"github.com/trigosec/coderoom/internal/interpreter"
 	roomstate "github.com/trigosec/coderoom/internal/room"
-	"github.com/trigosec/coderoom/internal/session"
 	"github.com/trigosec/coderoom/internal/ui/room/approval"
 	"github.com/trigosec/coderoom/internal/ui/room/compose"
 	"github.com/trigosec/coderoom/internal/ui/room/history"
@@ -88,10 +85,9 @@ type StagedInterruptMsg struct{}
 type StagedClearMsg struct{}
 
 // ApprovalDecisionMsg is emitted when the user confirms an approval option.
-// The parent is responsible for forwarding this decision to the active
-// ApprovalListener and resuming the agent.
+// The parent forwards this choice to the interpreter.
 type ApprovalDecisionMsg struct {
-	Choice agent.ApprovalOption
+	Choice interpreter.ApprovalChoice
 }
 
 // Model is the Bubble Tea component for a single room: history + composer.
@@ -100,9 +96,6 @@ type Model struct {
 	projectionVersion uint64
 	presentation      roomstate.Snapshot
 	history           history.Model
-	chat              *roomstate.Room
-	roomQueue         *queue.Queue[roomstate.Update]
-	roomVersion       uint64
 	input             inputModel
 	approval          approvalState
 	activeFocus       roomFocus
@@ -111,16 +104,6 @@ type Model struct {
 	lastSize          tea.WindowSizeMsg
 	clipboardRead     func() (string, error)
 	clipboardWrite    func(string) error
-}
-
-// New creates a room model with a fresh history model.
-// colorByAlias resolves an active agent alias to its color; it may be nil.
-// departedColor is used for departed agents.
-func New(colorByAlias func(string) string, departedColor string) Model {
-	m := newPresentationModel(colorByAlias, departedColor)
-	m.roomQueue = queue.New[roomstate.Update]()
-	m.chat = roomstate.New(roomstate.WithObserver(roomUpdateObserver{queue: m.roomQueue}))
-	return m
 }
 
 func newPresentationModel(colorByAlias func(string) string, departedColor string) Model {
@@ -164,27 +147,6 @@ func writeOSC52(out io.Writer, text string) error {
 	return nil
 }
 
-// Close stops the room model's background goroutines.
-func (m Model) Close() {
-	if m.chat != nil {
-		m.chat.Close()
-	}
-	if m.roomQueue != nil {
-		m.roomQueue.Close()
-	}
-}
-
-// Init returns the initial command for the component.
-func (m Model) Init() tea.Cmd {
-	if m.roomQueue == nil {
-		return m.input.compose.Init()
-	}
-	return tea.Batch(m.input.compose.Init(), awaitRoomUpdate(m.roomQueue))
-}
-
-// SessionObserver returns the canonical room projection observer.
-func (m Model) SessionObserver() session.Observer { return m.chat }
-
 // Ready reports whether HandleResize has been called at least once.
 func (m Model) Ready() bool { return m.history.Ready() }
 
@@ -210,54 +172,7 @@ func (m Model) HistoryHeight() int { return m.history.Height() }
 func (m Model) SetHistorySnapshot(snapshot roomstate.Snapshot) Model {
 	m.history = m.history.ReplaceSnapshot(snapshot)
 	m = m.syncHistoryFollowAnchor()
-	m.roomVersion = snapshot.Version
 	return m
-}
-
-// DrainObserverUpdates applies any room updates already queued, without
-// waiting on the async awaitRoomUpdate Cmd to deliver them. Room and the
-// UI's own session.Observer registration are independently paced (see
-// pkg-room.md's "Session integration"), so a chat record and a
-// participant/approval change for the same underlying session event can
-// otherwise be applied a tick apart. This is a best-effort tightening of
-// that gap for the common case where Room has already processed the event
-// by the time this is called — not a correctness requirement. awaitRoomUpdate
-// remains the only guaranteed delivery path; this just reduces visible lag.
-func (m Model) DrainObserverUpdates() Model {
-	updated, _ := m.DrainObserverUpdateTriggers()
-	return updated
-}
-
-// DrainObserverUpdateTriggers applies all currently queued room updates and
-// returns their workflow-relevant triggers.
-func (m Model) DrainObserverUpdateTriggers() (Model, []roomstate.UpdateTrigger) {
-	var triggers []roomstate.UpdateTrigger
-	for {
-		update, ok := m.roomQueue.TryPull()
-		if !ok {
-			return m, triggers
-		}
-		m = m.applyRoomUpdate(update)
-		if update.Trigger.Kind != roomstate.UpdateTriggerNone {
-			triggers = append(triggers, update.Trigger)
-		}
-	}
-}
-
-// WaitObserverUpdateTimeout waits up to timeout for the next queued room update.
-func (m Model) WaitObserverUpdateTimeout(timeout time.Duration) (Model, bool) {
-	updated, _, ok := m.WaitObserverUpdateTriggerTimeout(timeout)
-	return updated, ok
-}
-
-// WaitObserverUpdateTriggerTimeout waits for and applies the next queued room
-// update, returning its workflow-relevant trigger.
-func (m Model) WaitObserverUpdateTriggerTimeout(timeout time.Duration) (Model, roomstate.UpdateTrigger, bool) {
-	update, ok := m.roomQueue.PullTimeout(timeout)
-	if !ok {
-		return m, roomstate.UpdateTrigger{}, false
-	}
-	return m.applyRoomUpdate(update), update.Trigger, true
 }
 
 // IsStreaming reports whether alias currently has an open turn.
@@ -346,7 +261,7 @@ func (m Model) ClearComposerStaged() Model {
 }
 
 // ShowApproval switches the input area to an approval prompt.
-func (m Model) ShowApproval(req agent.ApprovalRequest) Model {
+func (m Model) ShowApproval(req interpreter.Approval) Model {
 	if m.input.kind != inputApproval {
 		m.approval.previousInputKind = m.input.kind
 		m.approval.restoreFocus = m.activeFocus
@@ -354,7 +269,7 @@ func (m Model) ShowApproval(req agent.ApprovalRequest) Model {
 	return m.enterApprovalMode(req)
 }
 
-func (m Model) enterApprovalMode(req agent.ApprovalRequest) Model {
+func (m Model) enterApprovalMode(req interpreter.Approval) Model {
 	m.input.approval = m.input.approval.Set(req)
 	m.input.kind = inputApproval
 	m.activeFocus = focusInput
@@ -438,62 +353,12 @@ func (m Model) HandleResize(innerW, totalH int) Model {
 
 // AppendUserInput appends a user input record to history.
 func (m Model) AppendUserInput(body string, routing []string) Model {
-	if m.chat == nil {
-		return m.appendPresentationRecord(roomstate.Record{Kind: roomstate.KindUserInput, Text: body, Routing: routing})
-	}
-	m.chat.AppendUserInputRecord(body, routing)
-	return m.refreshFromChat()
+	return m.appendPresentationRecord(roomstate.Record{Kind: roomstate.KindUserInput, Text: body, Routing: routing})
 }
 
 // AppendSystem appends a system record to history.
 func (m Model) AppendSystem(text string) Model {
-	if m.chat == nil {
-		return m.appendPresentationRecord(roomstate.Record{Kind: roomstate.KindSystem, Text: text})
-	}
-	m.chat.AppendSystemRecord(text)
-	return m.refreshFromChat()
-}
-
-// AppendCommand appends a completed local command record to history.
-func (m Model) AppendCommand(alias string, command agent.Command) Model {
-	if m.chat == nil {
-		return m.appendPresentationRecord(roomstate.NewAgentRecord(alias, agent.Message{Mode: agent.ModeSingle, Content: command}))
-	}
-	m.chat.AppendRecord(roomstate.NewAgentRecord(alias, agent.Message{
-		Mode:    agent.ModeSingle,
-		Content: command,
-	}))
-	return m.refreshFromChat()
-}
-
-// refreshFromChat re-reads the current chat snapshot into history. Used
-// right after a synchronous local append: AppendRecord already mutated
-// room state and queued an Update for it before returning, so this fresh
-// snapshot already reflects that change — draining the queue afterward
-// would just redundantly re-apply the same state.
-func (m Model) refreshFromChat() Model {
-	return m.applyChatSnapshot()
-}
-
-func (m Model) applyChatDelta() Model {
-	delta, err := m.chat.Delta(m.roomVersion)
-	if err != nil {
-		if errors.Is(err, roomstate.ErrResyncRequired) {
-			return m.applyChatSnapshot()
-		}
-		return m
-	}
-	if delta.Version == m.roomVersion {
-		return m
-	}
-	m.history = m.history.ApplyRoomDelta(delta)
-	m = m.syncHistoryFollowAnchor()
-	m.roomVersion = delta.Version
-	return m
-}
-
-func (m Model) applyChatSnapshot() Model {
-	return m.SetHistorySnapshot(m.chat.Snapshot())
+	return m.appendPresentationRecord(roomstate.Record{Kind: roomstate.KindSystem, Text: text})
 }
 
 // GotoBottom scrolls history to the bottom without changing live/browse mode.
@@ -558,3 +423,6 @@ func (m Model) historyAtBottomBrowse() Model {
 	m.history = m.history.GotoBottom()
 	return m
 }
+
+// Init returns the composer initialization command.
+func (m Model) Init() tea.Cmd { return m.input.compose.Init() }

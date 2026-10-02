@@ -18,10 +18,10 @@ func TestTranscriptStream_acceptancePrecedesRecordsAndCausalUpdatesPrecedeComple
 	sess.execute = func(_ session.Command, observer session.Observer) {
 		observer.OnEvent(session.AgentLog{Alias: "ada", Text: "causal output"})
 	}
-	interp := New(context.Background(), sess, ".")
-	t.Cleanup(interp.Close)
 	events := make(chan Event, 32)
-	interp.AddObserver(transcriptTestObserver{events: events})
+	interp := New(context.Background(), sess, ".", WithObserver(transcriptTestObserver{events: events}))
+	receiveSubmitEvent[StateChanged](t, events)
+	t.Cleanup(interp.Close)
 	if err := interp.Submit("/cancel ada"); err != nil {
 		t.Fatal(err)
 	}
@@ -82,15 +82,15 @@ func TestTranscriptStream_shellInputAppearsBeforeCompletion(t *testing.T) {
 				}
 				return shell.Result{Status: shell.StatusSuccess}
 			})
-			interp := New(context.Background(), newSubmitContractSession(), ".", WithShellRunner(runner))
+			events := make(chan Event, 32)
+			interp := New(context.Background(), newSubmitContractSession(), ".", WithShellRunner(runner), WithObserver(transcriptTestObserver{events: events}))
+			receiveSubmitEvent[StateChanged](t, events)
 			t.Cleanup(interp.Close)
 			t.Cleanup(func() { close(release) })
 			if err := interp.Submit("/def slow /shell sleep 60"); err != nil {
 				t.Fatal(err)
 			}
 			interp.Snapshot()
-			events := make(chan Event, 32)
-			interp.AddObserver(transcriptTestObserver{events: events})
 			if err := interp.Submit(raw); err != nil {
 				t.Fatal(err)
 			}

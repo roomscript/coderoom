@@ -61,9 +61,21 @@ func New(ctx context.Context, sess SessionController, cwd string, opts ...Option
 func (i *Interpreter) Submit(raw string) error
 func (i *Interpreter) ResolveApproval(id int64, choice ApprovalChoice) error
 func (i *Interpreter) Snapshot() Snapshot
-func (i *Interpreter) AddObserver(Observer)
+func WithObserver(Observer) Option
 func (i *Interpreter) Close()
 ```
+
+Application event observers are configured once, before execution starts:
+
+```go
+observer := ui.NewObserver()
+interp := interpreter.New(ctx, sess, cwd, interpreter.WithObserver(observer))
+model := ui.New(interp, observer, cwd)
+```
+
+`WithObserver` installs the outgoing application event consumer. The session
+observer is a separate incoming runtime-event port used internally by the
+interpreter; front ends do not register with the session.
 
 `Submit` is the only prompt-language entry point. User-authored `/cancel`,
 `/invite`, `/remove`, sends, and every other language statement all use this
@@ -542,8 +554,14 @@ versions are ignored by the presenter.
 
 `StateChanged` snapshots supply roster, approval, and stage state. `Snapshot.Room`
 is a detached inspection/bootstrap contract, not a live record delivery path.
-The sequential TUI starts observing before submitting input and never replaces
-its transcript from snapshot records. Semantic `InputAccepted`,
+Observers are installed through `WithObserver` during interpreter construction,
+before startup. The first event is an initial `StateChanged` snapshot, followed
+by application events in publication order, including synchronous startup
+callbacks. The UI queue is created first, installed on the interpreter, and
+passed alongside the interpreter to `ui.New`; events wait there until the UI
+consumes them. The UI does not query snapshots or register observers after
+startup. A new observer cannot attach to an already-running interpreter.
+Live snapshots never replace transcript records. Semantic `InputAccepted`,
 `StagedInputDispatched`, `HandoffCompleted`, `ShellCompleted`, and `LoopStatus`
 events remain available to consumers but do not append duplicate TUI records.
 Stage dispatch/discard events still control draft restoration and ordering.
@@ -708,6 +726,10 @@ composition fields and compile-checks that operations target
 `*interpreterExecutor`, not the facade.
 
 The TUI constructs no session commands and owns no command registry, shell
-execution, or loop workflow state. Its remaining session dependency is interpreter
-construction; agent types remain in presentation adapters. Step 8e removes these
-dependencies before Step 9 adds package-graph enforcement.
+execution, or loop workflow state. Production UI packages import neither session
+nor agent. The CLI constructs the interpreter and owns shutdown; `ui.New` takes
+the interpreter and its construction-time observer queue, and `ui.Model.Close` closes only its event queue.
+Approval widgets consume `Approval`/`ApprovalChoice` DTOs. Transcript renderers
+retain canonical room record values and use `CommandFromRecord` and
+`FileChangesFromRecord` for detached tool details. Protocol constructors remain
+in test fixtures only. Step 9 adds package-graph enforcement.

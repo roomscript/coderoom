@@ -20,9 +20,8 @@ type eventDispatcher struct {
 	queue *queue.Queue[eventDispatchItem]
 	done  chan struct{}
 
-	observerMu sync.RWMutex
-	observers  []Observer
-	closeOnce  sync.Once
+	observers []Observer
+	closeOnce sync.Once
 }
 
 func newEventDispatcher() *eventDispatcher {
@@ -39,13 +38,11 @@ func (d *eventDispatcher) Publish(event Event) {
 	d.queue.Push(publishedEvent{event: event})
 }
 
-// AddObserver registers an observer for event delivery.
-func (d *eventDispatcher) AddObserver(observer Observer) {
+// addObserver installs an observer before any event is published.
+func (d *eventDispatcher) addObserver(observer Observer) {
 	if observer == nil {
 		return
 	}
-	d.observerMu.Lock()
-	defer d.observerMu.Unlock()
 	d.observers = append(d.observers, observer)
 }
 
@@ -85,10 +82,7 @@ func (d *eventDispatcher) run() {
 }
 
 func (d *eventDispatcher) deliver(event Event) {
-	d.observerMu.RLock()
-	observers := append([]Observer(nil), d.observers...)
-	d.observerMu.RUnlock()
-	for _, observer := range observers {
+	for _, observer := range d.observers {
 		observer.OnEvent(event)
 	}
 }

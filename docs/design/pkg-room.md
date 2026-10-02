@@ -210,7 +210,8 @@ The UI integration point is the room Bubble Tea presenter:
 `internal/ui/room`. Canonical records and stream metadata arrive through ordered
 interpreter `TranscriptChanged` deltas. Application snapshots supply roster,
 approvals, and stage state, but their room records are not reapplied to the live
-transcript. The production presenter does not hold the live `room.Room`.
+transcript. The presenter has no live `room.Room`, observer queue, or session observer API.
+Room component tests also construct this presentation-only model.
 
 User-authored input, shell results, definitions, and loop records are appended
 by the interpreter through room-owned APIs. Help formatting, startup tips,
@@ -247,8 +248,8 @@ Example:
 
 That accumulation belongs in room, not in UI.
 
-User-authored records are different: they are created intentionally by the UI
-and inserted into room directly. They are not reconstructed from
+User-authored records are different: they are created intentionally by the
+interpreter and inserted into room directly. They are not reconstructed from
 `session.Event`.
 
 ---
@@ -274,12 +275,9 @@ The room package therefore owns:
 - message state required to represent in-progress and completed chat-visible
   records correctly over time
 
-Room does not need to own every piece of transcript-adjacent presentation
-metadata. In particular, the user-input routing footer is a UI signal: it tells
-the user who a submitted message was intended for, but it is not part of the
-canonical runtime message state that room maintains. That footer can therefore
-be derived by the UI at submission time and stored as UI-owned presentation
-metadata rather than reconstructed from later session events.
+The interpreter records delivered routing on canonical user-input records.
+The UI formats the routing footer from those supplied aliases; it does not
+calculate recipients or reconstruct routing from session events.
 
 ---
 

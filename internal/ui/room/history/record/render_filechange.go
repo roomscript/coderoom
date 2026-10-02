@@ -6,15 +6,15 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/trigosec/coderoom/internal/agent"
+	"github.com/trigosec/coderoom/internal/interpreter"
 	"github.com/trigosec/coderoom/internal/ui/palette"
 )
 
-func fileChangeFieldsFromRecord(r Record) (status agent.ToolStatus, changes []agent.FileChange, body string) {
+func fileChangeFieldsFromRecord(r Record) (status string, changes []interpreter.FileChange, body string) {
 	if r.Msg == nil {
 		return "", nil, ""
 	}
-	c, ok := r.Msg.Content.(agent.FileChangeSet)
+	c, ok := interpreter.FileChangesFromRecord(r)
 	if !ok {
 		return "", nil, ""
 	}
@@ -201,12 +201,12 @@ type fileChangeKey struct {
 	path string
 }
 
-func uniqueFileChanges(changes []agent.FileChange) []agent.FileChange {
+func uniqueFileChanges(changes []interpreter.FileChange) []interpreter.FileChange {
 	if len(changes) <= 1 {
 		return changes
 	}
 	seen := make(map[fileChangeKey]struct{}, len(changes))
-	out := make([]agent.FileChange, 0, len(changes))
+	out := make([]interpreter.FileChange, 0, len(changes))
 	for _, ch := range changes {
 		key := fileChangeKey{kind: ch.ChangeKind, path: ch.Path}
 		if _, ok := seen[key]; ok {

@@ -6,7 +6,6 @@ import (
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/trigosec/coderoom/internal/agent"
 	rec "github.com/trigosec/coderoom/internal/ui/room/history/record"
 )
 
@@ -43,7 +42,7 @@ func (m Model) IsReasoningStreaming(alias string) bool {
 		if r.Alias != alias || r.Msg == nil {
 			continue
 		}
-		if _, ok := r.Msg.Content.(agent.Reasoning); ok {
+		if r.Kind == rec.KindReasoning {
 			return true
 		}
 	}

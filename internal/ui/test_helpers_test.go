@@ -18,7 +18,7 @@ import (
 // viewport is initialised and syncViewport calls are live.
 func makeReadyModel(t *testing.T) Model {
 	t.Helper()
-	m := New(context.Background(), newTestSession(t), ".")
+	m := newTestModel(t, newTestSession(t))
 	t.Cleanup(m.Close)
 	t.Cleanup(func() {
 		if chat := syntheticRooms[m.interpreter]; chat != nil {
@@ -34,7 +34,7 @@ func makeReadyModel(t *testing.T) Model {
 
 func makeReadyModelWithHeight(t *testing.T, height int) Model {
 	t.Helper()
-	m := New(context.Background(), newTestSession(t), ".")
+	m := newTestModel(t, newTestSession(t))
 	t.Cleanup(m.Close)
 	t.Cleanup(func() {
 		if chat := syntheticRooms[m.interpreter]; chat != nil {
@@ -58,7 +58,7 @@ func newTestSession(t *testing.T) *session.Session {
 
 func newTestModelWithSession(t *testing.T, sess *session.Session) Model {
 	t.Helper()
-	m := New(context.Background(), sess, ".")
+	m := newTestModel(t, sess)
 	attachSessionOracle(t, m, sess)
 	t.Cleanup(m.Close)
 	t.Cleanup(func() {
@@ -199,5 +199,24 @@ func consumeInterpreterPresentation(t *testing.T, m Model, ready func(Model) boo
 		next, _ := m.Update(interpreterEventMsg{event: event})
 		m = next.(Model)
 	}
+	return m
+}
+
+// Test fixtures compose the application outside the production UI boundary.
+func newTestModel(t *testing.T, sess *session.Session) Model {
+	t.Helper()
+	observer := NewObserver()
+	t.Cleanup(observer.Close)
+	interp := interpreter.New(context.Background(), sess, ".", interpreter.WithObserver(observer))
+	t.Cleanup(interp.Close)
+	m := New(interp, observer, ".")
+	event, ok := observer.queue.PullTimeout(2 * time.Second)
+	if !ok {
+		t.Fatal("timed out waiting for initial interpreter state")
+	}
+	if _, ok := event.(interpreter.StateChanged); !ok {
+		t.Fatalf("initial event = %T", event)
+	}
+	m, _ = m.handleInterpreterEvent(event)
 	return m
 }

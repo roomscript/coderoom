@@ -5,7 +5,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/trigosec/coderoom/internal/agent"
+	"github.com/trigosec/coderoom/internal/interpreter"
 	"github.com/trigosec/coderoom/internal/ui/editor"
 	"github.com/trigosec/coderoom/internal/ui/room/approval"
 	"github.com/trigosec/coderoom/internal/ui/room/history"
@@ -19,8 +19,6 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		}
 	}
 	switch msg := msg.(type) {
-	case UpdateMsg:
-		return m.applyRoomUpdate(msg.update), awaitRoomUpdate(m.roomQueue)
 	case tea.KeyPressMsg:
 		return m.handleKey(msg)
 	case tea.MouseWheelMsg:
@@ -410,9 +408,9 @@ func (m Model) handleApprovalMessage(msg tea.Msg) (Model, tea.Cmd, bool) {
 		decisionCmd := func() tea.Msg { return ApprovalDecisionMsg{Choice: opt} }
 		return next, tea.Batch(focusCmd, decisionCmd), true
 	case approval.CancelMsg:
-		choice := agent.OptionDecline
-		if approvalHasOption(m.input.approval.Options(), agent.OptionCancel) {
-			choice = agent.OptionCancel
+		choice := interpreter.ApprovalChoice{OptionID: "decline"}
+		if approvalHasOption(m.input.approval.Options(), "cancel") {
+			choice = interpreter.ApprovalChoice{OptionID: "cancel"}
 		}
 		next, focusCmd := m.ClearApproval()
 		decisionCmd := func() tea.Msg { return ApprovalDecisionMsg{Choice: choice} }
@@ -422,9 +420,9 @@ func (m Model) handleApprovalMessage(msg tea.Msg) (Model, tea.Cmd, bool) {
 	}
 }
 
-func approvalHasOption(opts []agent.ApprovalOption, want agent.ApprovalOption) bool {
+func approvalHasOption(opts []interpreter.ApprovalOption, want string) bool {
 	for _, opt := range opts {
-		if opt == want {
+		if opt.ID == want {
 			return true
 		}
 	}

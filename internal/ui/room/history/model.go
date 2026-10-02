@@ -5,7 +5,6 @@ import (
 
 	"charm.land/bubbles/v2/viewport"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/trigosec/coderoom/internal/agent"
 	roomstate "github.com/trigosec/coderoom/internal/room"
 	rec "github.com/trigosec/coderoom/internal/ui/room/history/record"
 )
@@ -52,7 +51,7 @@ type Model struct {
 	viewport      viewport.Model
 	records       []viewRecord
 	lines         []historyLine
-	streaming     map[agent.StreamID]streamSlot // streamID → open record slot
+	streaming     map[string]streamSlot // streamID → open record slot
 	departed      map[string]bool
 	debugRowNums  bool
 	viewportReady bool
@@ -78,7 +77,7 @@ type ScrollStats struct {
 func New(colorByAlias func(string) string, departedColor string) Model {
 	return Model{
 		records:       []viewRecord{},
-		streaming:     make(map[agent.StreamID]streamSlot),
+		streaming:     make(map[string]streamSlot),
 		departed:      make(map[string]bool),
 		colorByAlias:  colorByAlias,
 		departedColor: departedColor,
@@ -186,7 +185,7 @@ func (m Model) StreamingIdx(alias string) (int, bool) {
 		if r.Alias != alias || r.Msg == nil {
 			continue
 		}
-		if _, ok := r.Msg.Content.(agent.Output); ok {
+		if r.Kind == rec.KindAgentOutput {
 			return slot.recordIdx, true
 		}
 	}
@@ -223,9 +222,9 @@ func (m Model) ReplaceSnapshot(snapshot roomstate.Snapshot) Model {
 		m.departed[alias] = isDeparted
 	}
 
-	m.streaming = make(map[agent.StreamID]streamSlot, len(snapshot.OpenStreams))
+	m.streaming = make(map[string]streamSlot, len(snapshot.OpenStreams))
 	for _, stream := range snapshot.OpenStreams {
-		m.streaming[stream.StreamID] = streamSlot{recordIdx: stream.RecordIdx}
+		m.streaming[string(stream.StreamID)] = streamSlot{recordIdx: stream.RecordIdx}
 	}
 
 	return m.syncViewport(false)
@@ -255,9 +254,9 @@ func (m Model) ApplyRoomDelta(delta roomstate.Delta) Model {
 		m.colorVersion++
 	}
 
-	m.streaming = make(map[agent.StreamID]streamSlot, len(delta.Meta.OpenStreams))
+	m.streaming = make(map[string]streamSlot, len(delta.Meta.OpenStreams))
 	for _, stream := range delta.Meta.OpenStreams {
-		m.streaming[stream.StreamID] = streamSlot{recordIdx: stream.RecordIdx}
+		m.streaming[string(stream.StreamID)] = streamSlot{recordIdx: stream.RecordIdx}
 	}
 
 	return m.syncViewport(false)

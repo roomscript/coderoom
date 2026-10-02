@@ -16,6 +16,7 @@ import (
 	"github.com/trigosec/coderoom/internal/agent/codex"
 	"github.com/trigosec/coderoom/internal/agent/echo"
 	"github.com/trigosec/coderoom/internal/config"
+	"github.com/trigosec/coderoom/internal/interpreter"
 	"github.com/trigosec/coderoom/internal/session"
 	"github.com/trigosec/coderoom/internal/ui"
 )
@@ -64,7 +65,11 @@ func run() int {
 	}
 	opts = append(opts, ui.WithStartupHelpTip(true))
 
-	model := ui.New(ctx, sess, cwd, opts...)
+	observer := ui.NewObserver()
+	defer observer.Close()
+	interp := interpreter.New(ctx, sess, cwd, interpreter.WithObserver(observer))
+	defer interp.Close()
+	model := ui.New(interp, observer, cwd, opts...)
 	defer model.Close()
 	if _, err := tea.NewProgram(model).Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)

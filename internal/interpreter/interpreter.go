@@ -42,12 +42,14 @@ func (i *Interpreter) Snapshot() Snapshot {
 	return i.executor.snapshot()
 }
 
-// AddObserver registers an application event observer.
-func (i *Interpreter) AddObserver(observer Observer) {
-	i.executor.addObserver(observer)
-}
-
 // Close stops the interpreter and its owned background work.
 func (i *Interpreter) Close() {
 	i.executor.close()
+}
+
+// WithObserver installs an application observer before startup. The observer
+// receives an initial StateChanged followed by subsequent events in publication
+// order. It must return promptly; front ends should queue events until ready.
+func WithObserver(observer Observer) Option {
+	return func(i *Interpreter) { i.executor.dispatcher.addObserver(observer) }
 }

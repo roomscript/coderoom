@@ -3,12 +3,9 @@
 package ui
 
 import (
-	"context"
-
 	tea "charm.land/bubbletea/v2"
 	"github.com/trigosec/coderoom/internal/interpreter"
 	"github.com/trigosec/coderoom/internal/queue"
-	"github.com/trigosec/coderoom/internal/session"
 	"github.com/trigosec/coderoom/internal/ui/palette"
 	"github.com/trigosec/coderoom/internal/ui/room"
 	"github.com/trigosec/coderoom/internal/ui/toolbox"
@@ -31,11 +28,14 @@ func WithStartupHelpTip(enabled bool) Option {
 
 type interpreterEventMsg struct{ event interpreter.Event }
 
-type interpreterObserver struct {
+// Observer queues interpreter events until the UI consumes them.
+// Create it before constructing the interpreter and install it with WithObserver.
+type Observer struct {
 	queue *queue.Queue[interpreter.Event]
 }
 
-func (o interpreterObserver) OnEvent(event interpreter.Event) {
+// OnEvent queues an application event for ordered UI delivery.
+func (o *Observer) OnEvent(event interpreter.Event) {
 	o.queue.Push(event)
 }
 
@@ -72,31 +72,21 @@ type Model struct {
 	showStartupHelpTip bool
 }
 
-// New creates a Model backed by the given application context and session.
-// The session must have an AgentFactory configured before any invite commands
-// are executed.
-func New(ctx context.Context, sess *session.Session, cwd string, opts ...Option) Model {
-	interpreterQueue := queue.New[interpreter.Event]()
-	interp := interpreter.New(ctx, sess, cwd)
-	interp.AddObserver(interpreterObserver{queue: interpreterQueue})
-
+// New creates a presenter consuming the observer installed during interpreter construction.
+// The caller owns interpreter shutdown; Close stops the UI event queue.
+func New(interp *interpreter.Interpreter, observer *Observer, cwd string, opts ...Option) Model {
 	colors := make(map[string]string)
-	initial := interp.Snapshot()
-	for _, view := range initial.Participants {
-		colors[view.Alias] = view.Color
-	}
 	colorByAlias := func(alias string) string { return colors[alias] }
 	roomModel := room.NewPresenter(colorByAlias, palette.ColorDeparted)
 
 	m := Model{
 		interpreter:      interp,
-		interpreterQueue: interpreterQueue,
+		interpreterQueue: observer.queue,
 		room:             roomModel,
 		toolbox:          toolbox.New(),
 		cwd:              cwd,
 		colors:           colors,
 	}
-	m.toolbox, _ = m.toolbox.SetParticipants(initial.Participants)
 	for _, o := range opts {
 		o(&m)
 	}
@@ -105,11 +95,15 @@ func New(ctx context.Context, sess *session.Session, cwd string, opts ...Option)
 
 // Close stops the model-owned background queues.
 func (m Model) Close() {
-	m.room.Close()
-	if m.interpreter != nil {
-		m.interpreter.Close()
-	}
 	if m.interpreterQueue != nil {
 		m.interpreterQueue.Close()
 	}
 }
+
+// NewObserver creates the queue used by a UI and its interpreter.
+func NewObserver() *Observer {
+	return &Observer{queue: queue.New[interpreter.Event]()}
+}
+
+// Close releases queued events and unblocks the listener.
+func (o *Observer) Close() { o.queue.Close() }

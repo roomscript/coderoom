@@ -210,9 +210,9 @@ func TestInterpreter_closeCancelsAndWaitsForShell(t *testing.T) {
 func newShellTestInterpreter(t *testing.T, runner ShellRunner) (*Interpreter, chan Event) {
 	t.Helper()
 	sess := newSubmitContractSession()
-	interp := New(context.Background(), sess, "/workspace", WithShellRunner(runner))
 	events := make(chan Event, 16)
-	interp.AddObserver(submitContractObserver{events: events})
+	interp := New(context.Background(), sess, "/workspace", WithShellRunner(runner), WithObserver(submitContractObserver{events: events}))
+	receiveSubmitEvent[StateChanged](t, events)
 	t.Cleanup(interp.Close)
 	return interp, events
 }

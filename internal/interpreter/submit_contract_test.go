@@ -360,9 +360,9 @@ func TestSubmitContract_rejectsSubmissionWhileStagePending(t *testing.T) {
 
 func TestSubmitContract_ignoresSubmissionAfterShutdown(t *testing.T) {
 	sess := newSubmitContractSession()
-	interp := New(context.Background(), sess, t.TempDir())
 	events := make(chan Event, 1)
-	interp.AddObserver(submitContractObserver{events: events})
+	interp := New(context.Background(), sess, t.TempDir(), WithObserver(submitContractObserver{events: events}))
+	receiveSubmitEvent[StateChanged](t, events)
 	interp.Close()
 
 	if err := interp.Submit("/cancel ada"); !errors.Is(err, ErrClosed) {
@@ -375,10 +375,10 @@ func TestSubmitContract_ignoresSubmissionAfterShutdown(t *testing.T) {
 func newSubmitContractInterpreter(t *testing.T) (*Interpreter, *submitContractSession, chan Event) {
 	t.Helper()
 	sess := newSubmitContractSession()
-	interp := New(context.Background(), sess, t.TempDir())
-	t.Cleanup(interp.Close)
 	events := make(chan Event, 64)
-	interp.AddObserver(submitContractObserver{events: events})
+	interp := New(context.Background(), sess, t.TempDir(), WithObserver(submitContractObserver{events: events}))
+	receiveSubmitEvent[StateChanged](t, events)
+	t.Cleanup(interp.Close)
 	return interp, sess, events
 }
 
@@ -467,11 +467,11 @@ func assertNoSignal(t *testing.T, signals <-chan struct{}, description string) {
 }
 
 func TestSubmitContract_shutdownWaitsForAcceptedExecution(t *testing.T) {
-	interp, sess := newSubmitContractInterpreterWithoutCleanup(t)
+	events := make(chan Event, 3)
+	interp, sess := newSubmitContractInterpreterWithoutCleanup(t, WithObserver(submitContractObserver{events: events}))
+	receiveSubmitEvent[StateChanged](t, events)
 	entered := make(chan struct{})
 	release := make(chan struct{})
-	events := make(chan Event, 3)
-	interp.AddObserver(submitContractObserver{events: events})
 	sess.execute = func(session.Command, session.Observer) {
 		close(entered)
 		<-release

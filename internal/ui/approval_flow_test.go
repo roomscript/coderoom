@@ -17,7 +17,7 @@ func TestApprovalDecision_UsesInterpreterAndRendersFailure(t *testing.T) {
 	m := makeReadyModel(t)
 	m.activeApprovalID = 7
 
-	next, _ := m.handleApprovalDecision(uiroom.ApprovalDecisionMsg{Choice: agent.OptionAccept})
+	next, _ := m.handleApprovalDecision(uiroom.ApprovalDecisionMsg{Choice: interpreter.ApprovalChoice{OptionID: "accept"}})
 	m = next.(Model)
 	if m.activeApprovalID != 0 {
 		t.Fatalf("active approval id = %d, want 0 after enqueue", m.activeApprovalID)
@@ -41,7 +41,7 @@ func TestApprovalDecision_ShutdownFailureKeepsActiveApproval(t *testing.T) {
 	m.activeApprovalID = 7
 	m.interpreter.Close()
 
-	next, _ := m.handleApprovalDecision(uiroom.ApprovalDecisionMsg{Choice: agent.OptionAccept})
+	next, _ := m.handleApprovalDecision(uiroom.ApprovalDecisionMsg{Choice: interpreter.ApprovalChoice{OptionID: "accept"}})
 	m = next.(Model)
 	if m.activeApprovalID != 7 {
 		t.Fatalf("active approval id = %d, want 7", m.activeApprovalID)

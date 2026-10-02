@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/trigosec/coderoom/internal/agent"
+	"github.com/trigosec/coderoom/internal/interpreter"
 	"github.com/trigosec/coderoom/internal/ui/room/approval"
 )
 
@@ -27,17 +27,6 @@ func flattenCmd(cmd tea.Cmd) []tea.Msg {
 	return []tea.Msg{msg}
 }
 
-func containsMsg[T any](msgs []tea.Msg) bool {
-	var t T
-	for _, msg := range msgs {
-		if _, ok := msg.(T); ok {
-			return true
-		}
-	}
-	_ = t
-	return false
-}
-
 func firstDecisionMsg(t *testing.T, msgs []tea.Msg) ApprovalDecisionMsg {
 	t.Helper()
 	for _, msg := range msgs {
@@ -52,9 +41,9 @@ func firstDecisionMsg(t *testing.T, msgs []tea.Msg) ApprovalDecisionMsg {
 func TestApprovalMode_enterEmitsApprovalDecisionMsgAndReturnsToCompose(t *testing.T) {
 	m := newTestModel(t)
 	m = m.HandleResize(80, 20)
-	m = m.ShowApproval(agent.ApprovalRequest{
-		Ask:     "approve?",
-		Options: []agent.ApprovalOption{agent.OptionDecline, agent.OptionAccept},
+	m = m.ShowApproval(interpreter.Approval{
+		Prompt:  "approve?",
+		Options: []interpreter.ApprovalOption{{ID: "decline"}, {ID: "accept"}},
 	})
 
 	next, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown})) // select accept
@@ -76,20 +65,25 @@ func TestApprovalMode_enterEmitsApprovalDecisionMsgAndReturnsToCompose(t *testin
 	if cmd2 == nil {
 		t.Fatal("expected cmd producing ApprovalDecisionMsg after confirm")
 	}
-	if !containsMsg[ApprovalDecisionMsg](flattenCmd(cmd2)) {
-		t.Fatalf("expected ApprovalDecisionMsg after confirm; got %#v", flattenCmd(cmd2))
+	decision := firstDecisionMsg(t, flattenCmd(cmd2))
+	if decision.Choice.OptionID != "accept" {
+		t.Fatalf("choice = %q, want accept", decision.Choice.OptionID)
 	}
-
-	// After handling confirm, the room should be back in compose mode.
-	_ = next2.ComposeValue()
+	if next2.input.kind != inputCompose || next2.input.approval.Active() || next2.activeFocus != focusInput {
+		t.Fatal("approval confirmation did not restore compose mode and focus")
+	}
+	next2, _ = next2.Update(tea.KeyPressMsg(tea.Key{Code: 'x', Text: "x"}))
+	if next2.ComposeValue() != "x" {
+		t.Fatal("restored composer did not accept typing")
+	}
 }
 
 func TestApprovalMode_escEmitsDeclineDecisionMsg(t *testing.T) {
 	m := newTestModel(t)
 	m = m.HandleResize(80, 20)
-	m = m.ShowApproval(agent.ApprovalRequest{
-		Ask:     "approve?",
-		Options: []agent.ApprovalOption{agent.OptionDecline, agent.OptionAccept},
+	m = m.ShowApproval(interpreter.Approval{
+		Prompt:  "approve?",
+		Options: []interpreter.ApprovalOption{{ID: "decline"}, {ID: "accept"}},
 	})
 
 	next, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
@@ -101,21 +95,29 @@ func TestApprovalMode_escEmitsDeclineDecisionMsg(t *testing.T) {
 		t.Fatalf("expected CancelMsg, got %T", cancel)
 	}
 
-	_, cmd2 := next.Update(cancel)
+	next2, cmd2 := next.Update(cancel)
 	if cmd2 == nil {
 		t.Fatal("expected cmd producing ApprovalDecisionMsg after cancel")
 	}
-	if !containsMsg[ApprovalDecisionMsg](flattenCmd(cmd2)) {
-		t.Fatalf("expected ApprovalDecisionMsg after cancel; got %#v", flattenCmd(cmd2))
+	decision := firstDecisionMsg(t, flattenCmd(cmd2))
+	if decision.Choice.OptionID != "decline" {
+		t.Fatalf("choice = %q, want decline", decision.Choice.OptionID)
+	}
+	if next2.input.kind != inputCompose || next2.input.approval.Active() || next2.activeFocus != focusInput {
+		t.Fatal("approval cancellation did not restore compose mode and focus")
+	}
+	next2, _ = next2.Update(tea.KeyPressMsg(tea.Key{Code: 'x', Text: "x"}))
+	if next2.ComposeValue() != "x" {
+		t.Fatal("restored composer did not accept typing")
 	}
 }
 
 func TestApprovalMode_ctrlCEmitsCancelDecisionMsg(t *testing.T) {
 	m := newTestModel(t)
 	m = m.HandleResize(80, 20)
-	m = m.ShowApproval(agent.ApprovalRequest{
-		Ask:     "approve?",
-		Options: []agent.ApprovalOption{agent.OptionAccept, agent.OptionCancel, agent.OptionDecline},
+	m = m.ShowApproval(interpreter.Approval{
+		Prompt:  "approve?",
+		Options: []interpreter.ApprovalOption{{ID: "accept"}, {ID: "cancel"}, {ID: "decline"}},
 	})
 
 	next, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: 'c', Mod: tea.ModCtrl}))
@@ -125,8 +127,8 @@ func TestApprovalMode_ctrlCEmitsCancelDecisionMsg(t *testing.T) {
 
 	msgs := flattenCmd(cmd)
 	decision := firstDecisionMsg(t, msgs)
-	if decision.Choice != agent.OptionCancel {
-		t.Fatalf("choice = %q, want %q", decision.Choice, agent.OptionCancel)
+	if decision.Choice.OptionID != "cancel" {
+		t.Fatalf("choice = %q, want %q", decision.Choice.OptionID, "cancel")
 	}
 	if next.ComposeValue() != "" {
 		t.Fatalf("expected return to compose mode, got %q", next.ComposeValue())
@@ -137,9 +139,9 @@ func TestApprovalMode_ctrlCRestoresStagedComposer(t *testing.T) {
 	m := newTestModel(t)
 	m = m.HandleResize(80, 20)
 	m = m.SetComposerStaged("next turn", "Participants busy: ada.")
-	m = m.ShowApproval(agent.ApprovalRequest{
-		Ask:     "approve?",
-		Options: []agent.ApprovalOption{agent.OptionAccept, agent.OptionCancel, agent.OptionDecline},
+	m = m.ShowApproval(interpreter.Approval{
+		Prompt:  "approve?",
+		Options: []interpreter.ApprovalOption{{ID: "accept"}, {ID: "cancel"}, {ID: "decline"}},
 	})
 
 	next, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: 'c', Mod: tea.ModCtrl}))
@@ -148,8 +150,8 @@ func TestApprovalMode_ctrlCRestoresStagedComposer(t *testing.T) {
 	}
 
 	decision := firstDecisionMsg(t, flattenCmd(cmd))
-	if decision.Choice != agent.OptionCancel {
-		t.Fatalf("choice = %q, want %q", decision.Choice, agent.OptionCancel)
+	if decision.Choice.OptionID != "cancel" {
+		t.Fatalf("choice = %q, want %q", decision.Choice.OptionID, "cancel")
 	}
 	if !next.IsComposerStaged() {
 		t.Fatal("expected staged composer to be restored after approval cancel")
@@ -167,9 +169,9 @@ func TestApprovalMode_cancelRestoresHistorySelectionState(t *testing.T) {
 	beforeRow, beforeCol := m.HistoryCursorPosition()
 	beforeText := requireHistorySelectedText(t, m)
 
-	m = showApprovalAndRequireInputFocus(t, m, agent.ApprovalRequest{
-		Ask:     "approve?",
-		Options: []agent.ApprovalOption{agent.OptionDecline, agent.OptionAccept},
+	m = showApprovalAndRequireInputFocus(t, m, interpreter.Approval{
+		Prompt:  "approve?",
+		Options: []interpreter.ApprovalOption{{ID: "decline"}, {ID: "accept"}},
 	})
 
 	next := cancelApproval(t, m)
@@ -200,7 +202,7 @@ func requireHistorySelectedText(t *testing.T, m Model) string {
 	return selected
 }
 
-func showApprovalAndRequireInputFocus(t *testing.T, m Model, req agent.ApprovalRequest) Model {
+func showApprovalAndRequireInputFocus(t *testing.T, m Model, req interpreter.Approval) Model {
 	t.Helper()
 
 	m = m.ShowApproval(req)

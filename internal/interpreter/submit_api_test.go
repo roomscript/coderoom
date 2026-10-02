@@ -67,8 +67,8 @@ func TestSubmitAPI_rejectsOwnershipAfterClose(t *testing.T) {
 
 func newSubmitExample() (*interpreter.Interpreter, *recordingSession, chan interpreter.Event) {
 	sess := newRecordingSession()
-	interp := interpreter.New(context.Background(), sess, ".")
 	events := make(chan interpreter.Event, 8)
-	interp.AddObserver(eventObserver{events: events})
+	interp := interpreter.New(context.Background(), sess, ".", interpreter.WithObserver(eventObserver{events: events}))
+	<-events // Consume initial StateChanged.
 	return interp, sess, events
 }

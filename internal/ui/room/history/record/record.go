@@ -6,7 +6,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/trigosec/coderoom/internal/agent"
+	"github.com/trigosec/coderoom/internal/interpreter"
 	roomstate "github.com/trigosec/coderoom/internal/room"
 	"github.com/trigosec/coderoom/internal/ui/inlinefmt"
 )
@@ -82,11 +82,6 @@ func LayoutPrefixWidth(r Record, lineIndex int, plain string) int {
 	default:
 		return 0
 	}
-}
-
-// NewAgent constructs a record backed by an agent message.
-func NewAgent(alias string, msg agent.Message) Record {
-	return roomstate.NewAgentRecord(alias, msg)
 }
 
 // Render returns r rendered for the given context.
@@ -225,7 +220,7 @@ func commandFieldsFromRecord(r Record) (cmd string, output string, exitCode *int
 	if r.Msg == nil {
 		return "", "", nil
 	}
-	c, ok := r.Msg.Content.(agent.Command)
+	c, ok := interpreter.CommandFromRecord(r)
 	if !ok {
 		return "", "", nil
 	}

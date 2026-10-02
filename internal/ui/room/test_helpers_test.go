@@ -4,7 +4,6 @@ import "testing"
 
 func newTestModel(t *testing.T) Model {
 	t.Helper()
-	m := New(nil, "")
-	t.Cleanup(m.Close)
+	m := NewPresenter(nil, "")
 	return m
 }

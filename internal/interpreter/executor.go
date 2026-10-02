@@ -90,6 +90,7 @@ func newInterpreterExecutor(
 }
 
 func (e *interpreterExecutor) start() {
+	e.publish(StateChanged{Snapshot: e.snapshots.Load()})
 	e.session.AddObserver(sessionObserver{executor: e})
 	go e.run()
 	go func() {
@@ -132,10 +133,6 @@ func (e *interpreterExecutor) snapshot() Snapshot {
 	case <-e.done:
 		return e.snapshots.Load()
 	}
-}
-
-func (e *interpreterExecutor) addObserver(observer Observer) {
-	e.dispatcher.AddObserver(observer)
 }
 
 func (e *interpreterExecutor) close() {

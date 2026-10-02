@@ -296,13 +296,12 @@ the frozen-stage inputs. Shared sends carry their policy-aware frozen plan;
 broadcasts carry their frozen alias list directly. Participants joining after
 planning cannot become recipients.
 
-The compatibility instructions preserve existing command behavior during the
-incremental issue #38 migration:
+The executor instructions preserve native command behavior:
 
 - `executeCommandInstruction` executes native commands whose complete
-  `session.Command` already exists. `ExecuteLegacy` retains its temporary
-  execution gateway until the final caller migrates; planning-dependent
-  workflows continue to use `executeSessionInstruction` and `sessionRequest`.
+  `session.Command` already exists. Planning-dependent workflows use
+  `executeSessionInstruction` and `sessionRequest`; the legacy public execution
+  gateway has been removed.
 - `startUserShellInstruction` preserves ordinary user shell execution, which
   has different submission timing from a workflow-correlated shell request.
 - `readRosterInstruction` keeps session-owned participant inspection outside
@@ -311,9 +310,8 @@ incremental issue #38 migration:
   `shutdownSessionInstruction` shuts down the session and projects its final
   causal events. Their separation preserves `/quit` ordering.
 
-These instructions are part of the closed exhaustive vocabulary for as long as
-their public compatibility APIs remain. They are not workflow-specific runner
-hooks.
+These instructions are part of the closed exhaustive vocabulary. They are not
+workflow-specific runner hooks.
 
 The runner uses an exhaustive type switch. Instructions never apply themselves
 to `*Interpreter`; that would only relocate coupling. The runner targets narrow

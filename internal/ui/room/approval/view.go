@@ -3,7 +3,7 @@ package approval
 import (
 	"strings"
 
-	"github.com/trigosec/coderoom/internal/agent"
+	"github.com/trigosec/coderoom/internal/interpreter"
 )
 
 // View renders the approval prompt and options.
@@ -26,17 +26,20 @@ func (m Model) View() string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
-func formatOption(opt agent.ApprovalOption) string {
-	switch opt {
-	case agent.OptionAccept:
+func formatOption(opt interpreter.ApprovalOption) string {
+	switch opt.ID {
+	case "accept":
 		return "accept"
-	case agent.OptionAcceptForSession:
+	case "acceptForSession":
 		return "accept for session"
-	case agent.OptionDecline:
+	case "decline":
 		return "decline"
-	case agent.OptionCancel:
+	case "cancel":
 		return "cancel"
 	default:
-		return string(opt)
+		if opt.Label != "" {
+			return opt.Label
+		}
+		return opt.ID
 	}
 }

@@ -9,7 +9,7 @@ func TestEventDispatcher_deliversEventsInPublicationOrder(t *testing.T) {
 	dispatcher := newEventDispatcher()
 	t.Cleanup(dispatcher.Close)
 	delivered := make(chan Event, 2)
-	dispatcher.AddObserver(submitContractObserver{events: delivered})
+	dispatcher.addObserver(submitContractObserver{events: delivered})
 
 	dispatcher.Publish(UnknownCommand{Raw: "/first", Name: "first"})
 	dispatcher.Publish(InputRejected{Raw: "/second"})
@@ -27,7 +27,7 @@ func TestEventDispatcher_slowObserverDoesNotBlockPublish(t *testing.T) {
 	dispatcher := newEventDispatcher()
 	entered := make(chan struct{})
 	release := make(chan struct{})
-	dispatcher.AddObserver(blockingEventObserver{
+	dispatcher.addObserver(blockingEventObserver{
 		entered:   entered,
 		release:   release,
 		delivered: make(chan Event, 2),
@@ -47,15 +47,15 @@ func TestEventDispatcher_slowObserverDoesNotBlockPublish(t *testing.T) {
 }
 
 func TestClose_flushesPublishedEventsThroughObservers(t *testing.T) {
-	interp, _ := newSubmitContractInterpreterWithoutCleanup(t)
 	entered := make(chan struct{})
 	release := make(chan struct{})
 	delivered := make(chan Event, 2)
-	interp.AddObserver(blockingEventObserver{
+	interp, _ := newSubmitContractInterpreterWithoutCleanup(t, WithObserver(blockingEventObserver{
 		entered:   entered,
 		release:   release,
 		delivered: delivered,
-	})
+	}))
+	receiveSubmitEvent[StateChanged](t, delivered)
 
 	interp.executor.publish(UnknownCommand{Raw: "/not-defined", Name: "not-defined"})
 	receiveSignal(t, entered, "first event delivery")
@@ -79,15 +79,15 @@ func TestClose_flushesPublishedEventsThroughObservers(t *testing.T) {
 }
 
 func TestClose_flushesAcceptedSubmissionOutcome(t *testing.T) {
-	interp, sess := newSubmitContractInterpreterWithoutCleanup(t)
 	entered := make(chan struct{})
 	release := make(chan struct{})
 	delivered := make(chan Event, 3)
-	interp.AddObserver(blockingAcceptedObserver{
+	interp, sess := newSubmitContractInterpreterWithoutCleanup(t, WithObserver(blockingAcceptedObserver{
 		entered:   entered,
 		release:   release,
 		delivered: delivered,
-	})
+	}))
+	receiveSubmitEvent[StateChanged](t, delivered)
 
 	mustSubmit(t, interp.Submit("/cancel ada"))
 	receiveSignal(t, entered, "input acceptance delivery")
@@ -143,9 +143,9 @@ func (o blockingEventObserver) OnEvent(event Event) {
 	o.delivered <- event
 }
 
-func newSubmitContractInterpreterWithoutCleanup(t *testing.T) (*Interpreter, *submitContractSession) {
+func newSubmitContractInterpreterWithoutCleanup(t *testing.T, opts ...Option) (*Interpreter, *submitContractSession) {
 	t.Helper()
 	sess := newSubmitContractSession()
-	interp := New(t.Context(), sess, t.TempDir())
+	interp := New(t.Context(), sess, t.TempDir(), opts...)
 	return interp, sess
 }

@@ -2,6 +2,9 @@ package ui
 
 import (
 	"testing"
+	"time"
+
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/trigosec/coderoom/internal/agent"
 	"github.com/trigosec/coderoom/internal/interpreter"
@@ -423,5 +426,30 @@ func TestStreamingCleared_onStop(t *testing.T) {
 	m = pushEvent(m, session.AgentStopped{Alias: "ada"})
 	if m.room.IsStreaming("ada") {
 		t.Error("streaming should be cleared on agent stop")
+	}
+}
+
+func TestModelClose_keepsCallerOwnedInterpreterOpen(t *testing.T) {
+	m := makeReadyModel(t)
+	t.Cleanup(m.interpreterQueue.Close)
+	listener := awaitInterpreterEvent(m.interpreterQueue)
+	returned := make(chan tea.Msg, 1)
+	go func() { returned <- listener() }()
+	select {
+	case msg := <-returned:
+		t.Fatalf("listener returned before Close: %T", msg)
+	case <-time.After(20 * time.Millisecond):
+	}
+	m.Close()
+	select {
+	case msg := <-returned:
+		if msg != nil {
+			t.Fatalf("closed listener returned %T, want nil", msg)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Close did not release blocked UI event listener")
+	}
+	if err := m.interpreter.Submit("/who"); err != nil {
+		t.Fatalf("caller-owned interpreter closed: %v", err)
 	}
 }

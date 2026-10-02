@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/trigosec/coderoom/internal/agent"
 	"github.com/trigosec/coderoom/internal/interpreter"
 	"github.com/trigosec/coderoom/internal/participant"
 	"github.com/trigosec/coderoom/internal/promptlang"
@@ -55,8 +54,6 @@ func (m Model) handleNonSessionMessage(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case room.SubmitMsg:
 		return m.submit(msg.Text)
-	case room.UpdateMsg:
-		return m.handleRoomUpdate(msg)
 	case room.ApprovalDecisionMsg:
 		return m.handleApprovalDecision(msg)
 	default:
@@ -100,12 +97,6 @@ func (m Model) handleStageTakenForEdit(msg stageTakenForEditMsg) Model {
 		m.room = m.room.SetComposeValue(msg.raw)
 	}
 	return m
-}
-
-func (m Model) handleRoomUpdate(msg room.UpdateMsg) (tea.Model, tea.Cmd) {
-	var cmd tea.Cmd
-	m.room, cmd = m.room.Update(msg)
-	return m, cmd
 }
 
 func (m Model) submit(raw string) (Model, tea.Cmd) {
@@ -304,7 +295,7 @@ func formatInputRejection(err error) string {
 }
 
 func (m Model) handleApprovalDecision(msg room.ApprovalDecisionMsg) (tea.Model, tea.Cmd) {
-	choice := interpreter.ApprovalChoice{OptionID: string(msg.Choice)}
+	choice := msg.Choice
 	if err := m.interpreter.ResolveApproval(m.activeApprovalID, choice); err != nil {
 		m.room = m.room.AppendSystem(fmt.Sprintf("error: resolve approval: %v", err))
 		return m, nil
@@ -419,12 +410,9 @@ func (m Model) presentInterpreterSnapshot(snapshot interpreter.Snapshot) (Model,
 	}
 	approval := snapshot.Approval
 	m.activeApprovalID = approval.ID
-	req := agent.ApprovalRequest{Kind: agent.ApprovalKind(approval.Kind), Ask: approval.Prompt}
+	req := *approval
 	if strings.TrimSpace(approval.Alias) != "" {
-		req.Ask = "[→ " + approval.Alias + "] " + req.Ask
-	}
-	for _, option := range approval.Options {
-		req.Options = append(req.Options, agent.ApprovalOption(option.ID))
+		req.Prompt = "[→ " + approval.Alias + "] " + req.Prompt
 	}
 	m.room = m.room.ShowApproval(req)
 	return m, cmd

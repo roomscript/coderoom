@@ -4,13 +4,13 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/trigosec/coderoom/internal/agent"
+	"github.com/trigosec/coderoom/internal/interpreter"
 )
 
 func TestUpdate_downSelectsNextOption(t *testing.T) {
-	m := New().Set(agent.ApprovalRequest{
-		Ask:     "approve?",
-		Options: []agent.ApprovalOption{agent.OptionDecline, agent.OptionAccept},
+	m := New().Set(interpreter.Approval{
+		Prompt:  "approve?",
+		Options: []interpreter.ApprovalOption{{ID: "decline"}, {ID: "accept"}},
 	})
 	if got := m.Selected(); got != 0 {
 		t.Fatalf("expected selected=0, got %d", got)
@@ -22,9 +22,9 @@ func TestUpdate_downSelectsNextOption(t *testing.T) {
 }
 
 func TestUpdate_enterEmitsConfirmMsg(t *testing.T) {
-	m := New().Set(agent.ApprovalRequest{
-		Ask:     "approve?",
-		Options: []agent.ApprovalOption{agent.OptionDecline},
+	m := New().Set(interpreter.Approval{
+		Prompt:  "approve?",
+		Options: []interpreter.ApprovalOption{{ID: "decline"}},
 	})
 	_, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
 	if cmd == nil {
@@ -32,5 +32,18 @@ func TestUpdate_enterEmitsConfirmMsg(t *testing.T) {
 	}
 	if _, ok := cmd().(ConfirmMsg); !ok {
 		t.Fatalf("expected ConfirmMsg, got %T", cmd())
+	}
+}
+
+func TestSet_preservesDetachedOptionsAndSelectedID(t *testing.T) {
+	options := []interpreter.ApprovalOption{{ID: "custom", Label: "Custom response"}}
+	m := New().Set(interpreter.Approval{Prompt: "approve?", Options: options})
+	options[0] = interpreter.ApprovalOption{ID: "changed", Label: "Changed"}
+	choice, ok := m.SelectedOption()
+	if !ok || choice.OptionID != "custom" {
+		t.Fatalf("choice = %#v, ok = %v", choice, ok)
+	}
+	if got := m.View(); got != "approve?\n\n> Custom response" {
+		t.Fatalf("view = %q", got)
 	}
 }

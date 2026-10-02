@@ -9,7 +9,9 @@ import (
 )
 
 func TestInterpreter_ownsRoomScopedCommandDefinitions(t *testing.T) {
-	first := interpreter.New(context.Background(), newRecordingSession(), t.TempDir())
+	firstEvents := make(chan interpreter.Event, 8)
+	first := interpreter.New(context.Background(), newRecordingSession(), t.TempDir(), interpreter.WithObserver(eventObserver{events: firstEvents}))
+	receiveEvent[interpreter.StateChanged](t, firstEvents)
 	t.Cleanup(first.Close)
 	second := interpreter.New(context.Background(), newRecordingSession(), t.TempDir())
 	t.Cleanup(second.Close)
@@ -18,8 +20,6 @@ func TestInterpreter_ownsRoomScopedCommandDefinitions(t *testing.T) {
 		Body: promptlang.Shell{Program: "go test ./..."},
 	}
 
-	firstEvents := make(chan interpreter.Event, 8)
-	first.AddObserver(eventObserver{events: firstEvents})
 	if err := first.Submit("/def tests /shell go test ./..."); err != nil {
 		t.Fatalf("Submit definition: %v", err)
 	}

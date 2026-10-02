@@ -75,8 +75,10 @@ text, status, focus, and approval-overlay presentation only.
 The interpreter owns canonical transcript records. The TUI receives detached,
 ordered `TranscriptChanged` deltas for records and stream/departure metadata,
 and `StateChanged` snapshots for roster, approval, and stage presentation.
-Snapshot records are available for inspection; they are not a second transcript
-delivery path. Input, shell, loop, and handoff semantic events do not echo
+The construction-time observer receives an initial `StateChanged`, then all
+application events in order. The UI consumes that queue without snapshot
+queries. Snapshot records are for inspection, not a second transcript delivery
+path. Input, shell, loop, and handoff semantic events do not echo
 records already delivered through transcript deltas.
 
 The TUI owns rendering, composer, focus, scrolling, and approval presentation.
@@ -91,7 +93,11 @@ Current architecture tests reject direct UI `session.Execute` calls; final
 package-graph enforcement will also reject direct UI session/agent imports and
 transitive interpreter terminal dependencies. The execution compatibility API has been removed; the TUI constructs no session
 commands and owns no registry, shell execution, or loop workflow state.
-Construction and presentation type cleanup remain separate migration checkpoints.
+The CLI constructs and owns the interpreter lifetime; the TUI receives that
+interpreter and its preinstalled observer queue, and closes only that queue. Approval presentation consumes
+interpreter DTOs, and transcript renderers read detached command and file-change
+details through interpreter helpers. Production UI packages import neither
+`internal/session` nor `internal/agent`.
 
 ---
 
