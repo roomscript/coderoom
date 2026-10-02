@@ -3,14 +3,15 @@ package ui
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/trigosec/coderoom/internal/agent"
 	"github.com/trigosec/coderoom/internal/interpreter"
 	"github.com/trigosec/coderoom/internal/participant"
 	"github.com/trigosec/coderoom/internal/promptlang"
-	"github.com/trigosec/coderoom/internal/session"
 	"github.com/trigosec/coderoom/internal/ui/room"
 )
 
@@ -23,9 +24,9 @@ const (
 	marginV = 1
 )
 
-// Init starts the session event listener; called once by Bubble Tea on startup.
+// Init starts the interpreter event listener; called once by Bubble Tea on startup.
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(awaitEvent(m.queue), awaitInterpreterEvent(m.interpreterQueue), m.room.Init())
+	return tea.Batch(awaitInterpreterEvent(m.interpreterQueue), m.room.Init())
 }
 
 // Update handles incoming messages and returns the next model state.
@@ -35,9 +36,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleKey(msg)
 	case tea.WindowSizeMsg:
 		return m.handleResize(msg), nil
-	case sessionEventMsg:
-		next, cmd := m.handleEvent(msg.event)
-		return next, tea.Batch(cmd, awaitEvent(m.queue))
 	case interpreterEventMsg:
 		next, cmd := m.handleInterpreterEvent(msg.event)
 		return next, tea.Batch(cmd, awaitInterpreterEvent(m.interpreterQueue))
@@ -229,8 +227,6 @@ func (m Model) renderSubmissionSuccess(raw string) Model {
 		m.room = m.room.AppendSystem("[→ " + action.Alias + "] cancel requested")
 	case promptlang.PolicyEnable:
 		m.room = m.room.AppendSystem("[policy] " + string(action.Name) + " enabled")
-	case promptlang.CommandDefinition:
-		m.room = m.room.AppendSystem("[defined] /" + action.Name)
 	}
 	return m
 }
@@ -241,7 +237,8 @@ func (m Model) handleInterpreterPresentationEvent(event interpreter.Event) (Mode
 	}
 	switch event := event.(type) {
 	case interpreter.StateChanged:
-		return m.presentInterpreterStage(event.Snapshot), nil, true
+		next, cmd := m.presentInterpreterSnapshot(event.Snapshot)
+		return next, cmd, true
 	case interpreter.RosterListed:
 		return m.renderRoster(event.Participants), nil, true
 	case interpreter.HelpListed:
@@ -249,9 +246,8 @@ func (m Model) handleInterpreterPresentationEvent(event interpreter.Event) (Mode
 	case interpreter.ExitRequested:
 		return m, tea.Quit, true
 	case interpreter.ShellCompleted:
-		return m.appendShellResult(event), nil, true
+		return m, nil, true
 	case interpreter.LoopStatus:
-		m.room = m.room.AppendSystem(event.Message)
 		return m, nil, true
 	case interpreter.OperationFailed:
 		m.room = m.room.AppendSystem(fmt.Sprintf("error: %s: %v", event.Operation, event.Err))
@@ -263,24 +259,16 @@ func (m Model) handleInterpreterPresentationEvent(event interpreter.Event) (Mode
 
 func (m Model) handleInterpreterTranscriptEvent(event interpreter.Event) (Model, bool) {
 	switch event := event.(type) {
+	case interpreter.TranscriptChanged:
+		m.room = m.room.ApplyTranscript(event.Delta)
+		return m, true
 	case interpreter.InputAccepted:
 		m.stagedDispatchRaw = ""
-		statement, err := promptlang.Parse(event.Raw)
-		if err != nil {
-			return m, true
-		}
-		switch statement.(type) {
-		case promptlang.Send, promptlang.Broadcast, promptlang.Handoff:
-		default:
-			m.room = m.room.AppendUserInput(event.Raw, event.Routing)
-		}
 		return m, true
 	case interpreter.StagedInputDispatched:
 		m.stagedDispatchRaw = event.Raw
-		m.room = m.room.AppendUserInput(event.Raw, event.Routing)
 		return m, true
 	case interpreter.HandoffCompleted:
-		m.room = m.room.AppendSystem(event.Preview)
 		return m, true
 	case interpreter.StagedInputDiscarded:
 		m.stagedDispatchRaw = ""
@@ -413,42 +401,46 @@ func (m *Model) releaseSubmissionGate() {
 	m.submissionAwaitingDispatch = ""
 }
 
-func (m Model) handleEvent(e session.Event) (Model, tea.Cmd) {
-	next := m.handleMessageEvent(e)
-	// Best-effort only — see DrainObserverUpdates' doc comment.
-	next.room, _ = next.room.DrainObserverUpdateTriggers()
-	var toolboxCmd tea.Cmd
-	next.toolbox, toolboxCmd = next.toolbox.SetParticipants(next.sess.Roster())
-	return next, toolboxCmd
-}
-
-func (m Model) handleMessageEvent(e session.Event) Model {
-	switch e := e.(type) {
-	case session.ApprovalRequested:
-		m = m.handleApprovalRequested(e)
-	case session.ApprovalCleared:
-		m = m.handleApprovalCleared(e)
-	default:
+func (m Model) presentInterpreterSnapshot(snapshot interpreter.Snapshot) (Model, tea.Cmd) {
+	m = m.updateParticipantColors(snapshot.Participants)
+	var cmd tea.Cmd
+	m.toolbox, cmd = m.toolbox.SetParticipants(snapshot.Participants)
+	m = m.presentInterpreterStage(snapshot)
+	if snapshot.Approval == nil {
+		if m.activeApprovalID != 0 {
+			m.activeApprovalID = 0
+			m.room, _ = m.room.ClearApproval()
+		}
+		return m, cmd
 	}
-	return m
-}
-
-func (m Model) handleApprovalRequested(e session.ApprovalRequested) Model {
-	m.activeApprovalID = e.ID
-	req := e.Req
-	if strings.TrimSpace(e.Alias) != "" {
-		req.Ask = "[→ " + e.Alias + "] " + req.Ask
+	if m.activeApprovalID == snapshot.Approval.ID {
+		return m, cmd
+	}
+	approval := snapshot.Approval
+	m.activeApprovalID = approval.ID
+	req := agent.ApprovalRequest{Kind: agent.ApprovalKind(approval.Kind), Ask: approval.Prompt}
+	if strings.TrimSpace(approval.Alias) != "" {
+		req.Ask = "[→ " + approval.Alias + "] " + req.Ask
+	}
+	for _, option := range approval.Options {
+		req.Options = append(req.Options, agent.ApprovalOption(option.ID))
 	}
 	m.room = m.room.ShowApproval(req)
-	return m
+	return m, cmd
 }
 
-func (m Model) handleApprovalCleared(e session.ApprovalCleared) Model {
-	if e.ID == 0 || e.ID != m.activeApprovalID {
+func (m Model) updateParticipantColors(participants []participant.View) Model {
+	colors := make(map[string]string, len(participants))
+	for _, view := range participants {
+		colors[view.Alias] = view.Color
+	}
+	if maps.Equal(m.colors, colors) {
 		return m
 	}
-	m.activeApprovalID = 0
-	m.room, _ = m.room.ClearApproval()
+	// Keep the map captured by the history color resolver alive.
+	clear(m.colors)
+	maps.Copy(m.colors, colors)
+	m.room = m.room.RefreshColors()
 	return m
 }
 

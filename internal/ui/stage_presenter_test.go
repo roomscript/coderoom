@@ -140,8 +140,9 @@ func TestInterpreterStagePresenterUsesSnapshotParticipantColors(t *testing.T) {
 }
 
 func presentStageSnapshot(m Model, stage *interpreter.StagedSubmission) Model {
+	testStages[m.interpreter] = stage
 	next, _ := m.Update(interpreterEventMsg{event: interpreter.StateChanged{
-		Snapshot: interpreter.Snapshot{Stage: stage},
+		Snapshot: interpreter.Snapshot{Approval: testApprovals[m.interpreter], Stage: stage},
 	}})
 	return next.(Model)
 }

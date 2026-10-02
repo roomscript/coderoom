@@ -99,7 +99,11 @@ func (s *recordingSession) emit(event session.Event) {
 
 type eventObserver struct{ events chan interpreter.Event }
 
-func (o eventObserver) OnEvent(event interpreter.Event) { o.events <- event }
+func (o eventObserver) OnEvent(event interpreter.Event) {
+	if _, transcript := event.(interpreter.TranscriptChanged); !transcript {
+		o.events <- event
+	}
+}
 
 func TestInterpreter_projectsSessionEventBeforePublishingSnapshot(t *testing.T) {
 	sess := newRecordingSession()

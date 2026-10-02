@@ -5,7 +5,7 @@ temporary and must be deleted in the final boundary-enforcement commit.
 
 Implementation was parked after Step 6 while issue #53 established the model
 and executor boundaries. That decomposition and Step 7 are complete; Step 8
-is in progress; Steps 8a and 8b are complete and Step 8c is next.
+is in progress; Steps 8a, 8b, and 8c are complete and Step 8d is next.
 
 Each step should leave the repository working and independently reviewable.
 Run `go test ./...` before completing every step unless a narrower command is
@@ -468,24 +468,36 @@ Verification: `go test ./...`, `go test -race ./internal/interpreter`, and
 
 ### 8c. Complete interpreter-driven TUI projection
 
-- [ ] Define and document the transcript projection boundary before changing
+- [x] Define and document the transcript projection boundary before changing
       production ownership: the interpreter owns canonical records; the TUI
       owns rendering, composer, focus, and approval presentation.
-- [ ] Complete rendering of interpreter events and snapshots and replace
+- [x] Complete rendering of interpreter events and snapshots and replace
       direct UI session observation and snapshot queries.
-- [ ] Specify whether each transcript record arrives through an event or a
+- [x] Specify whether each transcript record arrives through an event or a
       snapshot; preserve stable ordering and exactly-once presentation without
       introducing dual-authority reconciliation.
-- [ ] Preserve streaming output, dispatched input, handoff audit ordering,
+- [x] Preserve streaming output, dispatched input, handoff audit ordering,
       participant lifecycle, shell output, approvals, and draft/event ordering.
-- [ ] Map existing projection scenarios to replacement coverage before
+- [x] Map existing projection scenarios to replacement coverage before
       removing their old production path or tests.
-- [ ] Update architecture documentation alongside the ownership cutover.
+- [x] Update architecture documentation alongside the ownership cutover.
 
 Stop condition: interpreter events and snapshots supply all application state
 needed by the TUI, with transcript records presented once in the correct order.
 Direct session observation and queries are gone. If this requires a new
 reconciliation subsystem, revise this checkpoint before implementing it.
+
+Audit: canonical transcript changes use ordered detached `TranscriptChanged`
+deltas; roster, approvals, and stage state use interpreter snapshots. The TUI
+neither observes nor queries the session and its production room presenter has
+no room actor. Snapshot records and semantic completion events do not echo
+canonical records. Local presentation notices use deterministic index
+translation, without a reconciliation subsystem. Replacement coverage is
+mapped in `docs/design/pkg-interpreter.md`.
+
+Verification: `go test ./...`,
+`go test -race ./internal/interpreter ./internal/ui/... ./internal/session`,
+ten repeated UI race runs, and `git diff --check` passed.
 
 ### 8d. Remove execution compatibility and residual UI ownership
 

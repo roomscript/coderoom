@@ -28,6 +28,7 @@ type instructionModelPort interface {
 	ApplyCompletion(workflowCompletion) instructionSequence
 	ApplySessionEvent(session.Event) (instructionSequence, bool)
 	AppendRecord(room.Record)
+	TakeTranscriptChanges() []TranscriptChanged
 	ReadHandoffSource(string) (session.HandoffSource, bool)
 }
 
@@ -66,6 +67,7 @@ func (r *instructionRunner) Run(sequence instructionSequence) {
 			panic(fmt.Sprintf("unknown instruction runner item %T", item))
 		}
 	}
+	r.publishTranscriptChanges()
 	if snapshotRequested {
 		r.executor.publish(StateChanged{Snapshot: r.executor.refreshSnapshot()})
 	}
@@ -90,9 +92,13 @@ func (r *instructionRunner) applyStateInstruction(value instruction) (bool, bool
 		r.model.AppendRecord(value.record)
 		return false, true
 	case publishEventInstruction:
+		if _, accepted := value.event.(InputAccepted); !accepted {
+			r.publishTranscriptChanges()
+		}
 		r.executor.publish(value.event)
 		return false, true
 	case publishSnapshotInstruction:
+		r.publishTranscriptChanges()
 		r.executor.publish(StateChanged{Snapshot: r.executor.refreshSnapshot()})
 		return false, true
 	case requestSnapshotInstruction:
@@ -215,4 +221,10 @@ func (r *instructionRunner) ApplySessionEvents(events []session.Event) instructi
 		sequence = append(sequence, requestSnapshotInstruction{})
 	}
 	return sequence
+}
+
+func (r *instructionRunner) publishTranscriptChanges() {
+	for _, change := range r.model.TakeTranscriptChanges() {
+		r.executor.publish(change)
+	}
 }

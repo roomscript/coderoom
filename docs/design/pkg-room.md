@@ -31,7 +31,8 @@ It is responsible for:
 
 ## Why this package exists
 
-Today the UI assembles semantic chat state directly from `session.Event`.
+Before the interpreter cutover, the UI assembled semantic chat state directly
+from `session.Event`. The interpreter now owns that projection.
 
 That is too much responsibility in the rendering layer. The product needs a
 stable room/record model that can later support:
@@ -179,7 +180,7 @@ That keeps the dependency one-way:
 - `session` publishes `session.Event`
 - interpreter applies those events to its `room.Room`
 - interpreter emits state changes
-- UI renders the supplied room snapshots
+- UI renders the supplied transcript deltas and application snapshots
 
 The important boundary is:
 
@@ -205,26 +206,19 @@ updates, including locally appended records, carry no trigger.
 The UI should render room state, not derive chat semantics from `session.Event`
 directly.
 
-The intended UI integration point is the room Bubble Tea component:
-`internal/ui/room`. It consumes snapshots supplied by the interpreter and does
-not hold the live `room.Room`.
+The UI integration point is the room Bubble Tea presenter:
+`internal/ui/room`. Canonical records and stream metadata arrive through ordered
+interpreter `TranscriptChanged` deltas. Application snapshots supply roster,
+approvals, and stage state, but their room records are not reapplied to the live
+transcript. The production presenter does not hold the live `room.Room`.
 
-The UI also needs a direct path to append user-authored records that do not
-originate from agent runtime events.
-
-Examples:
-
-- `/invite ada`
-- `/help`
-- local validation errors
-- startup tips
-
-Those should be added to the room model directly through room-owned APIs rather
-than being stored as UI-only history.
-
-This direct insertion path is only for local, non-session records. If a record
-represents session/runtime behavior, it should reach room through
-`session.Event`, not through a UI shortcut.
+User-authored input, shell results, definitions, and loop records are appended
+by the interpreter through room-owned APIs. Help formatting, startup tips,
+debug output, and event-formatted notices remain local presentation records.
+The presenter translates canonical indices around those notices without
+observing the session or reconciling another projection. See
+[`pkg-interpreter.md`](pkg-interpreter.md#room-ownership-and-transcript-delivery)
+for the delivery contract and coverage mapping.
 
 ---
 
@@ -381,8 +375,8 @@ raw `session.Event`.
 That means:
 
 - UI no longer owns record assembly
-- `internal/ui/room` renders interpreter-supplied `room.Snapshot` and
-  `room.Record` values
+- `internal/ui/room` renders canonical `room.Record` values from ordered
+  interpreter transcript deltas; snapshot records are for inspection
 - UI renders participant and approval state from interpreter events and
   snapshots
 - UI may maintain view-local state for a room record, such as collapsed/expanded

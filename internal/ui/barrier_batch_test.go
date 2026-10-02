@@ -78,7 +78,7 @@ func mustPullEvent(t *testing.T, m *Model) session.Event {
 	t.Helper()
 	ch := make(chan session.Event, 1)
 	go func() {
-		ev, ok := m.queue.Pull()
+		ev, ok := sessionOracles[m.interpreter].Pull()
 		if !ok {
 			return
 		}
@@ -98,8 +98,6 @@ func pumpUntil(t *testing.T, m Model, pred func(session.Event) bool) Model {
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		ev := mustPullEvent(t, &m)
-		next, _ := m.Update(sessionEventMsg{event: ev})
-		m = next.(Model)
 		if pred(ev) {
 			return m
 		}
@@ -359,27 +357,12 @@ func TestBarrierBatch_sendNoticesPolicyIncludesBusyListener(t *testing.T) {
 }
 
 func TestBarrierBatch_autoDispatchPreservesFirstOutputRecord(t *testing.T) {
-	agents := map[string]*testAgent{
-		"ada":    newTestAgent(),
-		"turing": newTestAgent(),
-	}
-	s := session.New(session.WithAgentFactory(func(_ *session.Session, cfg roomconfig.ParticipantConfig, _ session.AgentBackend) agent.Agent {
-		return agents[cfg.Alias]
-	}))
-	t.Cleanup(s.Shutdown)
-	m := newTestModelWithSession(t, s)
-	next, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
-	m = next.(Model)
-
-	inviteParticipant(t, s, "ada")
-	inviteParticipant(t, s, "turing")
-	m = pumpUntilAgentsStarted(t, m, "ada", "turing")
+	agents, s, m := newTwoAgentBarrierBatchModel(t)
 
 	if err := s.Execute(session.SharedSendCommand{Plan: s.PlanSharedSend("ada"), TextDirect: "busy", TextListeners: "notice"}); err != nil {
 		t.Fatalf("make ada busy: %v", err)
 	}
-	next = submitThroughInterpreter(t, m, "next turn")
-	m = next.(Model)
+	m = submitThroughInterpreter(t, m, "next turn")
 	m = consumeInterpreterStateChange(t, m)
 	if m.interpreter.Snapshot().Stage == nil || !m.room.IsComposerStaged() {
 		t.Fatal("expected interpreter-owned stage before ada becomes idle")
@@ -405,6 +388,7 @@ func TestBarrierBatch_autoDispatchPreservesFirstOutputRecord(t *testing.T) {
 		Content:  agent.Output{Text: "fresh output"},
 	})
 	m = pumpUntil(t, m, isStreamOutput("ada", "fresh output"))
+	m = consumeInterpreterPresentation(t, m, func(next Model) bool { return hasRecord(next, record.KindAgentOutput, "fresh output") })
 
 	if !hasRecord(m, record.KindAgentOutput, "fresh output") {
 		t.Fatalf("expected first output fragment from auto-dispatched turn to appear in history; records: %v", m.room.HistoryRecords())
@@ -467,10 +451,9 @@ func TestBarrierBatch_failedDispatchDoesNotRetryOnRollbackIdle(t *testing.T) {
 	}
 
 	for range 3 {
-		ev := mustPullEvent(t, &m)
-		next, _ = m.Update(sessionEventMsg{event: ev})
-		m = next.(Model)
+		_ = mustPullEvent(t, &m)
 	}
+	m = consumeInterpreterStateChange(t, m)
 
 	if agents["ada"].sendCalls != 1 {
 		t.Fatalf("expected no retry after rollback idle events, got %d send attempts", agents["ada"].sendCalls)
@@ -547,12 +530,10 @@ func TestBarrierBatch_discardedTargetRestoresDraft(t *testing.T) {
 		stopped, ok := ev.(session.AgentStopped)
 		return ok && stopped.Alias == "ada"
 	})
-	m = consumeInterpreterUntil(t, m, func(event interpreter.Event) bool {
-		_, ok := event.(interpreter.StagedInputDiscarded)
-		return ok
-	})
-	m = consumeInterpreterStateChange(t, m)
 
+	m = consumeInterpreterPresentation(t, m, func(next Model) bool {
+		return stagedDiscardPresented(next, "staged message discarded: no active targets")
+	})
 	assertHistoryDoesNotContainUserInput(t, m, "@ada hi")
 	if !hasRecord(m, record.KindSystem, "staged message discarded: no active targets") {
 		t.Fatalf("expected staged discard message; records: %v", m.room.HistoryRecords())
@@ -620,7 +601,7 @@ func TestInterpreterHandoffSendNoticeFailureDoesNotCommitInput(t *testing.T) {
 	agents["turing"].(*testAgent).noticeErr = errors.New("notice failed")
 
 	m = submitThroughInterpreter(t, m, "/handoff ada turing")
-	m.room = m.room.DrainObserverUpdates()
+	m = consumeInterpreterStateChange(t, m)
 
 	assertHistoryDoesNotContainUserInput(t, m, "/handoff ada turing")
 	if got := m.room.ComposeValue(); got != "/handoff ada turing" {
@@ -743,25 +724,7 @@ func pushAnchorOutput(a *testAgent, text string) {
 
 func waitForHandoffEvent(t *testing.T, m Model) Model {
 	t.Helper()
-
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if ev, ok := m.queue.PullTimeout(10 * time.Millisecond); ok {
-			next, _ := m.Update(sessionEventMsg{event: ev})
-			m = next.(Model)
-			if handoff, ok := ev.(session.ContextHandoff); ok &&
-				handoff.FromAlias == "ada" && handoff.ToAlias == "turing" {
-				return consumeInterpreterHandoffDispatch(t, m)
-			}
-			continue
-		}
-		if updated, trigger, ok := m.room.WaitObserverUpdateTriggerTimeout(10 * time.Millisecond); ok {
-			m.room = updated
-			_ = trigger
-		}
-	}
-	t.Fatalf("timed out waiting for handoff event; staged=%v records=%v", m.interpreter.Snapshot().Stage != nil, m.room.HistoryRecords())
-	return m
+	return consumeInterpreterHandoffDispatch(t, m)
 }
 
 func assertHandoffRaceResolved(t *testing.T, m Model) {
@@ -833,12 +796,10 @@ func TestBarrierBatch_handoffDiscardedTargetRestoresDraft(t *testing.T) {
 		msg, ok := ev.(session.AgentMessage)
 		return ok && msg.Alias == "ada"
 	})
-	m = consumeInterpreterUntil(t, m, func(event interpreter.Event) bool {
-		_, ok := event.(interpreter.StagedInputDiscarded)
-		return ok
-	})
-	m = consumeInterpreterStateChange(t, m)
 
+	m = consumeInterpreterPresentation(t, m, func(next Model) bool {
+		return !next.room.IsComposerStaged() && hasRecord(next, record.KindSystem, `staged message discarded: "turing" is no longer available`)
+	})
 	assertHistoryDoesNotContainUserInput(t, m, "/handoff ada turing")
 	if !hasRecord(m, record.KindSystem, `staged message discarded: "turing" is no longer available`) {
 		t.Fatalf("expected staged handoff discard message; records: %v", m.room.HistoryRecords())
@@ -881,4 +842,8 @@ func TestBarrierBatch_handoffIgnoresBusyParticipantWhoJoinedAfterStaging(t *test
 	if !hasRecord(m, record.KindSystem, "[handoff ada -> turing]") {
 		t.Fatalf("expected handoff record after dispatch; records: %v", m.room.HistoryRecords())
 	}
+}
+
+func stagedDiscardPresented(m Model, reason string) bool {
+	return !m.room.IsComposerStaged() && hasRecord(m, record.KindSystem, reason)
 }

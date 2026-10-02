@@ -5,30 +5,9 @@ import (
 
 	"github.com/trigosec/coderoom/internal/agent"
 	"github.com/trigosec/coderoom/internal/interpreter"
-	"github.com/trigosec/coderoom/internal/queue"
 	"github.com/trigosec/coderoom/internal/session"
 	"github.com/trigosec/coderoom/internal/ui/room/history/record"
 )
-
-// --- channelObserver ---
-
-func TestChannelObserver_forwardsToQueue(t *testing.T) {
-	q := queue.New[session.Event]()
-	t.Cleanup(q.Close)
-	obs := channelObserver{queue: q}
-	go obs.OnEvent(session.AgentStarted{Alias: "ada"})
-	got, ok := q.Pull()
-	if !ok {
-		t.Fatal("queue closed unexpectedly")
-	}
-	started, ok := got.(session.AgentStarted)
-	if !ok {
-		t.Fatalf("expected AgentStarted, got %T", got)
-	}
-	if started.Alias != "ada" {
-		t.Errorf("expected alias ada, got %q", started.Alias)
-	}
-}
 
 // --- handleEvent: records ---
 
@@ -96,15 +75,15 @@ func TestHandleEvent_broadcastAndSharedSendProduceNoSystemRecord(t *testing.T) {
 	}
 }
 
-func TestHandleEvent_contextHandoffProducesNoHistoryRecord(t *testing.T) {
+func TestTranscript_contextHandoffPresentedOnce(t *testing.T) {
 	m := makeReadyModel(t)
 	m = pushEvent(m, session.ContextHandoff{FromAlias: "ada",
 		ToAlias: "turing",
 		Text:    "final answer",
 		Preview: "[handoff ada -> turing]\n  ↦ source: ada latest output\n  > final answer",
 	})
-	if len(m.room.HistoryRecords()) != 0 {
-		t.Fatalf("expected interpreter-owned handoff event to remain presentation-inert; records: %v", m.room.HistoryRecords())
+	if !hasRecord(m, record.KindSystem, "[handoff ada -> turing]") {
+		t.Fatal("missing canonical handoff audit")
 	}
 }
 

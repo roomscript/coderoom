@@ -81,7 +81,12 @@ func (s *submitContractSession) Shutdown() { s.shutdowns.Add(1) }
 
 type submitContractObserver struct{ events chan Event }
 
-func (o submitContractObserver) OnEvent(event Event) { o.events <- event }
+// Semantic contract tests consume the semantic stream; transcript transport has dedicated coverage.
+func (o submitContractObserver) OnEvent(event Event) {
+	if _, transcript := event.(TranscriptChanged); !transcript {
+		o.events <- event
+	}
+}
 
 type blockingSubmitContractOperation struct {
 	entered chan struct{}
@@ -399,6 +404,9 @@ func receiveSubmitEvent[T Event](t *testing.T, events <-chan Event) T {
 	t.Helper()
 	select {
 	case event := <-events:
+		if _, transcript := event.(TranscriptChanged); transcript {
+			return receiveSubmitEvent[T](t, events)
+		}
 		value, ok := event.(T)
 		if !ok {
 			t.Fatalf("event type = %T, want %T", event, *new(T))

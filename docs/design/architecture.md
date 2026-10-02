@@ -72,18 +72,25 @@ The TUI presents detached stage snapshots and invokes atomic edit, discard,
 and interrupt operations through Bubble Tea commands. Its staged composer owns
 text, status, focus, and approval-overlay presentation only.
 
-Transcript presentation still belongs to the TUI during this migration. It
-maintains its existing session-event room projection and appends dispatched
-input from interpreter events. `ContextHandoff` remains in canonical interpreter
-room state but is filtered out of the TUI session projection; ordered
-`StagedInputDispatched` and `HandoffCompleted` events present the input before
-its audit exactly once. Stage snapshots do not replace or reconcile transcript
-records.
+The interpreter owns canonical transcript records. The TUI receives detached,
+ordered `TranscriptChanged` deltas for records and stream/departure metadata,
+and `StateChanged` snapshots for roster, approval, and stage presentation.
+Snapshot records are available for inspection; they are not a second transcript
+delivery path. Input, shell, loop, and handoff semantic events do not echo
+records already delivered through transcript deltas.
 
-The remaining direct UI session observation and session/agent dependencies are
-removed in the later TUI cutover. Current architecture tests reject direct UI
-`session.Execute` calls; final package-graph enforcement will also reject direct
-UI session/agent imports and transitive interpreter terminal dependencies.
+The TUI owns rendering, composer, focus, scrolling, and approval presentation.
+Help formatting, startup tips, debug output, and event-formatted notices remain
+presentation records. A deterministic index table translates canonical record
+indices around those local notices, including open stream indices; it never
+reconciles independent application projections. The TUI has no session observer,
+room actor, or live session query. Handoff source markers and audits arrive from
+the same canonical room used for execution.
+
+Current architecture tests reject direct UI `session.Execute` calls; final
+package-graph enforcement will also reject direct UI session/agent imports and
+transitive interpreter terminal dependencies. Construction and presentation
+type cleanup remain separate migration checkpoints.
 
 ---
 

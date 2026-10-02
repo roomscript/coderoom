@@ -125,6 +125,9 @@ type blockingAcceptedObserver struct {
 }
 
 func (o blockingAcceptedObserver) OnEvent(event Event) {
+	if _, transcript := event.(TranscriptChanged); transcript {
+		return
+	}
 	if _, accepted := event.(InputAccepted); accepted {
 		close(o.entered)
 		<-o.release

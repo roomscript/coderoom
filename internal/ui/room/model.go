@@ -96,31 +96,37 @@ type ApprovalDecisionMsg struct {
 
 // Model is the Bubble Tea component for a single room: history + composer.
 type Model struct {
-	history        history.Model
-	chat           *roomstate.Room
-	roomQueue      *queue.Queue[roomstate.Update]
-	roomVersion    uint64
-	input          inputModel
-	approval       approvalState
-	activeFocus    roomFocus
-	historyLive    bool
-	debug          bool
-	lastSize       tea.WindowSizeMsg
-	clipboardRead  func() (string, error)
-	clipboardWrite func(string) error
+	projectionIndices map[int]int
+	projectionVersion uint64
+	presentation      roomstate.Snapshot
+	history           history.Model
+	chat              *roomstate.Room
+	roomQueue         *queue.Queue[roomstate.Update]
+	roomVersion       uint64
+	input             inputModel
+	approval          approvalState
+	activeFocus       roomFocus
+	historyLive       bool
+	debug             bool
+	lastSize          tea.WindowSizeMsg
+	clipboardRead     func() (string, error)
+	clipboardWrite    func(string) error
 }
 
 // New creates a room model with a fresh history model.
 // colorByAlias resolves an active agent alias to its color; it may be nil.
 // departedColor is used for departed agents.
 func New(colorByAlias func(string) string, departedColor string) Model {
+	m := newPresentationModel(colorByAlias, departedColor)
+	m.roomQueue = queue.New[roomstate.Update]()
+	m.chat = roomstate.New(roomstate.WithObserver(roomUpdateObserver{queue: m.roomQueue}))
+	return m
+}
+
+func newPresentationModel(colorByAlias func(string) string, departedColor string) Model {
 	compose := compose.New()
-	roomQ := queue.New[roomstate.Update]()
-	chat := roomstate.New(roomstate.WithObserver(roomUpdateObserver{queue: roomQ}))
 	return Model{
-		history:   history.New(colorByAlias, departedColor),
-		chat:      chat,
-		roomQueue: roomQ,
+		history: history.New(colorByAlias, departedColor),
 		input: inputModel{
 			kind:     inputCompose,
 			compose:  compose,
@@ -170,6 +176,9 @@ func (m Model) Close() {
 
 // Init returns the initial command for the component.
 func (m Model) Init() tea.Cmd {
+	if m.roomQueue == nil {
+		return m.input.compose.Init()
+	}
 	return tea.Batch(m.input.compose.Init(), awaitRoomUpdate(m.roomQueue))
 }
 
@@ -429,18 +438,27 @@ func (m Model) HandleResize(innerW, totalH int) Model {
 
 // AppendUserInput appends a user input record to history.
 func (m Model) AppendUserInput(body string, routing []string) Model {
+	if m.chat == nil {
+		return m.appendPresentationRecord(roomstate.Record{Kind: roomstate.KindUserInput, Text: body, Routing: routing})
+	}
 	m.chat.AppendUserInputRecord(body, routing)
 	return m.refreshFromChat()
 }
 
 // AppendSystem appends a system record to history.
 func (m Model) AppendSystem(text string) Model {
+	if m.chat == nil {
+		return m.appendPresentationRecord(roomstate.Record{Kind: roomstate.KindSystem, Text: text})
+	}
 	m.chat.AppendSystemRecord(text)
 	return m.refreshFromChat()
 }
 
 // AppendCommand appends a completed local command record to history.
 func (m Model) AppendCommand(alias string, command agent.Command) Model {
+	if m.chat == nil {
+		return m.appendPresentationRecord(roomstate.NewAgentRecord(alias, agent.Message{Mode: agent.ModeSingle, Content: command}))
+	}
 	m.chat.AppendRecord(roomstate.NewAgentRecord(alias, agent.Message{
 		Mode:    agent.ModeSingle,
 		Content: command,

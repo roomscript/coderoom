@@ -14,10 +14,12 @@ import (
 // interpreterModel owns mutable interpreter state and deterministic decisions.
 // It is confined to the serialized interpreter operation loop.
 type interpreterModel struct {
-	room      *room.Room
-	commands  *promptlang.Registry
-	workflows workflowCollection
-	approval  *Approval
+	transcriptVersion uint64
+	transcriptChanges []TranscriptChanged
+	room              *room.Room
+	commands          *promptlang.Registry
+	workflows         workflowCollection
+	approval          *Approval
 }
 
 type modelSnapshot struct {
@@ -48,10 +50,9 @@ func (m *interpreterModel) InterruptAndDispatchStage() (instructionSequence, boo
 }
 
 func newInterpreterModel() *interpreterModel {
-	return &interpreterModel{
-		room:     room.New(),
-		commands: promptlang.NewRegistry(),
-	}
+	model := &interpreterModel{commands: promptlang.NewRegistry()}
+	model.room = room.New(room.WithObserver(transcriptObserver{model: model}))
+	return model
 }
 
 func (m *interpreterModel) Submit(

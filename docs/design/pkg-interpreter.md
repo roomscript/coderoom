@@ -95,9 +95,8 @@ caller has moved to `Submit` or a dedicated interpreter operation.
 
 Stage planning and handoff source selection have completed
 their migration and do not use these compatibility APIs. Session validation
-remains authoritative. The TUI still observes session events for its transcript
-projection during the remaining migration; it never calls `session.Execute`
-directly.
+remains authoritative. The TUI consumes interpreter events and snapshots for all application state;
+it neither observes nor queries the session directly.
 
 Dedicated methods are reserved for structured interactions that are not prompt
 language: resolving an approval, reading a snapshot, shutdown, and atomic
@@ -576,24 +575,51 @@ V1 assumes one sequential interactive front end. If concurrent controlling
 clients are introduced, stage IDs or optimistic snapshot versions can extend
 this contract without changing the serialized state owner.
 
-## Room ownership
+## Room ownership and transcript delivery
 
-The interpreter owns the canonical live `room.Room` used for execution. The
-TUI still owns a separate room projection for transcript presentation during
-the remaining migration. It does not replace that projection from interpreter
-room snapshots or mutate the canonical room object.
+The interpreter owns the canonical live `room.Room` used for execution and
+transcript content. The TUI owns rendering, composer, focus, scrolling, and
+approval presentation. Its production room presenter has no room actor or
+session observer.
 
-Local semantic records, including accepted user input, definitions, shell
-results, and loop status, are added through interpreter-owned room operations.
-Presentation-only state such as startup tips, focus, scroll position, and debug
-overlays remains in the UI.
+Canonical records arrive exclusively through ordered `TranscriptChanged`
+events. Each event carries a detached `room.Delta`: stable canonical record
+indices, changed records, and full stream/departure metadata. The model captures
+each mutation synchronously on the interpreter loop, and the instruction runner
+publishes those changes before the next semantic result or state snapshot.
+`InputAccepted` precedes its input record delivery. Synchronous causal records
+arrive before submission completion. Dispatched input precedes the handoff
+audit; shell output and loop records use this same stream. Repeated delta
+versions are ignored by the presenter.
 
-For staged send, broadcast, and handoff, `InputAccepted` does not echo the input
-in the TUI transcript. `StagedInputDispatched` appends it with delivered routing;
-for handoff, the ordered `HandoffCompleted` event follows with the audit preview.
-The TUI filters `ContextHandoff` unconditionally from its session room observer,
-while canonical interpreter room state retains it. This preserves one owner of
-transcript presentation without optimistic records, rollback, or reconciliation.
+`StateChanged` snapshots supply roster, approval, and stage state. `Snapshot.Room`
+is a detached inspection/bootstrap contract, not a live record delivery path.
+The sequential TUI starts observing before submitting input and never replaces
+its transcript from snapshot records. Semantic `InputAccepted`,
+`StagedInputDispatched`, `HandoffCompleted`, `ShellCompleted`, and `LoopStatus`
+events remain available to consumers but do not append duplicate TUI records.
+Stage dispatch/discard events still control draft restoration and ordering.
+
+Help formatting, startup tips, debug output, and event-formatted notices are
+local presentation records. A deterministic canonical-to-display index table
+accounts for their insertion and translates stream indices. This is an append
+and update adapter, not reconciliation: only interpreter deltas decide
+canonical record content, and there is no independently observed session room
+to merge, compare, or roll back.
+
+Projection coverage mapping for the cutover:
+
+| Former production path | Replacement coverage |
+| --- | --- |
+| Independent session/room observers for lifecycle, log, output, reasoning, flush, departure | Retained `model_test.go` scenarios through canonical room deltas and interpreter DTOs; `TestTranscriptProjection_updatesCanonicalStreamAroundPresentationNotices` |
+| Session roster queries and approval events | Interpreter `StateChanged` roster/approval projection; retained native lifecycle and approval adapter tests |
+| UI echoes of accepted/dispatched input and handoff audit | Retained native send/broadcast/handoff lifecycle tests; `TestTranscriptProjection_semanticEventsAndSnapshotsDoNotEchoRecords` |
+| UI shell, definition, and loop record appends | Interpreter canonical record stream; adapted shell/definition/loop presentation tests |
+| Independent observer draining to tighten ordering | Serialized canonical changes; `TestTranscriptStream_acceptancePrecedesRecordsAndCausalUpdatesPrecedeCompletion` |
+| Composer gate, edit/discard/interrupt, approval overlap, failed dispatch | Retained submission, stage-operation, stage-presenter, and native lifecycle tests |
+
+Test-only session observers in native lifecycle tests provide an external
+runtime oracle; they are not a TUI application-state source.
 
 ## Handoff source resolution
 

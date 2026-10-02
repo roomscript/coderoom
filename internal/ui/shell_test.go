@@ -7,6 +7,7 @@ import (
 
 	"github.com/trigosec/coderoom/internal/agent"
 	"github.com/trigosec/coderoom/internal/interpreter"
+	roomstate "github.com/trigosec/coderoom/internal/room"
 	"github.com/trigosec/coderoom/internal/shell"
 	"github.com/trigosec/coderoom/internal/ui/room/history/record"
 )
@@ -27,6 +28,7 @@ func TestHandleInterpreterEvent_rendersShellCompletion(t *testing.T) {
 		Output: "status: failure\nstdout:\nstandard output\nstderr:\nstandard error\nerror:\nrunner failure",
 	}
 
+	m = presentTestRecord(m, roomstate.NewAgentRecord("shell", agent.Message{Mode: agent.ModeSingle, Content: agent.Command{Command: event.Command, Cwd: event.Cwd, Output: event.Output, ExitCode: event.Result.ExitCode}}))
 	m, _ = m.handleInterpreterEvent(event)
 	command := shellCommandRecord(t, m)
 	if command.Command != event.Command || command.Cwd != event.Cwd || command.ExitCode != event.Result.ExitCode {
@@ -41,6 +43,7 @@ func TestHandleInterpreterEvent_rendersShellCompletion(t *testing.T) {
 
 func TestHandleInterpreterEvent_rendersCommandDefinitionSuccess(t *testing.T) {
 	m := makeReadyModel(t)
+	m = presentTestRecord(m, roomstate.Record{Kind: roomstate.KindSystem, Text: "[defined] /tests"})
 	m, _ = m.handleInterpreterEvent(interpreter.SubmissionSucceeded{
 		Raw: "/def tests /shell go test ./...",
 	})
@@ -61,6 +64,7 @@ func TestHandleInterpreterEvent_shellDispatchReleasesSubmissionGate(t *testing.T
 		t.Fatal("shell dispatch rendered a result before completion")
 	}
 
+	m = presentTestRecord(m, roomstate.NewAgentRecord("shell", agent.Message{Mode: agent.ModeSingle, Content: agent.Command{Command: "long-running", Cwd: ".", Output: "status: success"}}))
 	m, _ = m.handleInterpreterEvent(interpreter.ShellCompleted{
 		Command: "long-running",
 		Cwd:     ".",
@@ -93,6 +97,7 @@ func TestHandleInterpreterEvent_undefinedInvocationDoesNotEchoInput(t *testing.T
 
 func TestHandleInterpreterEvent_rendersLoopStatus(t *testing.T) {
 	m := makeReadyModel(t)
+	m = presentTestRecord(m, roomstate.Record{Kind: roomstate.KindSystem, Text: "[loop] turn 1/3 sent to @ada"})
 	m, _ = m.handleInterpreterEvent(interpreter.LoopStatus{Message: "[loop] turn 1/3 sent to @ada"})
 	if !hasRecord(m, record.KindSystem, "[loop] turn 1/3 sent to @ada") {
 		t.Fatal("loop status was not rendered")
@@ -129,4 +134,9 @@ func shellCommandRecord(t *testing.T, m Model) agent.Command {
 	}
 	t.Fatal("expected canonical command record")
 	return agent.Command{}
+}
+
+func presentTestRecord(m Model, record roomstate.Record) Model {
+	m, _ = m.handleInterpreterEvent(interpreter.TranscriptChanged{Delta: roomstate.Delta{Version: 1, RecordUpdates: []roomstate.IndexedRecord{{Index: 0, Record: record}}}})
+	return m
 }

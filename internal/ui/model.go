@@ -29,35 +29,6 @@ func WithStartupHelpTip(enabled bool) Option {
 	return func(m *Model) { m.showStartupHelpTip = enabled }
 }
 
-// sessionEventMsg wraps a session.Event as a Bubble Tea message.
-type sessionEventMsg struct{ event session.Event }
-
-// awaitEvent returns a Cmd that blocks until the next event is available.
-func awaitEvent(q *queue.Queue[session.Event]) tea.Cmd {
-	return func() tea.Msg {
-		e, ok := q.Pull()
-		if !ok {
-			return nil
-		}
-		return sessionEventMsg{event: e}
-	}
-}
-
-// channelObserver implements session.Observer by pushing events into a
-// queue.Queue. It is safe to call from any goroutine.
-type channelObserver struct {
-	queue *queue.Queue[session.Event]
-}
-
-type handoffFilteringObserver struct{ next session.Observer }
-
-func (o handoffFilteringObserver) OnEvent(event session.Event) {
-	if _, ok := event.(session.ContextHandoff); ok {
-		return
-	}
-	o.next.OnEvent(event)
-}
-
 type interpreterEventMsg struct{ event interpreter.Event }
 
 type interpreterObserver struct {
@@ -78,19 +49,14 @@ func awaitInterpreterEvent(q *queue.Queue[interpreter.Event]) tea.Cmd {
 	}
 }
 
-func (o channelObserver) OnEvent(e session.Event) {
-	o.queue.Push(e)
-}
-
 // Model is the Bubble Tea application state for the coderoom TUI.
 type Model struct {
-	sess             *session.Session
 	interpreter      *interpreter.Interpreter
-	queue            *queue.Queue[session.Event]
 	interpreterQueue *queue.Queue[interpreter.Event]
 	room             room.Model
 	toolbox          toolbox.Model
 	debug            bool
+	colors           map[string]string
 	cwd              string
 	lastSize         tea.WindowSizeMsg
 
@@ -114,28 +80,23 @@ func New(ctx context.Context, sess *session.Session, cwd string, opts ...Option)
 	interp := interpreter.New(ctx, sess, cwd)
 	interp.AddObserver(interpreterObserver{queue: interpreterQueue})
 
-	q := queue.New[session.Event]()
-	sess.AddObserver(channelObserver{queue: q})
-
-	colorByAlias := func(alias string) string {
-		if p, ok := sess.Participant(alias); ok {
-			return p.Color
-		}
-		return ""
+	colors := make(map[string]string)
+	initial := interp.Snapshot()
+	for _, view := range initial.Participants {
+		colors[view.Alias] = view.Color
 	}
-
-	roomModel := room.New(colorByAlias, palette.ColorDeparted)
-	sess.AddObserver(handoffFilteringObserver{next: roomModel.SessionObserver()})
+	colorByAlias := func(alias string) string { return colors[alias] }
+	roomModel := room.NewPresenter(colorByAlias, palette.ColorDeparted)
 
 	m := Model{
-		sess:             sess,
 		interpreter:      interp,
-		queue:            q,
 		interpreterQueue: interpreterQueue,
 		room:             roomModel,
 		toolbox:          toolbox.New(),
 		cwd:              cwd,
+		colors:           colors,
 	}
+	m.toolbox, _ = m.toolbox.SetParticipants(initial.Participants)
 	for _, o := range opts {
 		o(&m)
 	}
@@ -147,9 +108,6 @@ func (m Model) Close() {
 	m.room.Close()
 	if m.interpreter != nil {
 		m.interpreter.Close()
-	}
-	if m.queue != nil {
-		m.queue.Close()
 	}
 	if m.interpreterQueue != nil {
 		m.interpreterQueue.Close()
