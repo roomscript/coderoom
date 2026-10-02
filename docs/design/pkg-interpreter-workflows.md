@@ -1,10 +1,11 @@
 # Interpreter workflow architecture
 
-This document defines the target boundary for extracting interpreter workflows
-without weakening the interpreter's serialized ordering guarantees. It guides
-GitHub issue #53 and the staged-submission migration.
+This document describes the implemented interpreter workflow boundary and
+serialized ordering guarantees. The responsibility decomposition and staged
+submission migration are complete; normal package-graph tests enforce the
+interpreter/UI boundary.
 
-## Target shape
+## Implemented shape
 
 `Interpreter` remains the public facade and composition root. Its operation
 loop is the sole serialized execution context for mutable interpreter
@@ -13,8 +14,8 @@ not implement workflow-specific procedures.
 
 ```go
 type Interpreter struct {
-    model    interpreterModel
-    executor interpreterExecutor
+    model    *interpreterModel
+    executor *interpreterExecutor
 }
 ```
 
@@ -30,8 +31,9 @@ These names describe responsibility boundaries, not field-grouping wrappers:
   model, session, shell, completion, publication, and snapshot ports. It
   contains no workflow-specific branches.
 - `eventDispatcher` owns observers, queued delivery, its delivery goroutine,
-  flush barriers, and event shutdown. Its focused `Publish`, `AddObserver`,
-  `Flush`, and `Close` operations preserve publication order without blocking
+  flush barriers, and event shutdown. Observers are fixed by `WithObserver`
+  before startup. Its focused `Publish`, `Flush`, and `Close` operations preserve
+  publication order without blocking
   the serialized interpreter loop on observers.
 - `sessionEventInbox` owns cross-goroutine session-event buffering and its
   coalesced drain wake-up. `Record` reports whether the executor must enqueue a
@@ -355,10 +357,10 @@ type rosterCompletion struct {
 }
 ```
 
-Correlated shared-send planning and participant-state completions are planned
-extensions for the staged workflow, not current completion variants.
+Correlated shared-send planning and participant-state completions provide
+frozen routing and readiness inputs to the implemented stage workflow.
 
-`submissionCompletion` and `rosterCompletion` are compatibility completions
+`submissionCompletion` and `rosterCompletion` are native command completions
 routed through the same model-owned decision boundary. They contain detached
 data and introduce no callback from the model to the executor.
 
@@ -390,12 +392,12 @@ causal chain, not the point where the instruction appears.
 Room records and explicit public events remain ordered instructions. A final
 snapshot does not replace them.
 
-`publishSnapshotInstruction` is the compatibility form for existing commands
+`publishSnapshotInstruction` is the immediate publication form for native commands
 whose public contract places `StateChanged` at a specific point before their
 terminal event. It publishes immediately when reached. New workflow transitions
 use `requestSnapshotInstruction`, which coalesces publication after the causal
-chain settles. Keeping the distinction explicit preserves event ordering while
-the legacy command surface is still supported.
+chain settles. Keeping the distinction explicit preserves event ordering across
+native command and workflow transitions.
 
 ## Deterministic instruction algorithm
 
@@ -423,7 +425,7 @@ run(initialSequence):
         request final snapshot:
             snapshotRequested = true
 
-        publish compatibility snapshot:
+        publish immediate snapshot:
             publish the current composed snapshot immediately
 
         append record:
@@ -665,16 +667,12 @@ gateway knows which interpreter-level request maps to which session command.
    active loop is generation 8. It returns no loop-transition instructions and does
    not alter generation 8.
 
-## Implementation sequence
+## Implementation status
 
-1. Restore the completed Step 6 implementation.
-2. Review and approve this target design and ordering contract.
-3. Complete the responsibility decomposition tracked in issue #53, including
-   executor ownership of the instruction runner, inbox, and dispatcher.
-4. Keep approvals loop-confined and serve external reads through the immutable
-   snapshot cache.
-5. Only after decomposition, resume staged submissions as the second workflow
-   consumer and validate the abstraction.
+The responsibility decomposition, bounded loops, and staged submissions are
+implemented. The TUI uses construction-time observers and interpreter events;
+execution compatibility and duplicate UI workflow state have been removed.
+Normal package-graph tests enforce the completed dependency boundary.
 
 ## Acceptance criteria
 

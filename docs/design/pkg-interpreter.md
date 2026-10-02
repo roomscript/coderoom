@@ -718,18 +718,25 @@ command must observe that projected state before it plans or executes.
 
 ### Dependency enforcement
 
-Package structure and normal Go compilation enforce the interpreter's
-UI-independent direction. `internal/ui/architecture_test.go` additionally
-rejects direct `session.Execute` calls from production UI code. The interpreter
-package has a structural test that fixes `Interpreter` to model/executor
+The completed boundary is enforced by normal tests alongside each package.
+`internal/interpreter/architecture_test.go` uses `go list` to reject transitive
+interpreter dependencies on `internal/ui`, Bubble Tea, Bubbles, and Lip Gloss,
+including legacy module paths and subpackages.
+`internal/ui/architecture_test.go` lists all production UI packages and rejects
+direct imports of `internal/session` and `internal/agent`. Test-only fixture
+imports are excluded; UI transitive dependencies through the interpreter are
+expected. Table-driven cases verify rejected and permitted relationships.
+A separate interpreter structural test fixes `Interpreter` to model/executor
 composition fields and compile-checks that operations target
 `*interpreterExecutor`, not the facade.
 
 The TUI constructs no session commands and owns no command registry, shell
 execution, or loop workflow state. Production UI packages import neither session
 nor agent. The CLI constructs the interpreter and owns shutdown; `ui.New` takes
-the interpreter and its construction-time observer queue, and `ui.Model.Close` closes only its event queue.
+the interpreter and its construction-time observer queue. `ui.Model.Close`
+closes only its event queue.
 Approval widgets consume `Approval`/`ApprovalChoice` DTOs. Transcript renderers
 retain canonical room record values and use `CommandFromRecord` and
 `FileChangesFromRecord` for detached tool details. Protocol constructors remain
-in test fixtures only. Step 9 adds package-graph enforcement.
+in test fixtures only. The interpreter migration and package-graph enforcement
+are complete.

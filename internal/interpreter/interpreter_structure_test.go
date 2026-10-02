@@ -1,9 +1,7 @@
 package interpreter
 
 import (
-	"os/exec"
 	"reflect"
-	"strings"
 	"testing"
 )
 
@@ -31,23 +29,4 @@ func TestInterpreter_containsOnlyCompositionFields(t *testing.T) {
 			t.Fatalf("Interpreter.%s type = %v, want %v", name, field.Type, fieldType)
 		}
 	}
-}
-
-func TestInterpreter_hasNoPresentationDependencies(t *testing.T) {
-	output, err := exec.Command("go", "list", "-deps", "-f", "{{.ImportPath}}", ".").CombinedOutput()
-	if err != nil {
-		t.Fatalf("list interpreter dependencies: %v\n%s", err, output)
-	}
-	for _, dependency := range strings.Fields(string(output)) {
-		if forbiddenInterpreterImport(dependency) {
-			t.Errorf("interpreter depends on presentation package %q", dependency)
-		}
-	}
-}
-
-func forbiddenInterpreterImport(path string) bool {
-	return strings.HasPrefix(path, "github.com/trigosec/coderoom/internal/ui") ||
-		strings.HasPrefix(path, "charm.land/bubbletea") ||
-		strings.HasPrefix(path, "charm.land/bubbles") ||
-		strings.HasPrefix(path, "charm.land/lipgloss")
 }

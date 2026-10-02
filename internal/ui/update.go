@@ -104,19 +104,16 @@ func (m Model) submit(raw string) (Model, tea.Cmd) {
 		return m, nil
 	}
 	statement, err := promptlang.Parse(raw)
-	if err != nil || isNativeInterpreterStatement(statement) {
+	if err != nil || !isUIOnlyStatement(statement) {
 		return m.submitToInterpreter(raw), nil
 	}
 	m.releaseSubmissionGate()
 	return m.handleSubmit(raw)
 }
 
-func isNativeInterpreterStatement(statement promptlang.Statement) bool {
+func isUIOnlyStatement(statement promptlang.Statement) bool {
 	switch statement.(type) {
-	case promptlang.Invite, promptlang.Remove, promptlang.Cancel, promptlang.PolicyEnable,
-		promptlang.Shell, promptlang.CommandDefinition, promptlang.CommandInvocation,
-		promptlang.Loop, promptlang.Who, promptlang.Help, promptlang.Quit, promptlang.Send,
-		promptlang.Broadcast, promptlang.Handoff:
+	case promptlang.DebugView, promptlang.DebugRows:
 		return true
 	default:
 		return false

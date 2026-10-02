@@ -89,13 +89,13 @@ reconciles independent application projections. The TUI has no session observer,
 room actor, or live session query. Handoff source markers and audits arrive from
 the same canonical room used for execution.
 
-Current architecture tests reject direct UI `session.Execute` calls; final
-package-graph enforcement will also reject direct UI session/agent imports and
-transitive interpreter terminal dependencies. The execution compatibility API has been removed; the TUI constructs no session
-commands and owns no registry, shell execution, or loop workflow state.
+Normal architecture tests use `go list` to reject direct production UI imports
+of session/agent packages and transitive interpreter dependencies on UI,
+Bubble Tea, Bubbles, or Lip Gloss (including legacy module paths). The execution
+compatibility API has been removed; the TUI constructs no session commands and owns no registry, shell execution, or loop workflow state.
 The CLI constructs and owns the interpreter lifetime; the TUI receives that
-interpreter and its preinstalled observer queue, and closes only that queue. Approval presentation consumes
-interpreter DTOs, and transcript renderers read detached command and file-change
+interpreter and its preinstalled observer queue, and closes only that queue.
+Approval presentation consumes interpreter DTOs, and transcript renderers read detached command and file-change
 details through interpreter helpers. Production UI packages import neither
 `internal/session` nor `internal/agent`.
 
