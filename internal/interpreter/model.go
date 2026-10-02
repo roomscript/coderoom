@@ -59,9 +59,6 @@ func (m *interpreterModel) Submit(
 	statement promptlang.Statement,
 	fallback session.Command,
 ) instructionSequence {
-	if sequence, handled := m.workflows.submit(raw, statement, m.commands); handled {
-		return sequence
-	}
 	if sequence, handled := m.submitCommand(raw, statement); handled {
 		return sequence
 	}
@@ -73,67 +70,13 @@ func (m *interpreterModel) Submit(
 	}}}
 }
 
-func (m *interpreterModel) submitCommand(
-	raw string,
-	statement promptlang.Statement,
-) (instructionSequence, bool) {
-	if sequence, handled := m.submitSessionCommand(raw, statement); handled {
-		return sequence, true
+func (m *interpreterModel) submitCommand(raw string, statement promptlang.Statement) (instructionSequence, bool) {
+	for _, definition := range nativeCommandDefinitions {
+		if definition.matches(statement) && definition.submit != nil {
+			return definition.submit(m, raw, statement), true
+		}
 	}
-	if sequence, handled := m.submitShellCommand(raw, statement); handled {
-		return sequence, true
-	}
-	return m.submitControlCommand(raw, statement)
-}
-
-func (m *interpreterModel) submitSessionCommand(
-	raw string,
-	statement promptlang.Statement,
-) (instructionSequence, bool) {
-	switch statement := statement.(type) {
-	case promptlang.Invite:
-		return m.submitInvite(raw, statement), true
-	case promptlang.Remove:
-		return m.submitRemove(raw, statement), true
-	case promptlang.Cancel:
-		return m.submitCancel(raw, statement), true
-	case promptlang.PolicyEnable:
-		return m.submitPolicyEnable(raw, statement), true
-	default:
-		return nil, false
-	}
-}
-
-func (m *interpreterModel) submitShellCommand(
-	raw string,
-	statement promptlang.Statement,
-) (instructionSequence, bool) {
-	switch statement := statement.(type) {
-	case promptlang.Shell:
-		return m.submitShell(raw, statement), true
-	case promptlang.CommandDefinition:
-		return m.submitCommandDefinition(raw, statement), true
-	case promptlang.CommandInvocation:
-		return m.submitCommandInvocation(raw, statement), true
-	default:
-		return nil, false
-	}
-}
-
-func (m *interpreterModel) submitControlCommand(
-	raw string,
-	statement promptlang.Statement,
-) (instructionSequence, bool) {
-	switch statement.(type) {
-	case promptlang.Who:
-		return m.submitWho(raw), true
-	case promptlang.Help:
-		return m.submitHelp(raw), true
-	case promptlang.Quit:
-		return m.submitQuit(raw), true
-	default:
-		return nil, false
-	}
+	return nil, false
 }
 
 func sessionSubmissionSequence(raw, operation string, command session.Command) instructionSequence {

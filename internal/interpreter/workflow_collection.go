@@ -1,30 +1,12 @@
 package interpreter
 
 import (
-	"github.com/trigosec/coderoom/internal/promptlang"
 	"github.com/trigosec/coderoom/internal/session"
 )
 
 type workflowCollection struct {
 	loop  loopWorkflow
 	stage stageWorkflow
-}
-
-func (w *workflowCollection) submit(
-	raw string,
-	statement promptlang.Statement,
-	commands *promptlang.Registry,
-) (instructionSequence, bool) {
-	switch statement := statement.(type) {
-	case promptlang.Send, promptlang.Broadcast, promptlang.Handoff:
-		return w.stage.start(raw, statement), true
-	default:
-	}
-	loop, ok := statement.(promptlang.Loop)
-	if !ok {
-		return nil, false
-	}
-	return w.loop.start(raw, loop, commands), true
 }
 
 func (w *workflowCollection) applySessionEvent(event session.Event) instructionSequence {

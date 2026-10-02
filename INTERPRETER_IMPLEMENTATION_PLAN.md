@@ -5,7 +5,7 @@ temporary and must be deleted in the final boundary-enforcement commit.
 
 Implementation was parked after Step 6 while issue #53 established the model
 and executor boundaries. That decomposition and Step 7 are complete; Step 8
-is next.
+is in progress; Step 8a is complete and Step 8b is next.
 
 Each step should leave the repository working and independently reviewable.
 Run `go test ./...` before completing every step unless a narrower command is
@@ -420,27 +420,92 @@ go test ./...
 
 ## 8. Cut the TUI over
 
-- [ ] After all built-in commands are interpreter-owned, make their canonical
-      definitions drive native dispatch and help metadata. Replace duplicated
-      help catalogs and exhaustive usage lists with parameterized coverage,
-      while retaining an independent invariant that every built-in recognized
-      by `promptlang` has a registered command definition.
+Complete one checkpoint per independently reviewable change. Each checkpoint
+must leave the application working and pass `go test ./...`. Keep transcript
+projection changes separate from command catalog and compatibility API cleanup.
+
+### 8a. Unify native command definitions and help metadata
+
+- [x] Make canonical interpreter command definitions drive native dispatch and
+      help metadata, including staged actions and loops.
+- [x] Replace duplicated help catalogs and exhaustive usage lists with
+      parameterized coverage of help examples and native routing. Independently
+      require help and handlers for native definitions, both message types,
+      defined-command invocation help, and both supported policy variants.
+- [x] Retain an independent invariant that every built-in recognized by
+      `promptlang` has a registered definition; explicitly register UI-only
+      debug commands without native handlers or interpreter help entries.
+- [x] Preserve existing syntax, help ordering, descriptions, and dispatch.
+
+Stop condition: native dispatch and help use one definition catalog; parser
+built-ins cannot be added without registering a definition. Compatibility APIs
+and transcript ownership are unchanged.
+
+Verification: `go test ./...`, `go test -race ./internal/interpreter`, and
+`git diff --check` passed. An initial UI handoff test failure did not reproduce
+on the full-suite rerun or 30 isolated runs with either current or original
+dispatch code.
+
+### 8b. Remove fallback submission
+
 - [ ] Replace remaining `SubmitWithFallback` calls with `Submit`.
-- [ ] Remove `SubmitWithFallback` after the final legacy translator is gone.
-- [ ] Remove `ExecuteLegacy` after the final TUI workflow moves into the
-      interpreter.
-- [ ] Complete rendering of interpreter events and snapshots.
-- [ ] Remove remaining UI-owned registry, shell execution, and loop state.
-- [ ] Remove direct UI session observation, commands, and snapshot queries.
+- [ ] Remove the final legacy translators and `SubmitWithFallback` API.
+- [ ] Preserve submission gating, terminal outcomes, causal-event ordering,
+      and draft restoration with equivalent native submission coverage.
+
+Stop condition: production submissions use `Submit`, with no fallback execution
+path or legacy submission translator.
+
+### 8c. Complete interpreter-driven TUI projection
+
+- [ ] Define and document the transcript projection boundary before changing
+      production ownership: the interpreter owns canonical records; the TUI
+      owns rendering, composer, focus, and approval presentation.
+- [ ] Complete rendering of interpreter events and snapshots and replace
+      direct UI session observation and snapshot queries.
+- [ ] Specify whether each transcript record arrives through an event or a
+      snapshot; preserve stable ordering and exactly-once presentation without
+      introducing dual-authority reconciliation.
+- [ ] Preserve streaming output, dispatched input, handoff audit ordering,
+      participant lifecycle, shell output, approvals, and draft/event ordering.
+- [ ] Map existing projection scenarios to replacement coverage before
+      removing their old production path or tests.
+- [ ] Update architecture documentation alongside the ownership cutover.
+
+Stop condition: interpreter events and snapshots supply all application state
+needed by the TUI, with transcript records presented once in the correct order.
+Direct session observation and queries are gone. If this requires a new
+reconciliation subsystem, revise this checkpoint before implementing it.
+
+### 8d. Remove execution compatibility and residual UI ownership
+
+- [ ] Audit and remove remaining UI-owned registry, shell execution, and loop
+      state, retaining presentation state only.
+- [ ] Remove remaining UI session-command construction and workflow execution.
+- [ ] Remove `ExecuteLegacy` after the final TUI workflow and caller are gone.
+- [ ] Preserve equivalent interpreter and UI adapter coverage for every removed
+      behavior; remove obsolete helpers only after that mapping exists.
+
+Stop condition: all application execution and workflow decisions belong to the
+interpreter, and no legacy execution API or duplicate UI execution state remains.
+
+### 8e. Close the TUI boundary
+
 - [ ] Remove UI imports of `internal/session` and `internal/agent`.
 - [ ] Remove obsolete UI tests and helpers only after equivalent interpreter
-      coverage exists.
+      or presentation-boundary coverage exists.
+- [ ] Audit the completed cutover and update implementation-status wording in
+      the relevant design documents.
 
-Verification:
+Stop condition: the TUI is an input adapter and presenter using interpreter
+contracts. Step 9 retains final package-graph enforcement and plan-file deletion.
+
+Verification before closing Step 8:
 
 ```text
 go test -race ./internal/interpreter ./internal/ui/... ./internal/session
 go test ./...
+git diff --check
 ```
 
 ## 9. Enforce the boundary and clean up
