@@ -8,6 +8,11 @@ cosmetic feedback.
 If requirements or intent are unclear, identify the ambiguity precisely and ask
 for clarification before drawing conclusions.
 
+## Prefer CLI tools
+
+Prefer available local CLI tools over equivalent MCP tools or other integrations.
+For GitHub operations, use `gh` when available.
+
 ## Snap-installed tools
 
 Some tools installed through Snap, such as Go, may fail inside the sandbox with
