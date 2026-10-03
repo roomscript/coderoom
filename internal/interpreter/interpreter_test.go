@@ -103,8 +103,8 @@ func TestInterpreter_projectsSessionEventBeforePublishingSnapshot(t *testing.T) 
 		Alias:      "ada",
 		Role:       "builder",
 		Initiative: participant.InitiativeManual,
-		Status:     participant.StatusIdle,
-		Color:      "#4ADE80",
+		Status:     participant.StatusIdle, StartupReady: true,
+		Color: "#4ADE80",
 	}}
 	events := make(chan interpreter.Event, 1)
 	interp := interpreter.New(context.Background(), sess, t.TempDir(), interpreter.WithObserver(eventObserver{events: events}))
@@ -157,7 +157,7 @@ func TestInterpreter_translatesApprovalState(t *testing.T) {
 
 func TestInterpreter_snapshotAfterCloseUsesDetachedCache(t *testing.T) {
 	sess := newRecordingSession()
-	sess.roster = []participant.View{{Alias: "ada", Status: participant.StatusIdle}}
+	sess.roster = []participant.View{{Alias: "ada", Status: participant.StatusIdle, StartupReady: true}}
 	events := make(chan interpreter.Event, 2)
 	interp := interpreter.New(context.Background(), sess, t.TempDir(), interpreter.WithObserver(eventObserver{events: events}))
 	receiveEvent[interpreter.StateChanged](t, events)

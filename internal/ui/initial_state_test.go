@@ -23,7 +23,7 @@ func (*initialStateSession) PlanSharedSend(string) session.SharedSendPlan {
 	return session.SharedSendPlan{}
 }
 func (*initialStateSession) Participants() []participant.View {
-	return []participant.View{{Alias: "ada", Status: participant.StatusWorking, Color: "#123456"}}
+	return []participant.View{{Alias: "ada", Status: participant.StatusWorking, StartupReady: true, Color: "#123456"}}
 }
 func (s *initialStateSession) Participant(alias string) (participant.View, bool) {
 	return s.Participants()[0], alias == "ada"

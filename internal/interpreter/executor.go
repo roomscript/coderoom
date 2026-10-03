@@ -227,10 +227,11 @@ func (e *interpreterExecutor) planSharedSend(alias string) (session.SharedSendPl
 }
 
 func (e *interpreterExecutor) planBroadcast() []string {
-	participants := e.participantState()
-	targets := make([]string, len(participants))
-	for index, value := range participants {
-		targets[index] = value.alias
+	var targets []string
+	for _, value := range e.session.Participants() {
+		if value.Status != participant.StatusCrashed {
+			targets = append(targets, value.Alias)
+		}
 	}
 	slices.Sort(targets)
 	return targets
@@ -240,15 +241,12 @@ func (e *interpreterExecutor) participantState() []participantState {
 	return participantStates(e.session.Participants())
 }
 
-// Keep the existing shared-room selection during the API refactor. Startup
-// staging and broader eligibility are the separate behavioral change in #56.
+// Preserve actual lifecycle status and startup readiness in one planning read.
+// Crashed participants remain present so unknown aliases can be distinguished.
 func participantStates(participants []participant.View) []participantState {
 	states := make([]participantState, 0, len(participants))
 	for _, value := range participants {
-		if !value.IsRoutable() {
-			continue
-		}
-		states = append(states, participantState{alias: value.Alias, status: value.Status, turnID: value.TurnID})
+		states = append(states, participantState{alias: value.Alias, status: value.Status, turnID: value.TurnID, startupPending: !value.StartupReady})
 	}
 	return states
 }

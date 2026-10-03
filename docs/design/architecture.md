@@ -68,6 +68,10 @@ and serializes commands sent to the session controller.
 The staged-submission cutover is complete: send, broadcast, and handoff
 planning, frozen recipients, barriers, lifecycle readiness, source selection,
 dispatch, and interrupt coordination belong to the interpreter's `stageWorkflow`.
+Startup and maintenance participants can be frozen recipients. Staging waits
+for actual readiness, including StartupReady; interrupts cancel active turns
+and continue waiting for startup. Unknown and crashed direct targets have
+distinct errors. Handoff output waits apply only to active turns.
 The TUI presents detached stage snapshots and invokes atomic edit, discard,
 and interrupt operations through Bubble Tea commands. Its staged composer owns
 text, status, focus, and approval-overlay presentation only.
@@ -155,7 +159,7 @@ Status values and their meaning:
 |--------|-------------|
 | `starting` | `Start()` has been called; the process is not yet confirmed live. |
 | `attached` | Process is live and the agent is bound, but `AgentStarted` has not yet been dispatched. `/remove` and sends are rejected in this window. |
-| `idle` | Startup complete (`AgentStarted` dispatched, `StartupReady` set); ready to receive messages. |
+| `idle` | No turn is active. `StartupReady` must also be set before messages can be delivered. |
 | `keepalive` | Backend maintenance request in flight. No user turn is active, but the participant is temporarily non-sendable and occupies the request lane. |
 | `preparing` | Committed to a send; anchor stream being established. |
 | `working` | Turn in flight; agent is processing and streaming output. |

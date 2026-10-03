@@ -141,8 +141,9 @@ Participant queries return detached `View` values with actual status, startup
 readiness, and turn identity. The interpreter selects its shared-room recipients
 using View predicates; Session supplies all registered participants in one
 locked list rather than separate roster, routable, or barrier APIs.
-The API refactor preserves existing shared-room eligibility; startup staging is
-a separate behavior change in #56.
+Send and broadcast planning freezes known recipients, including startup,
+preparing, and keepalive states. Crashed states remain in the planning snapshot
+for error classification but are excluded from broadcast and notice recipients.
 
 This interface describes the existing session behavior. `SessionController`
 is the interpreter's internal dependency port, not the facade presented to
@@ -294,7 +295,9 @@ external submission, even if that submission was already waiting in the
 operation queue. Otherwise a later command could plan against stale participant
 or room state. This may be implemented with a separate session-event inbox or
 an equivalent priority/drain mechanism; it must not rely on ordinary FIFO
-insertion timing.
+insertion timing. The runner projects the complete synchronous event burst
+before executing any instructions derived from those events, so those
+instructions observe all changes produced by the dispatch.
 
 ```mermaid
 sequenceDiagram
@@ -473,15 +476,23 @@ the required participants are ready, it dispatches immediately. Otherwise it
 stores the pending execution and publishes its state. Relevant session events
 then advance it:
 
+- readiness combines actual status with StartupReady; an idle participant still
+  completing startup stays blocked until AgentStarted
+- broadcasts and policy-enabled send notices include participants already
+  starting when submitted; later invites do not join the frozen routing plan
+- unknown and crashed direct targets produce distinct errors
 - idle or started participants may make the submission dispatchable
 - stopped or crashed targets are marked unavailable
-- a handoff waits for the source output event as well as the terminal idle
-  transition, preserving the existing ordering guard
+- a handoff waits for source output completion only during active turns;
+  startup and keepalive wait for readiness, then read existing output or fail
+  clearly when there is no completed source output
+- unrelated startup and maintenance bystanders do not block a handoff
 - partial delivery reports the aliases that accepted the execution
 
 The front end may request edit/discard or interrupt-and-dispatch. An interrupt
 request causes the interpreter to issue serialized cancel commands for blocking
-participants, publish progress, and dispatch only when the resulting lifecycle
+participants with active turns. Startup and maintenance participants continue
+waiting. The interpreter publishes progress and dispatches only when lifecycle
 events satisfy the frozen barrier. The UI never calculates stage readiness or
 advances stages from its own session-event projection.
 
@@ -492,6 +503,7 @@ type StagedSubmission struct {
     Raw        string
     Routing    []string
     Blocking   []string
+    Interruptible []string
     Unavailable []string
     InterruptRequested bool
     Phase      StagePhase

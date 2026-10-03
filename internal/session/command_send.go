@@ -86,7 +86,7 @@ func (s *Session) PlanSharedSend(addressedAlias string) SharedSendPlan {
 		return plan
 	}
 	for _, p := range s.Participants() {
-		if !p.IsRoutable() {
+		if p.Status == participant.StatusCrashed {
 			continue
 		}
 		if p.Alias != addressedAlias {

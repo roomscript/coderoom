@@ -49,7 +49,10 @@ func renderInterpreterStageStatus(
 	colorByAlias func(string) string,
 ) string {
 	lead := "Message on-hold."
-	tail := "Press Esc to edit. Press Ctrl+X to interrupt and send."
+	tail := "Press Esc to edit."
+	if len(stage.Interruptible) > 0 {
+		tail += " Press Ctrl+X to interrupt and send."
+	}
 	if stage.InterruptRequested {
 		lead = "Interrupt requested."
 		tail = "Waiting to send…"
@@ -67,5 +70,5 @@ func renderInterpreterStageStatus(
 		}
 		busy = strings.Join(aliases, ", ")
 	}
-	return lead + " Participants busy: " + busy + ". " + tail
+	return lead + " Waiting for: " + busy + ". " + tail
 }

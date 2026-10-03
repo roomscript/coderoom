@@ -109,11 +109,10 @@ func (p *Participant) Snapshot() Participant {
 	return cp
 }
 
-// IsSendable retains the transport's existing status guard. The session also
-// checks that an agent handle is bound. StartupReady is exposed separately so
-// workflow readiness can be distinguished from transport status.
+// IsSendable requires completed startup and a lifecycle state that permits
+// delivery. The session additionally checks that an agent handle is bound.
 func (v View) IsSendable() bool {
-	return v.Status == StatusIdle || v.HasActiveTurn()
+	return v.StartupReady && (v.Status == StatusIdle || v.HasActiveTurn())
 }
 
 // IsRoutable preserves shared-room selection: idle and working participants
@@ -136,7 +135,7 @@ func (v View) IsRemovable() bool {
 	if v.Status == StatusCrashed {
 		return true
 	}
-	return v.StartupReady && (v.IsSendable() || v.Status == StatusKeepalive)
+	return v.StartupReady && (v.Status == StatusIdle || v.HasActiveTurn() || v.Status == StatusKeepalive)
 }
 
 // IsSendable adds the runtime handle guard to the shared view predicate.

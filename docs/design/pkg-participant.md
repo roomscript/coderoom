@@ -56,12 +56,11 @@ turns (`HasActiveTurn`), cancellation, and removal. Runtime send/cancel guards
 add the required bound-agent check. Failed startup is removable even though it
 never reached StartupReady; attached-runtime removal retains its startup guard.
 
-This API cleanup preserves existing behavior. Shared-room selection continues
-to include idle/working participants and exclude startup, preparing, keepalive,
-and crashed participants. Transport status checks retain their existing rules;
-IsReadyForWork also exposes the startup-completion requirement for workflow use.
-Issue #56 separately changes staging behavior using this observable state.
-
+Staged send/broadcast selection includes known startup and maintenance
+participants. Transport delivery requires StartupReady and a sendable status;
+Session checks this before reserving work so premature sends cannot leave a
+participant stuck in preparing. Legacy immediate routing uses IsRoutable,
+while the interpreter freezes eligible recipients and waits for IsReadyForWork.
 
 ## Identity and color allocation
 

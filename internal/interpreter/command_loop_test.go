@@ -21,7 +21,20 @@ type sequenceShellRunner struct {
 	calls   int
 }
 
-type causalBurstProbeOperation struct{ done chan struct{} }
+type causalBurstProbeOperation struct {
+	done      chan struct{}
+	projected chan bool
+}
+
+type causalBurstProbeExecutor struct {
+	instructionExecutorPort
+	model     executorModelPort
+	projected chan bool
+}
+
+func (e causalBurstProbeExecutor) startWorkflowShell(startShellInstruction) {
+	e.projected <- slices.Contains(e.model.Snapshot().room.Members, "turing")
+}
 
 func (op causalBurstProbeOperation) apply(e *interpreterExecutor) {
 	model := e.model.(*interpreterModel)
@@ -31,7 +44,10 @@ func (op causalBurstProbeOperation) apply(e *interpreterExecutor) {
 		body:       promptlang.Shell{Program: "probe"},
 		phase:      loopWaitingForParticipant,
 	}
-	e.runner.Run(instructionSequence{executeSessionInstruction{
+	// Probe shell startup synchronously; a goroutine would make the assertion
+	// depend on whether it runs before or after the remaining events are applied.
+	runner := newInstructionRunner(e.model, causalBurstProbeExecutor{e, e.model, op.projected})
+	runner.Run(instructionSequence{executeSessionInstruction{
 		target: workflowRef{kind: workflowLoop, generation: 99, requestID: 99},
 		request: planAndExecuteSharedSendRequest{
 			alias: "ada", directText: "work", listenersText: "@ada: work",
@@ -92,16 +108,11 @@ func TestInstructionRunner_projectsCompleteCausalBurstBeforeDerivedInstruction(t
 		observer.OnEvent(session.AgentStarted{Alias: "turing"})
 	}
 	projected := make(chan bool, 1)
-	var interp *Interpreter
-	runner := ShellRunnerFunc(func(context.Context, string, string) shell.Result {
-		projected <- slices.Contains(interpreterModelOf(interp).Snapshot().room.Members, "turing")
-		return shell.Result{Status: shell.StatusCancelled}
-	})
-	interp = New(t.Context(), sess, "/workspace", WithShellRunner(runner))
+	interp := New(t.Context(), sess, "/workspace")
 	t.Cleanup(interp.Close)
 
 	done := make(chan struct{})
-	if !interp.executor.enqueue(causalBurstProbeOperation{done: done}) {
+	if !interp.executor.enqueue(causalBurstProbeOperation{done: done, projected: projected}) {
 		t.Fatal("enqueue causal burst probe")
 	}
 	select {

@@ -67,7 +67,7 @@ func TestSnapshotColors_repaintsOnlyWhenMappingChanges(t *testing.T) {
 	}{
 		{name: "unchanged", participants: initial},
 		{name: "reordered", participants: []participant.View{initial[1], initial[0]}},
-		{name: "status only", participants: []participant.View{{Alias: "ada", Color: "#ff0000", Status: participant.StatusWorking}, initial[1]}},
+		{name: "status only", participants: []participant.View{{Alias: "ada", Color: "#ff0000", Status: participant.StatusWorking, StartupReady: true}, initial[1]}},
 		{name: "color changes", participants: []participant.View{{Alias: "ada", Color: "#0000ff"}, initial[1]}, repaint: true},
 		{name: "alias added", participants: append(append([]participant.View(nil), initial...), participant.View{Alias: "cat", Color: "#ffffff"}), repaint: true},
 		{name: "alias removed", participants: initial[:1], repaint: true},

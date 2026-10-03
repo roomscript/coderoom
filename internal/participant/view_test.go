@@ -17,7 +17,7 @@ func TestView_lifecyclePredicates(t *testing.T) {
 	}{
 		{name: "starting", status: participant.StatusStarting},
 		{name: "attached", status: participant.StatusAttached},
-		{name: "idle before startup ready", status: participant.StatusIdle, want: permissions{sendable: true, routable: true, cancellable: true}},
+		{name: "idle before startup ready", status: participant.StatusIdle, want: permissions{routable: true}},
 		{name: "idle ready", status: participant.StatusIdle, startupReady: true, want: permissions{sendable: true, routable: true, ready: true, cancellable: true, removable: true}},
 		{name: "preparing", status: participant.StatusPreparing, startupReady: true, want: permissions{sendable: true, active: true, cancellable: true, removable: true}},
 		{name: "working", status: participant.StatusWorking, startupReady: true, want: permissions{sendable: true, routable: true, active: true, cancellable: true, removable: true}},

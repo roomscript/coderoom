@@ -572,6 +572,10 @@ func (s *Session) prepareParticipantForWork(alias string) error {
 		s.mu.Unlock()
 		return fmt.Errorf("%w: %q", errParticipantNotFound, alias)
 	}
+	if !p.StartupReady {
+		s.mu.Unlock()
+		return participant.ErrNotReadyForWork
+	}
 	from := p.Status
 	if err := p.PrepareForWork(s.now()); err != nil {
 		s.mu.Unlock()

@@ -371,5 +371,6 @@ explicitly available. Runtime handles and stream bookkeeping stay within Session
 
 Consumers choose recipients and workflow barriers using shared View predicates.
 Session rechecks live state when executing and retains bound-agent checks. The
-API consolidation preserves the existing routing and execution rules, including
-failed-startup removal; #56 separately updates staging behavior.
+API supports staging startup and maintenance states while execution guards
+require completed startup before reserving work or delivering messages.
+Failed-startup removal remains supported.

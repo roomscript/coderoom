@@ -20,7 +20,7 @@ func TestInterpreterStagePresenterShowsRefreshesAndClearsStage(t *testing.T) {
 	if got := m.room.ComposeValue(); got != "@ada hello" || !m.room.IsComposerStaged() {
 		t.Fatalf("composer = %q, staged = %v", got, m.room.IsComposerStaged())
 	}
-	if view := m.room.View(); !strings.Contains(view, "Participants busy: ada.") {
+	if view := m.room.View(); !strings.Contains(view, "Waiting for: ada.") {
 		t.Fatalf("stage status missing busy participant:\n%s", view)
 	}
 
@@ -163,8 +163,9 @@ func TestRenderInterpreterStageStatus_includesModeAndBusySummary(t *testing.T) {
 		want   []string
 		absent []string
 	}{
-		{name: "on hold with none busy", want: []string{"Message on-hold.", "Participants busy: none.", "Press Esc to edit.", "Press Ctrl+X to interrupt and send."}, absent: []string{"Interrupt requested.", "Waiting to send…"}},
-		{name: "interrupt waiting", stage: interpreter.StagedSubmission{InterruptRequested: true, Blocking: []string{"ada"}}, want: []string{"Interrupt requested.", "Participants busy: ada.", "Waiting to send…"}, absent: []string{"Press Esc to edit."}},
+		{name: "on hold with none busy", want: []string{"Message on-hold.", "Waiting for: none.", "Press Esc to edit."}, absent: []string{"Interrupt requested.", "Waiting to send…", "Press Ctrl+X"}},
+		{name: "active work", stage: interpreter.StagedSubmission{Blocking: []string{"ada"}, Interruptible: []string{"ada"}}, want: []string{"Press Ctrl+X to interrupt and send."}},
+		{name: "interrupt waiting", stage: interpreter.StagedSubmission{InterruptRequested: true, Blocking: []string{"ada"}}, want: []string{"Interrupt requested.", "Waiting for: ada.", "Waiting to send…"}, absent: []string{"Press Esc to edit."}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

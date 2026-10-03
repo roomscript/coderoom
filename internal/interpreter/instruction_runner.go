@@ -57,11 +57,10 @@ func (r *instructionRunner) Run(sequence instructionSequence) {
 		case completionItem:
 			follow := r.model.ApplyCompletion(item.completion)
 			queue = append(instructionItems(follow), queue...)
-		case sessionEventItem:
-			follow, applied := r.model.ApplySessionEvent(item.event)
-			if applied {
-				follow = append(follow, requestSnapshotInstruction{})
-			}
+		case sessionEventsItem:
+			// Project the complete dispatch burst before running instructions derived
+			// from it, so those instructions observe all causal events.
+			follow := r.ApplySessionEvents(item.events)
 			queue = append(instructionItems(follow), queue...)
 		default:
 			panic(fmt.Sprintf("unknown instruction runner item %T", item))
@@ -199,9 +198,7 @@ func (r *instructionRunner) executeSession(value executeSessionInstruction) []ex
 			items = append(items, instructionItem{instruction: appendRecordInstruction{record: record}})
 		}
 	}
-	for _, event := range events {
-		items = append(items, sessionEventItem{event: event})
-	}
+	items = append(items, sessionEventsItem{events: events})
 	items = append(items, completionItem{completion: sessionCompletion{
 		target:                value.target,
 		err:                   err,

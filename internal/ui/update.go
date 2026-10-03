@@ -189,6 +189,9 @@ func (m Model) restoreFailedStagedDraft(raw string) Model {
 }
 
 func formatSubmissionFailure(event interpreter.SubmissionFailed) string {
+	if event.Code == interpreter.ErrorParticipantUnavailable {
+		return "error: " + event.Err.Error()
+	}
 	statement, err := promptlang.Parse(event.Raw)
 	if err == nil {
 		switch action := statement.(type) {

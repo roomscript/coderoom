@@ -22,11 +22,12 @@ type ErrorCode string
 
 // Stable terminal submission error codes.
 const (
-	ErrorInvalidInput    ErrorCode = "invalid_input"
-	ErrorStagePending    ErrorCode = "stage_pending"
-	ErrorReservedCommand ErrorCode = "reserved_command"
-	ErrorCommandExists   ErrorCode = "command_exists"
-	ErrorExecutionFailed ErrorCode = "execution_failed"
+	ErrorInvalidInput           ErrorCode = "invalid_input"
+	ErrorStagePending           ErrorCode = "stage_pending"
+	ErrorReservedCommand        ErrorCode = "reserved_command"
+	ErrorCommandExists          ErrorCode = "command_exists"
+	ErrorExecutionFailed        ErrorCode = "execution_failed"
+	ErrorParticipantUnavailable ErrorCode = "participant_unavailable"
 )
 
 // ApprovalKind identifies an approval request without exposing agent protocol
@@ -79,6 +80,7 @@ type StagedSubmission struct {
 	Raw                string
 	Routing            []string
 	Blocking           []string
+	Interruptible      []string
 	Unavailable        []string
 	InterruptRequested bool
 	Phase              StagePhase

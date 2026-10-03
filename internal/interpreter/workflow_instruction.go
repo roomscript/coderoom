@@ -167,9 +167,14 @@ type broadcastPlanResult struct {
 }
 
 type participantState struct {
-	alias  string
-	status participant.Status
-	turnID uint64
+	alias          string
+	status         participant.Status
+	turnID         uint64
+	startupPending bool
+}
+
+func (s participantState) view() participant.View {
+	return participant.View{Alias: s.alias, Status: s.status, TurnID: s.turnID, StartupReady: !s.startupPending}
 }
 
 type participantStateResult struct {
@@ -195,11 +200,11 @@ func (handoffSourceResult) workflowCompletion()    {}
 type executorItem interface{ executorItem() }
 type instructionItem struct{ instruction instruction }
 type completionItem struct{ completion workflowCompletion }
-type sessionEventItem struct{ event session.Event }
+type sessionEventsItem struct{ events []session.Event }
 
-func (instructionItem) executorItem()  {}
-func (completionItem) executorItem()   {}
-func (sessionEventItem) executorItem() {}
+func (instructionItem) executorItem()   {}
+func (completionItem) executorItem()    {}
+func (sessionEventsItem) executorItem() {}
 
 type workflowShellCompletedOperation struct {
 	target  workflowRef

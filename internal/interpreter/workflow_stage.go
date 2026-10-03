@@ -12,7 +12,8 @@ import (
 )
 
 var errNoStageTargets = errors.New("no participants available for staged submission")
-var errStageTargetUnavailable = errors.New("staged submission target unavailable")
+var errStageTargetUnavailable = errors.New("no participant named")
+var errStageTargetCrashed = errors.New("participant has crashed")
 var errNoHandoffSource = errors.New("handoff source has no completed room-visible output")
 
 type stageState struct {
@@ -82,7 +83,7 @@ func (w *stageWorkflow) interruptAndDispatch() (instructionSequence, bool) {
 		state.interruptRequested = true
 		return w.advanceInterruptedStage(), true
 	}
-	aliases := activeAliases(state.blocking, state.interrupted)
+	aliases := interruptibleStageAliases(state)
 	if len(aliases) == 0 {
 		return nil, false
 	}
@@ -181,8 +182,7 @@ func (w *stageWorkflow) handleParticipantState(result participantStateResult) in
 	}
 	state.blocking, state.unavailable = stageReadiness(state.barrier, state.routing)
 	state.sourceNeedsCompletion = handoffSourceIsWorking(state)
-	sequence := acceptedStageInputSequence(state.raw, state.routing)
-	return w.completeParticipantPlanning(sequence)
+	return w.completeParticipantPlanning(nil)
 }
 
 func (w *stageWorkflow) completeParticipantPlanning(sequence instructionSequence) instructionSequence {
@@ -196,16 +196,12 @@ func (w *stageWorkflow) completeParticipantPlanning(sequence instructionSequence
 		}})
 	}
 	if w.mustDiscard() {
-		err := errNoStageTargets
-		if send, ok := state.statement.(promptlang.Send); ok {
-			err = fmt.Errorf("%w: %s", errStageTargetUnavailable, send.Alias)
-		}
-		raw := state.raw
+		failure := unavailableStageFailure(state)
 		w.active = nil
-		return append(sequence, publishEventInstruction{event: SubmissionFailed{
-			Raw: raw, Operation: "staged dispatch", Code: ErrorExecutionFailed, Err: err,
-		}})
+		return append(sequence, publishEventInstruction{event: failure})
 	}
+	sequence = append(sequence, acceptedStageInputSequence(state.raw, state.routing)...)
+
 	if _, handoff := state.statement.(promptlang.Handoff); handoff {
 		if len(state.blocking) == 0 && !state.sourceNeedsCompletion {
 			return append(sequence, w.readHandoffSourceInstruction())
@@ -424,7 +420,7 @@ func (w *stageWorkflow) handleSessionEvent(event session.Event) instructionSeque
 	case session.ParticipantStatusChanged:
 		w.updateBarrierStatus(event.Alias, event.To)
 	case session.AgentStarted:
-		w.updateBarrierStatus(event.Alias, participant.StatusIdle)
+		w.markStarted(event.Alias)
 	case session.AgentStopped:
 		w.markUnavailable(event.Alias)
 	case session.AgentCrashed:
@@ -461,7 +457,7 @@ func (w *stageWorkflow) applyHandoffSessionEvent(event session.Event) bool {
 	case session.AgentMessage:
 		return w.applyHandoffMessage(event, handoff)
 	case session.AgentStarted:
-		w.updateBarrierStatus(event.Alias, participant.StatusIdle)
+		w.markStarted(event.Alias)
 	case session.AgentStopped:
 		w.markUnavailable(event.Alias)
 	case session.AgentCrashed:
@@ -477,7 +473,7 @@ func (w *stageWorkflow) applyHandoffStatus(
 	handoff promptlang.Handoff,
 ) {
 	w.updateBarrierStatus(event.Alias, event.To)
-	if event.Alias == handoff.FromAlias && event.To != participant.StatusIdle {
+	if event.Alias == handoff.FromAlias && (participant.View{Status: event.To}).HasActiveTurn() {
 		w.active.sourceNeedsCompletion = true
 	}
 }
@@ -533,6 +529,9 @@ func (w *stageWorkflow) updateBarrierStatus(alias string, status participant.Sta
 	}
 	for index := range w.active.barrier {
 		if w.active.barrier[index].alias == alias {
+			if status == participant.StatusIdle && (w.active.barrier[index].status == participant.StatusStarting || w.active.barrier[index].status == participant.StatusAttached) {
+				w.active.barrier[index].startupPending = true
+			}
 			w.active.barrier[index].status = status
 			return
 		}
@@ -611,6 +610,7 @@ func (w *stageWorkflow) snapshot() *StagedSubmission {
 	return &StagedSubmission{
 		Raw: w.active.raw, Routing: slices.Clone(w.active.routing),
 		Blocking:           slices.Clone(w.active.blocking),
+		Interruptible:      interruptibleStageAliases(w.active),
 		Unavailable:        slices.Clone(w.active.unavailable),
 		InterruptRequested: w.active.interruptRequested,
 		Phase:              StagePhasePending,
@@ -636,7 +636,10 @@ func freezeStageBarrier(state *stageState, participants []participantState) []pa
 	switch state.statement.(type) {
 	case promptlang.Send, promptlang.Broadcast:
 	default:
-		return slices.Clone(participants)
+		return slices.DeleteFunc(slices.Clone(participants), func(value participantState) bool {
+			explicit := slices.Contains(handoffRouting(state.statement.(promptlang.Handoff)), value.alias)
+			return !explicit && (!value.view().IsRoutable() || value.startupPending)
+		})
 	}
 	byAlias := make(map[string]participantState, len(participants))
 	for _, value := range participants {
@@ -658,8 +661,8 @@ func stageReadiness(barrier []participantState, routing []string) ([]string, []s
 	}
 	var unavailable []string
 	for _, alias := range routing {
-		_, ok := byAlias[alias]
-		if !ok {
+		status, ok := byAlias[alias]
+		if !ok || status == participant.StatusCrashed {
 			unavailable = append(unavailable, alias)
 		}
 	}
@@ -670,7 +673,7 @@ func stageReadiness(barrier []participantState, routing []string) ([]string, []s
 func blockedAliases(barrier []participantState, unavailable []string) []string {
 	var blocked []string
 	for _, value := range barrier {
-		if value.status != participant.StatusIdle && !slices.Contains(unavailable, value.alias) {
+		if !value.view().IsReadyForWork() && !slices.Contains(unavailable, value.alias) {
 			blocked = append(blocked, value.alias)
 		}
 	}
@@ -706,7 +709,7 @@ func handoffSourceIsWorking(state *stageState) bool {
 	}
 	for _, value := range state.barrier {
 		if value.alias == handoff.FromAlias {
-			return value.status != participant.StatusIdle
+			return value.view().HasActiveTurn()
 		}
 	}
 	return false
@@ -723,4 +726,46 @@ func handoffRouting(statement promptlang.Handoff) []string {
 		return []string{statement.FromAlias}
 	}
 	return []string{statement.FromAlias, statement.ToAlias}
+}
+
+func interruptibleStageAliases(state *stageState) []string {
+	var aliases []string
+	for _, value := range state.barrier {
+		if value.view().HasActiveTurn() && value.view().IsCancellable() &&
+			slices.Contains(state.blocking, value.alias) && !slices.Contains(state.interrupted, value.alias) {
+			aliases = append(aliases, value.alias)
+		}
+	}
+	slices.Sort(aliases)
+	return aliases
+}
+
+func (w *stageWorkflow) markStarted(alias string) {
+	if slices.Contains(w.active.unavailable, alias) {
+		return
+	}
+	for index := range w.active.barrier {
+		if w.active.barrier[index].alias == alias {
+			w.active.barrier[index].status = participant.StatusIdle
+			w.active.barrier[index].startupPending = false
+			return
+		}
+	}
+}
+
+func unavailableStageFailure(state *stageState) SubmissionFailed {
+	failure := SubmissionFailed{Raw: state.raw, Operation: "staged dispatch", Code: ErrorExecutionFailed, Err: errNoStageTargets}
+	send, ok := state.statement.(promptlang.Send)
+	if !ok {
+		return failure
+	}
+	failure.Code = ErrorParticipantUnavailable
+	failure.Err = fmt.Errorf("%w %q", errStageTargetUnavailable, send.Alias)
+	for _, value := range state.barrier {
+		if value.alias == send.Alias && value.status == participant.StatusCrashed {
+			failure.Err = fmt.Errorf("%w: %q", errStageTargetCrashed, send.Alias)
+			return failure
+		}
+	}
+	return failure
 }

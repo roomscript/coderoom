@@ -2038,3 +2038,43 @@ func TestReaderLoop_agentCrash_emitsCrashed(t *testing.T) {
 	mustReceive[session.AgentStarted](t, obs.ch)
 	mustReceive[session.AgentCrashed](t, obs.ch)
 }
+
+func TestSharedSendPlan_includesStartingListenersAndFreezesRecipients(t *testing.T) {
+	obs := newTestObserver()
+	gate := make(chan struct{})
+	var once sync.Once
+	closeGate := func() { once.Do(func() { close(gate) }) }
+	ben := &gateAgent{startGate: gate, mockAgent: newMockAgent()}
+	later := newMockAgent()
+	s := newSession(t, session.WithObserver(obs), mappedFactory(map[string]agent.Agent{"ada": newMockAgent(), "ben": ben, "later": later}))
+	t.Cleanup(closeGate)
+	invite(t, s, "ada")
+	mustReceive[session.AgentStarted](t, obs.ch)
+	invite(t, s, "ben")
+	mustReceive[session.AgentStarting](t, obs.ch)
+	enableSendNotices(t, s)
+	plan := s.PlanSharedSend("ada")
+	if !slices.Equal(plan.Targets(), []string{"ada", "ben"}) {
+		t.Fatalf("targets = %v", plan.Targets())
+	}
+	invite(t, s, "later")
+	mustReceive[session.AgentStarted](t, obs.ch)
+	closeGate()
+	mustReceive[session.AgentStarted](t, obs.ch)
+	if !slices.Equal(plan.Targets(), []string{"ada", "ben"}) {
+		t.Fatalf("frozen targets = %v", plan.Targets())
+	}
+	if err := s.Execute(session.SharedSendCommand{Plan: plan, TextDirect: "hello", TextListeners: "notice"}); err != nil {
+		t.Fatal(err)
+	}
+	ben.mu.Lock()
+	defer ben.mu.Unlock()
+	if !slices.Equal(ben.sends, []string{"notice"}) {
+		t.Fatalf("listener sends = %v", ben.sends)
+	}
+	later.mu.Lock()
+	defer later.mu.Unlock()
+	if len(later.sends) != 0 {
+		t.Fatalf("late invite received sends: %v", later.sends)
+	}
+}

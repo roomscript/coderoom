@@ -286,8 +286,8 @@ func TestStageWorkflow_namesDepartedSendTargetWhenListenerRemains(t *testing.T) 
 func TestInterpreterExecutor_planBroadcastSortsDetachedAliases(t *testing.T) {
 	session := newSubmitContractSession()
 	session.barrier = []participant.Participant{
-		{View: participant.View{Alias: "turing", Status: participant.StatusIdle}},
-		{View: participant.View{Alias: "ada", Status: participant.StatusIdle}},
+		{View: participant.View{Alias: "turing", Status: participant.StatusIdle, StartupReady: true}},
+		{View: participant.View{Alias: "ada", Status: participant.StatusIdle, StartupReady: true}},
 	}
 	executor := interpreterExecutor{session: session}
 
@@ -527,7 +527,7 @@ func TestStageWorkflow_dispatchesRemainingBroadcastTargetAfterPlanningDeparture(
 func TestSubmitContract_stageOwnsPendingSnapshotAndPreParseGate(t *testing.T) {
 	interp, sess, events := newSubmitContractInterpreter(t)
 	sess.barrier = []participant.Participant{{View: participant.View{
-		Alias: "ada", Status: participant.StatusWorking,
+		Alias: "ada", Status: participant.StatusWorking, StartupReady: true,
 	}}}
 
 	mustSubmit(t, interp.Submit("hello"))
@@ -554,7 +554,7 @@ func TestSubmitContract_stageOwnsPendingSnapshotAndPreParseGate(t *testing.T) {
 func TestSubmitContract_immediatelyDispatchesReadyBroadcast(t *testing.T) {
 	interp, sess, events := newSubmitContractInterpreter(t)
 	sess.barrier = []participant.Participant{{View: participant.View{
-		Alias: "ada", Status: participant.StatusIdle,
+		Alias: "ada", Status: participant.StatusIdle, StartupReady: true,
 	}}}
 
 	mustSubmit(t, interp.Submit("hello"))
@@ -578,7 +578,7 @@ func TestSubmitContract_immediatelyDispatchesReadyBroadcast(t *testing.T) {
 func TestSubmitContract_lifecycleDispatchesPendingBroadcast(t *testing.T) {
 	interp, sess, events := newSubmitContractInterpreter(t)
 	sess.barrier = []participant.Participant{{View: participant.View{
-		Alias: "ada", Status: participant.StatusWorking,
+		Alias: "ada", Status: participant.StatusWorking, StartupReady: true,
 	}}}
 
 	mustSubmit(t, interp.Submit("hello"))
@@ -615,8 +615,8 @@ func TestSubmitContract_handoffUsesCanonicalRoomSource(t *testing.T) {
 	interp, sess, events := newSubmitContractInterpreter(t)
 	configureSuccessfulHandoff(sess)
 	sess.barrier = []participant.Participant{
-		{View: participant.View{Alias: "ada", Status: participant.StatusIdle}},
-		{View: participant.View{Alias: "turing", Status: participant.StatusIdle}},
+		{View: participant.View{Alias: "ada", Status: participant.StatusIdle, StartupReady: true}},
+		{View: participant.View{Alias: "turing", Status: participant.StatusIdle, StartupReady: true}},
 	}
 	seedCanonicalHandoffSource(t, interp, events)
 
@@ -698,8 +698,8 @@ func TestSubmitContract_failedHandoffDoesNotRecordInput(t *testing.T) {
 	interp, sess, events := newSubmitContractInterpreter(t)
 	sess.executeErr = errors.New("handoff failed")
 	sess.barrier = []participant.Participant{
-		{View: participant.View{Alias: "ada", Status: participant.StatusIdle}},
-		{View: participant.View{Alias: "turing", Status: participant.StatusIdle}},
+		{View: participant.View{Alias: "ada", Status: participant.StatusIdle, StartupReady: true}},
+		{View: participant.View{Alias: "turing", Status: participant.StatusIdle, StartupReady: true}},
 	}
 	interp.executor.recordSessionEvent(session.AgentStarted{Alias: "ada"})
 	receiveSubmitEvent[StateChanged](t, events)

@@ -16,7 +16,7 @@ func (s startupSession) AddObserver(observer session.Observer) {
 
 func TestWithObserver_initialStatePrecedesStartupCallbacks(t *testing.T) {
 	sess := startupSession{newSubmitContractSession()}
-	sess.roster = []participant.View{{Alias: "ada", Status: participant.StatusIdle}}
+	sess.roster = []participant.View{{Alias: "ada", Status: participant.StatusIdle, StartupReady: true}}
 	events := make(chan Event, 8)
 	interp := New(t.Context(), sess, t.TempDir(), WithObserver(submitContractObserver{events: events}))
 	t.Cleanup(interp.Close)
