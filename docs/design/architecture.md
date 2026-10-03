@@ -155,11 +155,18 @@ Status values and their meaning:
 |--------|-------------|
 | `starting` | `Start()` has been called; the process is not yet confirmed live. |
 | `attached` | Process is live and the agent is bound, but `AgentStarted` has not yet been dispatched. `/remove` and sends are rejected in this window. |
-| `idle` | Startup complete (`AgentStarted` dispatched, `sessionReady` set); ready to receive messages. |
+| `idle` | Startup complete (`AgentStarted` dispatched, `StartupReady` set); ready to receive messages. |
 | `keepalive` | Backend maintenance request in flight. No user turn is active, but the participant is temporarily non-sendable and occupies the request lane. |
 | `preparing` | Committed to a send; anchor stream being established. |
 | `working` | Turn in flight; agent is processing and streaming output. |
 | `crashed` | Agent process exited unexpectedly. |
+
+Session exposes `Participant(alias)` and `Participants()`, both returning
+`participant.View`. The list is one locked snapshot of all registered
+participants. Views carry actual status, explicit startup readiness, and turn
+identity without agent handles or stream bookkeeping. Shared pure predicates
+support recipient selection and execution guards; Session remains the lifecycle
+and delivery authority.
 
 The participant is the stateful runtime entity. Beyond identity and coarse
 status, it carries active-turn runtime state used by the session and UI (for

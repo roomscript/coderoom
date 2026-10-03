@@ -86,10 +86,10 @@ func startInvitedAgent(alias string, a agent.Agent, s *Session) {
 		}
 		s.notify(ev)
 		// Mark the participant session-ready before dispatching AgentStarted.
-		// IsRemovable gates on sessionReady, so /remove cannot succeed until
+		// IsRemovable gates on StartupReady, so /remove cannot succeed until
 		// after the event fires. Go memory model: the channel send inside
 		// notify happens-after this write, so any goroutine that receives
-		// AgentStarted is guaranteed to observe sessionReady=true when it
+		// AgentStarted is guaranteed to observe StartupReady=true when it
 		// subsequently calls detachParticipant.
 		if err := s.updateParticipant(alias, func(p *participant.Participant) (Event, error) {
 			return nil, p.SessionReady()
@@ -105,7 +105,7 @@ func startInvitedAgent(alias string, a agent.Agent, s *Session) {
 		}
 		// Start the reader before dispatching AgentStarted so the agent's pipe
 		// is drained immediately. The participant is already StatusIdle with
-		// sessionReady=true, so all invariants are satisfied.
+		// StartupReady=true, so all invariants are satisfied.
 		go s.readLoop(stop, alias, a)
 		s.notify(AgentStarted{Alias: alias})
 	}()

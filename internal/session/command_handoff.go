@@ -124,7 +124,10 @@ func notifyHandoffDelivered(fromAlias, toAlias string, attempt *handoffAttempt, 
 
 func handoffBarrierState(aliases []string, s *Session) (barrier []string, idle []string, busy []string) {
 	if len(aliases) == 0 {
-		for _, p := range s.BarrierParticipants() {
+		for _, p := range s.Participants() {
+			if !p.IsRoutable() {
+				continue
+			}
 			barrier = append(barrier, p.Alias)
 		}
 	} else {

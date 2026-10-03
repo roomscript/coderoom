@@ -142,7 +142,7 @@ func TestSession_keepaliveStopsWhenParentContextIsCancelled(t *testing.T) {
 	cancel()
 	time.Sleep(120 * time.Millisecond)
 
-	p, ok := s.Participant("ada")
+	p, ok := s.readParticipantRuntime("ada")
 	if !ok {
 		t.Fatal("expected participant ada")
 	}
@@ -277,7 +277,7 @@ func mustInviteKeepaliveTestParticipant(t *testing.T, s *Session) {
 
 func requireKeepaliveTestAgent(t *testing.T, s *Session) *keepaliveTestAgent {
 	t.Helper()
-	p, ok := s.Participant(keepaliveTestAlias)
+	p, ok := s.readParticipantRuntime(keepaliveTestAlias)
 	if !ok {
 		t.Fatalf("expected participant %s", keepaliveTestAlias)
 	}

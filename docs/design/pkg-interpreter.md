@@ -131,14 +131,20 @@ type SessionController interface {
     Execute(session.Command) error
     AddObserver(session.Observer)
     PlanSharedSend(alias string) session.SharedSendPlan
-    Roster() []participant.View
-    Participant(alias string) (participant.Participant, bool)
-    BarrierParticipants() []participant.Participant
+    Participants() []participant.View
+    Participant(alias string) (participant.View, bool)
     Shutdown()
 }
 ```
 
-This is the initial interface based on existing behavior. `SessionController`
+Participant queries return detached `View` values with actual status, startup
+readiness, and turn identity. The interpreter selects its shared-room recipients
+using View predicates; Session supplies all registered participants in one
+locked list rather than separate roster, routable, or barrier APIs.
+The API refactor preserves existing shared-room eligibility; startup staging is
+a separate behavior change in #56.
+
+This interface describes the existing session behavior. `SessionController`
 is the interpreter's internal dependency port, not the facade presented to
 front ends. Implementation should
 prefer replacing overlapping participant queries with one immutable snapshot

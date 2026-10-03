@@ -608,9 +608,9 @@ func TestRemove_duringStartup_isRejected(t *testing.T) {
 	//     present in s.agents, but IsRemovable is still false →
 	//     detachParticipant returns false (same rejection path).
 	//
-	// sessionReady=true is set (under s.mu) before AgentStarted is dispatched.
+	// StartupReady=true is set (under s.mu) before AgentStarted is dispatched.
 	// By the Go memory model, any goroutine that receives AgentStarted from the
-	// observer channel is guaranteed to see sessionReady=true, so /remove
+	// observer channel is guaranteed to see StartupReady=true, so /remove
 	// succeeds immediately after the event is observed.
 	obs := newTestObserver()
 	var once sync.Once

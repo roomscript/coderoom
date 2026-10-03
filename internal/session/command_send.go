@@ -20,7 +20,10 @@ type BroadcastCommand struct {
 func (c BroadcastCommand) execute(s *Session) error {
 	aliases := c.Aliases
 	if aliases == nil {
-		for _, value := range s.RoutableParticipants() {
+		for _, value := range s.Participants() {
+			if !value.IsRoutable() {
+				continue
+			}
 			aliases = append(aliases, value.Alias)
 		}
 	}
@@ -28,7 +31,7 @@ func (c BroadcastCommand) execute(s *Session) error {
 	var errs []error
 	var delivered []string
 	for _, alias := range aliases {
-		p, ok := s.Participant(alias)
+		p, ok := s.readParticipantRuntime(alias)
 		if !ok {
 			errs = append(errs, fmt.Errorf("broadcast to %q: %w", alias, errParticipantNotFound))
 			continue
@@ -82,7 +85,10 @@ func (s *Session) PlanSharedSend(addressedAlias string) SharedSendPlan {
 	if !s.policies.Enabled(policy.SendNotices) {
 		return plan
 	}
-	for _, p := range s.RoutableParticipants() {
+	for _, p := range s.Participants() {
+		if !p.IsRoutable() {
+			continue
+		}
 		if p.Alias != addressedAlias {
 			plan.listenerAliases = append(plan.listenerAliases, p.Alias)
 		}
@@ -191,7 +197,7 @@ func acquireParticipantForNotice(alias string, s *Session) (a agent.Agent, prepa
 	if err != nil {
 		return nil, false, err
 	}
-	if isActiveParticipantStatus(p.Status) {
+	if p.HasActiveTurn() {
 		return p.Agent, false, nil
 	}
 	a, err = acquireParticipantForDirectSend(alias, s)
@@ -218,10 +224,6 @@ func lookupSendableParticipant(alias string, s *Session) (participant.Participan
 		return participant.Participant{}, fmt.Errorf("participant %q not ready", alias)
 	}
 	return p.Snapshot(), nil
-}
-
-func isActiveParticipantStatus(status participant.Status) bool {
-	return status == participant.StatusWorking || status == participant.StatusPreparing
 }
 
 func sendPreparedDirect(alias string, a agent.Agent, text string, s *Session) error {

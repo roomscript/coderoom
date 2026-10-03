@@ -315,7 +315,7 @@ func TestParticipantTurnID_recordsAssignedSessionIdentity(t *testing.T) {
 		if err := p.BeginWorking(testNow(), agent.StreamID("anchor"), want); err != nil {
 			t.Fatalf("BeginWorking: %v", err)
 		}
-		if got := p.TurnID(); got != want {
+		if got := p.TurnID; got != want {
 			t.Fatalf("turn ID = %d, want %d", got, want)
 		}
 		if _, err := p.CloseStream(agent.StreamID("anchor")); err != nil {
@@ -329,7 +329,7 @@ func TestParticipantTurnID_recordsAssignedSessionIdentity(t *testing.T) {
 
 func TestParticipantTurnID_survivesNonTurnRoundTrips(t *testing.T) {
 	p := idleParticipantAfterTurn(t, 41)
-	want := p.TurnID()
+	want := p.TurnID
 
 	assertTurnIDSurvivesKeepalive(t, p, want)
 	assertTurnIDSurvivesPrepareAbort(t, p, want)
@@ -361,7 +361,7 @@ func assertTurnIDSurvivesKeepalive(t *testing.T, p *participant.Participant, wan
 	if err := p.FinishKeepalive(testNow()); err != nil {
 		t.Fatalf("FinishKeepalive: %v", err)
 	}
-	if got := p.TurnID(); got != want {
+	if got := p.TurnID; got != want {
 		t.Fatalf("turn ID after keepalive = %d, want %d", got, want)
 	}
 }
@@ -374,7 +374,7 @@ func assertTurnIDSurvivesPrepareAbort(t *testing.T, p *participant.Participant, 
 	if err := p.AbortWork(testNow()); err != nil {
 		t.Fatalf("AbortWork: %v", err)
 	}
-	if got := p.TurnID(); got != want {
+	if got := p.TurnID; got != want {
 		t.Fatalf("turn ID after prepare abort = %d, want %d", got, want)
 	}
 }

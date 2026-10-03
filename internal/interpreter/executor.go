@@ -218,7 +218,7 @@ func (e *interpreterExecutor) executeCommand(command session.Command) error {
 }
 
 func (e *interpreterExecutor) roster() []participant.View {
-	return append([]participant.View(nil), e.session.Roster()...)
+	return append([]participant.View(nil), e.session.Participants()...)
 }
 
 func (e *interpreterExecutor) planSharedSend(alias string) (session.SharedSendPlan, []string) {
@@ -227,25 +227,28 @@ func (e *interpreterExecutor) planSharedSend(alias string) (session.SharedSendPl
 }
 
 func (e *interpreterExecutor) planBroadcast() []string {
-	participants := e.session.BarrierParticipants()
+	participants := e.participantState()
 	targets := make([]string, len(participants))
 	for index, value := range participants {
-		targets[index] = value.Alias
+		targets[index] = value.alias
 	}
 	slices.Sort(targets)
 	return targets
 }
 
 func (e *interpreterExecutor) participantState() []participantState {
-	return participantStates(e.session.BarrierParticipants())
+	return participantStates(e.session.Participants())
 }
 
-func participantStates(participants []participant.Participant) []participantState {
-	states := make([]participantState, len(participants))
-	for index, value := range participants {
-		states[index] = participantState{
-			alias: value.Alias, status: value.Status, turnID: value.TurnID(),
+// Keep the existing shared-room selection during the API refactor. Startup
+// staging and broader eligibility are the separate behavioral change in #56.
+func participantStates(participants []participant.View) []participantState {
+	states := make([]participantState, 0, len(participants))
+	for _, value := range participants {
+		if !value.IsRoutable() {
+			continue
 		}
+		states = append(states, participantState{alias: value.Alias, status: value.Status, turnID: value.TurnID})
 	}
 	return states
 }
@@ -282,7 +285,7 @@ func (e *interpreterExecutor) refreshSnapshot() Snapshot {
 	model := e.model.Snapshot()
 	snapshot := Snapshot{
 		Room:         model.room,
-		Participants: append([]participant.View(nil), e.session.Roster()...),
+		Participants: append([]participant.View(nil), e.session.Participants()...),
 		Approval:     model.approval,
 		Stage:        model.stage,
 	}

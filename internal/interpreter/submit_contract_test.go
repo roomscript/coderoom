@@ -17,7 +17,6 @@ type submitContractSession struct {
 	observer   session.Observer
 	roster     []participant.View
 	barrier    []participant.Participant
-	routable   []participant.Participant
 	executed   chan session.Command
 	executeErr error
 	execute    func(session.Command, session.Observer)
@@ -61,22 +60,35 @@ func (*submitContractSession) PlanSharedSend(string) session.SharedSendPlan {
 	return session.SharedSendPlan{}
 }
 
-func (s *submitContractSession) Roster() []participant.View {
+func (s *submitContractSession) Participants() []participant.View {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return append([]participant.View(nil), s.roster...)
+	values := append([]participant.View(nil), s.roster...)
+	for _, p := range s.barrier {
+		found := false
+		for i := range values {
+			if values[i].Alias == p.Alias {
+				values[i] = p.View
+				found = true
+				break
+			}
+		}
+		if !found {
+			values = append(values, p.View)
+		}
+	}
+	return values
 }
 
-func (*submitContractSession) Participant(string) (participant.Participant, bool) {
-	return participant.Participant{}, false
+func (s *submitContractSession) Participant(alias string) (participant.View, bool) {
+	for _, p := range s.Participants() {
+		if p.Alias == alias {
+			return p, true
+		}
+	}
+	return participant.View{}, false
 }
 
-func (s *submitContractSession) RoutableParticipants() []participant.Participant {
-	return append([]participant.Participant(nil), s.routable...)
-}
-func (s *submitContractSession) BarrierParticipants() []participant.Participant {
-	return append([]participant.Participant(nil), s.barrier...)
-}
 func (s *submitContractSession) Shutdown() { s.shutdowns.Add(1) }
 
 type submitContractObserver struct{ events chan Event }

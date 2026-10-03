@@ -286,8 +286,8 @@ func TestStageWorkflow_namesDepartedSendTargetWhenListenerRemains(t *testing.T) 
 func TestInterpreterExecutor_planBroadcastSortsDetachedAliases(t *testing.T) {
 	session := newSubmitContractSession()
 	session.barrier = []participant.Participant{
-		{View: participant.View{Alias: "turing"}},
-		{View: participant.View{Alias: "ada"}},
+		{View: participant.View{Alias: "turing", Status: participant.StatusIdle}},
+		{View: participant.View{Alias: "ada", Status: participant.StatusIdle}},
 	}
 	executor := interpreterExecutor{session: session}
 
@@ -529,7 +529,6 @@ func TestSubmitContract_stageOwnsPendingSnapshotAndPreParseGate(t *testing.T) {
 	sess.barrier = []participant.Participant{{View: participant.View{
 		Alias: "ada", Status: participant.StatusWorking,
 	}}}
-	sess.routable = append([]participant.Participant(nil), sess.barrier...)
 
 	mustSubmit(t, interp.Submit("hello"))
 	accepted := receiveSubmitEvent[InputAccepted](t, events)
@@ -557,7 +556,6 @@ func TestSubmitContract_immediatelyDispatchesReadyBroadcast(t *testing.T) {
 	sess.barrier = []participant.Participant{{View: participant.View{
 		Alias: "ada", Status: participant.StatusIdle,
 	}}}
-	sess.routable = append([]participant.Participant(nil), sess.barrier...)
 
 	mustSubmit(t, interp.Submit("hello"))
 	receiveSubmitEvent[InputAccepted](t, events)

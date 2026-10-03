@@ -22,14 +22,11 @@ func (s *initialStateSession) AddObserver(observer session.Observer) { s.observe
 func (*initialStateSession) PlanSharedSend(string) session.SharedSendPlan {
 	return session.SharedSendPlan{}
 }
-func (*initialStateSession) Roster() []participant.View {
+func (*initialStateSession) Participants() []participant.View {
 	return []participant.View{{Alias: "ada", Status: participant.StatusWorking, Color: "#123456"}}
 }
-func (s *initialStateSession) BarrierParticipants() []participant.Participant {
-	return []participant.Participant{{View: s.Roster()[0]}}
-}
-func (s *initialStateSession) Participant(alias string) (participant.Participant, bool) {
-	return s.BarrierParticipants()[0], alias == "ada"
+func (s *initialStateSession) Participant(alias string) (participant.View, bool) {
+	return s.Participants()[0], alias == "ada"
 }
 func (*initialStateSession) Shutdown() {}
 

@@ -11,9 +11,8 @@ type SessionController interface {
 	Execute(session.Command) error
 	AddObserver(session.Observer)
 	PlanSharedSend(alias string) session.SharedSendPlan
-	Roster() []participant.View
-	Participant(alias string) (participant.Participant, bool)
-	BarrierParticipants() []participant.Participant
+	Participants() []participant.View
+	Participant(alias string) (participant.View, bool)
 	Shutdown()
 }
 

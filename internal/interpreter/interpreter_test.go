@@ -65,27 +65,19 @@ func (*recordingSession) PlanSharedSend(string) session.SharedSendPlan {
 	return session.SharedSendPlan{}
 }
 
-func (s *recordingSession) Roster() []participant.View {
+func (s *recordingSession) Participants() []participant.View {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return append([]participant.View(nil), s.roster...)
 }
 
-func (s *recordingSession) Participant(alias string) (participant.Participant, bool) {
-	for _, value := range s.Roster() {
+func (s *recordingSession) Participant(alias string) (participant.View, bool) {
+	for _, value := range s.Participants() {
 		if value.Alias == alias {
-			return participant.Participant{View: value}, true
+			return value, true
 		}
 	}
-	return participant.Participant{}, false
-}
-
-func (s *recordingSession) RoutableParticipants() []participant.Participant {
-	return nil
-}
-
-func (s *recordingSession) BarrierParticipants() []participant.Participant {
-	return nil
+	return participant.View{}, false
 }
 
 func (s *recordingSession) Shutdown() { s.shutdowns.Add(1) }

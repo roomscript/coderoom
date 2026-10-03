@@ -67,7 +67,7 @@ func (r *Registry) ListAvailable() []*Participant {
 		if p.Agent == nil {
 			continue
 		}
-		if p.Status == StatusStarting || p.Status == StatusAttached || p.Status == StatusPreparing || p.Status == StatusKeepalive || p.Status == StatusCrashed {
+		if !p.IsRoutable() {
 			continue
 		}
 		out = append(out, p)

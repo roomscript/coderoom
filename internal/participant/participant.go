@@ -72,6 +72,11 @@ type View struct {
 	Status     Status
 	Color      string // hex colour code, e.g. "#4ade80"; empty means default terminal colour
 	Since      time.Time
+	// StartupReady is set immediately before AgentStarted; Idle alone does not
+	// imply startup has completed.
+	StartupReady bool
+	// TurnID remains stable after completion to identify delayed turn events.
+	TurnID uint64
 }
 
 // Participant is a named collaborator in a session.
@@ -85,14 +90,6 @@ type Participant struct {
 	// anchor is the stream whose close signals turn completion. Set by
 	// BeginWorking; cleared on BecomeIdle or AbortWork.
 	anchor agent.StreamID
-	// turnID is assigned by the session whenever a new working turn begins. It
-	// remains stable after the turn ends so delayed completion events can be
-	// identified across participant removal and alias reuse.
-	turnID uint64
-	// sessionReady is set by SessionReady near the end of startup, immediately
-	// before AgentStarted is dispatched. IsRemovable gates on it so /remove
-	// cannot race with the startup notification window.
-	sessionReady bool
 }
 
 // New creates a participant with the supplied identity and initiative. The
@@ -112,64 +109,47 @@ func (p *Participant) Snapshot() Participant {
 	return cp
 }
 
-// TurnID identifies the latest session turn begun by this participant.
-func (p Participant) TurnID() uint64 { return p.turnID }
-
-// IsSendable reports whether the participant is ready to receive messages.
-// True when an agent is bound and the startup notification window has closed
-// (status is Idle, Preparing, or Working). False for Starting, Attached, and
-// Crashed.
-func (p *Participant) IsSendable() bool {
-	if p.Agent == nil {
-		return false
-	}
-	switch p.Status {
-	case StatusIdle, StatusPreparing, StatusWorking:
-		return true
-	case StatusStarting, StatusAttached, StatusKeepalive, StatusCrashed:
-		return false
-	}
-	return false // unreachable; exhaustive linter catches unhandled statuses above
+// IsSendable retains the transport's existing status guard. The session also
+// checks that an agent handle is bound. StartupReady is exposed separately so
+// workflow readiness can be distinguished from transport status.
+func (v View) IsSendable() bool {
+	return v.Status == StatusIdle || v.HasActiveTurn()
 }
 
-// IsCancellable reports whether /cancel (interrupt) can be applied. True when
-// an agent is bound and has progressed past the startup window.
-func (p *Participant) IsCancellable() bool {
-	if p.Agent == nil {
-		return false
-	}
-	switch p.Status {
-	case StatusIdle, StatusPreparing, StatusWorking:
+// IsRoutable preserves shared-room selection: idle and working participants
+// are included; preparing, maintenance, startup, and crashed participants are not.
+func (v View) IsRoutable() bool { return v.Status == StatusIdle || v.Status == StatusWorking }
+
+// IsReadyForWork reports full startup readiness for a new exclusive turn.
+func (v View) IsReadyForWork() bool { return v.StartupReady && v.Status == StatusIdle }
+
+// HasActiveTurn reports committed work, including anchor preparation.
+func (v View) HasActiveTurn() bool { return v.Status == StatusPreparing || v.Status == StatusWorking }
+
+// IsCancellable reports the existing lifecycle eligibility for cancellation.
+// The session must additionally check that the agent handle is bound.
+func (v View) IsCancellable() bool { return v.IsSendable() }
+
+// IsRemovable includes failed startup: crashed participants can be evicted
+// even when they never reached StartupReady.
+func (v View) IsRemovable() bool {
+	if v.Status == StatusCrashed {
 		return true
-	case StatusStarting, StatusAttached, StatusKeepalive, StatusCrashed:
-		return false
 	}
-	return false // unreachable; exhaustive linter catches unhandled statuses above
+	return v.StartupReady && (v.IsSendable() || v.Status == StatusKeepalive)
 }
 
-// IsRemovable reports whether /remove is permitted. Returns false until
-// SessionReady has been called, which the session does immediately before
-// dispatching AgentStarted. This ensures /remove cannot race with the startup
-// notification window. Also returns false for Starting and Attached regardless
-// of sessionReady.
-func (p *Participant) IsRemovable() bool {
-	if !p.sessionReady {
-		return false
-	}
-	switch p.Status {
-	case StatusIdle, StatusPreparing, StatusKeepalive, StatusWorking, StatusCrashed:
-		return true
-	case StatusStarting, StatusAttached:
-		return false
-	}
-	return false // unreachable; exhaustive linter catches unhandled statuses above
-}
+// IsSendable adds the runtime handle guard to the shared view predicate.
+func (p *Participant) IsSendable() bool { return p.Agent != nil && p.View.IsSendable() }
+
+// IsCancellable adds the runtime handle guard to the shared view predicate.
+func (p *Participant) IsCancellable() bool { return p.Agent != nil && p.View.IsCancellable() }
 
 // BeginStartup transitions the participant into startup state.
 func (p *Participant) BeginStartup(now time.Time) {
 	p.resetOpenStreams()
 	p.anchor = ""
-	p.sessionReady = false
+	p.StartupReady = false
 	p.Status = StatusStarting
 	p.Since = now
 }
@@ -181,7 +161,7 @@ func (p *Participant) SessionReady() error {
 	if p.Status != StatusIdle {
 		return ErrNotIdle
 	}
-	p.sessionReady = true
+	p.StartupReady = true
 	return nil
 }
 
@@ -297,7 +277,7 @@ func (p *Participant) BeginWorking(now time.Time, anchor agent.StreamID, turnID 
 		}
 		p.OpenStreams[anchor] = struct{}{}
 	}
-	p.turnID = turnID
+	p.TurnID = turnID
 	p.Status = StatusWorking
 	p.Since = now
 	return nil
@@ -306,7 +286,7 @@ func (p *Participant) BeginWorking(now time.Time, anchor agent.StreamID, turnID 
 // AbortWork rolls back a Preparing or Working state to Idle. Used when Send
 // fails after PrepareForWork, or on error rollback from Working state.
 func (p *Participant) AbortWork(now time.Time) error {
-	if p.Status != StatusWorking && p.Status != StatusPreparing {
+	if !p.HasActiveTurn() {
 		return ErrNotWorking
 	}
 	p.resetOpenStreams()
@@ -325,7 +305,7 @@ func (p *Participant) resetOpenStreams() {
 // Accepted from both StatusPreparing and StatusWorking so that messages
 // arriving during the race window (Preparing) are tracked without error.
 func (p *Participant) TrackStream(streamID agent.StreamID) error {
-	if p.Status != StatusWorking && p.Status != StatusPreparing {
+	if !p.HasActiveTurn() {
 		return ErrNotActive
 	}
 	if p.OpenStreams == nil {
@@ -341,7 +321,7 @@ func (p *Participant) TrackStream(streamID agent.StreamID) error {
 // CloseStream is accepted from StatusWorking and StatusPreparing; it never
 // returns shouldIdle=true from Preparing so premature idle is impossible.
 func (p *Participant) CloseStream(streamID agent.StreamID) (shouldIdle bool, err error) {
-	if p.Status != StatusWorking && p.Status != StatusPreparing {
+	if !p.HasActiveTurn() {
 		return false, ErrNotWorking
 	}
 	if _, ok := p.OpenStreams[streamID]; !ok {

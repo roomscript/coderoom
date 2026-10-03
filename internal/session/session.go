@@ -161,18 +161,6 @@ func (s *Session) CreateAgentContext(alias string) context.Context {
 	return ctx
 }
 
-// Roster returns a snapshot of participants for UI display.
-func (s *Session) Roster() []participant.View {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	ps := s.registry.List()
-	out := make([]participant.View, len(ps))
-	for i, p := range ps {
-		out[i] = p.View
-	}
-	return out
-}
-
 // Execute dispatches a command. Must be called from a single goroutine.
 func (s *Session) Execute(cmd Command) error {
 	return cmd.execute(s)
@@ -352,7 +340,9 @@ func (s *Session) detachParticipant(alias string) (*participant.Participant, boo
 		return nil, false
 	}
 	p, _ := s.registry.Get(alias)
-	if p != nil && !p.IsRemovable() {
+	// Bound-runtime removal still waits for startup publication. Failed startup
+	// without a reader is handled by evictCrashedBeforeStart instead.
+	if p != nil && (!p.StartupReady || !p.IsRemovable()) {
 		return p, false
 	}
 	delete(s.agents, alias)
@@ -379,7 +369,7 @@ func (s *Session) evictCrashedBeforeStart(alias string) error {
 		s.mu.Unlock()
 		return fmt.Errorf("participant %q not found", alias)
 	}
-	if p.Status != participant.StatusCrashed {
+	if p.Status != participant.StatusCrashed || !p.IsRemovable() {
 		s.mu.Unlock()
 		return fmt.Errorf("participant %q is not ready", alias)
 	}
@@ -458,6 +448,18 @@ func (s *Session) lookupParticipant(alias string) (*participant.Participant, boo
 	return s.registry.Get(alias)
 }
 
+// readParticipantRuntime captures transport handles for session-internal
+// delivery. Public queries expose only View and cannot invoke the backend.
+func (s *Session) readParticipantRuntime(alias string) (participant.Participant, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p, ok := s.registry.Get(alias)
+	if !ok {
+		return participant.Participant{}, false
+	}
+	return p.Snapshot(), true
+}
+
 func (s *Session) updateParticipant(alias string, fn func(*participant.Participant) (Event, error)) error {
 	var ev Event
 	var err error
@@ -479,25 +481,28 @@ func (s *Session) updateParticipant(alias string, fn func(*participant.Participa
 	return nil
 }
 
-// Participant returns a snapshot of the active participant with the given alias.
-func (s *Session) Participant(alias string) (participant.Participant, bool) {
+// Participant returns a detached observable view of one registered participant.
+// Runtime handles, streams, and mutation methods remain private to the session.
+func (s *Session) Participant(alias string) (participant.View, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	p, ok := s.registry.Get(alias)
 	if !ok {
-		return participant.Participant{}, false
+		return participant.View{}, false
 	}
-	return p.Snapshot(), true
+	return p.View, true
 }
 
-// Participants returns a snapshot of all currently active participants.
-func (s *Session) Participants() []participant.Participant {
+// Participants returns all registered participants in one locked snapshot,
+// including startup and crashed states. Status and readiness are not rewritten
+// or filtered; consumers select recipients using the shared View predicates.
+func (s *Session) Participants() []participant.View {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	ps := s.registry.List()
-	out := make([]participant.Participant, len(ps))
+	out := make([]participant.View, len(ps))
 	for i, p := range ps {
-		out[i] = p.Snapshot()
+		out[i] = p.View
 	}
 	return out
 }
@@ -508,26 +513,6 @@ func (s *Session) HasAnyActivityParticipants() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.registry.HasStarting() || s.registry.HasAttached() || s.registry.HasKeepalive() || s.registry.HasWorking() || s.registry.HasCrashed()
-}
-
-// RoutableParticipants returns a snapshot of participants that are safe to send
-// messages to (agent started and not crashed).
-func (s *Session) RoutableParticipants() []participant.Participant {
-	return s.BarrierParticipants()
-}
-
-// BarrierParticipants returns the canonical shared-room barrier set used by
-// staged sends and handoff idleness checks. A participant is in the barrier
-// only when it is routable for shared-room delivery.
-func (s *Session) BarrierParticipants() []participant.Participant {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	ps := s.registry.ListAvailable()
-	out := make([]participant.Participant, len(ps))
-	for i, p := range ps {
-		out[i] = p.Snapshot()
-	}
-	return out
 }
 
 // readLoop runs in a goroutine per agent, forwarding agent.Message values to
@@ -640,7 +625,7 @@ func (s *Session) markIdle(alias string) (uint64, bool) {
 	var turnID uint64
 	err := s.updateParticipant(alias, func(p *participant.Participant) (Event, error) {
 		from := p.Status
-		turnID = p.TurnID()
+		turnID = p.TurnID
 		if err := p.BecomeIdle(s.now()); err != nil {
 			return nil, fmt.Errorf("become idle: %w", err)
 		}

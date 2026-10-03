@@ -20,7 +20,8 @@ one place instead of being reimplemented ad hoc by the session controller.
 ## Observable view and runtime entity
 
 `View` contains the participant fields safe to expose to front ends: identity,
-initiative, lifecycle status, color, and status timestamp. `Participant`
+initiative, actual lifecycle status, color, status timestamp, `StartupReady`,
+and `TurnID`. `Participant`
 embeds that view and adds live agent capabilities and runtime bookkeeping.
 Embedding keeps one canonical copy of every observable field while allowing
 session rosters and interpreter snapshots to return `View` values without
@@ -37,6 +38,30 @@ type Participant struct {
 
 `Participant.Snapshot` remains a detached runtime copy for session-internal
 operations. Public application snapshots use `View` instead.
+
+Session exposes `Participant(alias) (View, bool)` and `Participants() []View`.
+The list is captured under one session lock and includes all registered
+participants, including starting and crashed participants. Both queries return
+value copies without transport handles, stream maps, or mutation methods.
+They do not filter recipients or rewrite lifecycle status.
+
+`StartupReady` and `TurnID` live in the embedded `View`, with no duplicate
+private runtime fields. Startup sets Idle before marking StartupReady; observers
+can therefore distinguish the final startup window without inventing a status.
+TurnID stays stable after a turn completes, until another turn starts.
+
+View owns pure predicates for shared-room eligibility (`IsRoutable`), transport
+status (`IsSendable`), full readiness for a new turn (`IsReadyForWork`), active
+turns (`HasActiveTurn`), cancellation, and removal. Runtime send/cancel guards
+add the required bound-agent check. Failed startup is removable even though it
+never reached StartupReady; attached-runtime removal retains its startup guard.
+
+This API cleanup preserves existing behavior. Shared-room selection continues
+to include idle/working participants and exclude startup, preparing, keepalive,
+and crashed participants. Transport status checks retain their existing rules;
+IsReadyForWork also exposes the startup-completion requirement for workflow use.
+Issue #56 separately changes staging behavior using this observable state.
+
 
 ## Identity and color allocation
 

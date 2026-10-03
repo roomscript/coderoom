@@ -242,7 +242,7 @@ observers handle diagnostic lines without inspecting message content.
 transition the session drives, including the idle transition after a turn
 ends. `From`, `To`, and `Since` are sufficient for an observer that only needs
 to track status; full participant identity (role, initiative, color) is read
-from `session.Roster()` by the interpreter, not reconstructed by the UI.
+from `session.Participants()` by the interpreter, not reconstructed by the UI.
 
 `ApprovalRequested` carries the queue-managed approval `ID`, the participant
 `Alias`, and the `agent.ApprovalRequest` payload. `ApprovalCleared` carries the
@@ -359,3 +359,17 @@ The TUI owns rendering and presentation-only interaction state.
 
 The TUI does not talk to agents or session directly and does not assemble chat
 semantics from raw session events.
+
+
+## Participant queries
+
+`Participant(alias) (participant.View, bool)` and `Participants() []participant.View`
+are the public participant state queries. Both expose the same detached data;
+the list captures every registered participant under one session lock, including
+startup and crash states. Status is preserved, with StartupReady and TurnID
+explicitly available. Runtime handles and stream bookkeeping stay within Session.
+
+Consumers choose recipients and workflow barriers using shared View predicates.
+Session rechecks live state when executing and retains bound-agent checks. The
+API consolidation preserves the existing routing and execution rules, including
+failed-startup removal; #56 separately updates staging behavior.
