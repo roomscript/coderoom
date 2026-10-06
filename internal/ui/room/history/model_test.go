@@ -5,8 +5,8 @@ import (
 	"testing"
 
 	"github.com/charmbracelet/x/ansi"
-	roomstate "github.com/trigosec/coderoom/internal/room"
-	rec "github.com/trigosec/coderoom/internal/ui/room/history/record"
+	roomstate "github.com/roomscript/coderoom/internal/room"
+	rec "github.com/roomscript/coderoom/internal/ui/room/history/record"
 )
 
 func TestResolveColor_activeReturnsFromLookup(t *testing.T) {

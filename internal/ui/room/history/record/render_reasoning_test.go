@@ -7,7 +7,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/colorprofile"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/trigosec/coderoom/internal/agent"
+	"github.com/roomscript/coderoom/internal/agent"
 )
 
 func withANSIProfile(t *testing.T, fn func()) {

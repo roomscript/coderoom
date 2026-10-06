@@ -10,8 +10,8 @@ import (
 )
 
 const (
-	sessionPackage = "github.com/trigosec/coderoom/internal/session"
-	agentPackage   = "github.com/trigosec/coderoom/internal/agent"
+	sessionPackage = "github.com/roomscript/coderoom/internal/session"
+	agentPackage   = "github.com/roomscript/coderoom/internal/agent"
 )
 
 type architecturePackage struct {
@@ -75,7 +75,7 @@ func TestForbiddenUIImports(t *testing.T) {
 		{name: "agent import", pkg: architecturePackage{Imports: []string{agentPackage}}, wantForbidden: true},
 		{name: "agent subpackage", pkg: architecturePackage{Imports: []string{agentPackage + "/codex"}}, wantForbidden: true},
 		{name: "session subpackage", pkg: architecturePackage{Imports: []string{sessionPackage + "/routing"}}, wantForbidden: true},
-		{name: "indirect runtime dependencies allowed", pkg: architecturePackage{Imports: []string{"github.com/trigosec/coderoom/internal/interpreter"}, Deps: []string{sessionPackage, agentPackage}}},
+		{name: "indirect runtime dependencies allowed", pkg: architecturePackage{Imports: []string{"github.com/roomscript/coderoom/internal/interpreter"}, Deps: []string{sessionPackage, agentPackage}}},
 		{name: "similar package names allowed", pkg: architecturePackage{Imports: []string{sessionPackage + "helpers", agentPackage + "log"}}},
 	}
 	for _, test := range tests {

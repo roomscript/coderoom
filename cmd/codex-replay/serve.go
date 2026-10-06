@@ -7,7 +7,7 @@ import (
 	"io"
 	"time"
 
-	"github.com/trigosec/coderoom/internal/transcript"
+	"github.com/roomscript/coderoom/internal/transcript"
 )
 
 func serveReplay(stdin io.Reader, stdout io.Writer, steps []transcript.Step) error {

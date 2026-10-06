@@ -3,7 +3,7 @@ package promptlang_test
 import (
 	"testing"
 
-	"github.com/trigosec/coderoom/internal/promptlang"
+	"github.com/roomscript/coderoom/internal/promptlang"
 )
 
 func TestRegistry_defineAndResolve(t *testing.T) {

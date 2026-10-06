@@ -3,9 +3,9 @@ package interpreter
 import (
 	"fmt"
 
-	"github.com/trigosec/coderoom/internal/participant"
-	"github.com/trigosec/coderoom/internal/room"
-	"github.com/trigosec/coderoom/internal/session"
+	"github.com/roomscript/coderoom/internal/participant"
+	"github.com/roomscript/coderoom/internal/room"
+	"github.com/roomscript/coderoom/internal/session"
 )
 
 type instructionExecutorPort interface {

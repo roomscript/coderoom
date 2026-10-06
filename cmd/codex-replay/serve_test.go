@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/trigosec/coderoom/internal/transcript"
+	"github.com/roomscript/coderoom/internal/transcript"
 )
 
 func TestServeReplay(t *testing.T) {

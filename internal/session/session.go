@@ -11,10 +11,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/trigosec/coderoom/internal/agent"
-	roomconfig "github.com/trigosec/coderoom/internal/config"
-	"github.com/trigosec/coderoom/internal/participant"
-	"github.com/trigosec/coderoom/internal/policy"
+	"github.com/roomscript/coderoom/internal/agent"
+	roomconfig "github.com/roomscript/coderoom/internal/config"
+	"github.com/roomscript/coderoom/internal/participant"
+	"github.com/roomscript/coderoom/internal/policy"
 )
 
 // AgentFactory constructs the adapter selected by the session for a participant

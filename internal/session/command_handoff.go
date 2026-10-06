@@ -5,7 +5,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/trigosec/coderoom/internal/participant"
+	"github.com/roomscript/coderoom/internal/participant"
 )
 
 // HandoffCommand transfers the latest completed room-visible output from one

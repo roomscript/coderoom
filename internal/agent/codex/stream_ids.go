@@ -1,6 +1,6 @@
 package codex
 
-import "github.com/trigosec/coderoom/internal/agent"
+import "github.com/roomscript/coderoom/internal/agent"
 
 // Stream ID constructors for Codex item-scoped streams.
 func outputStreamID(turnID, itemID string) agent.StreamID {

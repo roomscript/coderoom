@@ -3,7 +3,7 @@ package room
 import (
 	"slices"
 
-	"github.com/trigosec/coderoom/internal/agent"
+	"github.com/roomscript/coderoom/internal/agent"
 )
 
 // Snapshot is a detached, point-in-time copy of a room's full state.

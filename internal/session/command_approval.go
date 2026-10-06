@@ -3,7 +3,7 @@ package session
 import (
 	"fmt"
 
-	"github.com/trigosec/coderoom/internal/agent"
+	"github.com/roomscript/coderoom/internal/agent"
 )
 
 // ResolveApprovalCommand resolves the active approval request and advances the

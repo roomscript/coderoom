@@ -5,7 +5,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/trigosec/coderoom/internal/agent"
+	"github.com/roomscript/coderoom/internal/agent"
 )
 
 // TestMessageFromEnvelope_flushContentIsZero encodes the invariant: every

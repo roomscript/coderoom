@@ -5,7 +5,7 @@
 This document defines the target prompt language for coderoom. The
 implementation currently supports a subset of the design; the remaining work
 is listed under Implementation Status and tracked in
-[GitHub issue #46](https://github.com/trigosec/coderoom/issues/46).
+[GitHub issue #46](https://github.com/roomscript/coderoom/issues/46).
 
 The canonical program is:
 

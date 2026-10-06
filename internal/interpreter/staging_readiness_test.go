@@ -6,9 +6,9 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/trigosec/coderoom/internal/participant"
-	"github.com/trigosec/coderoom/internal/promptlang"
-	"github.com/trigosec/coderoom/internal/session"
+	"github.com/roomscript/coderoom/internal/participant"
+	"github.com/roomscript/coderoom/internal/promptlang"
+	"github.com/roomscript/coderoom/internal/session"
 )
 
 func planStageForTest(t *testing.T, workflow *stageWorkflow, statement promptlang.Statement, targets []string, states []participantState) instructionSequence {

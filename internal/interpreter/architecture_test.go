@@ -10,10 +10,10 @@ import (
 )
 
 const (
-	interpreterPackage = "github.com/trigosec/coderoom/internal/interpreter"
-	uiPackage          = "github.com/trigosec/coderoom/internal/ui"
-	sessionPackage     = "github.com/trigosec/coderoom/internal/session"
-	agentPackage       = "github.com/trigosec/coderoom/internal/agent"
+	interpreterPackage = "github.com/roomscript/coderoom/internal/interpreter"
+	uiPackage          = "github.com/roomscript/coderoom/internal/ui"
+	sessionPackage     = "github.com/roomscript/coderoom/internal/session"
+	agentPackage       = "github.com/roomscript/coderoom/internal/agent"
 )
 
 type architecturePackage struct {

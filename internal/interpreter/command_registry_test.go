@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/trigosec/coderoom/internal/interpreter"
-	"github.com/trigosec/coderoom/internal/promptlang"
+	"github.com/roomscript/coderoom/internal/interpreter"
+	"github.com/roomscript/coderoom/internal/promptlang"
 )
 
 func TestInterpreter_ownsRoomScopedCommandDefinitions(t *testing.T) {

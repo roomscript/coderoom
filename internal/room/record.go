@@ -3,7 +3,7 @@ package room
 import (
 	"fmt"
 
-	"github.com/trigosec/coderoom/internal/agent"
+	"github.com/roomscript/coderoom/internal/agent"
 )
 
 // Kind identifies the source and semantic type of a room record.

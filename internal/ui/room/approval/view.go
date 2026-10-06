@@ -3,7 +3,7 @@ package approval
 import (
 	"strings"
 
-	"github.com/trigosec/coderoom/internal/interpreter"
+	"github.com/roomscript/coderoom/internal/interpreter"
 )
 
 // View renders the approval prompt and options.

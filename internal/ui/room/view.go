@@ -6,7 +6,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/trigosec/coderoom/internal/ui/room/history"
+	"github.com/roomscript/coderoom/internal/ui/room/history"
 )
 
 // View renders the room as:

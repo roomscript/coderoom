@@ -5,8 +5,8 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/trigosec/coderoom/internal/ui/editor"
-	"github.com/trigosec/coderoom/internal/ui/room/history/record"
+	"github.com/roomscript/coderoom/internal/ui/editor"
+	"github.com/roomscript/coderoom/internal/ui/room/history/record"
 )
 
 func TestCtrlG_withoutEditorAddsSystemRecordAndPreservesBuffer(t *testing.T) {

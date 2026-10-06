@@ -6,9 +6,9 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/trigosec/coderoom/internal/interpreter"
-	roomstate "github.com/trigosec/coderoom/internal/room"
-	"github.com/trigosec/coderoom/internal/ui/inlinefmt"
+	"github.com/roomscript/coderoom/internal/interpreter"
+	roomstate "github.com/roomscript/coderoom/internal/room"
+	"github.com/roomscript/coderoom/internal/ui/inlinefmt"
 )
 
 // Kind is an alias for room.Kind: room.Record stays the canonical record

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/trigosec/coderoom/internal/agent"
+	"github.com/roomscript/coderoom/internal/agent"
 )
 
 func TestApprovalHub_RequestEmitsEventAndBlocksUntilResolved(t *testing.T) {

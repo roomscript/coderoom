@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/trigosec/coderoom/internal/agent"
-	"github.com/trigosec/coderoom/internal/agent/codex"
-	roomconfig "github.com/trigosec/coderoom/internal/config"
-	"github.com/trigosec/coderoom/internal/session"
+	"github.com/roomscript/coderoom/internal/agent"
+	"github.com/roomscript/coderoom/internal/agent/codex"
+	roomconfig "github.com/roomscript/coderoom/internal/config"
+	"github.com/roomscript/coderoom/internal/session"
 )
 
 // TestSession_agentStopsCleanly verifies the full lifecycle of a session with a

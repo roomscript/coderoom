@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/trigosec/coderoom/internal/agent"
-	"github.com/trigosec/coderoom/internal/shell"
+	"github.com/roomscript/coderoom/internal/agent"
+	"github.com/roomscript/coderoom/internal/shell"
 )
 
 type fakeShellRunner struct {

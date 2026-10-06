@@ -2,7 +2,7 @@
 package approval
 
 import (
-	"github.com/trigosec/coderoom/internal/interpreter"
+	"github.com/roomscript/coderoom/internal/interpreter"
 )
 
 // Model holds the approval prompt and selection state.

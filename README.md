@@ -46,7 +46,7 @@ agent CLIs is planned.
 
 ### Download a release
 
-Prebuilt archives are published on the [GitHub Releases](https://github.com/trigosec/coderoom/releases/latest) page.
+Prebuilt archives are published on the [GitHub Releases](https://github.com/roomscript/coderoom/releases/latest) page.
 
 Choose the archive for your platform, extract it, and run `coderoom`:
 

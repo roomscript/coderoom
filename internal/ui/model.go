@@ -4,11 +4,11 @@ package ui
 
 import (
 	tea "charm.land/bubbletea/v2"
-	"github.com/trigosec/coderoom/internal/interpreter"
-	"github.com/trigosec/coderoom/internal/queue"
-	"github.com/trigosec/coderoom/internal/ui/palette"
-	"github.com/trigosec/coderoom/internal/ui/room"
-	"github.com/trigosec/coderoom/internal/ui/toolbox"
+	"github.com/roomscript/coderoom/internal/interpreter"
+	"github.com/roomscript/coderoom/internal/queue"
+	"github.com/roomscript/coderoom/internal/ui/palette"
+	"github.com/roomscript/coderoom/internal/ui/room"
+	"github.com/roomscript/coderoom/internal/ui/toolbox"
 )
 
 // Option configures a Model at construction time.

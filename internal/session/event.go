@@ -3,8 +3,8 @@ package session
 import (
 	"time"
 
-	"github.com/trigosec/coderoom/internal/agent"
-	"github.com/trigosec/coderoom/internal/participant"
+	"github.com/roomscript/coderoom/internal/agent"
+	"github.com/roomscript/coderoom/internal/participant"
 )
 
 // Event is a runtime notification emitted by the session controller.

@@ -1,4 +1,4 @@
-module github.com/trigosec/coderoom
+module github.com/roomscript/coderoom
 
 go 1.25.0
 

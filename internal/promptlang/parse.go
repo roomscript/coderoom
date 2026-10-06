@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/trigosec/coderoom/internal/policy"
+	"github.com/roomscript/coderoom/internal/policy"
 )
 
 var noArgCommands = map[string]Statement{

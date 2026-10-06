@@ -3,7 +3,7 @@ package interpreter
 import (
 	"sync"
 
-	"github.com/trigosec/coderoom/internal/session"
+	"github.com/roomscript/coderoom/internal/session"
 )
 
 // sessionEventInbox owns cross-goroutine session-event buffering and coalesces

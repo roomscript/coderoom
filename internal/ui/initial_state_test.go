@@ -8,10 +8,10 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/trigosec/coderoom/internal/agent"
-	"github.com/trigosec/coderoom/internal/interpreter"
-	"github.com/trigosec/coderoom/internal/participant"
-	"github.com/trigosec/coderoom/internal/session"
+	"github.com/roomscript/coderoom/internal/agent"
+	"github.com/roomscript/coderoom/internal/interpreter"
+	"github.com/roomscript/coderoom/internal/participant"
+	"github.com/roomscript/coderoom/internal/session"
 )
 
 // This fixed-state session keeps a broadcast pending without external agents.

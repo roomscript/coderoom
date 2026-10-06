@@ -3,10 +3,10 @@ package interpreter
 import (
 	"errors"
 
-	"github.com/trigosec/coderoom/internal/agent"
-	"github.com/trigosec/coderoom/internal/participant"
-	roomstate "github.com/trigosec/coderoom/internal/room"
-	"github.com/trigosec/coderoom/internal/shell"
+	"github.com/roomscript/coderoom/internal/agent"
+	"github.com/roomscript/coderoom/internal/participant"
+	roomstate "github.com/roomscript/coderoom/internal/room"
+	"github.com/roomscript/coderoom/internal/shell"
 )
 
 var (

@@ -3,8 +3,8 @@ package interpreter
 import (
 	"testing"
 
-	"github.com/trigosec/coderoom/internal/promptlang"
-	"github.com/trigosec/coderoom/internal/session"
+	"github.com/roomscript/coderoom/internal/promptlang"
+	"github.com/roomscript/coderoom/internal/session"
 )
 
 func interpreterModelOf(interpreter *Interpreter) *interpreterModel {

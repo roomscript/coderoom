@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"slices"
 
-	"github.com/trigosec/coderoom/internal/transcript"
+	"github.com/roomscript/coderoom/internal/transcript"
 )
 
 func main() {

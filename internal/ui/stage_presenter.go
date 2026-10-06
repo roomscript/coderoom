@@ -4,8 +4,8 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
-	"github.com/trigosec/coderoom/internal/interpreter"
-	"github.com/trigosec/coderoom/internal/participant"
+	"github.com/roomscript/coderoom/internal/interpreter"
+	"github.com/roomscript/coderoom/internal/participant"
 )
 
 func (m Model) presentInterpreterStage(snapshot interpreter.Snapshot) Model {

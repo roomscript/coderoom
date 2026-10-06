@@ -8,10 +8,10 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/trigosec/coderoom/internal/interpreter"
-	"github.com/trigosec/coderoom/internal/participant"
-	"github.com/trigosec/coderoom/internal/promptlang"
-	"github.com/trigosec/coderoom/internal/ui/room"
+	"github.com/roomscript/coderoom/internal/interpreter"
+	"github.com/roomscript/coderoom/internal/participant"
+	"github.com/roomscript/coderoom/internal/promptlang"
+	"github.com/roomscript/coderoom/internal/ui/room"
 )
 
 const (

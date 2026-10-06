@@ -9,7 +9,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/rivo/uniseg"
-	rec "github.com/trigosec/coderoom/internal/ui/room/history/record"
+	rec "github.com/roomscript/coderoom/internal/ui/room/history/record"
 )
 
 // View renders the viewport with an optional row-number overlay. The output is

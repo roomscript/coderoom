@@ -6,7 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/trigosec/coderoom/internal/ui/room/history/record"
+	"github.com/roomscript/coderoom/internal/ui/room/history/record"
 )
 
 func TestWhoEcho_twiceRendersTwoEchosInTallTerminal(t *testing.T) {

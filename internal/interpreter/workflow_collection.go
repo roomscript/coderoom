@@ -1,7 +1,7 @@
 package interpreter
 
 import (
-	"github.com/trigosec/coderoom/internal/session"
+	"github.com/roomscript/coderoom/internal/session"
 )
 
 type workflowCollection struct {

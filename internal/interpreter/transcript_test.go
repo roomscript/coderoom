@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/trigosec/coderoom/internal/session"
-	"github.com/trigosec/coderoom/internal/shell"
+	"github.com/roomscript/coderoom/internal/session"
+	"github.com/roomscript/coderoom/internal/shell"
 )
 
 type transcriptTestObserver struct{ events chan Event }

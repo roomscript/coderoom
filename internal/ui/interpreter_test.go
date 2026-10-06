@@ -7,12 +7,12 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/trigosec/coderoom/internal/agent"
-	roomconfig "github.com/trigosec/coderoom/internal/config"
-	"github.com/trigosec/coderoom/internal/interpreter"
-	"github.com/trigosec/coderoom/internal/participant"
-	"github.com/trigosec/coderoom/internal/session"
-	"github.com/trigosec/coderoom/internal/ui/room/history/record"
+	"github.com/roomscript/coderoom/internal/agent"
+	roomconfig "github.com/roomscript/coderoom/internal/config"
+	"github.com/roomscript/coderoom/internal/interpreter"
+	"github.com/roomscript/coderoom/internal/participant"
+	"github.com/roomscript/coderoom/internal/session"
+	"github.com/roomscript/coderoom/internal/ui/room/history/record"
 )
 
 type quitTrackingAgent struct {

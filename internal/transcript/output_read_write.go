@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/trigosec/coderoom/internal/agent"
+	"github.com/roomscript/coderoom/internal/agent"
 )
 
 // WriteOutput serializes a recorded transcript fixture to front matter plus JSONL steps.

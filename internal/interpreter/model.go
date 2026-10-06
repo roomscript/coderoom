@@ -3,12 +3,12 @@ package interpreter
 import (
 	"fmt"
 
-	"github.com/trigosec/coderoom/internal/agent"
-	"github.com/trigosec/coderoom/internal/participant"
-	"github.com/trigosec/coderoom/internal/promptlang"
-	"github.com/trigosec/coderoom/internal/room"
-	"github.com/trigosec/coderoom/internal/session"
-	"github.com/trigosec/coderoom/internal/shell"
+	"github.com/roomscript/coderoom/internal/agent"
+	"github.com/roomscript/coderoom/internal/participant"
+	"github.com/roomscript/coderoom/internal/promptlang"
+	"github.com/roomscript/coderoom/internal/room"
+	"github.com/roomscript/coderoom/internal/session"
+	"github.com/roomscript/coderoom/internal/shell"
 )
 
 // interpreterModel owns mutable interpreter state and deterministic decisions.

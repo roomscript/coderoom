@@ -3,7 +3,7 @@ package room
 import (
 	"strings"
 
-	"github.com/trigosec/coderoom/internal/agent"
+	"github.com/roomscript/coderoom/internal/agent"
 )
 
 // formatFileChangeBody renders a stable plain-text representation of a file

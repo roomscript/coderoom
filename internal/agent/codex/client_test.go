@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/trigosec/coderoom/internal/agent"
+	"github.com/roomscript/coderoom/internal/agent"
 )
 
 // nopWriteCloser wraps a Writer with a no-op Close for use as a stdin stub.

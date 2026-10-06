@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/trigosec/coderoom/internal/interpreter"
+	"github.com/roomscript/coderoom/internal/interpreter"
 )
 
 func TestUpdate_downSelectsNextOption(t *testing.T) {

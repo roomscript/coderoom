@@ -7,11 +7,11 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/trigosec/coderoom/internal/interpreter"
-	"github.com/trigosec/coderoom/internal/queue"
-	roomstate "github.com/trigosec/coderoom/internal/room"
-	"github.com/trigosec/coderoom/internal/session"
-	"github.com/trigosec/coderoom/internal/ui/room/history/record"
+	"github.com/roomscript/coderoom/internal/interpreter"
+	"github.com/roomscript/coderoom/internal/queue"
+	roomstate "github.com/roomscript/coderoom/internal/room"
+	"github.com/roomscript/coderoom/internal/session"
+	"github.com/roomscript/coderoom/internal/ui/room/history/record"
 )
 
 // makeReadyModel returns a Model that has processed one WindowSizeMsg so the

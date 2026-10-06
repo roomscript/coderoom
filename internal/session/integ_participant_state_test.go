@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/trigosec/coderoom/internal/agent"
-	"github.com/trigosec/coderoom/internal/participant"
-	"github.com/trigosec/coderoom/internal/policy"
-	"github.com/trigosec/coderoom/internal/session"
+	"github.com/roomscript/coderoom/internal/agent"
+	"github.com/roomscript/coderoom/internal/participant"
+	"github.com/roomscript/coderoom/internal/policy"
+	"github.com/roomscript/coderoom/internal/session"
 )
 
 func TestSession_sharedSendMarksWorkingUntilFlush(t *testing.T) {

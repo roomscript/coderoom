@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/trigosec/coderoom/internal/agent"
+	"github.com/roomscript/coderoom/internal/agent"
 )
 
 // setupNoticeClient creates a client in noticePending state, simulating

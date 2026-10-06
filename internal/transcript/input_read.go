@@ -11,7 +11,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/trigosec/coderoom/internal/agent/codex"
+	"github.com/roomscript/coderoom/internal/agent/codex"
 )
 
 const (

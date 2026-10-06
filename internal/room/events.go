@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/trigosec/coderoom/internal/agent"
-	"github.com/trigosec/coderoom/internal/session"
+	"github.com/roomscript/coderoom/internal/agent"
+	"github.com/roomscript/coderoom/internal/session"
 )
 
 func (r *Room) applyEvent(e session.Event) (Update, bool) {

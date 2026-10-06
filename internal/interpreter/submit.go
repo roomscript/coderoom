@@ -3,7 +3,7 @@ package interpreter
 import (
 	"errors"
 
-	"github.com/trigosec/coderoom/internal/promptlang"
+	"github.com/roomscript/coderoom/internal/promptlang"
 )
 
 type submitOperation struct {

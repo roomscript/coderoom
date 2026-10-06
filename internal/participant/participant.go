@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/trigosec/coderoom/internal/agent"
+	"github.com/roomscript/coderoom/internal/agent"
 )
 
 var (

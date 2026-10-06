@@ -4,7 +4,7 @@ package interpreter
 import (
 	"context"
 
-	"github.com/trigosec/coderoom/internal/promptlang"
+	"github.com/roomscript/coderoom/internal/promptlang"
 )
 
 // Option configures an Interpreter.

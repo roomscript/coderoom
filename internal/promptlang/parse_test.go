@@ -3,8 +3,8 @@ package promptlang_test
 import (
 	"testing"
 
-	"github.com/trigosec/coderoom/internal/policy"
-	"github.com/trigosec/coderoom/internal/promptlang"
+	"github.com/roomscript/coderoom/internal/policy"
+	"github.com/roomscript/coderoom/internal/promptlang"
 )
 
 func TestParse_slashCommands(t *testing.T) {

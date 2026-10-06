@@ -4,8 +4,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/trigosec/coderoom/internal/policy"
-	"github.com/trigosec/coderoom/internal/session"
+	"github.com/roomscript/coderoom/internal/policy"
+	"github.com/roomscript/coderoom/internal/session"
 )
 
 func TestPolicy_executesNativeHandlerOnce(t *testing.T) {

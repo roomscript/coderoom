@@ -3,7 +3,7 @@ package room
 import (
 	"testing"
 
-	"github.com/trigosec/coderoom/internal/agent"
+	"github.com/roomscript/coderoom/internal/agent"
 )
 
 func TestNewAgentRecordSetsKindAndText(t *testing.T) {

@@ -1,6 +1,6 @@
 package transcript
 
-import "github.com/trigosec/coderoom/internal/agent"
+import "github.com/roomscript/coderoom/internal/agent"
 
 // Output is the on-disk transcript fixture: front matter plus replay steps.
 type Output struct {

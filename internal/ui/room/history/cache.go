@@ -1,6 +1,6 @@
 package history
 
-import rec "github.com/trigosec/coderoom/internal/ui/room/history/record"
+import rec "github.com/roomscript/coderoom/internal/ui/room/history/record"
 
 func renderRecordCached(r viewRecord, ctx rec.RenderContext) (string, viewRecord) {
 	key := ctx.Key

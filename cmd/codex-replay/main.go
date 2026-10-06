@@ -7,7 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/trigosec/coderoom/internal/transcript"
+	"github.com/roomscript/coderoom/internal/transcript"
 )
 
 func main() {

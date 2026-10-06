@@ -6,11 +6,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/trigosec/coderoom/internal/agent"
-	"github.com/trigosec/coderoom/internal/interpreter"
-	"github.com/trigosec/coderoom/internal/session"
-	uiroom "github.com/trigosec/coderoom/internal/ui/room"
-	"github.com/trigosec/coderoom/internal/ui/room/history/record"
+	"github.com/roomscript/coderoom/internal/agent"
+	"github.com/roomscript/coderoom/internal/interpreter"
+	"github.com/roomscript/coderoom/internal/session"
+	uiroom "github.com/roomscript/coderoom/internal/ui/room"
+	"github.com/roomscript/coderoom/internal/ui/room/history/record"
 )
 
 func TestApprovalDecision_UsesInterpreterAndRendersFailure(t *testing.T) {

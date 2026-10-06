@@ -5,7 +5,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/trigosec/coderoom/internal/participant"
+	"github.com/roomscript/coderoom/internal/participant"
 )
 
 // Model is the state for the participant status bar.

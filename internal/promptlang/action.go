@@ -5,7 +5,7 @@ package promptlang
 import (
 	"fmt"
 
-	"github.com/trigosec/coderoom/internal/policy"
+	"github.com/roomscript/coderoom/internal/policy"
 )
 
 // Statement is a sealed interface representing a parsed user input line.

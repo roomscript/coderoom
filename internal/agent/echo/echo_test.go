@@ -3,8 +3,8 @@ package echo_test
 import (
 	"testing"
 
-	"github.com/trigosec/coderoom/internal/agent"
-	"github.com/trigosec/coderoom/internal/agent/echo"
+	"github.com/roomscript/coderoom/internal/agent"
+	"github.com/roomscript/coderoom/internal/agent/echo"
 )
 
 func TestClientEchoesPrompt(t *testing.T) {

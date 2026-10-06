@@ -30,7 +30,7 @@ linters:
       max-complexity: 10
     wrapcheck:
       ignorePackageGlobs:
-        - github.com/trigosec/coderoom/*
+        - github.com/roomscript/coderoom/*
     exhaustive:
       default-signifies-exhaustive: true
     gosec:

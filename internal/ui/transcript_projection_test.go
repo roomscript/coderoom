@@ -4,11 +4,11 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/trigosec/coderoom/internal/agent"
-	"github.com/trigosec/coderoom/internal/interpreter"
-	"github.com/trigosec/coderoom/internal/participant"
-	roomstate "github.com/trigosec/coderoom/internal/room"
-	uiroom "github.com/trigosec/coderoom/internal/ui/room"
+	"github.com/roomscript/coderoom/internal/agent"
+	"github.com/roomscript/coderoom/internal/interpreter"
+	"github.com/roomscript/coderoom/internal/participant"
+	roomstate "github.com/roomscript/coderoom/internal/room"
+	uiroom "github.com/roomscript/coderoom/internal/ui/room"
 )
 
 func TestTranscriptProjection_updatesCanonicalStreamAroundPresentationNotices(t *testing.T) {

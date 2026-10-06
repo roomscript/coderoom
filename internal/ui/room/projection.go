@@ -1,7 +1,7 @@
 package room
 
 import (
-	roomstate "github.com/trigosec/coderoom/internal/room"
+	roomstate "github.com/roomscript/coderoom/internal/room"
 )
 
 // NewPresenter creates a room without a session observer or a room actor.

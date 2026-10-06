@@ -4,9 +4,9 @@ import (
 	"context"
 	"strings"
 
-	"github.com/trigosec/coderoom/internal/promptlang"
-	"github.com/trigosec/coderoom/internal/room"
-	"github.com/trigosec/coderoom/internal/shell"
+	"github.com/roomscript/coderoom/internal/promptlang"
+	"github.com/roomscript/coderoom/internal/room"
+	"github.com/roomscript/coderoom/internal/shell"
 )
 
 const shellRecordAlias = "shell"

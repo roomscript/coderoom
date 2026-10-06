@@ -4,10 +4,10 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/trigosec/coderoom/internal/agent"
-	roomconfig "github.com/trigosec/coderoom/internal/config"
-	"github.com/trigosec/coderoom/internal/participant"
-	"github.com/trigosec/coderoom/internal/policy"
+	"github.com/roomscript/coderoom/internal/agent"
+	roomconfig "github.com/roomscript/coderoom/internal/config"
+	"github.com/roomscript/coderoom/internal/participant"
+	"github.com/roomscript/coderoom/internal/policy"
 )
 
 // InviteCommand adds an agent to the session and starts it.

@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/trigosec/coderoom/internal/agent"
+	"github.com/roomscript/coderoom/internal/agent"
 )
 
 // stubAgent is a minimal Agent whose Send returns a configurable anchor and

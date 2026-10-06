@@ -6,9 +6,9 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/trigosec/coderoom/internal/agent"
-	roomstate "github.com/trigosec/coderoom/internal/room"
-	rec "github.com/trigosec/coderoom/internal/ui/room/history/record"
+	"github.com/roomscript/coderoom/internal/agent"
+	roomstate "github.com/roomscript/coderoom/internal/room"
+	rec "github.com/roomscript/coderoom/internal/ui/room/history/record"
 )
 
 func TestRenderCursorLine_preservesStyledContent(t *testing.T) {

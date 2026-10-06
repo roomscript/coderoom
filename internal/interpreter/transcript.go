@@ -1,6 +1,6 @@
 package interpreter
 
-import "github.com/trigosec/coderoom/internal/room"
+import "github.com/roomscript/coderoom/internal/room"
 
 // TranscriptChanged carries canonical record changes in interpreter processing
 // order. Snapshots are for state inspection; front ends render this event stream

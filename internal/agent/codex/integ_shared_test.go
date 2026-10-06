@@ -8,8 +8,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/trigosec/coderoom/internal/agent"
-	"github.com/trigosec/coderoom/internal/agent/codex"
+	"github.com/roomscript/coderoom/internal/agent"
+	"github.com/roomscript/coderoom/internal/agent/codex"
 )
 
 var logDir = flag.String("logdir", "", "directory to write Codex wire logs into (if empty, uses the test temp dir)")

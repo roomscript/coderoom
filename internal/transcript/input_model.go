@@ -1,6 +1,6 @@
 package transcript
 
-import "github.com/trigosec/coderoom/internal/agent/codex"
+import "github.com/roomscript/coderoom/internal/agent/codex"
 
 // Config stores scenario-level Codex settings used during transcript recording.
 type Config struct {

@@ -3,7 +3,7 @@ package interpreter
 import (
 	"sync"
 
-	"github.com/trigosec/coderoom/internal/queue"
+	"github.com/roomscript/coderoom/internal/queue"
 )
 
 type eventDispatchItem interface{ eventDispatchItem() }

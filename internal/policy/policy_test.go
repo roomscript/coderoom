@@ -3,7 +3,7 @@ package policy_test
 import (
 	"testing"
 
-	"github.com/trigosec/coderoom/internal/policy"
+	"github.com/roomscript/coderoom/internal/policy"
 )
 
 func TestSetEnable(t *testing.T) {

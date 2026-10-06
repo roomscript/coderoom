@@ -1,8 +1,8 @@
 package room
 
 import (
-	"github.com/trigosec/coderoom/internal/agent"
-	"github.com/trigosec/coderoom/internal/session"
+	"github.com/roomscript/coderoom/internal/agent"
+	"github.com/roomscript/coderoom/internal/session"
 )
 
 // LatestCompletedOutput returns the latest completed user-visible output text

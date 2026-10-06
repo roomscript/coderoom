@@ -1,6 +1,6 @@
 package interpreter
 
-import "github.com/trigosec/coderoom/internal/promptlang"
+import "github.com/roomscript/coderoom/internal/promptlang"
 
 // nativeCommandDefinition binds statement dispatch to its help metadata.
 // UI-only debug statements are registered without native handlers or help.

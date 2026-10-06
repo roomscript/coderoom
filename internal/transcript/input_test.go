@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/trigosec/coderoom/internal/agent/codex"
+	"github.com/roomscript/coderoom/internal/agent/codex"
 )
 
 func TestReadInputDir_Prompt(t *testing.T) {

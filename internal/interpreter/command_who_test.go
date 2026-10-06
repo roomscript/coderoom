@@ -3,7 +3,7 @@ package interpreter
 import (
 	"testing"
 
-	"github.com/trigosec/coderoom/internal/participant"
+	"github.com/roomscript/coderoom/internal/participant"
 )
 
 func TestSubmitContract_executesNativeHandlerOnce(t *testing.T) {

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/trigosec/coderoom/internal/promptlang"
+	"github.com/roomscript/coderoom/internal/promptlang"
 )
 
 func TestNativeCommandDefinitions_coverParserBuiltins(t *testing.T) {

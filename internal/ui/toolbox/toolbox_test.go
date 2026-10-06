@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/x/ansi"
-	"github.com/trigosec/coderoom/internal/participant"
+	"github.com/roomscript/coderoom/internal/participant"
 )
 
 func TestToolboxCells_orderByStatusThenAlias(t *testing.T) {

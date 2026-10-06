@@ -5,10 +5,10 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/trigosec/coderoom/internal/interpreter"
-	"github.com/trigosec/coderoom/internal/ui/editor"
-	"github.com/trigosec/coderoom/internal/ui/room/approval"
-	"github.com/trigosec/coderoom/internal/ui/room/history"
+	"github.com/roomscript/coderoom/internal/interpreter"
+	"github.com/roomscript/coderoom/internal/ui/editor"
+	"github.com/roomscript/coderoom/internal/ui/room/approval"
+	"github.com/roomscript/coderoom/internal/ui/room/history"
 )
 
 // Update handles incoming messages and returns the next model state.

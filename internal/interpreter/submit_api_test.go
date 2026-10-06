@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/trigosec/coderoom/internal/interpreter"
-	"github.com/trigosec/coderoom/internal/session"
+	"github.com/roomscript/coderoom/internal/interpreter"
+	"github.com/roomscript/coderoom/internal/session"
 )
 
 func TestSubmitAPI_reportsUnknownCommand(t *testing.T) {

@@ -12,13 +12,13 @@ import (
 	"syscall"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/trigosec/coderoom/internal/agent"
-	"github.com/trigosec/coderoom/internal/agent/codex"
-	"github.com/trigosec/coderoom/internal/agent/echo"
-	"github.com/trigosec/coderoom/internal/config"
-	"github.com/trigosec/coderoom/internal/interpreter"
-	"github.com/trigosec/coderoom/internal/session"
-	"github.com/trigosec/coderoom/internal/ui"
+	"github.com/roomscript/coderoom/internal/agent"
+	"github.com/roomscript/coderoom/internal/agent/codex"
+	"github.com/roomscript/coderoom/internal/agent/echo"
+	"github.com/roomscript/coderoom/internal/config"
+	"github.com/roomscript/coderoom/internal/interpreter"
+	"github.com/roomscript/coderoom/internal/session"
+	"github.com/roomscript/coderoom/internal/ui"
 )
 
 func main() {

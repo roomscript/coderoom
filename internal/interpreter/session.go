@@ -1,8 +1,8 @@
 package interpreter
 
 import (
-	"github.com/trigosec/coderoom/internal/participant"
-	"github.com/trigosec/coderoom/internal/session"
+	"github.com/roomscript/coderoom/internal/participant"
+	"github.com/roomscript/coderoom/internal/session"
 )
 
 // SessionController is the session behavior consumed by Interpreter. It is an

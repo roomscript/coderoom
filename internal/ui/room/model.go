@@ -14,12 +14,12 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/atotto/clipboard"
-	"github.com/trigosec/coderoom/internal/interpreter"
-	roomstate "github.com/trigosec/coderoom/internal/room"
-	"github.com/trigosec/coderoom/internal/ui/room/approval"
-	"github.com/trigosec/coderoom/internal/ui/room/compose"
-	"github.com/trigosec/coderoom/internal/ui/room/history"
-	rec "github.com/trigosec/coderoom/internal/ui/room/history/record"
+	"github.com/roomscript/coderoom/internal/interpreter"
+	roomstate "github.com/roomscript/coderoom/internal/room"
+	"github.com/roomscript/coderoom/internal/ui/room/approval"
+	"github.com/roomscript/coderoom/internal/ui/room/compose"
+	"github.com/roomscript/coderoom/internal/ui/room/history"
+	rec "github.com/roomscript/coderoom/internal/ui/room/history/record"
 )
 
 var (

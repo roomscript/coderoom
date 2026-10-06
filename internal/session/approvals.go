@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/trigosec/coderoom/internal/agent"
+	"github.com/roomscript/coderoom/internal/agent"
 )
 
 type approvalNotifier func(Event)

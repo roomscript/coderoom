@@ -12,9 +12,9 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/trigosec/coderoom/internal/agent"
-	"github.com/trigosec/coderoom/internal/agent/codex"
-	"github.com/trigosec/coderoom/internal/transcript"
+	"github.com/roomscript/coderoom/internal/agent"
+	"github.com/roomscript/coderoom/internal/agent/codex"
+	"github.com/roomscript/coderoom/internal/transcript"
 )
 
 const transcriptRoot = "internal/agent/codex/testdata/transcripts"

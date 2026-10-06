@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/trigosec/coderoom/internal/session"
+	"github.com/roomscript/coderoom/internal/session"
 )
 
 func TestRemove_executesNativeHandlerOnce(t *testing.T) {

@@ -6,7 +6,7 @@ import (
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
-	rec "github.com/trigosec/coderoom/internal/ui/room/history/record"
+	rec "github.com/roomscript/coderoom/internal/ui/room/history/record"
 )
 
 // SetSize initialises or resizes the viewport.

@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/trigosec/coderoom/internal/agent"
-	"github.com/trigosec/coderoom/internal/agent/codex"
+	"github.com/roomscript/coderoom/internal/agent"
+	"github.com/roomscript/coderoom/internal/agent/codex"
 )
 
 // TestClientLiveContextRetention remains live because it validates real Codex

@@ -3,7 +3,7 @@ package session
 import (
 	"fmt"
 
-	"github.com/trigosec/coderoom/internal/policy"
+	"github.com/roomscript/coderoom/internal/policy"
 )
 
 // EnablePolicyCommand enables a room-local runtime policy.

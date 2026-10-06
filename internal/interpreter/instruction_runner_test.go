@@ -3,7 +3,7 @@ package interpreter
 import (
 	"testing"
 
-	"github.com/trigosec/coderoom/internal/session"
+	"github.com/roomscript/coderoom/internal/session"
 )
 
 func TestInstructionRunner_discardsStaleApprovalClear(t *testing.T) {

@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/trigosec/coderoom/internal/agent"
+	"github.com/roomscript/coderoom/internal/agent"
 )
 
 // Client implements agent.Agent for the Codex app-server.

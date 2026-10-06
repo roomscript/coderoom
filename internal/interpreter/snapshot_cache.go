@@ -3,9 +3,9 @@ package interpreter
 import (
 	"sync/atomic"
 
-	"github.com/trigosec/coderoom/internal/agent"
-	"github.com/trigosec/coderoom/internal/participant"
-	"github.com/trigosec/coderoom/internal/room"
+	"github.com/roomscript/coderoom/internal/agent"
+	"github.com/roomscript/coderoom/internal/participant"
+	"github.com/roomscript/coderoom/internal/room"
 )
 
 // snapshotCache stores the latest immutable snapshot published by the

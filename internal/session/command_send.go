@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/trigosec/coderoom/internal/agent"
-	"github.com/trigosec/coderoom/internal/participant"
-	"github.com/trigosec/coderoom/internal/policy"
+	"github.com/roomscript/coderoom/internal/agent"
+	"github.com/roomscript/coderoom/internal/participant"
+	"github.com/roomscript/coderoom/internal/policy"
 )
 
 // BroadcastCommand sends a message to its frozen recipients. When Aliases is

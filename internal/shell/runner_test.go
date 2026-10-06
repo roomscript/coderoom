@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/trigosec/coderoom/internal/shell"
+	"github.com/roomscript/coderoom/internal/shell"
 )
 
 func TestRun_success(t *testing.T) {

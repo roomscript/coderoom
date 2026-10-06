@@ -4,9 +4,9 @@ package room
 import (
 	"sync"
 
-	"github.com/trigosec/coderoom/internal/agent"
-	"github.com/trigosec/coderoom/internal/queue"
-	"github.com/trigosec/coderoom/internal/session"
+	"github.com/roomscript/coderoom/internal/agent"
+	"github.com/roomscript/coderoom/internal/queue"
+	"github.com/roomscript/coderoom/internal/session"
 )
 
 // ID identifies a room.

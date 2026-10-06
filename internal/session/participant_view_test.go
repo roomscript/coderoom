@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/trigosec/coderoom/internal/agent/echo"
-	"github.com/trigosec/coderoom/internal/participant"
+	"github.com/roomscript/coderoom/internal/agent/echo"
+	"github.com/roomscript/coderoom/internal/participant"
 )
 
 func TestParticipantViews_preserveStartupReadinessAndDetach(t *testing.T) {

@@ -1,8 +1,8 @@
 package interpreter
 
 import (
-	"github.com/trigosec/coderoom/internal/agent"
-	roomstate "github.com/trigosec/coderoom/internal/room"
+	"github.com/roomscript/coderoom/internal/agent"
+	roomstate "github.com/roomscript/coderoom/internal/room"
 )
 
 // CommandDetails is detached command output for transcript presentation.

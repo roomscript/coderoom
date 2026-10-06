@@ -5,8 +5,8 @@ import (
 
 	"charm.land/bubbles/v2/viewport"
 	"github.com/charmbracelet/x/ansi"
-	roomstate "github.com/trigosec/coderoom/internal/room"
-	rec "github.com/trigosec/coderoom/internal/ui/room/history/record"
+	roomstate "github.com/roomscript/coderoom/internal/room"
+	rec "github.com/roomscript/coderoom/internal/ui/room/history/record"
 )
 
 // streamSlot tracks an open streaming record by its StreamID.

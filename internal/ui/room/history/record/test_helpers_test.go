@@ -1,8 +1,8 @@
 package record
 
 import (
-	"github.com/trigosec/coderoom/internal/agent"
-	roomstate "github.com/trigosec/coderoom/internal/room"
+	"github.com/roomscript/coderoom/internal/agent"
+	roomstate "github.com/roomscript/coderoom/internal/room"
 )
 
 func NewAgent(alias string, msg agent.Message) Record {

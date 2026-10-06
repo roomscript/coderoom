@@ -5,7 +5,7 @@ package record
 import (
 	"testing"
 
-	"github.com/trigosec/coderoom/internal/agent"
+	"github.com/roomscript/coderoom/internal/agent"
 )
 
 func TestAccumulate_updatesMsgAndCachesText(t *testing.T) {
