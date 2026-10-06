@@ -1,11 +1,14 @@
 # coderoom
 
-> An interactive, scriptable shell for working with coding agents.
+> Script your agents like you script your shell.
 
-Work with named agents in a shared terminal room. When an interaction starts to
-repeat, turn it into a command.
+coderoom is an interactive, scriptable shell for coding agents. Work with named
+agents in a shared terminal room. One writes, another reviews, and you decide
+where to dig deeper. Capture recurring interactions as commands.
 
-For example, start with an ordinary conversation:
+## Work live. Script what repeats.
+
+Start with a conversation:
 
 ```text
 /invite ada
@@ -14,7 +17,7 @@ For example, start with an ordinary conversation:
 @turing review Ada's changes for edge cases
 ```
 
-Then capture the pattern as a command:
+Then capture a repeated check:
 
 ```text
 /def tests /shell go test ./...
@@ -22,20 +25,26 @@ Then capture the pattern as a command:
 ```
 
 After each turn, coderoom runs `/tests`. If they fail, Ada gets the output and
-tries again. Your tests decide when she is done. Three turns at most, and every
-step stays visible in the room.
+tries again. The loop ends when the tests pass or after three turns. Every step
+stays visible in the room.
 
-You do not need to design an agent pipeline up front. Collaborate one step at a
-time, then automate the parts you understand and want to repeat. Like a
-familiar shell, coderoom grows around the way you work.
+Like shell aliases and scripts, your room grows around the way you work.
 
-> Collaborate first. Automate when ready.
+## Keep iterations short
 
-## You stay in control
+Use agents to clarify requirements, question assumptions, and review focused
+changes. Short loops give you room to examine architecture, testability, and
+trust boundaries while building your own understanding of the system.
 
-coderoom never interprets an agent's text output as a room command. Commands
-in the room run only when you enter them directly or invoke a definition you
-created.
+Split review by role when useful: one agent checks tests and clarity, another
+examines architecture, and another looks for security issues. Agents surface
+material for scrutiny; you bring the engineering context and make the decisions.
+
+## Your agents. Your rules.
+
+You write the commands and set their limits. coderoom never interprets an agent's
+text output as a room command. Commands run only when you enter them directly
+or invoke a definition you created.
 
 ---
 
@@ -154,6 +163,7 @@ participants for the remainder of the room.
 
 ## Learn more
 
+- [coderoom overview and engineering ideas](https://www.trigosec.com/coderoom)
 - [Prompt language](docs/design/prompt-language.md)
 - [Participant roles](docs/design/participant-roles.md)
 - [Architecture](docs/design/architecture.md)
