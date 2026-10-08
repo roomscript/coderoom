@@ -22,8 +22,8 @@ func (w *workflowCollection) applyCompletion(completion workflowCompletion) inst
 		if completion.target.kind == workflowLoop {
 			return w.loop.handleShellCompletion(completion)
 		}
-	case participantSendPlanResult:
-		return w.stage.handleParticipantSendPlan(completion)
+	case sendPlanResult:
+		return w.stage.prepareSend(completion)
 	case broadcastPlanResult:
 		return w.stage.handleBroadcastPlan(completion)
 	case participantStateResult:

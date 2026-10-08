@@ -204,7 +204,7 @@ later execute `executePlannedParticipantSendRequest` with the opaque, session-bo
 plan returned by the gateway.
 
 ```go
-type createParticipantSendPlanInstruction struct {
+type prepareSendInstruction struct {
     target workflowRef
     alias  string
 }
@@ -218,7 +218,8 @@ type readHandoffSourceInstruction struct {
     alias  string
 }
 
-type participantSendPlanResult struct {
+type sendPlanResult struct {
+    participants []participantState
     plan    session.ParticipantSendPlan
     targets []string
 }
@@ -313,7 +314,7 @@ type startUserShellInstruction struct {
 }
 
 type readRosterInstruction struct { raw string }
-type createParticipantSendPlanInstruction struct {
+type prepareSendInstruction struct {
     target workflowRef
     alias  string
 }
@@ -339,7 +340,7 @@ applied before the causal event burst; workflow completion follows those events.
 Non-routing commands retain success-only behavior. An empty list preserves the
 normal event-then-completion order.
 
-`createParticipantSendPlanInstruction`, `planBroadcastInstruction`,
+`prepareSendInstruction`, `planBroadcastInstruction`,
 `readParticipantStateInstruction`, and `readHandoffSourceInstruction` provide
 the frozen-stage inputs. Shared sends carry their policy-aware frozen plan;
 broadcasts carry their frozen alias list directly. Participants joining after
@@ -788,13 +789,15 @@ Existing regression anchors are `TestStageWorkflow_freezesSendPlanAndDispatchesW
 
 ### Addressed-send implementation checkpoint
 
-`workflow_stage_send.go` now owns the addressed-send decisions:
-`handleParticipantSendPlan` retains the frozen plan and requests readiness;
-`completeSendPlanning` rejects an unavailable primary target, accepts the input,
-and either queues the stage or starts delivery; `advanceWaitingSend` checks primary
-departure and recipient readiness before dispatching. `startSendDispatch` takes a
-concrete send statement and removes departed notice recipients from the frozen
-plan before requesting delivery.
+`workflow_stage_send.go` owns the addressed-send algorithm. One synchronous
+preparation instruction obtains the session routing plan and readiness facts.
+`prepareSend` freezes the plan, rejects unavailable required targets, accepts
+input, and dispatches now or retains the plan. `resumeSendOnReadiness` is the
+resumption entry point: primary departure discards the plan, unmet readiness
+continues waiting, and readiness starts delivery. `startSendDispatch` removes
+departed notice recipients from the frozen routing plan before requesting delivery.
+Preparation results are consumed once; stale or repeated results cannot restart
+retained work.
 
 Readiness updates, atomic stage operations, and interruption remain shared.
 `workflow_stage_delivery.go` owns the shared completion and outcome reporting.
@@ -809,16 +812,18 @@ panics still need their planned review. No new subpackage is needed for this pat
 
 ## Worked sequence: staged dispatch
 
-1. The stage workflow allocates request 29 and returns a typed planning
-   instruction: `createParticipantSendPlanInstruction` for an addressed send,
-   `planBroadcastInstruction` for a broadcast, or participant inspection for a
-   handoff.
-2. A send or broadcast planning completion freezes its detached targets. The
-   workflow then allocates request 30 and returns
-   `readParticipantStateInstruction` to obtain detached readiness requirements.
-3. The workflow filters send and broadcast readiness requirements to the frozen routing
-   aliases and stores those values with its action and generation 4. Handoff
-   retains the complete readiness snapshot.
+1. The stage workflow requests preparation: `prepareSendInstruction` for an
+   addressed send, `planBroadcastInstruction` for a broadcast, or participant
+   inspection for a handoff.
+2. Send preparation reads the routing plan and participant readiness synchronously
+   on the serialized session path, then returns one `sendPlanResult`. The
+   `prepareSend` algorithm freezes those values, validates the primary target,
+   accepts input, and dispatches now or retains pending work. There is no separate
+   send-readiness completion. Broadcast planning still requests participant
+   inspection separately.
+3. Sends and broadcasts retain readiness requirements for their frozen aliases.
+   Handoff retains its readiness barrier. A retained send returns control and
+   resumes through `resumeSendOnReadiness` after a lifecycle event.
 4. Lifecycle events update the frozen readiness requirements. Once dispatchable, the workflow
    allocates request 31. Handoffs first return
    `readHandoffSourceInstruction`, then use its correlated canonical-room

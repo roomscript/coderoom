@@ -10,7 +10,7 @@ import (
 
 func TestStageWorkflow_replacedSendIgnoresOldCompletions(t *testing.T) {
 	for _, remove := range []string{"edit", "discard"} {
-		for _, completion := range []string{"plan", "readiness", "delivery"} {
+		for _, completion := range []string{"plan", "delivery"} {
 			t.Run(remove+"/"+completion, func(t *testing.T) {
 				workflows := workflowCollection{}
 				stage := &workflows.stage
@@ -38,18 +38,33 @@ func TestStageWorkflow_replacedSendIgnoresOldCompletions(t *testing.T) {
 
 func startOldSendCompletion(stage *stageWorkflow, phase string) workflowCompletion {
 	stage.start("@ada old", promptlang.Send{Alias: "ada", Text: "old"})
-	plan := participantSendPlanResult{target: stage.active.pending, targets: []string{"ada"}}
+	plan := sendPlanResult{target: stage.active.pending, targets: []string{"ada"}}
 	if phase == "plan" {
 		return plan
 	}
-	stage.handleParticipantSendPlan(plan)
-	readiness := participantStateResult{
-		target:                stage.active.pending,
-		readinessRequirements: []participantState{{alias: "ada", status: participant.StatusIdle}},
-	}
-	if phase == "readiness" {
-		return readiness
-	}
-	stage.handleParticipantState(readiness)
+	plan.participants = []participantState{{alias: "ada", status: participant.StatusIdle}}
+	stage.prepareSend(plan)
 	return sessionCompletion{target: stage.active.pending}
+}
+
+func TestStageWorkflow_sendPreparationIsConsumedOnce(t *testing.T) {
+	for _, status := range []participant.Status{participant.StatusIdle, participant.StatusWorking} {
+		t.Run(string(status), func(t *testing.T) {
+			stage := stageWorkflow{}
+			stage.start("@ada hello", promptlang.Send{Alias: "ada", Text: "hello"})
+			plan := sendPlanResult{
+				target: stage.active.pending, targets: []string{"ada"},
+				participants: []participantState{{alias: "ada", status: status}},
+			}
+			stage.prepareSend(plan)
+			before := stage.snapshot()
+			pending := stage.active.pending
+			if repeated := stage.prepareSend(plan); len(repeated) != 0 {
+				t.Fatalf("repeated preparation returned instructions: %#v", repeated)
+			}
+			if !reflect.DeepEqual(stage.snapshot(), before) || stage.active.pending != pending {
+				t.Fatal("repeated preparation changed the send")
+			}
+		})
+	}
 }

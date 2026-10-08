@@ -8,20 +8,17 @@ import (
 	"github.com/roomscript/coderoom/internal/room"
 )
 
-// Addressed sends retain the session-owned policy plan. Readiness and cancellation
-// use the shared stage machinery; primary-target decisions stay explicit here.
-func (w *stageWorkflow) handleParticipantSendPlan(result participantSendPlanResult) instructionSequence {
-	if !w.matches(result.target) {
+// prepareSend is synchronous: retain the frozen plan, validate it, accept input,
+// then dispatch now or suspend until a participant readiness event arrives.
+func (w *stageWorkflow) prepareSend(result sendPlanResult) instructionSequence {
+	if !w.matches(result.target) || w.active.phase != stagePlanning {
 		return nil
 	}
-	w.active.plan = result.plan
-	w.active.routing = slices.Clone(result.targets)
-	ref := w.nextRef()
-	w.active.pending = ref
-	return instructionSequence{readParticipantStateInstruction{target: ref}}
-}
-
-func (w *stageWorkflow) completeSendPlanning(send promptlang.Send) instructionSequence {
+	send, ok := w.active.statement.(promptlang.Send)
+	if !ok {
+		return nil
+	}
+	w.freezeSendPlan(result)
 	if len(w.active.routing) == 0 {
 		return w.rejectSendPlanning(SubmissionFailed{
 			Raw: w.active.raw, Operation: "staged dispatch", Code: ErrorExecutionFailed,
@@ -34,9 +31,16 @@ func (w *stageWorkflow) completeSendPlanning(send promptlang.Send) instructionSe
 
 	sequence := acceptedStageInputSequence(w.active.raw, w.active.routing)
 	if len(w.active.notReadyAliases) != 0 {
-		return append(sequence, w.queueStageUntilReady()...)
+		return append(sequence, w.retainPlanUntilReady()...)
 	}
 	return append(sequence, w.startSendDispatch(send))
+}
+
+func (w *stageWorkflow) freezeSendPlan(result sendPlanResult) {
+	w.active.plan = result.plan
+	w.active.routing = slices.Clone(result.targets)
+	w.active.readinessRequirements = freezeReadinessRequirements(w.active, result.participants)
+	w.active.notReadyAliases, w.active.unavailable = stageReadiness(w.active.readinessRequirements, w.active.routing)
 }
 
 func (w *stageWorkflow) rejectSendPlanning(failure SubmissionFailed) instructionSequence {
@@ -44,7 +48,8 @@ func (w *stageWorkflow) rejectSendPlanning(failure SubmissionFailed) instruction
 	return instructionSequence{publishEventInstruction{event: failure}}
 }
 
-func (w *stageWorkflow) advanceWaitingSend(send promptlang.Send) instructionSequence {
+// resumeSendOnReadiness is the entry point after a retained send returns control.
+func (w *stageWorkflow) resumeSendOnReadiness(send promptlang.Send) instructionSequence {
 	state := w.active
 	state.notReadyAliases = notReadyAliases(state.readinessRequirements, state.unavailable)
 	if slices.Contains(state.unavailable, send.Alias) {

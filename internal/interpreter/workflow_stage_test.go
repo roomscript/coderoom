@@ -15,15 +15,11 @@ import (
 func TestStageWorkflow_freezesSendPlanAndDispatchesWhenReady(t *testing.T) {
 	workflow := stageWorkflow{}
 	sequence := workflow.start("@ada hello", promptlang.Send{Alias: "ada", Text: "hello"})
-	planRequest := sequence[0].(createParticipantSendPlanInstruction)
+	planRequest := sequence[0].(prepareSendInstruction)
 
-	sequence = workflow.handleCompletion(participantSendPlanResult{
+	sequence = workflow.handleCompletion(sendPlanResult{
 		target: planRequest.target, targets: []string{"ada", "turing"},
-	})
-	stateRequest := sequence[0].(readParticipantStateInstruction)
-	sequence = workflow.handleCompletion(participantStateResult{
-		target: stateRequest.target,
-		readinessRequirements: []participantState{
+		participants: []participantState{
 			{alias: "ada", status: participant.StatusIdle},
 			{alias: "turing", status: participant.StatusIdle},
 		},
@@ -59,25 +55,19 @@ func TestStageWorkflow_copiesSuppliedPlanTargets(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			workflow := stageWorkflow{}
 			supplied := slices.Clone(tt.targets)
-			sequence := workflow.start("hello", tt.statement)
-			sequence = acceptSuppliedStagePlan(t, &workflow, sequence, supplied)
-			// The producer retains its slice after the workflow accepts the plan.
+			planStageForTest(t, &workflow, tt.statement, supplied, []participantState{
+				{alias: "ada", status: participant.StatusWorking},
+				{alias: "turing", status: participant.StatusIdle},
+			})
+			// Mutating producer-owned routing after preparation cannot change the stage.
 			for index := range supplied {
 				supplied[index] = "changed"
 			}
-			read := sequence[0].(readParticipantStateInstruction)
-			workflow.handleCompletion(participantStateResult{
-				target: read.target,
-				readinessRequirements: []participantState{
-					{alias: "ada", status: participant.StatusWorking},
-					{alias: "turing", status: participant.StatusIdle},
-				},
-			})
 			snapshot := workflow.snapshot()
 			if snapshot == nil || snapshot.Phase != StagePhasePending || !slices.Equal(snapshot.Routing, tt.targets) {
 				t.Fatalf("stage = %#v, want pending routing %v", snapshot, tt.targets)
 			}
-			sequence = workflow.handleSessionEvent(session.ParticipantStatusChanged{
+			sequence := workflow.handleSessionEvent(session.ParticipantStatusChanged{
 				Alias: "ada", To: participant.StatusIdle,
 			})
 			dispatch := sequence[0].(executeSessionInstruction)
@@ -95,12 +85,6 @@ func TestStageWorkflow_copiesSuppliedPlanTargets(t *testing.T) {
 func acceptSuppliedStagePlan(t *testing.T, workflow *stageWorkflow, sequence instructionSequence, targets []string) instructionSequence {
 	t.Helper()
 	switch request := sequence[0].(type) {
-	case createParticipantSendPlanInstruction:
-		sess := session.New()
-		t.Cleanup(sess.Shutdown)
-		return workflow.handleCompletion(participantSendPlanResult{
-			target: request.target, plan: sess.CreateParticipantSendPlan("ada"), targets: targets,
-		})
 	case planBroadcastInstruction:
 		return workflow.handleCompletion(broadcastPlanResult{target: request.target, targets: targets})
 	default:
@@ -234,14 +218,10 @@ func TestStageWorkflow_departedBroadcastTargetDoesNotBlockRemainingTargets(t *te
 func TestStageWorkflow_discardsSendWhenAddressedTargetDeparts(t *testing.T) {
 	workflow := stageWorkflow{}
 	sequence := workflow.start("@ada hello", promptlang.Send{Alias: "ada", Text: "hello"})
-	plan := sequence[0].(createParticipantSendPlanInstruction)
-	sequence = workflow.handleCompletion(participantSendPlanResult{
+	plan := sequence[0].(prepareSendInstruction)
+	workflow.handleCompletion(sendPlanResult{
 		target: plan.target, targets: []string{"ada"},
-	})
-	read := sequence[0].(readParticipantStateInstruction)
-	workflow.handleCompletion(participantStateResult{
-		target:                read.target,
-		readinessRequirements: []participantState{{alias: "ada", status: participant.StatusWorking}},
+		participants: []participantState{{alias: "ada", status: participant.StatusWorking}},
 	})
 
 	sequence = workflow.handleSessionEvent(session.AgentCrashed{Alias: "ada"})
@@ -259,14 +239,10 @@ func TestStageWorkflow_discardsSendWhenAddressedTargetDeparts(t *testing.T) {
 func TestStageWorkflow_namesDepartedSendTargetWhenListenerRemains(t *testing.T) {
 	workflow := stageWorkflow{}
 	sequence := workflow.start("@ada hello", promptlang.Send{Alias: "ada", Text: "hello"})
-	plan := sequence[0].(createParticipantSendPlanInstruction)
-	sequence = workflow.handleCompletion(participantSendPlanResult{
+	plan := sequence[0].(prepareSendInstruction)
+	workflow.handleCompletion(sendPlanResult{
 		target: plan.target, targets: []string{"ada", "turing"},
-	})
-	read := sequence[0].(readParticipantStateInstruction)
-	workflow.handleCompletion(participantStateResult{
-		target: read.target,
-		readinessRequirements: []participantState{
+		participants: []participantState{
 			{alias: "ada", status: participant.StatusWorking},
 			{alias: "turing", status: participant.StatusIdle},
 		},
@@ -485,12 +461,10 @@ func TestStageWorkflow_failsBroadcastWithoutTargets(t *testing.T) {
 func TestStageWorkflow_rejectsInitiallyUnavailableSendTarget(t *testing.T) {
 	workflow := stageWorkflow{}
 	sequence := workflow.start("@missing hello", promptlang.Send{Alias: "missing", Text: "hello"})
-	plan := sequence[0].(createParticipantSendPlanInstruction)
-	sequence = workflow.handleCompletion(participantSendPlanResult{
+	plan := sequence[0].(prepareSendInstruction)
+	sequence = workflow.handleCompletion(sendPlanResult{
 		target: plan.target, targets: []string{"missing"},
 	})
-	read := sequence[0].(readParticipantStateInstruction)
-	sequence = workflow.handleCompletion(participantStateResult{target: read.target})
 
 	failed := sequence[len(sequence)-1].(publishEventInstruction).event.(SubmissionFailed)
 	if !errors.Is(failed.Err, errStageTargetUnavailable) || workflow.pending() {
@@ -730,8 +704,8 @@ func TestSubmitContract_failedHandoffDoesNotRecordInput(t *testing.T) {
 // Test adapter for the typed completion entry points used by workflowCollection.
 func (w *stageWorkflow) handleCompletion(completion workflowCompletion) instructionSequence {
 	switch completion := completion.(type) {
-	case participantSendPlanResult:
-		return w.handleParticipantSendPlan(completion)
+	case sendPlanResult:
+		return w.prepareSend(completion)
 	case broadcastPlanResult:
 		return w.handleBroadcastPlan(completion)
 	case participantStateResult:

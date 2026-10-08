@@ -119,10 +119,10 @@ func (r *instructionRunner) applyExecutionInstruction(value instruction) ([]exec
 		return []executorItem{completionItem{completion: rosterCompletion{
 			raw: value.raw, participants: r.executor.roster(),
 		}}}, false, true
-	case createParticipantSendPlanInstruction:
+	case prepareSendInstruction:
 		plan, targets := r.executor.createParticipantSendPlan(value.alias)
-		return []executorItem{completionItem{completion: participantSendPlanResult{
-			target: value.target, plan: plan, targets: targets,
+		return []executorItem{completionItem{completion: sendPlanResult{
+			target: value.target, plan: plan, targets: targets, participants: r.executor.participantState(),
 		}}}, false, true
 	case planBroadcastInstruction:
 		targets := r.executor.planBroadcast()

@@ -125,7 +125,7 @@ func (w *stageWorkflow) start(raw string, statement promptlang.Statement) instru
 	ref := w.nextRef()
 	w.active.pending = ref
 	if send, ok := statement.(promptlang.Send); ok {
-		return instructionSequence{createParticipantSendPlanInstruction{target: ref, alias: send.Alias}}
+		return instructionSequence{prepareSendInstruction{target: ref, alias: send.Alias}}
 	}
 	if _, ok := statement.(promptlang.Broadcast); ok {
 		return instructionSequence{planBroadcastInstruction{target: ref}}
@@ -147,15 +147,15 @@ func (w *stageWorkflow) handleParticipantState(result participantStateResult) in
 	if !w.matches(result.target) {
 		return nil
 	}
+	if _, send := w.active.statement.(promptlang.Send); send {
+		return nil // Sends obtain readiness during synchronous preparation.
+	}
 	state := w.active
 	state.readinessRequirements = freezeReadinessRequirements(state, result.readinessRequirements)
 	if handoff, ok := state.statement.(promptlang.Handoff); ok {
 		state.routing = handoffRouting(handoff)
 	}
 	state.notReadyAliases, state.unavailable = stageReadiness(state.readinessRequirements, state.routing)
-	if send, ok := state.statement.(promptlang.Send); ok {
-		return w.completeSendPlanning(send)
-	}
 	state.sourceNeedsCompletion = handoffSourceIsWorking(state)
 	return w.completeParticipantPlanning(nil)
 }
@@ -191,10 +191,12 @@ func (w *stageWorkflow) completeParticipantPlanning(sequence instructionSequence
 	if w.readyToDispatch() {
 		return append(sequence, w.dispatchInstruction())
 	}
-	return append(sequence, w.queueStageUntilReady()...)
+	return append(sequence, w.retainPlanUntilReady()...)
 }
 
-func (w *stageWorkflow) queueStageUntilReady() instructionSequence {
+// retainPlanUntilReady is the suspension point. After publishing queued success,
+// the stage waits for later lifecycle/output events to resume work.
+func (w *stageWorkflow) retainPlanUntilReady() instructionSequence {
 	w.active.phase = stageWaiting
 	w.active.submissionPending = false
 	return instructionSequence{
@@ -462,7 +464,7 @@ func (w *stageWorkflow) markUnavailable(alias string) {
 
 func (w *stageWorkflow) advanceWaitingStage() instructionSequence {
 	if send, ok := w.active.statement.(promptlang.Send); ok {
-		return w.advanceWaitingSend(send)
+		return w.resumeSendOnReadiness(send)
 	}
 	state := w.active
 	state.notReadyAliases = notReadyAliases(state.readinessRequirements, state.unavailable)

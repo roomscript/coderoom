@@ -50,7 +50,7 @@ type startUserShellInstruction struct {
 }
 
 type readRosterInstruction struct{ raw string }
-type createParticipantSendPlanInstruction struct {
+type prepareSendInstruction struct {
 	target workflowRef
 	alias  string
 }
@@ -68,21 +68,21 @@ type shutdownSessionInstruction struct{}
 type appendRecordInstruction struct{ record room.Record }
 type publishEventInstruction struct{ event Event }
 
-func (executeSessionInstruction) instruction()            {}
-func (startShellInstruction) instruction()                {}
-func (executeCommandInstruction) instruction()            {}
-func (startUserShellInstruction) instruction()            {}
-func (readRosterInstruction) instruction()                {}
-func (createParticipantSendPlanInstruction) instruction() {}
-func (planBroadcastInstruction) instruction()             {}
-func (readParticipantStateInstruction) instruction()      {}
-func (readHandoffSourceInstruction) instruction()         {}
-func (publishSnapshotInstruction) instruction()           {}
-func (requestSnapshotInstruction) instruction()           {}
-func (requestCloseInstruction) instruction()              {}
-func (shutdownSessionInstruction) instruction()           {}
-func (appendRecordInstruction) instruction()              {}
-func (publishEventInstruction) instruction()              {}
+func (executeSessionInstruction) instruction()       {}
+func (startShellInstruction) instruction()           {}
+func (executeCommandInstruction) instruction()       {}
+func (startUserShellInstruction) instruction()       {}
+func (readRosterInstruction) instruction()           {}
+func (prepareSendInstruction) instruction()          {}
+func (planBroadcastInstruction) instruction()        {}
+func (readParticipantStateInstruction) instruction() {}
+func (readHandoffSourceInstruction) instruction()    {}
+func (publishSnapshotInstruction) instruction()      {}
+func (requestSnapshotInstruction) instruction()      {}
+func (requestCloseInstruction) instruction()         {}
+func (shutdownSessionInstruction) instruction()      {}
+func (appendRecordInstruction) instruction()         {}
+func (publishEventInstruction) instruction()         {}
 
 type instructionSequence []instruction
 
@@ -155,10 +155,11 @@ type rosterCompletion struct {
 	participants []participant.View
 }
 
-type participantSendPlanResult struct {
-	target  workflowRef
-	plan    session.ParticipantSendPlan
-	targets []string
+type sendPlanResult struct {
+	participants []participantState
+	target       workflowRef
+	plan         session.ParticipantSendPlan
+	targets      []string
 }
 
 type broadcastPlanResult struct {
@@ -188,14 +189,14 @@ type handoffSourceResult struct {
 	ok     bool
 }
 
-func (sessionCompletion) workflowCompletion()         {}
-func (shellCompletion) workflowCompletion()           {}
-func (submissionCompletion) workflowCompletion()      {}
-func (rosterCompletion) workflowCompletion()          {}
-func (participantSendPlanResult) workflowCompletion() {}
-func (broadcastPlanResult) workflowCompletion()       {}
-func (participantStateResult) workflowCompletion()    {}
-func (handoffSourceResult) workflowCompletion()       {}
+func (sessionCompletion) workflowCompletion()      {}
+func (shellCompletion) workflowCompletion()        {}
+func (submissionCompletion) workflowCompletion()   {}
+func (rosterCompletion) workflowCompletion()       {}
+func (sendPlanResult) workflowCompletion()         {}
+func (broadcastPlanResult) workflowCompletion()    {}
+func (participantStateResult) workflowCompletion() {}
+func (handoffSourceResult) workflowCompletion()    {}
 
 type executorItem interface{ executorItem() }
 type instructionItem struct{ instruction instruction }

@@ -17,11 +17,10 @@ func planStageForTest(t *testing.T, workflow *stageWorkflow, statement promptlan
 	if send, ok := statement.(promptlang.Send); ok {
 		sess := session.New()
 		t.Cleanup(sess.Shutdown)
-		request := sequence[0].(createParticipantSendPlanInstruction)
-		sequence = workflow.handleCompletion(participantSendPlanResult{target: request.target, plan: sess.CreateParticipantSendPlan(send.Alias), targets: targets})
-	} else {
-		sequence = acceptSuppliedStagePlan(t, workflow, sequence, targets)
+		request := sequence[0].(prepareSendInstruction)
+		return workflow.handleCompletion(sendPlanResult{target: request.target, plan: sess.CreateParticipantSendPlan(send.Alias), targets: targets, participants: states})
 	}
+	sequence = acceptSuppliedStagePlan(t, workflow, sequence, targets)
 	read := sequence[0].(readParticipantStateInstruction)
 	return workflow.handleCompletion(participantStateResult{target: read.target, readinessRequirements: states})
 }
