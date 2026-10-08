@@ -62,22 +62,15 @@ func (w *stageWorkflow) discard() (instructionSequence, bool) {
 	return instructionSequence{requestSnapshotInstruction{}}, true
 }
 
-func (w *stageWorkflow) handleBroadcastPlan(result broadcastPlanResult) instructionSequence {
-	if !w.matches(result.target) {
-		return nil
-	}
-	w.active.routing = slices.Clone(result.targets)
-	ref := w.nextRef()
-	w.active.pending = ref
-	return instructionSequence{readParticipantStateInstruction{target: ref}}
-}
-
 func (w *stageWorkflow) handleParticipantState(result participantStateResult) instructionSequence {
 	if !w.matches(result.target) {
 		return nil
 	}
 	if w.active.send != nil {
 		return nil // Sends obtain readiness during synchronous preparation.
+	}
+	if w.active.broadcast != nil {
+		return w.prepareBroadcast(result)
 	}
 	state := w.active
 	participants := freezeReadinessRequirements(state, result.readinessRequirements)
@@ -119,43 +112,17 @@ func (w *stageWorkflow) completeParticipantPlanning(sequence instructionSequence
 			publishEventInstruction{event: SubmissionSucceeded{Raw: state.raw}},
 		)
 	}
-	if w.readyToDispatch() {
-		return append(sequence, w.dispatchInstruction())
-	}
-	return append(sequence, w.retainPlanUntilReady()...)
-}
-
-func (w *stageWorkflow) readyToDispatch() bool {
-	if w.active == nil || len(w.active.routing) == 0 ||
-		!w.active.requirements.isReady() {
-		return false
-	}
-	_, handoff := w.active.statement.(promptlang.Handoff)
-	return !handoff
+	return nil
 }
 
 func (w *stageWorkflow) dispatchInstruction() executeSessionInstruction {
 	if w.active.send != nil {
 		return w.startSendDispatch()
 	}
-	state := w.active
-	state.phase = stageDispatching
-	ref := w.nextRef()
-	state.pending = ref
-	var request sessionRequest
-	switch statement := state.statement.(type) {
-	case promptlang.Broadcast:
-		state.dispatchRouting = activeAliases(state.routing, state.requirements.unavailable)
-		request = broadcastRequest{aliases: slices.Clone(state.dispatchRouting), text: statement.Text}
-	default:
-		// Only sends and broadcasts use immediate dispatch; handoffs must resolve
-		// their source first. The addressed-send path is typed above.
-		panic(fmt.Sprintf("unsupported immediate stage dispatch %T", state.statement))
+	if w.active.broadcast != nil {
+		return w.startBroadcastDispatch()
 	}
-	return executeSessionInstruction{
-		target: ref, request: request,
-		recordsOnSuccess: []room.Record{{Kind: room.KindUserInput, Text: state.raw}},
-	}
+	panic(fmt.Sprintf("unsupported immediate stage dispatch %T", w.active.statement))
 }
 
 func (w *stageWorkflow) mustDiscard() bool {

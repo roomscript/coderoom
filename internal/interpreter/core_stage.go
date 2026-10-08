@@ -26,7 +26,8 @@ func (w *stageWorkflow) start(raw string, statement promptlang.Statement) instru
 		w.active.send = &sendPlan{action: send}
 		return instructionSequence{prepareSendInstruction{target: ref, alias: send.Alias}}
 	}
-	if _, ok := statement.(promptlang.Broadcast); ok {
+	if broadcast, ok := statement.(promptlang.Broadcast); ok {
+		w.active.broadcast = &broadcast
 		return instructionSequence{planBroadcastInstruction{target: ref}}
 	}
 	return instructionSequence{readParticipantStateInstruction{target: ref}}
@@ -67,12 +68,5 @@ func (w *stageWorkflow) advanceWaitingStage() instructionSequence {
 	if w.active.send != nil {
 		return w.resumeSendOnReadiness()
 	}
-	state := w.active
-	if w.mustDiscard() {
-		return w.discardUnavailableStage()
-	}
-	if !state.requirements.isReady() {
-		return instructionSequence{requestSnapshotInstruction{}}
-	}
-	return instructionSequence{w.dispatchInstruction(), requestSnapshotInstruction{}}
+	return w.resumeBroadcastOnReadiness()
 }

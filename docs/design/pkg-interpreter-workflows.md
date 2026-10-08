@@ -943,3 +943,15 @@ For implementation details, `stage_plan.go` holds the plan and builds delivery
 requests; `stageRequirements` owns readiness updates. Cancellation acknowledgements
 remain separate from readiness. The runner supplies serialization and causal
 ordering, but is not needed to locate the send's actual suspension and resumption.
+
+### Broadcast core checkpoint
+
+`core_broadcast.go` exposes recipient selection, preparation, readiness resumption,
+and dispatch. Selection and readiness reads remain synchronous. The retained
+`stagePlan` holds the broadcast action, frozen recipients, and readiness facts.
+Preparation accepts the plan once, then delivers immediately or suspends through
+`retainPlanUntilReady`. `resumeBroadcastOnReadiness` discards when all recipients
+are unavailable, continues waiting while requirements are unmet, or dispatches to
+the remaining eligible frozen recipients. Joins never expand the plan.
+Broadcast outcomes use `core_delivery.go`, preserving partial-delivery reporting
+and the distinction between immediate submission results and queued failures.

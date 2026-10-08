@@ -14,10 +14,11 @@ type stagePlan struct {
 	routing      []string
 	requirements stageRequirements
 	send         *sendPlan
+	broadcast    *promptlang.Broadcast
 }
 
 // sendPlan keeps the addressed action and session delivery plan together.
-// Broadcast and handoff preparation remain separate checkpoints.
+// Handoff source selection remains a separate checkpoint.
 type sendPlan struct {
 	action   promptlang.Send
 	delivery session.ParticipantSendPlan
@@ -49,4 +50,12 @@ func participantsForRouting(routing []string, participants []participantState) [
 		}
 	}
 	return readinessRequirements
+}
+
+func (p *stagePlan) freezeBroadcastRequirements(participants []participantState) {
+	p.requirements = freezeStageRequirements(participantsForRouting(p.routing, participants), p.routing)
+}
+
+func (p *stagePlan) broadcastDeliveryRequest() broadcastRequest {
+	return broadcastRequest{aliases: activeAliases(p.routing, p.requirements.unavailable), text: p.broadcast.Text}
 }

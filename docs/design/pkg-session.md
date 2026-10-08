@@ -399,3 +399,8 @@ Session rechecks live state when executing and retains bound-agent checks. The
 API supports staging startup and maintenance states while execution guards
 require completed startup before reserving work or delivering messages.
 Failed-startup removal remains supported.
+
+Startup attachment checks the session lifetime and the participant runtime under
+one lock before binding the agent. A startup that finishes after shutdown begins
+is stopped by startup cleanup and never enters shutdown's bound-agent snapshot.
+This keeps failed attachment from assigning the same agent to both cleanup paths.

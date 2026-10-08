@@ -408,16 +408,18 @@ func (s *Session) attachParticipant(alias string, a agent.Agent) (chan struct{},
 		s.mu.Unlock()
 		return nil, "", false
 	}
+	// Shutdown cancels the lifetime and removes runtimes before taking its stop
+	// snapshot. Reject late startups before binding an agent, so failed startup
+	// cleanup and shutdown cannot both acquire ownership of stopping it.
+	runtime, ok := s.agents[alias]
+	if !ok || s.lifecycle.ctx.Err() != nil {
+		s.mu.Unlock()
+		return nil, "", false
+	}
 	from := p.Status
 	if err := p.AttachAgent(a, s.now()); err != nil {
 		s.mu.Unlock()
 		s.notifyParticipantInvariant(alias, fmt.Errorf("attach agent: %w", err))
-		return nil, "", false
-	}
-	runtime, ok := s.agents[alias]
-	if !ok {
-		s.mu.Unlock()
-		s.notifyParticipantInvariant(alias, fmt.Errorf("attach agent: missing runtime"))
 		return nil, "", false
 	}
 	runtime.stop = stop
