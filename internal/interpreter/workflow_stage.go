@@ -6,19 +6,18 @@ import (
 	"slices"
 
 	"github.com/roomscript/coderoom/internal/participant"
-	"github.com/roomscript/coderoom/internal/promptlang"
 	"github.com/roomscript/coderoom/internal/room"
 )
 
 var errNoStageTargets = errors.New("no participants available for staged submission")
 var errStageTargetUnavailable = errors.New("no participant named")
 var errStageTargetCrashed = errors.New("participant has crashed")
+var errUnsupportedStageAction = errors.New("unsupported staged action")
 var errNoHandoffSource = errors.New("handoff source has no completed room-visible output")
 
 type stageState struct {
 	generation uint64
 	raw        string
-	statement  promptlang.Statement
 	pending    workflowRef
 	stagePlan
 	phase             stagePhase
@@ -62,26 +61,16 @@ func (w *stageWorkflow) discard() (instructionSequence, bool) {
 	return instructionSequence{requestSnapshotInstruction{}}, true
 }
 
-func (w *stageWorkflow) dispatchInstruction() executeSessionInstruction {
-	if w.active.send != nil {
-		return w.startSendDispatch()
-	}
-	if w.active.broadcast != nil {
-		return w.startBroadcastDispatch()
-	}
-	panic(fmt.Sprintf("unsupported immediate stage dispatch %T", w.active.statement))
-}
-
 func (w *stageWorkflow) mustDiscard() bool {
 	state := w.active
 	if state.send != nil {
 		return slices.Contains(state.requirements.unavailable, state.send.action.Alias)
 	}
-	_, broadcast := state.statement.(promptlang.Broadcast)
-	if broadcast {
+	if state.broadcast != nil {
 		return len(activeAliases(state.routing, state.requirements.unavailable)) == 0
 	}
-	if handoff, ok := state.statement.(promptlang.Handoff); ok {
+	if state.handoff != nil {
+		handoff := state.handoff.action
 		return slices.Contains(state.requirements.unavailable, handoff.FromAlias) ||
 			slices.Contains(state.requirements.unavailable, handoff.ToAlias)
 	}
@@ -96,7 +85,8 @@ func (w *stageWorkflow) discardUnavailableStage() instructionSequence {
 		len(activeAliases(state.routing, state.requirements.unavailable)) != 0 {
 		message = fmt.Sprintf("staged submission discarded: %q is no longer available", state.send.action.Alias)
 		presentationMessage = fmt.Sprintf("staged message discarded: %q is no longer available", state.send.action.Alias)
-	} else if handoff, ok := state.statement.(promptlang.Handoff); ok {
+	} else if state.handoff != nil {
+		handoff := state.handoff.action
 		missing := handoff.FromAlias
 		if !slices.Contains(state.requirements.unavailable, missing) {
 			missing = handoff.ToAlias
@@ -108,12 +98,9 @@ func (w *stageWorkflow) discardUnavailableStage() instructionSequence {
 	sequence := instructionSequence{
 		appendRecordInstruction{record: room.Record{Kind: room.KindSystem, Text: message}},
 	}
-	switch state.statement.(type) {
-	case promptlang.Send, promptlang.Broadcast, promptlang.Handoff:
-		sequence = append(sequence, publishEventInstruction{event: StagedInputDiscarded{
-			Raw: state.raw, Reason: presentationMessage,
-		}})
-	}
+	sequence = append(sequence, publishEventInstruction{event: StagedInputDiscarded{
+		Raw: state.raw, Reason: presentationMessage,
+	}})
 	return append(sequence, requestSnapshotInstruction{})
 }
 

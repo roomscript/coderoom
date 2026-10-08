@@ -54,7 +54,10 @@ func (w *stageWorkflow) advanceInterruptedStage() instructionSequence {
 		}
 		return instructionSequence{w.readHandoffSourceInstruction(), requestSnapshotInstruction{}}
 	}
-	return instructionSequence{w.dispatchInstruction(), requestSnapshotInstruction{}}
+	if w.active.send != nil {
+		return instructionSequence{w.startSendDispatch(), requestSnapshotInstruction{}}
+	}
+	return instructionSequence{w.startBroadcastDispatch(), requestSnapshotInstruction{}}
 }
 
 func (w *stageWorkflow) handlePendingInterruptCompletion(

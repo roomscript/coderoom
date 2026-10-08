@@ -823,16 +823,17 @@ do not allocate that state. The shared stage owns input, routing/readiness, phas
 and submission timing; it refers to these components instead of carrying their
 individual bookkeeping fields.
 
-`stage_outcome.go` owns the shared completion and outcome reporting.
+`core_delivery.go` owns shared delivery completion; `stage_outcome.go` builds
+the outcome reports.
 `ApplyResult` in `core_events.go` routes preparation facts and execution outcomes
 directly to their handlers; no workflow-collection switch intervenes. The instruction runner's causal
 ordering remains unchanged. `TestStageWorkflow_replacedSendIgnoresOldCompletions`
 protects the replacement stage after edit or discard.
 
-This is a readability checkpoint, not completion of #55. The shared stage still
-stores parsed statements for shared event reporting and broadcast/handoff decisions. Broadcast/handoff
-transitions and the remaining instruction-dispatch invariant
-panics still need their planned review. No new subpackage is needed for this path.
+This is a readability checkpoint, not completion of #55. Stages now retain typed
+actions only; send, broadcast and handoff algorithms are exposed in core files. Loops, command execution and the remaining runner
+instruction-dispatch invariants still need their planned review. No new subpackage
+is needed for this path.
 
 ## Worked sequence: staged dispatch
 
@@ -975,3 +976,22 @@ accepted-context capture and delivery request construction. `stagePlan` freezes
 recipient requirements, and `stageRequirements` owns readiness and turn identity.
 `core_handoff.go` coordinates updates to these separate owners before resuming work. Repeated preparation and stale source results do not restart
 accepted work.
+
+### Whole-interpreter review checkpoint
+
+The stage algorithms now expose preparation, actual waits, resumption and delivery
+completion. Supporting ownership is split between plans, readiness, interruption,
+handoff source tracking and outcomes. Stage construction selects one typed action;
+shared state no longer keeps a second generic statement. Unsupported stage actions
+are rejected before changing current work, and interruption dispatches directly to
+the typed action rather than a generic dispatch switch.
+
+Remaining substantial work is concentrated in `workflow_loop.go`, where loop
+transitions, condition execution and formatting are mixed, and `command_shell.go`,
+where command preparation and asynchronous execution share a file. These need
+purpose-based core algorithms with explicit participant/output and shell-result
+resumption points. After that, review the runner's synchronous preparation-result
+vocabulary and finalize file/type organization. The runner must continue applying
+causal events before delivery results; simplifying navigation must preserve that
+ordering. The API/core split is useful but does not by itself complete #55's
+human readability requirement.

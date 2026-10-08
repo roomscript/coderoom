@@ -9,25 +9,31 @@ import (
 // and resume it on session facts. Send decisions live in core_send.go; delivery
 // results finish through core_delivery.go.
 func (w *stageWorkflow) start(raw string, statement promptlang.Statement) instructionSequence {
+	var plan stagePlan
+	var handoff *handoffStage
+	switch action := statement.(type) {
+	case promptlang.Send:
+		plan.send = &sendPlan{action: action}
+	case promptlang.Broadcast:
+		plan.broadcast = &action
+	case promptlang.Handoff:
+		handoff = &handoffStage{action: action}
+	default:
+		return instructionSequence{publishEventInstruction{event: SubmissionFailed{
+			Raw: raw, Operation: "staged dispatch", Code: ErrorExecutionFailed, Err: errUnsupportedStageAction,
+		}}}
+	}
 	w.nextGeneration++
 	w.active = &stageState{
-		generation:        w.nextGeneration,
-		raw:               raw,
-		statement:         statement,
-		phase:             stagePlanning,
-		submissionPending: true,
-	}
-	if handoff, ok := statement.(promptlang.Handoff); ok {
-		w.active.handoff = &handoffStage{action: handoff}
+		generation: w.nextGeneration, raw: raw, stagePlan: plan, handoff: handoff,
+		phase: stagePlanning, submissionPending: true,
 	}
 	ref := w.nextRef()
 	w.active.pending = ref
-	if send, ok := statement.(promptlang.Send); ok {
-		w.active.send = &sendPlan{action: send}
-		return instructionSequence{prepareSendInstruction{target: ref, alias: send.Alias}}
+	if plan.send != nil {
+		return instructionSequence{prepareSendInstruction{target: ref, alias: plan.send.action.Alias}}
 	}
-	if broadcast, ok := statement.(promptlang.Broadcast); ok {
-		w.active.broadcast = &broadcast
+	if plan.broadcast != nil {
 		return instructionSequence{planBroadcastInstruction{target: ref}}
 	}
 	return instructionSequence{readParticipantStateInstruction{target: ref}}

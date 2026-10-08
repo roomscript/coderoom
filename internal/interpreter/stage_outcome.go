@@ -3,18 +3,13 @@ package interpreter
 import (
 	"slices"
 
-	"github.com/roomscript/coderoom/internal/promptlang"
 	"github.com/roomscript/coderoom/internal/session"
 )
 
 func (state *stageState) deliveryEvents(completion sessionCompletion) instructionSequence {
 	sequence := instructionSequence{requestSnapshotInstruction{}}
 	delivered := completion.routing.Aliases(session.DeliveryDelivered)
-	switch state.statement.(type) {
-	case promptlang.Send, promptlang.Broadcast, promptlang.Handoff:
-		if len(delivered) == 0 {
-			break
-		}
+	if len(delivered) != 0 {
 		sequence = append(sequence, publishEventInstruction{event: StagedInputDispatched{
 			Raw: state.raw, Routing: slices.Clone(delivered),
 		}})
