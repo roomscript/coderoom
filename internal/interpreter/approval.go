@@ -18,11 +18,6 @@ type resolveApprovalOperation struct {
 	choice ApprovalChoice
 }
 
-// ResolveApproval queues a structured response to the active approval.
-func (i *Interpreter) ResolveApproval(id int64, choice ApprovalChoice) error {
-	return i.executor.resolveApproval(id, choice)
-}
-
 func (e *interpreterExecutor) resolveApproval(id int64, choice ApprovalChoice) error {
 	if !e.enqueue(resolveApprovalOperation{id: id, choice: choice}) {
 		return ErrClosed

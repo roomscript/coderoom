@@ -133,38 +133,10 @@ func (w *stageWorkflow) start(raw string, statement promptlang.Statement) instru
 	return instructionSequence{readParticipantStateInstruction{target: ref}}
 }
 
-func (w *stageWorkflow) handleCompletion(completion workflowCompletion) instructionSequence {
-	switch completion := completion.(type) {
-	case participantSendPlanResult:
-		return w.handleParticipantSendPlan(completion)
-	case broadcastPlanResult:
-		return w.handleBroadcastPlan(completion)
-	case participantStateResult:
-		return w.handleParticipantState(completion)
-	case handoffSourceResult:
-		return w.handleHandoffSource(completion)
-	case sessionCompletion:
-		return w.handleSessionCompletion(completion)
-	default:
-		return nil
-	}
-}
-
 func (w *stageWorkflow) handleBroadcastPlan(result broadcastPlanResult) instructionSequence {
 	if !w.matches(result.target) {
 		return nil
 	}
-	w.active.routing = slices.Clone(result.targets)
-	ref := w.nextRef()
-	w.active.pending = ref
-	return instructionSequence{readParticipantStateInstruction{target: ref}}
-}
-
-func (w *stageWorkflow) handleParticipantSendPlan(result participantSendPlanResult) instructionSequence {
-	if !w.matches(result.target) {
-		return nil
-	}
-	w.active.plan = result.plan
 	w.active.routing = slices.Clone(result.targets)
 	ref := w.nextRef()
 	w.active.pending = ref
@@ -181,6 +153,9 @@ func (w *stageWorkflow) handleParticipantState(result participantStateResult) in
 		state.routing = handoffRouting(handoff)
 	}
 	state.notReadyAliases, state.unavailable = stageReadiness(state.readinessRequirements, state.routing)
+	if send, ok := state.statement.(promptlang.Send); ok {
+		return w.completeSendPlanning(send)
+	}
 	state.sourceNeedsCompletion = handoffSourceIsWorking(state)
 	return w.completeParticipantPlanning(nil)
 }
@@ -216,13 +191,16 @@ func (w *stageWorkflow) completeParticipantPlanning(sequence instructionSequence
 	if w.readyToDispatch() {
 		return append(sequence, w.dispatchInstruction())
 	}
-	state.phase = stageWaiting
-	state.submissionPending = false
-	sequence = append(sequence,
+	return append(sequence, w.queueStageUntilReady()...)
+}
+
+func (w *stageWorkflow) queueStageUntilReady() instructionSequence {
+	w.active.phase = stageWaiting
+	w.active.submissionPending = false
+	return instructionSequence{
 		requestSnapshotInstruction{},
-		publishEventInstruction{event: SubmissionSucceeded{Raw: state.raw}},
-	)
-	return sequence
+		publishEventInstruction{event: SubmissionSucceeded{Raw: w.active.raw}},
+	}
 }
 
 func (w *stageWorkflow) readHandoffSourceInstruction() readHandoffSourceInstruction {
@@ -286,41 +264,27 @@ func (w *stageWorkflow) readyToDispatch() bool {
 }
 
 func (w *stageWorkflow) dispatchInstruction() executeSessionInstruction {
+	if send, ok := w.active.statement.(promptlang.Send); ok {
+		return w.startSendDispatch(send)
+	}
 	state := w.active
 	state.phase = stageDispatching
 	ref := w.nextRef()
 	state.pending = ref
 	var request sessionRequest
 	switch statement := state.statement.(type) {
-	case promptlang.Send:
-		state.dispatchRouting = activeAliases(state.routing, state.unavailable)
-		request = executePlannedParticipantSendRequest{
-			plan: state.plan.DiscardUnavailableNoticeRecipients(state.unavailable), message: statement.Text,
-			notice: fmt.Sprintf("@%s: %s", statement.Alias, statement.Text),
-		}
 	case promptlang.Broadcast:
 		state.dispatchRouting = activeAliases(state.routing, state.unavailable)
 		request = broadcastRequest{aliases: slices.Clone(state.dispatchRouting), text: statement.Text}
 	default:
+		// Only sends and broadcasts use immediate dispatch; handoffs must resolve
+		// their source first. The addressed-send path is typed above.
 		panic(fmt.Sprintf("unsupported immediate stage dispatch %T", state.statement))
 	}
 	return executeSessionInstruction{
 		target: ref, request: request,
 		recordsOnSuccess: []room.Record{{Kind: room.KindUserInput, Text: state.raw}},
 	}
-}
-
-func (w *stageWorkflow) handleSessionCompletion(completion sessionCompletion) instructionSequence {
-	if sequence, handled := w.handlePendingInterruptCompletion(completion); handled {
-		return sequence
-	}
-	if !w.matches(completion.target) {
-		return nil
-	}
-	state := w.active
-	w.active = nil
-	sequence := stageDispatchEventSequence(state, completion)
-	return append(sequence, stageDispatchOutcomeInstruction(state, completion)...)
 }
 
 func (w *stageWorkflow) handlePendingInterruptCompletion(
@@ -334,51 +298,6 @@ func (w *stageWorkflow) handlePendingInterruptCompletion(
 		return nil, false
 	}
 	return w.handleInterruptCompletion(completion, alias), true
-}
-
-func stageDispatchEventSequence(
-	state *stageState,
-	completion sessionCompletion,
-) instructionSequence {
-	sequence := instructionSequence{requestSnapshotInstruction{}}
-	delivered := completion.routing.Aliases(session.DeliveryDelivered)
-	switch state.statement.(type) {
-	case promptlang.Send, promptlang.Broadcast, promptlang.Handoff:
-		if len(delivered) == 0 {
-			break
-		}
-		sequence = append(sequence, publishEventInstruction{event: StagedInputDispatched{
-			Raw: state.raw, Routing: slices.Clone(delivered),
-		}})
-	}
-	if state.handoffCompleted != nil && completion.err == nil {
-		handoff := state.handoffCompleted
-		sequence = append(sequence, publishEventInstruction{event: HandoffCompleted{
-			Preview: handoff.Preview,
-		}})
-	}
-	return sequence
-}
-
-func stageDispatchOutcomeInstruction(
-	state *stageState,
-	completion sessionCompletion,
-) instructionSequence {
-	if completion.err != nil {
-		if !state.submissionPending {
-			return instructionSequence{publishEventInstruction{event: OperationFailed{
-				Operation: "staged dispatch", Err: completion.err,
-			}}}
-		}
-		return instructionSequence{publishEventInstruction{event: SubmissionFailed{
-			Raw: state.raw, Operation: "staged dispatch",
-			Code: ErrorExecutionFailed, Err: completion.err,
-		}}}
-	}
-	if state.submissionPending {
-		return instructionSequence{publishEventInstruction{event: SubmissionSucceeded{Raw: state.raw}}}
-	}
-	return nil
 }
 
 func (w *stageWorkflow) handleInterruptCompletion(
@@ -542,6 +461,9 @@ func (w *stageWorkflow) markUnavailable(alias string) {
 }
 
 func (w *stageWorkflow) advanceWaitingStage() instructionSequence {
+	if send, ok := w.active.statement.(promptlang.Send); ok {
+		return w.advanceWaitingSend(send)
+	}
 	state := w.active
 	state.notReadyAliases = notReadyAliases(state.readinessRequirements, state.unavailable)
 	if w.mustDiscard() {

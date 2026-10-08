@@ -9,27 +9,6 @@ type takeStageForEditOperation struct{ result chan stageOperationResult }
 type discardStageOperation struct{ result chan stageOperationResult }
 type interruptAndDispatchStageOperation struct{ result chan stageOperationResult }
 
-// TakeStageForEdit atomically removes and returns the current staged input.
-func (i *Interpreter) TakeStageForEdit() (string, bool) {
-	result := make(chan stageOperationResult, 1)
-	value := i.executor.runStageOperation(takeStageForEditOperation{result: result}, result)
-	return value.raw, value.ok
-}
-
-// DiscardStage atomically abandons the current staged input.
-func (i *Interpreter) DiscardStage() bool {
-	result := make(chan stageOperationResult, 1)
-	return i.executor.runStageOperation(discardStageOperation{result: result}, result).ok
-}
-
-// InterruptAndDispatchStage requests cancellation of the current stage's
-// frozen blockers. Dispatch still waits for their causal lifecycle events.
-func (i *Interpreter) InterruptAndDispatchStage() bool {
-	result := make(chan stageOperationResult, 1)
-	operation := interruptAndDispatchStageOperation{result: result}
-	return i.executor.runStageOperation(operation, result).ok
-}
-
 func (e *interpreterExecutor) runStageOperation(
 	operation operation,
 	result <-chan stageOperationResult,

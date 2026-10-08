@@ -23,13 +23,13 @@ func (w *workflowCollection) applyCompletion(completion workflowCompletion) inst
 			return w.loop.handleShellCompletion(completion)
 		}
 	case participantSendPlanResult:
-		return w.stage.handleCompletion(completion)
+		return w.stage.handleParticipantSendPlan(completion)
 	case broadcastPlanResult:
-		return w.stage.handleCompletion(completion)
+		return w.stage.handleBroadcastPlan(completion)
 	case participantStateResult:
-		return w.stage.handleCompletion(completion)
+		return w.stage.handleParticipantState(completion)
 	case handoffSourceResult:
-		return w.stage.handleCompletion(completion)
+		return w.stage.handleHandoffSource(completion)
 	}
 	return nil
 }
@@ -41,7 +41,7 @@ func (w *workflowCollection) applySessionCompletion(
 	case workflowLoop:
 		return w.loop.handleSessionCompletion(completion)
 	case workflowStage:
-		return w.stage.handleCompletion(completion)
+		return w.stage.handleSessionCompletion(completion)
 	default:
 		return nil
 	}

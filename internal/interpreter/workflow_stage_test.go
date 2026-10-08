@@ -726,3 +726,21 @@ func TestSubmitContract_failedHandoffDoesNotRecordInput(t *testing.T) {
 		}
 	}
 }
+
+// Test adapter for the typed completion entry points used by workflowCollection.
+func (w *stageWorkflow) handleCompletion(completion workflowCompletion) instructionSequence {
+	switch completion := completion.(type) {
+	case participantSendPlanResult:
+		return w.handleParticipantSendPlan(completion)
+	case broadcastPlanResult:
+		return w.handleBroadcastPlan(completion)
+	case participantStateResult:
+		return w.handleParticipantState(completion)
+	case handoffSourceResult:
+		return w.handleHandoffSource(completion)
+	case sessionCompletion:
+		return w.handleSessionCompletion(completion)
+	default:
+		return nil
+	}
+}

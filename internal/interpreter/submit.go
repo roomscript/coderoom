@@ -10,12 +10,6 @@ type submitOperation struct {
 	raw string
 }
 
-// Submit queues prompt-language input. It returns ErrClosed if ownership cannot
-// be accepted because shutdown has begun.
-func (i *Interpreter) Submit(raw string) error {
-	return i.executor.submit(raw)
-}
-
 func (e *interpreterExecutor) submit(raw string) error {
 	if !e.enqueue(submitOperation{raw: raw}) {
 		return ErrClosed

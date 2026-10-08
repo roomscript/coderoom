@@ -5,6 +5,38 @@ serialized ordering guarantees. The responsibility decomposition and staged
 submission migration are complete; normal package-graph tests enforce the
 interpreter/UI boundary.
 
+## Entry-point map for the core model (#55)
+
+Start with [interpreter concepts](../../internal/interpreter/CONCEPTS.md), then
+the API files. This map identifies the current paths beneath those entry points;
+it does not imply the core algorithm refactor is complete.
+
+| Concept / responsibility | Entry point | Current algorithm / implementation |
+|---|---|---|
+| Submit a request | `Submit` in `api_requests.go` | `submitOperation.apply` checks the pending-stage gate, parses input, and runs `model.Submit` decisions. |
+| Edit or discard pending work | `TakeStageForEdit`, `DiscardStage` in `api_requests.go` | Atomic stage operations remove the retained plan, then return the draft or discard result. |
+| Interrupt work | `InterruptAndDispatchStage` in `api_requests.go` | Stage interruption selects cancellable blockers; lifecycle events establish readiness. |
+| Resolve an approval | `ResolveApproval` in `api_requests.go` | `resolveApprovalOperation.apply` validates the choice, sends it to session, and updates approval state. |
+| Receive session facts | `sessionObserver.OnEvent` in `session.go` | The inbox buffers events; `applySessionEvents` runs room/approval updates and workflow progression through the runner. |
+| Receive ordinary shell results | `shellCompletedOperation.apply` in `command_shell.go` | Record the shell outcome and publish observable changes. |
+| Receive workflow shell results | `workflowShellCompletedOperation.apply` in `workflow_instruction.go` | Route the result to current workflow work; stale results cannot advance a replacement workflow. |
+| Receive synchronous execution results | `instructionRunner.executeCommand` / `executeSession` | Apply causal events before delivering the result to the model. These are not asynchronous waits. |
+| Publish interpreter events | `publish` in `api_events.go` | Queue facts for ordered observer delivery; publication does not execute a workflow. |
+| Subscribe to published events | `WithObserver` in `api_events.go` | Install observers before startup; deliver initial state followed by ordered events. |
+| Inspect application state | `Snapshot`, `ResolveCommand` in `api.go`; record helpers in `api_records.go` | Return detached state or command definitions without initiating work. |
+| Construct and close | `New` in `interpreter.go`, `Close` in `api.go` | Construct dependencies and start execution; close settles accepted operations and shuts down owned work. |
+| Configure shell execution | `WithShellRunner` in `api_shell.go` | Replace the shell dependency before startup. |
+
+The API methods and event publication boundary are collected without changing
+signatures or behavior. Public state/event DTOs remain in `types.go`, and the
+session dependency contract remains in `session.go`. Construction stays separate
+from request handling.
+
+The next core work is to expose the input and event algorithms in
+`core_input.go` and `core_events.go`. Preparation, pending work, and its resumption
+are still spread through model, workflow, and runner code. This organization
+provides a front door; it does not yet make those algorithms readable from it.
+
 ## Implemented shape
 
 `Interpreter` remains the public facade and composition root. Its operation
@@ -740,6 +772,27 @@ Existing regression anchors are `TestStageWorkflow_freezesSendPlanAndDispatchesW
 `TestStageOperations_partialCancelRetryTargetsOnlyFailures`,
 `TestStageOperations_autoDispatchWinsBeforeEditOrDiscard`, and
 `TestInstructionRunner_partialDeliveryRecordsInputBeforeCausalOutput`.
+
+### Addressed-send implementation checkpoint
+
+`workflow_stage_send.go` now owns the addressed-send decisions:
+`handleParticipantSendPlan` retains the frozen plan and requests readiness;
+`completeSendPlanning` rejects an unavailable primary target, accepts the input,
+and either queues the stage or starts delivery; `advanceWaitingSend` checks primary
+departure and recipient readiness before dispatching. `startSendDispatch` takes a
+concrete send statement and removes departed notice recipients from the frozen
+plan before requesting delivery.
+
+Readiness updates, atomic stage operations, and interruption remain shared.
+`workflow_stage_delivery.go` owns the shared completion and outcome reporting.
+`workflowCollection` routes typed completions directly to their handlers; no
+second production completion switch intervenes. The instruction runner's causal
+ordering remains unchanged. `TestStageWorkflow_replacedSendIgnoresOldCompletions`
+protects the replacement stage after edit or discard.
+
+This is the first readability checkpoint, not completion of #55. Stage state,
+broadcast/handoff transitions, and the remaining instruction-dispatch invariant
+panics still need their planned review. No new subpackage is needed for this path.
 
 ## Worked sequence: staged dispatch
 

@@ -290,7 +290,3 @@ func (e *interpreterExecutor) refreshSnapshot() Snapshot {
 	e.snapshots.Store(snapshot)
 	return cloneSnapshot(snapshot)
 }
-
-func (e *interpreterExecutor) publish(event Event) {
-	e.dispatcher.Publish(event)
-}
