@@ -132,3 +132,14 @@ func (r *stageRequirements) applySessionEvent(event session.Event) bool {
 	}
 	return true
 }
+
+func (r *stageRequirements) requiredReadyAliases() []string {
+	aliases := make([]string, 0, len(r.participants))
+	for _, value := range r.participants {
+		if !slices.Contains(r.unavailable, value.alias) {
+			aliases = append(aliases, value.alias)
+		}
+	}
+	slices.Sort(aliases)
+	return aliases
+}

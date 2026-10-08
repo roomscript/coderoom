@@ -17,8 +17,8 @@ func (w *stageWorkflow) start(raw string, statement promptlang.Statement) instru
 		phase:             stagePlanning,
 		submissionPending: true,
 	}
-	if _, handoff := statement.(promptlang.Handoff); handoff {
-		w.active.handoff = &handoffStage{}
+	if handoff, ok := statement.(promptlang.Handoff); ok {
+		w.active.handoff = &handoffStage{action: handoff}
 	}
 	ref := w.nextRef()
 	w.active.pending = ref
@@ -49,13 +49,15 @@ func (w *stageWorkflow) handleSessionEvent(event session.Event) instructionSeque
 		return nil
 	}
 	if w.active.phase == stageDispatching {
-		w.captureHandoffCompletion(event)
+		if w.active.handoff != nil {
+			w.active.handoff.captureCompletion(event)
+		}
 		return nil
 	}
 	if w.active.phase != stageWaiting {
 		return nil
 	}
-	if _, handoff := w.active.statement.(promptlang.Handoff); handoff {
+	if w.active.handoff != nil {
 		return w.handleHandoffSessionEvent(event)
 	}
 	if !w.active.requirements.applySessionEvent(event) {
@@ -69,4 +71,18 @@ func (w *stageWorkflow) advanceWaitingStage() instructionSequence {
 		return w.resumeSendOnReadiness()
 	}
 	return w.resumeBroadcastOnReadiness()
+}
+
+// Preparation results advance only the action that requested the facts.
+func (w *stageWorkflow) handleParticipantState(result participantStateResult) instructionSequence {
+	if !w.matches(result.target) {
+		return nil
+	}
+	if w.active.broadcast != nil {
+		return w.prepareBroadcast(result)
+	}
+	if w.active.handoff != nil {
+		return w.prepareHandoff(result)
+	}
+	return nil // Sends obtain readiness in their synchronous preparation result.
 }

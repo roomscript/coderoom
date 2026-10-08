@@ -818,7 +818,7 @@ consumes each reply once and retains successful aliases so retries target only
 failures. Shared readiness still determines when delivery can proceed.
 
 Source-output tracking and accepted context belong to the optional `handoffStage`
-in `workflow_stage_handoff.go`, created only for handoffs. Sends and broadcasts
+in `handoff_stage.go`, created only for handoffs. Sends and broadcasts
 do not allocate that state. The shared stage owns input, routing/readiness, phase,
 and submission timing; it refers to these components instead of carrying their
 individual bookkeeping fields.
@@ -955,3 +955,23 @@ are unavailable, continues waiting while requirements are unmet, or dispatches t
 the remaining eligible frozen recipients. Joins never expand the plan.
 Broadcast outcomes use `core_delivery.go`, preserving partial-delivery reporting
 and the distinction between immediate submission results and queued failures.
+
+### Handoff core checkpoint
+
+`core_handoff.go` exposes preparation, suspension/resumption, synchronous source
+selection and dispatch. The retained `handoffStage` holds the typed action,
+whether its source turn must complete, and accepted handoff context.
+`readyForHandoffSource` requires both recipient readiness and completed source
+output. Startup and maintenance alone do not imply an outstanding source turn.
+
+`prepareHandoff` freezes and validates requirements before accepting input, then
+reads the source immediately or retains the plan. Later lifecycle or source-output
+facts enter `handleHandoffSessionEvent` and resume through
+`resumeHandoffOnRequirements`. Required departures discard the plan. Source reads
+are synchronous preparation; missing output fails the plan, while a valid source
+starts delivery. Shared `core_delivery.go` reports the outcome after causal events.
+`handoff_stage.go` contains methods on `handoffStage`: source-completion tracking,
+accepted-context capture and delivery request construction. `stagePlan` freezes
+recipient requirements, and `stageRequirements` owns readiness and turn identity.
+`core_handoff.go` coordinates updates to these separate owners before resuming work. Repeated preparation and stale source results do not restart
+accepted work.

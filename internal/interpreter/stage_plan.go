@@ -59,3 +59,12 @@ func (p *stagePlan) freezeBroadcastRequirements(participants []participantState)
 func (p *stagePlan) broadcastDeliveryRequest() broadcastRequest {
 	return broadcastRequest{aliases: activeAliases(p.routing, p.requirements.unavailable), text: p.broadcast.Text}
 }
+
+func (p *stagePlan) freezeHandoffRequirements(routing []string, participants []participantState) {
+	p.routing = slices.Clone(routing)
+	participants = slices.DeleteFunc(slices.Clone(participants), func(value participantState) bool {
+		explicit := slices.Contains(p.routing, value.alias)
+		return !explicit && (!value.view().IsRoutable() || value.startupPending)
+	})
+	p.requirements = freezeStageRequirements(participants, p.routing)
+}

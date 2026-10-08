@@ -62,59 +62,6 @@ func (w *stageWorkflow) discard() (instructionSequence, bool) {
 	return instructionSequence{requestSnapshotInstruction{}}, true
 }
 
-func (w *stageWorkflow) handleParticipantState(result participantStateResult) instructionSequence {
-	if !w.matches(result.target) {
-		return nil
-	}
-	if w.active.send != nil {
-		return nil // Sends obtain readiness during synchronous preparation.
-	}
-	if w.active.broadcast != nil {
-		return w.prepareBroadcast(result)
-	}
-	state := w.active
-	participants := freezeReadinessRequirements(state, result.readinessRequirements)
-	if handoff, ok := state.statement.(promptlang.Handoff); ok {
-		state.routing = handoffRouting(handoff)
-	}
-	state.requirements = freezeStageRequirements(participants, state.routing)
-	if state.handoff != nil {
-		state.handoff.sourceNeedsCompletion = handoffSourceIsWorking(state)
-	}
-	return w.completeParticipantPlanning(nil)
-}
-
-func (w *stageWorkflow) completeParticipantPlanning(sequence instructionSequence) instructionSequence {
-	state := w.active
-	if len(state.routing) == 0 {
-		raw := state.raw
-		w.active = nil
-		return append(sequence, publishEventInstruction{event: SubmissionFailed{
-			Raw: raw, Operation: "staged dispatch", Code: ErrorExecutionFailed,
-			Err: errNoStageTargets,
-		}})
-	}
-	if w.mustDiscard() {
-		failure := unavailableStageFailure(state)
-		w.active = nil
-		return append(sequence, publishEventInstruction{event: failure})
-	}
-	sequence = append(sequence, acceptedStageInputSequence(state.raw, state.routing)...)
-
-	if _, handoff := state.statement.(promptlang.Handoff); handoff {
-		if state.requirements.isReady() && !state.handoff.sourceNeedsCompletion {
-			return append(sequence, w.readHandoffSourceInstruction())
-		}
-		state.phase = stageWaiting
-		state.submissionPending = false
-		return append(sequence,
-			requestSnapshotInstruction{},
-			publishEventInstruction{event: SubmissionSucceeded{Raw: state.raw}},
-		)
-	}
-	return nil
-}
-
 func (w *stageWorkflow) dispatchInstruction() executeSessionInstruction {
 	if w.active.send != nil {
 		return w.startSendDispatch()
@@ -197,18 +144,6 @@ func acceptedStageInputSequence(raw string, routing []string) instructionSequenc
 	return instructionSequence{
 		publishEventInstruction{event: InputAccepted{Raw: raw, Routing: slices.Clone(routing)}},
 	}
-}
-
-func freezeReadinessRequirements(state *stageState, participants []participantState) []participantState {
-	switch state.statement.(type) {
-	case promptlang.Send, promptlang.Broadcast:
-	default:
-		return slices.DeleteFunc(slices.Clone(participants), func(value participantState) bool {
-			explicit := slices.Contains(handoffRouting(state.statement.(promptlang.Handoff)), value.alias)
-			return !explicit && (!value.view().IsRoutable() || value.startupPending)
-		})
-	}
-	return participantsForRouting(state.routing, participants)
 }
 
 func activeAliases(routing, unavailable []string) []string {
