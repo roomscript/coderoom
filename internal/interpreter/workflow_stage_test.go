@@ -712,7 +712,7 @@ func (w *stageWorkflow) handleCompletion(completion workflowCompletion) instruct
 	case handoffSourceResult:
 		return w.handleHandoffSource(completion)
 	case sessionCompletion:
-		return w.handleSessionCompletion(completion)
+		return w.applySessionOutcome(completion)
 	default:
 		return nil
 	}

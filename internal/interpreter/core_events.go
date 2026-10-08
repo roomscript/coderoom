@@ -74,7 +74,7 @@ func (m *interpreterModel) applySessionOutcome(result sessionCompletion) instruc
 	case workflowLoop:
 		return m.workflows.loop.handleSessionCompletion(result)
 	case workflowStage:
-		return m.workflows.stage.handleSessionCompletion(result)
+		return m.workflows.stage.applySessionOutcome(result)
 	default:
 		return nil
 	}

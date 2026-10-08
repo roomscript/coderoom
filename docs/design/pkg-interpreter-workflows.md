@@ -823,7 +823,7 @@ do not allocate that state. The shared stage owns input, routing/readiness, phas
 and submission timing; it refers to these components instead of carrying their
 individual bookkeeping fields.
 
-`workflow_stage_delivery.go` owns the shared completion and outcome reporting.
+`stage_outcome.go` owns the shared completion and outcome reporting.
 `ApplyResult` in `core_events.go` routes preparation facts and execution outcomes
 directly to their handlers; no workflow-collection switch intervenes. The instruction runner's causal
 ordering remains unchanged. `TestStageWorkflow_replacedSendIgnoresOldCompletions`
@@ -914,4 +914,13 @@ readiness requirements sit alongside a typed `sendPlan` holding the action and
 session delivery plan. `stage_plan.go` groups plan preparation and delivery
 request construction. `core_send.go` shows validation, acceptance, suspension,
 resumption and dispatch; correlated delivery results still finish through the
-shared `handleSessionCompletion` path in `workflow_stage_delivery.go`.
+shared `finishDelivery` algorithm in `core_delivery.go`.
+
+Delivery result handling is visible in `core_delivery.go`: cancellation replies
+update interruption state; a correlated result finishes only a dispatching plan.
+`finishDelivery` releases the stage, reports actual delivered recipients (even on
+partial failure), then reports the outcome. `stage_outcome.go` groups the stage
+methods that build these events. Immediate delivery reports submission success
+or failure; a queued submission already reported success when retained, so later
+failure is reported as an operation failure. Causal transcript ordering remains
+owned by the runner.

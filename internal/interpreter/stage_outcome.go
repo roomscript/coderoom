@@ -7,25 +7,7 @@ import (
 	"github.com/roomscript/coderoom/internal/session"
 )
 
-// Delivery completion is shared by staged commands. The runner has already
-// recorded accepted input and projected causal events before this transition.
-func (w *stageWorkflow) handleSessionCompletion(completion sessionCompletion) instructionSequence {
-	if sequence, handled := w.handlePendingInterruptCompletion(completion); handled {
-		return sequence
-	}
-	if !w.matches(completion.target) {
-		return nil
-	}
-	state := w.active
-	w.active = nil
-	sequence := stageDispatchEventSequence(state, completion)
-	return append(sequence, stageDispatchOutcomeInstruction(state, completion)...)
-}
-
-func stageDispatchEventSequence(
-	state *stageState,
-	completion sessionCompletion,
-) instructionSequence {
+func (state *stageState) deliveryEvents(completion sessionCompletion) instructionSequence {
 	sequence := instructionSequence{requestSnapshotInstruction{}}
 	delivered := completion.routing.Aliases(session.DeliveryDelivered)
 	switch state.statement.(type) {
@@ -46,10 +28,7 @@ func stageDispatchEventSequence(
 	return sequence
 }
 
-func stageDispatchOutcomeInstruction(
-	state *stageState,
-	completion sessionCompletion,
-) instructionSequence {
+func (state *stageState) deliveryOutcome(completion sessionCompletion) instructionSequence {
 	if completion.err != nil {
 		if !state.submissionPending {
 			return instructionSequence{publishEventInstruction{event: OperationFailed{
