@@ -20,8 +20,7 @@ func (w *stageWorkflow) interruptAndDispatch() (instructionSequence, bool) {
 		return nil, false
 	}
 	state := w.active
-	state.notReadyAliases = notReadyAliases(state.readinessRequirements, state.unavailable)
-	if len(state.notReadyAliases) == 0 {
+	if state.requirements.isReady() {
 		if state.interruption.requested {
 			return nil, false
 		}
@@ -93,10 +92,11 @@ func (s *stageInterruption) completeCancellation(completion sessionCompletion) b
 }
 
 func interruptibleStageAliases(state *stageState) []string {
+	waiting := state.requirements.waitingAliases()
 	var aliases []string
-	for _, value := range state.readinessRequirements {
+	for _, value := range state.requirements.participants {
 		if value.view().HasActiveTurn() && value.view().IsCancellable() &&
-			slices.Contains(state.notReadyAliases, value.alias) && !slices.Contains(state.interruption.cancelled, value.alias) {
+			slices.Contains(waiting, value.alias) && !slices.Contains(state.interruption.cancelled, value.alias) {
 			aliases = append(aliases, value.alias)
 		}
 	}

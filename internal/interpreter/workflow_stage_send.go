@@ -25,12 +25,12 @@ func (w *stageWorkflow) prepareSend(result sendPlanResult) instructionSequence {
 			Err: errNoStageTargets,
 		})
 	}
-	if slices.Contains(w.active.unavailable, send.Alias) {
+	if slices.Contains(w.active.requirements.unavailable, send.Alias) {
 		return w.rejectSendPlanning(unavailableStageFailure(w.active))
 	}
 
 	sequence := acceptedStageInputSequence(w.active.raw, w.active.routing)
-	if len(w.active.notReadyAliases) != 0 {
+	if !w.active.requirements.isReady() {
 		return append(sequence, w.retainPlanUntilReady()...)
 	}
 	return append(sequence, w.startSendDispatch(send))
@@ -39,8 +39,9 @@ func (w *stageWorkflow) prepareSend(result sendPlanResult) instructionSequence {
 func (w *stageWorkflow) freezeSendPlan(result sendPlanResult) {
 	w.active.plan = result.plan
 	w.active.routing = slices.Clone(result.targets)
-	w.active.readinessRequirements = freezeReadinessRequirements(w.active, result.participants)
-	w.active.notReadyAliases, w.active.unavailable = stageReadiness(w.active.readinessRequirements, w.active.routing)
+	w.active.requirements = freezeStageRequirements(
+		freezeReadinessRequirements(w.active, result.participants), w.active.routing,
+	)
 }
 
 func (w *stageWorkflow) rejectSendPlanning(failure SubmissionFailed) instructionSequence {
@@ -51,11 +52,10 @@ func (w *stageWorkflow) rejectSendPlanning(failure SubmissionFailed) instruction
 // resumeSendOnReadiness is the entry point after a retained send returns control.
 func (w *stageWorkflow) resumeSendOnReadiness(send promptlang.Send) instructionSequence {
 	state := w.active
-	state.notReadyAliases = notReadyAliases(state.readinessRequirements, state.unavailable)
-	if slices.Contains(state.unavailable, send.Alias) {
+	if slices.Contains(state.requirements.unavailable, send.Alias) {
 		return w.discardUnavailableStage()
 	}
-	if len(state.notReadyAliases) != 0 {
+	if !state.requirements.isReady() {
 		return instructionSequence{requestSnapshotInstruction{}}
 	}
 	return instructionSequence{w.startSendDispatch(send), requestSnapshotInstruction{}}
@@ -64,12 +64,12 @@ func (w *stageWorkflow) resumeSendOnReadiness(send promptlang.Send) instructionS
 func (w *stageWorkflow) startSendDispatch(send promptlang.Send) executeSessionInstruction {
 	state := w.active
 	state.phase = stageDispatching
-	state.dispatchRouting = activeAliases(state.routing, state.unavailable)
+	state.dispatchRouting = activeAliases(state.routing, state.requirements.unavailable)
 	state.pending = w.nextRef()
 	return executeSessionInstruction{
 		target: state.pending,
 		request: executePlannedParticipantSendRequest{
-			plan:    state.plan.DiscardUnavailableNoticeRecipients(state.unavailable),
+			plan:    state.plan.DiscardUnavailableNoticeRecipients(state.requirements.unavailable),
 			message: send.Text,
 			notice:  fmt.Sprintf("@%s: %s", send.Alias, send.Text),
 		},

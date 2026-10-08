@@ -35,14 +35,14 @@ func (w *stageWorkflow) handleHandoffSource(result handoffSourceResult) instruct
 	state := w.active
 	handoff := state.statement.(promptlang.Handoff)
 	state.phase = stageDispatching
-	state.dispatchRouting = activeAliases(state.routing, state.unavailable)
+	state.dispatchRouting = activeAliases(state.routing, state.requirements.unavailable)
 	ref := w.nextRef()
 	state.pending = ref
 	return instructionSequence{executeSessionInstruction{
 		target: ref,
 		request: handoffRequest{
 			fromAlias: handoff.FromAlias, toAlias: handoff.ToAlias,
-			requiredReadyAliases: activeRequiredReadyAliases(state.readinessRequirements, state.unavailable),
+			requiredReadyAliases: activeRequiredReadyAliases(state.requirements.participants, state.requirements.unavailable),
 			source:               result.source,
 		},
 		recordsOnSuccess: []room.Record{{
@@ -93,11 +93,11 @@ func (w *stageWorkflow) applyHandoffSessionEvent(event session.Event) bool {
 	case session.AgentMessage:
 		return w.applyHandoffMessage(event, handoff)
 	case session.AgentReady:
-		w.markStarted(event.Alias)
+		w.active.requirements.markReady(event.Alias)
 	case session.AgentStopped:
-		w.markUnavailable(event.Alias)
+		w.active.requirements.markUnavailable(event.Alias)
 	case session.AgentCrashed:
-		w.markUnavailable(event.Alias)
+		w.active.requirements.markUnavailable(event.Alias)
 	default:
 		return false
 	}
@@ -108,7 +108,7 @@ func (w *stageWorkflow) applyHandoffStatus(
 	event session.ParticipantStatusChanged,
 	handoff promptlang.Handoff,
 ) {
-	w.updateRequiredStatus(event.Alias, event.To)
+	w.active.requirements.updateStatus(event.Alias, event.To)
 	if event.Alias == handoff.FromAlias && (participant.View{Status: event.To}).HasActiveTurn() {
 		w.active.handoff.sourceNeedsCompletion = true
 	}
@@ -121,39 +121,20 @@ func (w *stageWorkflow) applyHandoffMessage(
 	if event.Alias != handoff.FromAlias || !event.TurnCompleted {
 		return false
 	}
-	if expected := requiredTurnID(w.active.readinessRequirements, event.Alias); event.TurnID < expected {
+	if expected := w.active.requirements.turnID(event.Alias); event.TurnID < expected {
 		return false
 	}
 	w.active.handoff.sourceNeedsCompletion = false
-	w.updateRequiredTurn(event.Alias, event.TurnID)
+	w.active.requirements.updateTurnID(event.Alias, event.TurnID)
 	return true
-}
-
-func requiredTurnID(readinessRequirements []participantState, alias string) uint64 {
-	for _, value := range readinessRequirements {
-		if value.alias == alias {
-			return value.turnID
-		}
-	}
-	return 0
-}
-
-func (w *stageWorkflow) updateRequiredTurn(alias string, turnID uint64) {
-	for index := range w.active.readinessRequirements {
-		if w.active.readinessRequirements[index].alias == alias {
-			w.active.readinessRequirements[index].turnID = turnID
-			return
-		}
-	}
 }
 
 func (w *stageWorkflow) advanceWaitingHandoff() instructionSequence {
 	state := w.active
-	state.notReadyAliases = notReadyAliases(state.readinessRequirements, state.unavailable)
 	if w.mustDiscard() {
 		return w.discardUnavailableStage()
 	}
-	if len(state.notReadyAliases) != 0 || state.handoff.sourceNeedsCompletion {
+	if !state.requirements.isReady() || state.handoff.sourceNeedsCompletion {
 		return instructionSequence{requestSnapshotInstruction{}}
 	}
 	return instructionSequence{w.readHandoffSourceInstruction(), requestSnapshotInstruction{}}
@@ -175,7 +156,7 @@ func handoffSourceIsWorking(state *stageState) bool {
 	if !ok {
 		return false
 	}
-	for _, value := range state.readinessRequirements {
+	for _, value := range state.requirements.participants {
 		if value.alias == handoff.FromAlias {
 			return value.view().HasActiveTurn()
 		}

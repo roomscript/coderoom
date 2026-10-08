@@ -800,6 +800,12 @@ Preparation results are consumed once; stale or repeated results cannot restart
 retained work.
 
 Readiness updates, atomic stage operations, and interruption remain shared.
+`stageRequirements` in `workflow_stage_requirements.go` owns frozen participant
+facts, startup readiness, turn identity, and departures. Its `isReady` and
+`waitingAliases` queries derive readiness from those facts, avoiding a separate
+cached blocker list. Workflows retain the command-specific decision to wait,
+discard, or execute; sends and handoffs share the same readiness updates.
+
 Cancellation requests and successful acknowledgements are owned by
 `stageInterruption` in `workflow_stage_interrupt.go`. Its completion operation
 consumes each reply once and retains successful aliases so retries target only

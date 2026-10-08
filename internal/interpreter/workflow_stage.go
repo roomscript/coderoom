@@ -17,20 +17,18 @@ var errStageTargetCrashed = errors.New("participant has crashed")
 var errNoHandoffSource = errors.New("handoff source has no completed room-visible output")
 
 type stageState struct {
-	generation            uint64
-	raw                   string
-	statement             promptlang.Statement
-	pending               workflowRef
-	plan                  session.ParticipantSendPlan
-	routing               []string
-	readinessRequirements []participantState
-	notReadyAliases       []string
-	unavailable           []string
-	phase                 stagePhase
-	dispatchRouting       []string
-	submissionPending     bool
-	interruption          stageInterruption
-	handoff               *handoffStage
+	generation        uint64
+	raw               string
+	statement         promptlang.Statement
+	pending           workflowRef
+	plan              session.ParticipantSendPlan
+	routing           []string
+	requirements      stageRequirements
+	phase             stagePhase
+	dispatchRouting   []string
+	submissionPending bool
+	interruption      stageInterruption
+	handoff           *handoffStage
 }
 
 type stagePhase uint8
@@ -108,11 +106,11 @@ func (w *stageWorkflow) handleParticipantState(result participantStateResult) in
 		return nil // Sends obtain readiness during synchronous preparation.
 	}
 	state := w.active
-	state.readinessRequirements = freezeReadinessRequirements(state, result.readinessRequirements)
+	participants := freezeReadinessRequirements(state, result.readinessRequirements)
 	if handoff, ok := state.statement.(promptlang.Handoff); ok {
 		state.routing = handoffRouting(handoff)
 	}
-	state.notReadyAliases, state.unavailable = stageReadiness(state.readinessRequirements, state.routing)
+	state.requirements = freezeStageRequirements(participants, state.routing)
 	if state.handoff != nil {
 		state.handoff.sourceNeedsCompletion = handoffSourceIsWorking(state)
 	}
@@ -137,7 +135,7 @@ func (w *stageWorkflow) completeParticipantPlanning(sequence instructionSequence
 	sequence = append(sequence, acceptedStageInputSequence(state.raw, state.routing)...)
 
 	if _, handoff := state.statement.(promptlang.Handoff); handoff {
-		if len(state.notReadyAliases) == 0 && !state.handoff.sourceNeedsCompletion {
+		if state.requirements.isReady() && !state.handoff.sourceNeedsCompletion {
 			return append(sequence, w.readHandoffSourceInstruction())
 		}
 		state.phase = stageWaiting
@@ -166,7 +164,7 @@ func (w *stageWorkflow) retainPlanUntilReady() instructionSequence {
 
 func (w *stageWorkflow) readyToDispatch() bool {
 	if w.active == nil || len(w.active.routing) == 0 ||
-		len(w.active.notReadyAliases) != 0 {
+		!w.active.requirements.isReady() {
 		return false
 	}
 	_, handoff := w.active.statement.(promptlang.Handoff)
@@ -184,7 +182,7 @@ func (w *stageWorkflow) dispatchInstruction() executeSessionInstruction {
 	var request sessionRequest
 	switch statement := state.statement.(type) {
 	case promptlang.Broadcast:
-		state.dispatchRouting = activeAliases(state.routing, state.unavailable)
+		state.dispatchRouting = activeAliases(state.routing, state.requirements.unavailable)
 		request = broadcastRequest{aliases: slices.Clone(state.dispatchRouting), text: statement.Text}
 	default:
 		// Only sends and broadcasts use immediate dispatch; handoffs must resolve
@@ -213,40 +211,17 @@ func (w *stageWorkflow) handleSessionEvent(event session.Event) instructionSeque
 	}
 	switch event := event.(type) {
 	case session.ParticipantStatusChanged:
-		w.updateRequiredStatus(event.Alias, event.To)
+		w.active.requirements.updateStatus(event.Alias, event.To)
 	case session.AgentReady:
-		w.markStarted(event.Alias)
+		w.active.requirements.markReady(event.Alias)
 	case session.AgentStopped:
-		w.markUnavailable(event.Alias)
+		w.active.requirements.markUnavailable(event.Alias)
 	case session.AgentCrashed:
-		w.markUnavailable(event.Alias)
+		w.active.requirements.markUnavailable(event.Alias)
 	default:
 		return nil
 	}
 	return w.advanceWaitingStage()
-}
-
-func (w *stageWorkflow) updateRequiredStatus(alias string, status participant.Status) {
-	if slices.Contains(w.active.unavailable, alias) {
-		return
-	}
-	for index := range w.active.readinessRequirements {
-		if w.active.readinessRequirements[index].alias == alias {
-			if status == participant.StatusIdle && (w.active.readinessRequirements[index].status == participant.StatusStarting || w.active.readinessRequirements[index].status == participant.StatusAttached) {
-				w.active.readinessRequirements[index].startupPending = true
-			}
-			w.active.readinessRequirements[index].status = status
-			return
-		}
-	}
-}
-
-func (w *stageWorkflow) markUnavailable(alias string) {
-	if !containsParticipant(w.active.readinessRequirements, alias) || slices.Contains(w.active.unavailable, alias) {
-		return
-	}
-	w.active.unavailable = append(w.active.unavailable, alias)
-	slices.Sort(w.active.unavailable)
 }
 
 func (w *stageWorkflow) advanceWaitingStage() instructionSequence {
@@ -254,11 +229,10 @@ func (w *stageWorkflow) advanceWaitingStage() instructionSequence {
 		return w.resumeSendOnReadiness(send)
 	}
 	state := w.active
-	state.notReadyAliases = notReadyAliases(state.readinessRequirements, state.unavailable)
 	if w.mustDiscard() {
 		return w.discardUnavailableStage()
 	}
-	if len(state.notReadyAliases) != 0 {
+	if !state.requirements.isReady() {
 		return instructionSequence{requestSnapshotInstruction{}}
 	}
 	return instructionSequence{w.dispatchInstruction(), requestSnapshotInstruction{}}
@@ -267,15 +241,15 @@ func (w *stageWorkflow) advanceWaitingStage() instructionSequence {
 func (w *stageWorkflow) mustDiscard() bool {
 	state := w.active
 	if send, ok := state.statement.(promptlang.Send); ok {
-		return slices.Contains(state.unavailable, send.Alias)
+		return slices.Contains(state.requirements.unavailable, send.Alias)
 	}
 	_, broadcast := state.statement.(promptlang.Broadcast)
 	if broadcast {
-		return len(activeAliases(state.routing, state.unavailable)) == 0
+		return len(activeAliases(state.routing, state.requirements.unavailable)) == 0
 	}
 	if handoff, ok := state.statement.(promptlang.Handoff); ok {
-		return slices.Contains(state.unavailable, handoff.FromAlias) ||
-			slices.Contains(state.unavailable, handoff.ToAlias)
+		return slices.Contains(state.requirements.unavailable, handoff.FromAlias) ||
+			slices.Contains(state.requirements.unavailable, handoff.ToAlias)
 	}
 	return false
 }
@@ -285,12 +259,12 @@ func (w *stageWorkflow) discardUnavailableStage() instructionSequence {
 	message := "staged submission discarded: no active targets"
 	presentationMessage := "staged message discarded: no active targets"
 	if send, ok := state.statement.(promptlang.Send); ok &&
-		len(activeAliases(state.routing, state.unavailable)) != 0 {
+		len(activeAliases(state.routing, state.requirements.unavailable)) != 0 {
 		message = fmt.Sprintf("staged submission discarded: %q is no longer available", send.Alias)
 		presentationMessage = fmt.Sprintf("staged message discarded: %q is no longer available", send.Alias)
 	} else if handoff, ok := state.statement.(promptlang.Handoff); ok {
 		missing := handoff.FromAlias
-		if !slices.Contains(state.unavailable, missing) {
+		if !slices.Contains(state.requirements.unavailable, missing) {
 			missing = handoff.ToAlias
 		}
 		message = fmt.Sprintf("staged submission discarded: %q is no longer available", missing)
@@ -310,14 +284,14 @@ func (w *stageWorkflow) discardUnavailableStage() instructionSequence {
 }
 
 func (w *stageWorkflow) snapshot() *StagedSubmission {
-	if w.active == nil || len(w.active.readinessRequirements) == 0 && len(w.active.routing) == 0 {
+	if w.active == nil || len(w.active.requirements.participants) == 0 && len(w.active.routing) == 0 {
 		return nil
 	}
 	return &StagedSubmission{
 		Raw: w.active.raw, Routing: slices.Clone(w.active.routing),
-		NotReadyAliases:    slices.Clone(w.active.notReadyAliases),
+		NotReadyAliases:    w.active.requirements.waitingAliases(),
 		Interruptible:      interruptibleStageAliases(w.active),
-		Unavailable:        slices.Clone(w.active.unavailable),
+		Unavailable:        slices.Clone(w.active.requirements.unavailable),
 		InterruptRequested: w.active.interruption.requested,
 		Phase:              StagePhasePending,
 	}
@@ -360,33 +334,6 @@ func freezeReadinessRequirements(state *stageState, participants []participantSt
 	return readinessRequirements
 }
 
-func stageReadiness(readinessRequirements []participantState, routing []string) ([]string, []string) {
-	byAlias := make(map[string]participant.Status, len(readinessRequirements))
-	for _, value := range readinessRequirements {
-		byAlias[value.alias] = value.status
-	}
-	var unavailable []string
-	for _, alias := range routing {
-		status, ok := byAlias[alias]
-		if !ok || status == participant.StatusCrashed {
-			unavailable = append(unavailable, alias)
-		}
-	}
-	slices.Sort(unavailable)
-	return notReadyAliases(readinessRequirements, unavailable), unavailable
-}
-
-func notReadyAliases(readinessRequirements []participantState, unavailable []string) []string {
-	var blocked []string
-	for _, value := range readinessRequirements {
-		if !value.view().IsReadyForWork() && !slices.Contains(unavailable, value.alias) {
-			blocked = append(blocked, value.alias)
-		}
-	}
-	slices.Sort(blocked)
-	return blocked
-}
-
 func activeAliases(routing, unavailable []string) []string {
 	active := make([]string, 0, len(routing))
 	for _, alias := range routing {
@@ -397,25 +344,6 @@ func activeAliases(routing, unavailable []string) []string {
 	return active
 }
 
-func containsParticipant(participants []participantState, alias string) bool {
-	return slices.ContainsFunc(participants, func(value participantState) bool {
-		return value.alias == alias
-	})
-}
-
-func (w *stageWorkflow) markStarted(alias string) {
-	if slices.Contains(w.active.unavailable, alias) {
-		return
-	}
-	for index := range w.active.readinessRequirements {
-		if w.active.readinessRequirements[index].alias == alias {
-			w.active.readinessRequirements[index].status = participant.StatusIdle
-			w.active.readinessRequirements[index].startupPending = false
-			return
-		}
-	}
-}
-
 func unavailableStageFailure(state *stageState) SubmissionFailed {
 	failure := SubmissionFailed{Raw: state.raw, Operation: "staged dispatch", Code: ErrorExecutionFailed, Err: errNoStageTargets}
 	send, ok := state.statement.(promptlang.Send)
@@ -424,7 +352,7 @@ func unavailableStageFailure(state *stageState) SubmissionFailed {
 	}
 	failure.Code = ErrorParticipantUnavailable
 	failure.Err = fmt.Errorf("%w %q", errStageTargetUnavailable, send.Alias)
-	for _, value := range state.readinessRequirements {
+	for _, value := range state.requirements.participants {
 		if value.alias == send.Alias && value.status == participant.StatusCrashed {
 			failure.Err = fmt.Errorf("%w: %q", errStageTargetCrashed, send.Alias)
 			return failure
