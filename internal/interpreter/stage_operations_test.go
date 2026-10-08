@@ -92,7 +92,7 @@ func TestStageOperations_duplicateInterruptDoesNotCancelTwice(t *testing.T) {
 
 func TestStageOperations_partialCancelRetryTargetsOnlyFailures(t *testing.T) {
 	interp, sess, events := newSubmitContractInterpreter(t)
-	sess.barrier = []participant.Participant{
+	sess.readinessRequirements = []participant.Participant{
 		{View: participant.View{Alias: "ada", Status: participant.StatusWorking, StartupReady: true}},
 		{View: participant.View{Alias: "bob", Status: participant.StatusWorking, StartupReady: true}},
 	}
@@ -223,7 +223,7 @@ func newBlockedStageInterpreter(
 ) (*Interpreter, *submitContractSession, chan Event) {
 	t.Helper()
 	interp, sess, events := newSubmitContractInterpreter(t)
-	sess.barrier = []participant.Participant{{View: participant.View{
+	sess.readinessRequirements = []participant.Participant{{View: participant.View{
 		Alias: "ada", Status: participant.StatusWorking, StartupReady: true,
 	}}}
 	mustSubmit(t, interp.Submit("hello"))

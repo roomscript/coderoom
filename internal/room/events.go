@@ -38,7 +38,7 @@ func (r *Room) handleLifecycleEventLocked(e session.Event) ([]int, bool) {
 	switch e := e.(type) {
 	case session.AgentStarting:
 		return r.appendSystemRecordLocked("[" + e.Alias + " starting]"), true
-	case session.AgentStarted:
+	case session.AgentReady:
 		r.members[e.Alias] = struct{}{}
 		delete(r.departed, e.Alias)
 		dirty := r.refreshLatestHandoffSourceLocked(e.Alias)

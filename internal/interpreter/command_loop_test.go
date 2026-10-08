@@ -49,8 +49,8 @@ func (op causalBurstProbeOperation) apply(e *interpreterExecutor) {
 	runner := newInstructionRunner(e.model, causalBurstProbeExecutor{e, e.model, op.projected})
 	runner.Run(instructionSequence{executeSessionInstruction{
 		target: workflowRef{kind: workflowLoop, generation: 99, requestID: 99},
-		request: planAndExecuteSharedSendRequest{
-			alias: "ada", directText: "work", listenersText: "@ada: work",
+		request: createPlanAndExecuteParticipantSendRequest{
+			alias: "ada", message: "work", notice: "@ada: work",
 		},
 	}})
 	close(op.done)
@@ -75,9 +75,9 @@ func TestSubmitContract_loopAlternatesTurnsAndConditionsUntilBound(t *testing.T)
 
 	mustSubmit(t, interp.Submit("/loop @ada make the tests pass /until /tests /max 2"))
 	receiveSubmitEvent[InputAccepted](t, events)
-	first := receiveSubmitCommand(t, sess.executed).(session.SharedSendCommand)
-	if first.TextDirect != "make the tests pass" {
-		t.Fatalf("first prompt = %q", first.TextDirect)
+	first := receiveSubmitCommand(t, sess.executed).(session.SendToParticipantCommand)
+	if first.Message != "make the tests pass" {
+		t.Fatalf("first prompt = %q", first.Message)
 	}
 	assertLoopStatus(t, events, "[loop] turn 1/2 sent to @ada")
 	receiveSubmitEvent[SubmissionSucceeded](t, events)
@@ -87,8 +87,8 @@ func TestSubmitContract_loopAlternatesTurnsAndConditionsUntilBound(t *testing.T)
 	if completed.Command != "/tests" || !strings.Contains(completed.Output, "stdout:\nfirst failure") {
 		t.Fatalf("first condition = %#v", completed)
 	}
-	second := receiveSubmitCommand(t, sess.executed).(session.SharedSendCommand)
-	assertLoopEvidence(t, second.TextDirect, "first failure")
+	second := receiveSubmitCommand(t, sess.executed).(session.SendToParticipantCommand)
+	assertLoopEvidence(t, second.Message, "first failure")
 	assertLoopStatus(t, events, "[loop] turn 2/2 sent to @ada")
 	receiveSubmitEvent[StateChanged](t, events)
 
@@ -105,7 +105,7 @@ func TestInstructionRunner_projectsCompleteCausalBurstBeforeDerivedInstruction(t
 	sess := newSubmitContractSession()
 	sess.execute = func(_ session.Command, observer session.Observer) {
 		observer.OnEvent(session.ParticipantStatusChanged{Alias: "ada", To: participant.StatusIdle})
-		observer.OnEvent(session.AgentStarted{Alias: "turing"})
+		observer.OnEvent(session.AgentReady{Alias: "turing"})
 	}
 	projected := make(chan bool, 1)
 	interp := New(t.Context(), sess, "/workspace")

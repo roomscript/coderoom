@@ -73,43 +73,42 @@ type BroadcastCommand struct {
     Text    string
 }
 
-// SharedSendCommand sends a message to one agent in the shared room.
+// SendToParticipantCommand sends a message to one agent in the shared room.
 // Plan freezes the policy-aware routing decision. The caller supplies both
 // texts — the session controller does not format messages. A shared room event
 // is emitted so the TUI displays it to everyone.
-type SharedSendCommand struct {
-    Plan          SharedSendPlan
-    TextDirect    string
-    TextListeners string
+type SendToParticipantCommand struct {
+    Plan    ParticipantSendPlan
+    Message string
+    Notice  string
 }
 
-// SharedSendPlan is an opaque, immutable routing decision created by Session.
-type SharedSendPlan struct {
-    // session ownership, addressed alias, and listener aliases are private
+// ParticipantSendPlan is an opaque, immutable routing decision created by Session.
+type ParticipantSendPlan struct {
+    // session ownership, primary alias, and notice aliases are private
 }
 
-func (s *Session) PlanSharedSend(alias string) SharedSendPlan
-func (p SharedSendPlan) Targets() []string
-func (p SharedSendPlan) DiscardUnavailableListeners(aliases []string) SharedSendPlan
+func (s *Session) CreateParticipantSendPlan(alias string) ParticipantSendPlan
+func (p ParticipantSendPlan) Targets() []string
+func (p ParticipantSendPlan) DiscardUnavailableNoticeRecipients(aliases []string) ParticipantSendPlan
 
 type EnablePolicyCommand struct {
     Name policy.Name
 }
 
 // HandoffCommand delivers a source already selected from canonical room state.
-// Session validates participants and delivery barriers but does not query room
+// Session validates participants and readiness requirements but does not query room
 // or call back into the application layer to select content.
 type HandoffCommand struct {
     FromAlias   string
     ToAlias     string
-    IdleAliases []string
+    RequiredReadyAliases []string
     Source      HandoffSource
 }
 
-// PrivateSendCommand sends a message directly to one agent's private channel.
-// Nothing is emitted to the shared room and no other agents are notified.
-// Used for approval flows and reasoning that should not pollute the shared room.
-type PrivateSendCommand struct {
+// SendToParticipantOutsideRoomCommand omits the outgoing room record and notices.
+// Agent responses still use ordinary session events and can appear in the room.
+type SendToParticipantOutsideRoomCommand struct {
     Alias string
     Text  string
 }
@@ -171,7 +170,7 @@ type Event interface {
 }
 
 type AgentStarting struct{ Alias string }
-type AgentStarted struct{ Alias string }
+type AgentReady struct{ Alias string }
 type AgentStopped struct{ Alias string }
 type AgentCrashed struct{ Alias string }
 
@@ -211,9 +210,9 @@ type ContextHandoff struct {
     Preview   string
 
     SourceRecordIndex int
-    BarrierAliases    []string
+    RequiredReadyAliases    []string
     IdleAliases       []string
-    BusyAliases       []string
+    NotReadyAliases       []string
     RejectionReason   string
 }
 
@@ -255,7 +254,7 @@ without re-reading session state.
 
 `InviteCommand` constructs the participant without presentation input and calls
 `registry.Add`, which assigns the participant's deterministic color. It then
-starts the agent. On success, it emits `AgentStarted` and launches a reader
+starts the agent. On success, it emits `AgentReady` and launches a reader
 goroutine for that agent. A participant removed later does not release its
 color for reuse during the session.
 
@@ -302,15 +301,15 @@ when it exits), then calls `agent.Stop`.
 | Command | Routing |
 |---|---|
 | `BroadcastCommand` | Emits `Broadcast`; sends text to the frozen `Aliases`, or to all currently routable participants when `Aliases` is nil for legacy callers |
-| `SharedSendCommand` | Executes a session-created `SharedSendPlan`: sends `TextDirect` to its addressed participant and `TextListeners` to its frozen listeners; emits one `SharedSend` event and one `SharedNotice` event per delivered listener |
+| `SendToParticipantCommand` | Executes a session-created `ParticipantSendPlan`: sends `Message` to its addressed participant and `Notice` to its frozen listeners; emits one `SharedSend` event and one `SharedNotice` event per delivered listener |
 | `EnablePolicyCommand` | Idempotently enables a room-local runtime policy; unknown policies fail |
-| `PrivateSendCommand` | Sends text to the addressed agent only; no shared room event; no other agents notified |
+| `SendToParticipantOutsideRoomCommand` | Sends text to the addressed agent only; no shared room event; no other agents notified |
 
 Shared room visibility is a property of the event kind, but the session does
 not own the final chat projection. It emits runtime events; the room package
 decides how those events become rooms and records for the UI.
 
-`PlanSharedSend` freezes the policy-aware audience when the user submits the
+`CreateParticipantSendPlan` freezes the policy-aware audience when the user submits the
 message. Enabling `send-notices` later or making another participant routable
 does not alter an existing plan. Planning is not a reservation: participants
 may become unavailable before execution, and those delivery attempts fail
@@ -369,7 +368,7 @@ the list captures every registered participant under one session lock, including
 startup and crash states. Status is preserved, with StartupReady and TurnID
 explicitly available. Runtime handles and stream bookkeeping stay within Session.
 
-Consumers choose recipients and workflow barriers using shared View predicates.
+Consumers choose recipients and workflow readiness requirements using shared View predicates.
 Session rechecks live state when executing and retains bound-agent checks. The
 API supports staging startup and maintenance states while execution guards
 require completed startup before reserving work or delivering messages.

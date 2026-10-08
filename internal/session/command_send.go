@@ -60,28 +60,28 @@ func (c BroadcastCommand) execute(s *Session) error {
 	return nil
 }
 
-// SharedSendCommand sends a message to one agent in the shared room.
-// TextDirect is sent to the addressed agent. When send-notices is enabled,
-// TextListeners is sent to all other agents. The caller is responsible for
+// SendToParticipantCommand sends a message to one agent in the shared room.
+// Message is sent to the primary participant. When send-notices is enabled,
+// Notice is sent to the planned notice recipients. The caller is responsible for
 // both texts — the session controller does not construct or format messages.
 // One SharedSend event is emitted to observers.
-type SharedSendCommand struct {
-	Plan          SharedSendPlan
-	TextDirect    string
-	TextListeners string
+type SendToParticipantCommand struct {
+	Plan    ParticipantSendPlan
+	Message string
+	Notice  string
 }
 
-// SharedSendPlan is an immutable, session-bound routing decision. Planning
+// ParticipantSendPlan is an immutable, session-bound routing decision. Planning
 // freezes recipients but does not reserve their availability.
-type SharedSendPlan struct {
-	session         *Session
-	addressedAlias  string
-	listenerAliases []string
+type ParticipantSendPlan struct {
+	session       *Session
+	primaryAlias  string
+	noticeAliases []string
 }
 
-// PlanSharedSend freezes the policy-aware targets for a direct shared send.
-func (s *Session) PlanSharedSend(addressedAlias string) SharedSendPlan {
-	plan := SharedSendPlan{session: s, addressedAlias: addressedAlias}
+// CreateParticipantSendPlan freezes the policy-aware targets for an in-room participant send.
+func (s *Session) CreateParticipantSendPlan(primaryAlias string) ParticipantSendPlan {
+	plan := ParticipantSendPlan{session: s, primaryAlias: primaryAlias}
 	if !s.policies.Enabled(policy.SendNotices) {
 		return plan
 	}
@@ -89,42 +89,42 @@ func (s *Session) PlanSharedSend(addressedAlias string) SharedSendPlan {
 		if p.Status == participant.StatusCrashed {
 			continue
 		}
-		if p.Alias != addressedAlias {
-			plan.listenerAliases = append(plan.listenerAliases, p.Alias)
+		if p.Alias != primaryAlias {
+			plan.noticeAliases = append(plan.noticeAliases, p.Alias)
 		}
 	}
-	slices.Sort(plan.listenerAliases)
+	slices.Sort(plan.noticeAliases)
 	return plan
 }
 
 // Targets returns a copy of the aliases frozen into the plan, with the
-// addressed participant first.
-func (p SharedSendPlan) Targets() []string {
-	if p.session == nil || p.addressedAlias == "" {
+// primary participant first.
+func (p ParticipantSendPlan) Targets() []string {
+	if p.session == nil || p.primaryAlias == "" {
 		return nil
 	}
-	targets := make([]string, 1, len(p.listenerAliases)+1)
-	targets[0] = p.addressedAlias
-	return append(targets, p.listenerAliases...)
+	targets := make([]string, 1, len(p.noticeAliases)+1)
+	targets[0] = p.primaryAlias
+	return append(targets, p.noticeAliases...)
 }
 
-// DiscardUnavailableListeners returns a copied plan without the named
-// unavailable listeners. It cannot add recipients or remove the addressed
+// DiscardUnavailableNoticeRecipients returns a copied plan without the named
+// unavailable notice recipients. It cannot add recipients or remove the primary
 // participant.
-func (p SharedSendPlan) DiscardUnavailableListeners(aliases []string) SharedSendPlan {
-	if len(aliases) == 0 || len(p.listenerAliases) == 0 {
+func (p ParticipantSendPlan) DiscardUnavailableNoticeRecipients(aliases []string) ParticipantSendPlan {
+	if len(aliases) == 0 || len(p.noticeAliases) == 0 {
 		return p
 	}
 	filtered := p
-	filtered.listenerAliases = slices.DeleteFunc(
-		slices.Clone(p.listenerAliases),
+	filtered.noticeAliases = slices.DeleteFunc(
+		slices.Clone(p.noticeAliases),
 		func(alias string) bool { return slices.Contains(aliases, alias) },
 	)
 	return filtered
 }
 
-func (p SharedSendPlan) validate(s *Session) error {
-	if p.session == nil || p.addressedAlias == "" {
+func (p ParticipantSendPlan) validate(s *Session) error {
+	if p.session == nil || p.primaryAlias == "" {
 		return fmt.Errorf("shared send plan is invalid")
 	}
 	if p.session != s {
@@ -133,35 +133,35 @@ func (p SharedSendPlan) validate(s *Session) error {
 	return nil
 }
 
-func (c SharedSendCommand) execute(s *Session) error {
+func (c SendToParticipantCommand) execute(s *Session) error {
 	if err := c.Plan.validate(s); err != nil {
 		return err
 	}
-	alias := c.Plan.addressedAlias
+	alias := c.Plan.primaryAlias
 	a, err := acquireParticipantForDirectSend(alias, s)
 	if err != nil {
 		return err
 	}
-	if err := sendPreparedDirect(alias, a, c.TextDirect, s); err != nil {
+	if err := sendPreparedDirect(alias, a, c.Message, s); err != nil {
 		return err
 	}
-	s.notify(SharedSend{Alias: alias, Text: c.TextDirect})
-	delivered, err := sendSharedNotices(c.Plan.listenerAliases, c.TextListeners, s)
+	s.notify(SharedSend{Alias: alias, Text: c.Message})
+	delivered, err := sendSharedNotices(c.Plan.noticeAliases, c.Notice, s)
 	if err != nil {
 		return newDeliveryError(append([]string{alias}, delivered...), err)
 	}
 	return nil
 }
 
-// PrivateSendCommand sends a message directly to one agent's private channel.
-// Nothing is emitted to the shared room and no other agents are notified.
-// Used for approval flows and reasoning that should not pollute the shared room.
-type PrivateSendCommand struct {
+// SendToParticipantOutsideRoomCommand sends an outgoing message without a room
+// record or notices to other participants. Agent responses still use ordinary
+// session events and can appear in the room.
+type SendToParticipantOutsideRoomCommand struct {
 	Alias string
 	Text  string
 }
 
-func (c PrivateSendCommand) execute(s *Session) error {
+func (c SendToParticipantOutsideRoomCommand) execute(s *Session) error {
 	a, err := acquireParticipantForDirectSend(c.Alias, s)
 	if err != nil {
 		return err
@@ -236,10 +236,10 @@ func sendPreparedDirect(alias string, a agent.Agent, text string, s *Session) er
 	return nil
 }
 
-func sendSharedNotices(listenerAliases []string, text string, s *Session) ([]string, error) {
+func sendSharedNotices(noticeAliases []string, text string, s *Session) ([]string, error) {
 	var errs []error
 	var delivered []string
-	for _, alias := range listenerAliases {
+	for _, alias := range noticeAliases {
 		a, prepared, err := acquireParticipantForNotice(alias, s)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("notice to %q: %w", alias, err))

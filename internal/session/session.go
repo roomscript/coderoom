@@ -391,7 +391,7 @@ func (s *Session) evictCrashedBeforeStart(alias string) error {
 // attached but the participant is still StatusStarting.
 //
 // The caller is responsible for starting the read goroutine after the full
-// startup sequence (AgentStarted + commitStarted) has completed, so that
+// startup sequence (AgentReady + commitStarted) has completed, so that
 // early agent output is never processed while the participant is still Attached.
 //
 // Returns (stop, from, true) on success, where from is the pre-transition
@@ -424,7 +424,7 @@ func (s *Session) attachParticipant(alias string, a agent.Agent) (chan struct{},
 
 // commitStarted transitions the participant from StatusAttached to StatusIdle
 // and returns the corresponding ParticipantStatusChanged event. Called before
-// AgentStarted is dispatched so that IsSendable is true when the event fires.
+// AgentReady is dispatched so that IsSendable is true when the event fires.
 func (s *Session) commitStarted(alias string, from participant.Status) (Event, bool) {
 	s.mu.Lock()
 	p, ok := s.registry.Get(alias)
@@ -507,18 +507,10 @@ func (s *Session) Participants() []participant.View {
 	return out
 }
 
-// HasAnyActivityParticipants reports whether any participant is in a status
-// that requires the activity monitor to tick.
-func (s *Session) HasAnyActivityParticipants() bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.registry.HasStarting() || s.registry.HasAttached() || s.registry.HasKeepalive() || s.registry.HasWorking() || s.registry.HasCrashed()
-}
-
 // readLoop runs in a goroutine per agent, forwarding agent.Message values to
 // the observers. It is started after commitStarted and SessionReady so the
 // participant is StatusIdle when the first message arrives, but before
-// AgentStarted is dispatched so the agent pipe is drained immediately and
+// AgentReady is dispatched so the agent pipe is drained immediately and
 // cannot stall the child process while observers are being notified.
 func (s *Session) readLoop(stop <-chan struct{}, alias string, a agent.Agent) {
 	for {

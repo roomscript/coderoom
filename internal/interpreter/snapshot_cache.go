@@ -43,7 +43,7 @@ func cloneStagedSubmission(source *StagedSubmission) *StagedSubmission {
 	}
 	clone := *source
 	clone.Routing = append([]string(nil), source.Routing...)
-	clone.Blocking = append([]string(nil), source.Blocking...)
+	clone.NotReadyAliases = append([]string(nil), source.NotReadyAliases...)
 	clone.Interruptible = append([]string(nil), source.Interruptible...)
 	clone.Unavailable = append([]string(nil), source.Unavailable...)
 	return &clone

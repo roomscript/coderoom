@@ -221,8 +221,8 @@ func (e *interpreterExecutor) roster() []participant.View {
 	return append([]participant.View(nil), e.session.Participants()...)
 }
 
-func (e *interpreterExecutor) planSharedSend(alias string) (session.SharedSendPlan, []string) {
-	plan := e.session.PlanSharedSend(alias)
+func (e *interpreterExecutor) createParticipantSendPlan(alias string) (session.ParticipantSendPlan, []string) {
+	plan := e.session.CreateParticipantSendPlan(alias)
 	return plan, plan.Targets()
 }
 

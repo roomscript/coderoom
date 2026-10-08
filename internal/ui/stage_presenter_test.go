@@ -15,7 +15,7 @@ func TestInterpreterStagePresenterShowsRefreshesAndClearsStage(t *testing.T) {
 	recordsBefore := m.room.HistoryRecords()
 
 	m = presentStageSnapshot(m, &interpreter.StagedSubmission{
-		Raw: "@ada hello", Blocking: []string{"ada"},
+		Raw: "@ada hello", NotReadyAliases: []string{"ada"},
 	})
 	if got := m.room.ComposeValue(); got != "@ada hello" || !m.room.IsComposerStaged() {
 		t.Fatalf("composer = %q, staged = %v", got, m.room.IsComposerStaged())
@@ -54,7 +54,7 @@ func TestInterpreterStagePresenterPreservesApprovalOverlay(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			m := makeReadyModel(t)
-			stage := &interpreter.StagedSubmission{Raw: "hello", Blocking: []string{"ada"}}
+			stage := &interpreter.StagedSubmission{Raw: "hello", NotReadyAliases: []string{"ada"}}
 			if tt.approvalFirst {
 				m = showTestApproval(m)
 				m = presentStageSnapshot(m, stage)
@@ -127,7 +127,7 @@ func TestInterpreterStagePresenterIgnoresStaleStageAfterTakeForEdit(t *testing.T
 }
 
 func TestInterpreterStagePresenterUsesSnapshotParticipantColors(t *testing.T) {
-	stage := &interpreter.StagedSubmission{Raw: "hello", Blocking: []string{"ada"}}
+	stage := &interpreter.StagedSubmission{Raw: "hello", NotReadyAliases: []string{"ada"}}
 	snapshot := interpreter.Snapshot{
 		Stage:        stage,
 		Participants: []participant.View{{Alias: "ada", Color: "#ff0000"}},
@@ -164,8 +164,8 @@ func TestRenderInterpreterStageStatus_includesModeAndBusySummary(t *testing.T) {
 		absent []string
 	}{
 		{name: "on hold with none busy", want: []string{"Message on-hold.", "Waiting for: none.", "Press Esc to edit."}, absent: []string{"Interrupt requested.", "Waiting to send…", "Press Ctrl+X"}},
-		{name: "active work", stage: interpreter.StagedSubmission{Blocking: []string{"ada"}, Interruptible: []string{"ada"}}, want: []string{"Press Ctrl+X to interrupt and send."}},
-		{name: "interrupt waiting", stage: interpreter.StagedSubmission{InterruptRequested: true, Blocking: []string{"ada"}}, want: []string{"Interrupt requested.", "Waiting for: ada.", "Waiting to send…"}, absent: []string{"Press Esc to edit."}},
+		{name: "active work", stage: interpreter.StagedSubmission{NotReadyAliases: []string{"ada"}, Interruptible: []string{"ada"}}, want: []string{"Press Ctrl+X to interrupt and send."}},
+		{name: "interrupt waiting", stage: interpreter.StagedSubmission{InterruptRequested: true, NotReadyAliases: []string{"ada"}}, want: []string{"Interrupt requested.", "Waiting for: ada.", "Waiting to send…"}, absent: []string{"Press Esc to edit."}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

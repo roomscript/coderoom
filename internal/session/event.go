@@ -7,7 +7,9 @@ import (
 	"github.com/roomscript/coderoom/internal/participant"
 )
 
-// Event is a runtime notification emitted by the session controller.
+// Event reports an explicit runtime milestone from the session controller.
+// A request does not imply delivery; delivery means adapter acceptance, not work
+// completion. Individual event contracts specify which milestone they report.
 // Only concrete event types in this package implement it.
 type Event interface {
 	sessionEvent()
@@ -16,9 +18,9 @@ type Event interface {
 // AgentStarting reports that the session has begun starting an agent process.
 type AgentStarting struct{ Alias string }
 
-// AgentStarted reports that an agent is ready to receive messages. By the time
+// AgentReady reports that an agent is ready to receive messages. By the time
 // this event fires the participant is in StatusIdle and IsSendable returns true.
-type AgentStarted struct{ Alias string }
+type AgentReady struct{ Alias string }
 
 // AgentStopped reports that an agent exited during an intentional shutdown path.
 type AgentStopped struct{ Alias string }
@@ -73,11 +75,11 @@ type ContextHandoff struct {
 	Text      string
 	Preview   string
 
-	SourceRecordIndex int
-	BarrierAliases    []string
-	IdleAliases       []string
-	BusyAliases       []string
-	RejectionReason   string
+	SourceRecordIndex    int
+	RequiredReadyAliases []string
+	IdleAliases          []string
+	NotReadyAliases      []string
+	RejectionReason      string
 }
 
 // ApprovalRequested reports that a new approval prompt became active.
@@ -94,7 +96,7 @@ type ApprovalCleared struct {
 }
 
 func (AgentStarting) sessionEvent()            {}
-func (AgentStarted) sessionEvent()             {}
+func (AgentReady) sessionEvent()               {}
 func (AgentStopped) sessionEvent()             {}
 func (AgentCrashed) sessionEvent()             {}
 func (AgentLog) sessionEvent()                 {}

@@ -90,7 +90,7 @@ func TestSubmit_QuitStopsSessionBeforeReturningTeaQuit(t *testing.T) {
 	m := newTestModelWithSession(t, sess)
 	inviteParticipant(t, sess, "ada")
 	m = pumpUntil(t, m, func(event session.Event) bool {
-		_, started := event.(session.AgentStarted)
+		_, started := event.(session.AgentReady)
 		return started
 	})
 	m = m.submitToInterpreter("/quit")

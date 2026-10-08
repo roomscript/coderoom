@@ -116,16 +116,16 @@ The currently implemented closed request vocabulary is:
 ```go
 type sessionRequest interface{ sessionRequest() }
 
-type planAndExecuteSharedSendRequest struct {
+type createPlanAndExecuteParticipantSendRequest struct {
     alias         string
-    directText    string
-    listenersText string
+    message    string
+    notice string
 }
 
-type executePlannedSharedSendRequest struct {
-    plan          session.SharedSendPlan
-    directText    string
-    listenersText string
+type executePlannedParticipantSendRequest struct {
+    plan          session.ParticipantSendPlan
+    message    string
+    notice string
 }
 
 type broadcastRequest struct {
@@ -134,7 +134,7 @@ type broadcastRequest struct {
 }
 ```
 
-Immediate loop turns use `planAndExecuteSharedSendRequest`, which deliberately
+Immediate loop turns use `createPlanAndExecuteParticipantSendRequest`, which deliberately
 plans immediately before execution.
 
 The implemented staged-submission vocabulary includes handoff and cancellation
@@ -144,7 +144,7 @@ requests:
 type handoffRequest struct {
     fromAlias   string
     toAlias     string
-    idleAliases []string
+    requiredReadyAliases []string
     source      session.HandoffSource
 }
 
@@ -155,11 +155,11 @@ type cancelRequest struct {
 
 Staged sends must preserve the routing decision made when they were staged, so
 they use a separate planning instruction and
-later execute `executePlannedSharedSendRequest` with the opaque, session-bound
+later execute `executePlannedParticipantSendRequest` with the opaque, session-bound
 plan returned by the gateway.
 
 ```go
-type planSharedSendInstruction struct {
+type createParticipantSendPlanInstruction struct {
     target workflowRef
     alias  string
 }
@@ -173,8 +173,8 @@ type readHandoffSourceInstruction struct {
     alias  string
 }
 
-type sharedSendPlanResult struct {
-    plan    session.SharedSendPlan
+type participantSendPlanResult struct {
+    plan    session.ParticipantSendPlan
     targets []string
 }
 
@@ -185,7 +185,7 @@ type participantState struct {
 }
 
 type participantStateResult struct {
-    barrier []participantState
+    readinessRequirements []participantState
 }
 
 type handoffSourceResult struct {
@@ -197,7 +197,7 @@ type handoffSourceResult struct {
 Planning and participant inspection are synchronous and serialized but still
 cross the workflow boundary as instructions: the workflow does not call the
 session. Their correlated completions freeze the opaque plan, detached target
-aliases, and barrier inputs in staged state. `participantState` deliberately
+aliases, and readiness requirements in staged state. `participantState` deliberately
 omits agents and other live session-owned references.
 
 The executor-owned session gateway currently translates the loop request
@@ -206,12 +206,12 @@ immediately before execution:
 ```go
 func (g sessionGateway) Execute(request sessionRequest) error {
     switch request := request.(type) {
-    case planAndExecuteSharedSendRequest:
-        plan := g.session.PlanSharedSend(request.alias)
-        return g.session.Execute(session.SharedSendCommand{
+    case createPlanAndExecuteParticipantSendRequest:
+        plan := g.session.CreateParticipantSendPlan(request.alias)
+        return g.session.Execute(session.SendToParticipantCommand{
             Plan:          plan,
-            TextDirect:    request.directText,
-            TextListeners: request.listenersText,
+            Message:    request.message,
+            Notice: request.notice,
         })
     }
 }
@@ -268,7 +268,7 @@ type startUserShellInstruction struct {
 }
 
 type readRosterInstruction struct { raw string }
-type planSharedSendInstruction struct {
+type createParticipantSendPlanInstruction struct {
     target workflowRef
     alias  string
 }
@@ -292,7 +292,7 @@ session event produced by that execution; workflow completion follows those
 events. On failure they are not applied. An empty list preserves the normal
 event-then-completion order.
 
-`planSharedSendInstruction`, `planBroadcastInstruction`,
+`createParticipantSendPlanInstruction`, `planBroadcastInstruction`,
 `readParticipantStateInstruction`, and `readHandoffSourceInstruction` provide
 the frozen-stage inputs. Shared sends carry their policy-aware frozen plan;
 broadcasts carry their frozen alias list directly. Participants joining after
@@ -582,7 +582,7 @@ Input:
    ```text
    executeSessionInstruction{
        target:  {kind: loop, generation: 7, requestID: 21},
-       request: planAndExecuteSharedSendRequest{alias: "ada", ...},
+       request: createPlanAndExecuteParticipantSendRequest{alias: "ada", ...},
    }
    ```
 
@@ -622,24 +622,24 @@ condition evaluation.
 ## Worked sequence: staged dispatch
 
 1. The stage workflow allocates request 29 and returns a typed planning
-   instruction: `planSharedSendInstruction` for an addressed send,
+   instruction: `createParticipantSendPlanInstruction` for an addressed send,
    `planBroadcastInstruction` for a broadcast, or participant inspection for a
    handoff.
 2. A send or broadcast planning completion freezes its detached targets. The
    workflow then allocates request 30 and returns
-   `readParticipantStateInstruction` to obtain detached barrier state.
-3. The workflow filters send and broadcast barriers to the frozen routing
+   `readParticipantStateInstruction` to obtain detached readiness requirements.
+3. The workflow filters send and broadcast readiness requirements to the frozen routing
    aliases and stores those values with its action and generation 4. Handoff
-   retains the complete barrier snapshot.
-4. Lifecycle events update the frozen barrier. Once dispatchable, the workflow
+   retains the complete readiness snapshot.
+4. Lifecycle events update the frozen readiness requirements. Once dispatchable, the workflow
    allocates request 31. Handoffs first return
    `readHandoffSourceInstruction`, then use its correlated canonical-room
    result; sends and broadcasts proceed directly to execution.
 5. The session gateway translates and executes the request. A planned shared
-   send uses the plan frozen in step 3 after removing listeners that departed
-   while staged; it cannot gain later or same-alias replacement listeners.
+   send uses the plan frozen in step 3 after removing notice recipients that departed
+   while staged; it cannot gain later or same-alias replacement notice recipients.
    Handoff execution receives the resolved source value and frozen active
-   barrier aliases in `handoffRequest`.
+   required-ready aliases in `handoffRequest`.
 6. After successful handoff execution, the generic `recordsOnSuccess` list
    commits the submitted user record. Causal
    departure, delivery, handoff, and status events then update the room and

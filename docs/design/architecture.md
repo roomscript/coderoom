@@ -66,7 +66,7 @@ application workflows and the canonical room projection used for execution,
 and serializes commands sent to the session controller.
 
 The staged-submission cutover is complete: send, broadcast, and handoff
-planning, frozen recipients, barriers, lifecycle readiness, source selection,
+planning, frozen recipients, readiness requirements, lifecycle readiness, source selection,
 dispatch, and interrupt coordination belong to the interpreter's `stageWorkflow`.
 Startup and maintenance participants can be frozen recipients. Staging waits
 for actual readiness, including StartupReady; interrupts cancel active turns
@@ -158,7 +158,7 @@ Status values and their meaning:
 | Status | Description |
 |--------|-------------|
 | `starting` | `Start()` has been called; the process is not yet confirmed live. |
-| `attached` | Process is live and the agent is bound, but `AgentStarted` has not yet been dispatched. `/remove` and sends are rejected in this window. |
+| `attached` | Process is live and the agent is bound, but `AgentReady` has not yet been dispatched. `/remove` and sends are rejected in this window. |
 | `idle` | No turn is active. `StartupReady` must also be set before messages can be delivered. |
 | `keepalive` | Backend maintenance request in flight. No user turn is active, but the participant is temporarily non-sendable and occupies the request lane. |
 | `preparing` | Committed to a send; anchor stream being established. |
@@ -290,7 +290,7 @@ The system operates via discrete events. This enables replay, debugging, and ses
 ```
 SessionCreated
 AgentInvited
-AgentStarted
+AgentReady
 MessageSent
 CommandIssued
 FileChanged

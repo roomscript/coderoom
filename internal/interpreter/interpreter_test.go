@@ -61,8 +61,8 @@ func (s *recordingSession) AddObserver(observer session.Observer) {
 	s.observer = observer
 }
 
-func (*recordingSession) PlanSharedSend(string) session.SharedSendPlan {
-	return session.SharedSendPlan{}
+func (*recordingSession) CreateParticipantSendPlan(string) session.ParticipantSendPlan {
+	return session.ParticipantSendPlan{}
 }
 
 func (s *recordingSession) Participants() []participant.View {
@@ -111,7 +111,7 @@ func TestInterpreter_projectsSessionEventBeforePublishingSnapshot(t *testing.T) 
 	receiveEvent[interpreter.StateChanged](t, events)
 	t.Cleanup(interp.Close)
 
-	sess.emit(session.AgentStarted{Alias: "ada"})
+	sess.emit(session.AgentReady{Alias: "ada"})
 
 	changed := receiveEvent[interpreter.StateChanged](t, events)
 	if len(changed.Snapshot.Room.Members) != 1 || changed.Snapshot.Room.Members[0] != "ada" {
@@ -162,7 +162,7 @@ func TestInterpreter_snapshotAfterCloseUsesDetachedCache(t *testing.T) {
 	interp := interpreter.New(context.Background(), sess, t.TempDir(), interpreter.WithObserver(eventObserver{events: events}))
 	receiveEvent[interpreter.StateChanged](t, events)
 
-	sess.emit(session.AgentStarted{Alias: "ada"})
+	sess.emit(session.AgentReady{Alias: "ada"})
 	receiveEvent[interpreter.StateChanged](t, events)
 	emitApproval(sess, 42, agent.OptionAccept)
 	receiveEvent[interpreter.StateChanged](t, events)

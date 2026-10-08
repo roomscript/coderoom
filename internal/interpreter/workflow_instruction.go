@@ -50,7 +50,7 @@ type startUserShellInstruction struct {
 }
 
 type readRosterInstruction struct{ raw string }
-type planSharedSendInstruction struct {
+type createParticipantSendPlanInstruction struct {
 	target workflowRef
 	alias  string
 }
@@ -68,21 +68,21 @@ type shutdownSessionInstruction struct{}
 type appendRecordInstruction struct{ record room.Record }
 type publishEventInstruction struct{ event Event }
 
-func (executeSessionInstruction) instruction()       {}
-func (startShellInstruction) instruction()           {}
-func (executeCommandInstruction) instruction()       {}
-func (startUserShellInstruction) instruction()       {}
-func (readRosterInstruction) instruction()           {}
-func (planSharedSendInstruction) instruction()       {}
-func (planBroadcastInstruction) instruction()        {}
-func (readParticipantStateInstruction) instruction() {}
-func (readHandoffSourceInstruction) instruction()    {}
-func (publishSnapshotInstruction) instruction()      {}
-func (requestSnapshotInstruction) instruction()      {}
-func (requestCloseInstruction) instruction()         {}
-func (shutdownSessionInstruction) instruction()      {}
-func (appendRecordInstruction) instruction()         {}
-func (publishEventInstruction) instruction()         {}
+func (executeSessionInstruction) instruction()            {}
+func (startShellInstruction) instruction()                {}
+func (executeCommandInstruction) instruction()            {}
+func (startUserShellInstruction) instruction()            {}
+func (readRosterInstruction) instruction()                {}
+func (createParticipantSendPlanInstruction) instruction() {}
+func (planBroadcastInstruction) instruction()             {}
+func (readParticipantStateInstruction) instruction()      {}
+func (readHandoffSourceInstruction) instruction()         {}
+func (publishSnapshotInstruction) instruction()           {}
+func (requestSnapshotInstruction) instruction()           {}
+func (requestCloseInstruction) instruction()              {}
+func (shutdownSessionInstruction) instruction()           {}
+func (appendRecordInstruction) instruction()              {}
+func (publishEventInstruction) instruction()              {}
 
 type instructionSequence []instruction
 
@@ -92,16 +92,16 @@ func (s *instructionSequence) append(next instructionSequence) {
 
 type sessionRequest interface{ sessionRequest() }
 
-type planAndExecuteSharedSendRequest struct {
-	alias         string
-	directText    string
-	listenersText string
+type createPlanAndExecuteParticipantSendRequest struct {
+	alias   string
+	message string
+	notice  string
 }
 
-type executePlannedSharedSendRequest struct {
-	plan          session.SharedSendPlan
-	directText    string
-	listenersText string
+type executePlannedParticipantSendRequest struct {
+	plan    session.ParticipantSendPlan
+	message string
+	notice  string
 }
 
 type broadcastRequest struct {
@@ -112,17 +112,17 @@ type broadcastRequest struct {
 type cancelRequest struct{ alias string }
 
 type handoffRequest struct {
-	fromAlias   string
-	toAlias     string
-	idleAliases []string
-	source      session.HandoffSource
+	fromAlias            string
+	toAlias              string
+	requiredReadyAliases []string
+	source               session.HandoffSource
 }
 
-func (planAndExecuteSharedSendRequest) sessionRequest() {}
-func (executePlannedSharedSendRequest) sessionRequest() {}
-func (broadcastRequest) sessionRequest()                {}
-func (cancelRequest) sessionRequest()                   {}
-func (handoffRequest) sessionRequest()                  {}
+func (createPlanAndExecuteParticipantSendRequest) sessionRequest() {}
+func (executePlannedParticipantSendRequest) sessionRequest()       {}
+func (broadcastRequest) sessionRequest()                           {}
+func (cancelRequest) sessionRequest()                              {}
+func (handoffRequest) sessionRequest()                             {}
 
 type shellRequest struct {
 	command string
@@ -155,9 +155,9 @@ type rosterCompletion struct {
 	participants []participant.View
 }
 
-type sharedSendPlanResult struct {
+type participantSendPlanResult struct {
 	target  workflowRef
-	plan    session.SharedSendPlan
+	plan    session.ParticipantSendPlan
 	targets []string
 }
 
@@ -178,8 +178,8 @@ func (s participantState) view() participant.View {
 }
 
 type participantStateResult struct {
-	target  workflowRef
-	barrier []participantState
+	target                workflowRef
+	readinessRequirements []participantState
 }
 
 type handoffSourceResult struct {
@@ -188,14 +188,14 @@ type handoffSourceResult struct {
 	ok     bool
 }
 
-func (sessionCompletion) workflowCompletion()      {}
-func (shellCompletion) workflowCompletion()        {}
-func (submissionCompletion) workflowCompletion()   {}
-func (rosterCompletion) workflowCompletion()       {}
-func (sharedSendPlanResult) workflowCompletion()   {}
-func (broadcastPlanResult) workflowCompletion()    {}
-func (participantStateResult) workflowCompletion() {}
-func (handoffSourceResult) workflowCompletion()    {}
+func (sessionCompletion) workflowCompletion()         {}
+func (shellCompletion) workflowCompletion()           {}
+func (submissionCompletion) workflowCompletion()      {}
+func (rosterCompletion) workflowCompletion()          {}
+func (participantSendPlanResult) workflowCompletion() {}
+func (broadcastPlanResult) workflowCompletion()       {}
+func (participantStateResult) workflowCompletion()    {}
+func (handoffSourceResult) workflowCompletion()       {}
 
 type executorItem interface{ executorItem() }
 type instructionItem struct{ instruction instruction }
@@ -231,21 +231,21 @@ func instructionItems(instructions instructionSequence) []executorItem {
 
 func (e *interpreterExecutor) executeSessionRequest(request sessionRequest) error {
 	switch request := request.(type) {
-	case planAndExecuteSharedSendRequest:
-		err := e.session.Execute(session.SharedSendCommand{
-			Plan:          e.session.PlanSharedSend(request.alias),
-			TextDirect:    request.directText,
-			TextListeners: request.listenersText,
+	case createPlanAndExecuteParticipantSendRequest:
+		err := e.session.Execute(session.SendToParticipantCommand{
+			Plan:    e.session.CreateParticipantSendPlan(request.alias),
+			Message: request.message,
+			Notice:  request.notice,
 		})
 		if err != nil {
 			return fmt.Errorf("execute shared send: %w", err)
 		}
 		return nil
-	case executePlannedSharedSendRequest:
-		err := e.session.Execute(session.SharedSendCommand{
-			Plan:          request.plan,
-			TextDirect:    request.directText,
-			TextListeners: request.listenersText,
+	case executePlannedParticipantSendRequest:
+		err := e.session.Execute(session.SendToParticipantCommand{
+			Plan:    request.plan,
+			Message: request.message,
+			Notice:  request.notice,
 		})
 		if err != nil {
 			return fmt.Errorf("execute planned shared send: %w", err)
@@ -258,7 +258,7 @@ func (e *interpreterExecutor) executeSessionRequest(request sessionRequest) erro
 	case handoffRequest:
 		if err := e.session.Execute(session.HandoffCommand{
 			FromAlias: request.fromAlias, ToAlias: request.toAlias,
-			IdleAliases: slices.Clone(request.idleAliases), Source: request.source,
+			RequiredReadyAliases: slices.Clone(request.requiredReadyAliases), Source: request.source,
 		}); err != nil {
 			return fmt.Errorf("execute handoff: %w", err)
 		}

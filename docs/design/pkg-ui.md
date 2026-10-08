@@ -115,7 +115,7 @@ snapshots; the UI does not re-read session state.
 
 | Event type | Rendered as |
 |---|---|
-| `AgentStarted` | `[ada joined]` |
+| `AgentReady` | `[ada joined]` |
 | `AgentStopped` | `[ada left]` |
 | `AgentCrashed` | `[ada crashed]` |
 | `AgentLog` | `▸ <line>` in grey (lipgloss); de-emphasised diagnostic output; does not participate in streaming state; appended as a standalone line like any other event |
@@ -161,7 +161,7 @@ interpreter's serialized loop never blocks terminal rendering.
 | `/remove <alias>` | `RemoveCommand` | Hard stop: removes the agent from the room and stops its process |
 | `/who` | interpreter query | Renders the current interpreter snapshot inline |
 | `/help` | — | Renders available commands inline |
-| `@<alias> <text>` | `SharedSendCommand` | Only the addressed participant is targeted unless `send-notices` is enabled |
+| `@<alias> <text>` | `SendToParticipantCommand` | Only the addressed participant is targeted unless `send-notices` is enabled |
 | `<text>` | `BroadcastCommand` | Equivalent to direct send for single-agent sessions |
 | `/quit` | interpreter shutdown request | Best-effort stop all agents before UI exit |
 

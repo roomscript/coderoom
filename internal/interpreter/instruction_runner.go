@@ -14,7 +14,7 @@ type instructionExecutorPort interface {
 	startShell(string, string, string)
 	executeSessionRequest(sessionRequest) error
 	executeCommand(session.Command) error
-	planSharedSend(string) (session.SharedSendPlan, []string)
+	createParticipantSendPlan(string) (session.ParticipantSendPlan, []string)
 	planBroadcast() []string
 	participantState() []participantState
 	roster() []participant.View
@@ -118,9 +118,9 @@ func (r *instructionRunner) applyExecutionInstruction(value instruction) ([]exec
 		return []executorItem{completionItem{completion: rosterCompletion{
 			raw: value.raw, participants: r.executor.roster(),
 		}}}, false, true
-	case planSharedSendInstruction:
-		plan, targets := r.executor.planSharedSend(value.alias)
-		return []executorItem{completionItem{completion: sharedSendPlanResult{
+	case createParticipantSendPlanInstruction:
+		plan, targets := r.executor.createParticipantSendPlan(value.alias)
+		return []executorItem{completionItem{completion: participantSendPlanResult{
 			target: value.target, plan: plan, targets: targets,
 		}}}, false, true
 	case planBroadcastInstruction:
@@ -129,9 +129,9 @@ func (r *instructionRunner) applyExecutionInstruction(value instruction) ([]exec
 			target: value.target, targets: targets,
 		}}}, false, true
 	case readParticipantStateInstruction:
-		barrier := r.executor.participantState()
+		readinessRequirements := r.executor.participantState()
 		return []executorItem{completionItem{completion: participantStateResult{
-			target: value.target, barrier: barrier,
+			target: value.target, readinessRequirements: readinessRequirements,
 		}}}, false, true
 	case readHandoffSourceInstruction:
 		source, ok := r.model.ReadHandoffSource(value.alias)

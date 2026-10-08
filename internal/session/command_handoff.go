@@ -11,10 +11,10 @@ import (
 // HandoffCommand transfers the latest completed room-visible output from one
 // alias to another through a context path and emits a shared-room audit event.
 type HandoffCommand struct {
-	FromAlias   string
-	ToAlias     string
-	IdleAliases []string
-	Source      HandoffSource
+	FromAlias            string
+	ToAlias              string
+	RequiredReadyAliases []string
+	Source               HandoffSource
 }
 
 func (c HandoffCommand) execute(s *Session) error {
@@ -29,27 +29,27 @@ func (c HandoffCommand) execute(s *Session) error {
 }
 
 type handoffAttempt struct {
-	fromAlias string
-	toAlias   string
-	barrier   []string
-	idle      []string
-	busy      []string
-	source    HandoffSource
+	fromAlias            string
+	toAlias              string
+	requiredReadyAliases []string
+	idle                 []string
+	notReadyAliases      []string
+	source               HandoffSource
 }
 
 func newHandoffAttempt(c HandoffCommand, s *Session) *handoffAttempt {
-	barrier, idle, busy := handoffBarrierState(c.IdleAliases, s)
+	requiredReadyAliases, idle, notReadyAliases := handoffReadinessState(c.RequiredReadyAliases, s)
 	source := c.Source
 	if source.Text == "" {
 		source.RecordIndex = -1
 	}
 	return &handoffAttempt{
-		fromAlias: c.FromAlias,
-		toAlias:   c.ToAlias,
-		barrier:   barrier,
-		idle:      idle,
-		busy:      busy,
-		source:    source,
+		fromAlias:            c.FromAlias,
+		toAlias:              c.ToAlias,
+		requiredReadyAliases: requiredReadyAliases,
+		idle:                 idle,
+		notReadyAliases:      notReadyAliases,
+		source:               source,
 	}
 }
 
@@ -60,12 +60,12 @@ func (c HandoffCommand) validate(attempt *handoffAttempt, s *Session) error {
 	if c.FromAlias == c.ToAlias {
 		return rejectHandoffAttempt(attempt, s, "distinct aliases required", fmt.Errorf("handoff requires distinct source and destination aliases"))
 	}
-	if len(attempt.busy) > 0 {
+	if len(attempt.notReadyAliases) > 0 {
 		return rejectHandoffAttempt(
 			attempt,
 			s,
 			"participants busy",
-			fmt.Errorf("handoff requires all participants to be idle: %s", strings.Join(attempt.busy, ", ")),
+			fmt.Errorf("handoff requires all participants to be idle: %s", strings.Join(attempt.notReadyAliases, ", ")),
 		)
 	}
 	return nil
@@ -104,37 +104,37 @@ func (c HandoffCommand) deliver(attempt *handoffAttempt, s *Session) error {
 }
 
 func rejectHandoffAttempt(attempt *handoffAttempt, s *Session, reason string, err error) error {
-	notifyHandoffRejected(s, attempt.fromAlias, attempt.toAlias, attempt.barrier, attempt.idle, attempt.busy, attempt.source.RecordIndex, reason)
+	notifyHandoffRejected(s, attempt.fromAlias, attempt.toAlias, attempt.requiredReadyAliases, attempt.idle, attempt.notReadyAliases, attempt.source.RecordIndex, reason)
 	return err
 }
 
 func notifyHandoffDelivered(fromAlias, toAlias string, attempt *handoffAttempt, s *Session) {
 	s.notify(ContextHandoff{
-		FromAlias:         fromAlias,
-		ToAlias:           toAlias,
-		Text:              attempt.source.Text,
-		Preview:           formatHandoffPreview(fromAlias, toAlias, attempt.source.Text),
-		SourceRecordIndex: attempt.source.RecordIndex,
-		BarrierAliases:    append([]string(nil), attempt.barrier...),
-		IdleAliases:       append([]string(nil), attempt.idle...),
-		BusyAliases:       append([]string(nil), attempt.busy...),
+		FromAlias:            fromAlias,
+		ToAlias:              toAlias,
+		Text:                 attempt.source.Text,
+		Preview:              formatHandoffPreview(fromAlias, toAlias, attempt.source.Text),
+		SourceRecordIndex:    attempt.source.RecordIndex,
+		RequiredReadyAliases: append([]string(nil), attempt.requiredReadyAliases...),
+		IdleAliases:          append([]string(nil), attempt.idle...),
+		NotReadyAliases:      append([]string(nil), attempt.notReadyAliases...),
 	})
-	notifyHandoffAccepted(s, fromAlias, toAlias, attempt.barrier, attempt.idle, attempt.source.RecordIndex)
+	notifyHandoffAccepted(s, fromAlias, toAlias, attempt.requiredReadyAliases, attempt.idle, attempt.source.RecordIndex)
 }
 
-func handoffBarrierState(aliases []string, s *Session) (barrier []string, idle []string, busy []string) {
+func handoffReadinessState(aliases []string, s *Session) (requiredReadyAliases []string, idle []string, notReadyAliases []string) {
 	if len(aliases) == 0 {
 		for _, p := range s.Participants() {
 			if !p.IsRoutable() {
 				continue
 			}
-			barrier = append(barrier, p.Alias)
+			requiredReadyAliases = append(requiredReadyAliases, p.Alias)
 		}
 	} else {
-		barrier = append([]string(nil), aliases...)
-		slices.Sort(barrier)
+		requiredReadyAliases = append([]string(nil), aliases...)
+		slices.Sort(requiredReadyAliases)
 	}
-	for _, alias := range barrier {
+	for _, alias := range requiredReadyAliases {
 		p, ok := s.Participant(alias)
 		if !ok {
 			continue
@@ -143,18 +143,18 @@ func handoffBarrierState(aliases []string, s *Session) (barrier []string, idle [
 			idle = append(idle, alias)
 			continue
 		}
-		busy = append(busy, alias)
+		notReadyAliases = append(notReadyAliases, alias)
 	}
-	return barrier, idle, busy
+	return requiredReadyAliases, idle, notReadyAliases
 }
 
-func notifyHandoffAccepted(s *Session, fromAlias, toAlias string, barrier, idle []string, sourceRecordIndex int) {
-	s.notify(AgentLog{Text: formatHandoffAttemptLog("accepted", fromAlias, toAlias, barrier, idle, nil, sourceRecordIndex, "")})
+func notifyHandoffAccepted(s *Session, fromAlias, toAlias string, requiredReadyAliases, idle []string, sourceRecordIndex int) {
+	s.notify(AgentLog{Text: formatHandoffAttemptLog("accepted", fromAlias, toAlias, requiredReadyAliases, idle, nil, sourceRecordIndex, "")})
 }
 
-func notifyHandoffRejected(s *Session, fromAlias, toAlias string, barrier, idle, busy []string, sourceRecordIndex int, reason string) {
+func notifyHandoffRejected(s *Session, fromAlias, toAlias string, requiredReadyAliases, idle, notReadyAliases []string, sourceRecordIndex int, reason string) {
 	reason = compactHandoffReason(reason)
-	s.notify(AgentLog{Text: formatHandoffAttemptLog("rejected", fromAlias, toAlias, barrier, idle, busy, sourceRecordIndex, reason)})
+	s.notify(AgentLog{Text: formatHandoffAttemptLog("rejected", fromAlias, toAlias, requiredReadyAliases, idle, notReadyAliases, sourceRecordIndex, reason)})
 }
 
 func compactHandoffReason(reason string) string {
@@ -179,7 +179,7 @@ func compactHandoffReason(reason string) string {
 	return strings.Join(parts, " | ")
 }
 
-func formatHandoffAttemptLog(status, fromAlias, toAlias string, barrier, idle, busy []string, sourceRecordIndex int, reason string) string {
+func formatHandoffAttemptLog(status, fromAlias, toAlias string, requiredReadyAliases, idle, notReadyAliases []string, sourceRecordIndex int, reason string) string {
 	var sb strings.Builder
 	sb.WriteString("handoff ")
 	sb.WriteString(status)
@@ -188,12 +188,12 @@ func formatHandoffAttemptLog(status, fromAlias, toAlias string, barrier, idle, b
 	sb.WriteString(" to=")
 	sb.WriteString(toAlias)
 	sb.WriteString(" barrier=")
-	sb.WriteString(formatHandoffAliasList(barrier))
+	sb.WriteString(formatHandoffAliasList(requiredReadyAliases))
 	sb.WriteString(" idle=")
 	sb.WriteString(formatHandoffAliasList(idle))
-	if len(busy) > 0 {
+	if len(notReadyAliases) > 0 {
 		sb.WriteString(" busy=")
-		sb.WriteString(formatHandoffAliasList(busy))
+		sb.WriteString(formatHandoffAliasList(notReadyAliases))
 	}
 	sb.WriteString(" source_record=")
 	if sourceRecordIndex < 0 {

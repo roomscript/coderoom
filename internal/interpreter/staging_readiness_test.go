@@ -17,13 +17,13 @@ func planStageForTest(t *testing.T, workflow *stageWorkflow, statement promptlan
 	if send, ok := statement.(promptlang.Send); ok {
 		sess := session.New()
 		t.Cleanup(sess.Shutdown)
-		request := sequence[0].(planSharedSendInstruction)
-		sequence = workflow.handleCompletion(sharedSendPlanResult{target: request.target, plan: sess.PlanSharedSend(send.Alias), targets: targets})
+		request := sequence[0].(createParticipantSendPlanInstruction)
+		sequence = workflow.handleCompletion(participantSendPlanResult{target: request.target, plan: sess.CreateParticipantSendPlan(send.Alias), targets: targets})
 	} else {
 		sequence = acceptSuppliedStagePlan(t, workflow, sequence, targets)
 	}
 	read := sequence[0].(readParticipantStateInstruction)
-	return workflow.handleCompletion(participantStateResult{target: read.target, barrier: states})
+	return workflow.handleCompletion(participantStateResult{target: read.target, readinessRequirements: states})
 }
 
 func TestStageWorkflow_waitsForTemporaryStates(t *testing.T) {
@@ -32,13 +32,13 @@ func TestStageWorkflow_waitsForTemporaryStates(t *testing.T) {
 			t.Run(fmt.Sprintf("%s/%T", status, statement), func(t *testing.T) {
 				workflow := stageWorkflow{}
 				planStageForTest(t, &workflow, statement, []string{"ben"}, []participantState{{alias: "ben", status: status}})
-				if stage := workflow.snapshot(); stage == nil || !slices.Equal(stage.Blocking, []string{"ben"}) {
+				if stage := workflow.snapshot(); stage == nil || !slices.Equal(stage.NotReadyAliases, []string{"ben"}) {
 					t.Fatalf("stage = %#v", stage)
 				}
 				sequence := workflow.handleSessionEvent(session.ParticipantStatusChanged{Alias: "ben", From: status, To: participant.StatusIdle})
 				if status == participant.StatusStarting || status == participant.StatusAttached {
 					assertNoStageDispatch(t, sequence)
-					sequence = workflow.handleSessionEvent(session.AgentStarted{Alias: "ben"})
+					sequence = workflow.handleSessionEvent(session.AgentReady{Alias: "ben"})
 				}
 				dispatch, ok := sequence[0].(executeSessionInstruction)
 				if !ok || !slices.Equal(stageDispatchRecipients(t, dispatch), []string{"ben"}) {
@@ -102,7 +102,7 @@ func TestStageWorkflow_interruptSkipsStartupAndMaintenance(t *testing.T) {
 	}
 	workflow.handleCompletion(sessionCompletion{target: cancel.target})
 	workflow.handleSessionEvent(session.ParticipantStatusChanged{Alias: "ada", To: participant.StatusIdle})
-	workflow.handleSessionEvent(session.AgentStarted{Alias: "ben"})
+	workflow.handleSessionEvent(session.AgentReady{Alias: "ben"})
 	if !workflow.pending() {
 		t.Fatal("dispatched while keepalive still running")
 	}
@@ -114,14 +114,14 @@ func TestStageWorkflow_interruptSkipsStartupAndMaintenance(t *testing.T) {
 
 func TestSubmitContract_startingBroadcastKeepsFrozenRecipients(t *testing.T) {
 	interp, sess, events := newSubmitContractInterpreter(t)
-	sess.barrier = []participant.Participant{{View: participant.View{Alias: "ben", Status: participant.StatusStarting}}}
+	sess.readinessRequirements = []participant.Participant{{View: participant.View{Alias: "ben", Status: participant.StatusStarting}}}
 	mustSubmit(t, interp.Submit("hello"))
 	receiveSubmitEvent[InputAccepted](t, events)
 	receiveSubmitEvent[SubmissionSucceeded](t, events)
 	receiveSubmitEvent[StateChanged](t, events)
 	assertNoSubmitExecution(t, sess.executed)
-	interp.executor.recordSessionEvent(session.AgentStarted{Alias: "later"})
-	interp.executor.recordSessionEvent(session.AgentStarted{Alias: "ben"})
+	interp.executor.recordSessionEvent(session.AgentReady{Alias: "later"})
+	interp.executor.recordSessionEvent(session.AgentReady{Alias: "ben"})
 	command := receiveSubmitCommand(t, sess.executed).(session.BroadcastCommand)
 	if !slices.Equal(command.Aliases, []string{"ben"}) {
 		t.Fatalf("recipients = %v", command.Aliases)
@@ -132,7 +132,7 @@ func assertNoStageDispatch(t *testing.T, sequence instructionSequence) {
 	t.Helper()
 	for _, instruction := range sequence {
 		if _, ok := instruction.(executeSessionInstruction); ok {
-			t.Fatal("dispatched before AgentStarted")
+			t.Fatal("dispatched before AgentReady")
 		}
 	}
 }

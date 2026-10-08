@@ -141,7 +141,7 @@ func inviteAndWaitStarted(t *testing.T, s *session.Session, events <-chan sessio
 	}); err != nil {
 		t.Fatalf("invite %s: %v", alias, err)
 	}
-	drainUntilType[session.AgentStarted](t, events, 10*time.Second)
+	drainUntilType[session.AgentReady](t, events, 10*time.Second)
 }
 
 func waitForFirstStreamOutput(t *testing.T, b *eventBuf, alias string, timeout time.Duration) {

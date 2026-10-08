@@ -10,7 +10,7 @@ import (
 type SessionController interface {
 	Execute(session.Command) error
 	AddObserver(session.Observer)
-	PlanSharedSend(alias string) session.SharedSendPlan
+	CreateParticipantSendPlan(alias string) session.ParticipantSendPlan
 	Participants() []participant.View
 	Participant(alias string) (participant.View, bool)
 	Shutdown()

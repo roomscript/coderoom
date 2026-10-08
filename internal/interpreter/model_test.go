@@ -61,7 +61,7 @@ func TestInterpreterModel_ApplySessionEventProjectsBeforeWorkflowInstructions(t 
 	model := newInterpreterModel()
 	t.Cleanup(model.Close)
 
-	sequence, applied := model.ApplySessionEvent(session.AgentStarted{Alias: "ada"})
+	sequence, applied := model.ApplySessionEvent(session.AgentReady{Alias: "ada"})
 	if !applied {
 		t.Fatal("event was not applied")
 	}

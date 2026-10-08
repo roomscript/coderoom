@@ -35,11 +35,11 @@ func TestSession_agentStopsCleanly(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("invite: %v", err)
 	}
-	drainUntilType[session.AgentStarted](t, events, 10*time.Second)
+	drainUntilType[session.AgentReady](t, events, 10*time.Second)
 
-	if err := s.Execute(session.SharedSendCommand{
-		Plan:       s.PlanSharedSend("ada"),
-		TextDirect: "What is 2+2? Reply with just the number.",
+	if err := s.Execute(session.SendToParticipantCommand{
+		Plan:    s.CreateParticipantSendPlan("ada"),
+		Message: "What is 2+2? Reply with just the number.",
 	}); err != nil {
 		t.Fatalf("shared send: %v", err)
 	}

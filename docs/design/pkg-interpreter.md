@@ -130,7 +130,7 @@ concrete `*session.Session`. The interface is declared by the interpreter:
 type SessionController interface {
     Execute(session.Command) error
     AddObserver(session.Observer)
-    PlanSharedSend(alias string) session.SharedSendPlan
+    CreateParticipantSendPlan(alias string) session.ParticipantSendPlan
     Participants() []participant.View
     Participant(alias string) (participant.View, bool)
     Shutdown()
@@ -175,7 +175,7 @@ The staged-submission facade also exposes atomic structured operations:
 |---|---|---|
 | User returns a staged message to editing | `TakeStageForEdit()` | Atomically removes and returns its raw draft |
 | User abandons a staged message | `DiscardStage()` | Removes it without dispatch |
-| User requests interrupt-and-send | `InterruptAndDispatchStage()` | Acts on the staged submission's frozen barrier |
+| User requests interrupt-and-send | `InterruptAndDispatchStage()` | Acts on the staged submission's frozen readiness requirements |
 
 `InterruptAndDispatchStage` is not an alias for `/cancel`: it derives the
 blocking participants from the staged submission, requests their cancellation
@@ -382,7 +382,7 @@ These combinations are mutually exclusive: `UnknownCommand` never follows
 generic completion event. Submission success means execution or scheduling
 succeeded; it does not mean asynchronous work started by the command has
 finished. For example, `/invite` may publish `SubmissionSucceeded` while its
-participant is still `Starting`, before `AgentStarted`.
+participant is still `Starting`, before `AgentReady`.
 
 Shutdown flushes every terminal outcome from successfully enqueued submissions
 through the observer dispatcher before closing it, so the TUI cannot retain a
@@ -471,13 +471,13 @@ The interpreter workflow owns the staged-submission state machine for
 user-authored `Send`, `Broadcast`, and `Handoff` statements in the running TUI.
 Composer staging is its UI representation, not its source of truth.
 
-On submission, the interpreter freezes the routing plan and barrier aliases. If
+On submission, the interpreter freezes the routing plan and required-ready aliases. If
 the required participants are ready, it dispatches immediately. Otherwise it
 stores the pending execution and publishes its state. Relevant session events
 then advance it:
 
 - readiness combines actual status with StartupReady; an idle participant still
-  completing startup stays blocked until AgentStarted
+  completing startup stays blocked until AgentReady
 - broadcasts and policy-enabled send notices include participants already
   starting when submitted; later invites do not join the frozen routing plan
 - unknown and crashed direct targets produce distinct errors
@@ -493,7 +493,7 @@ The front end may request edit/discard or interrupt-and-dispatch. An interrupt
 request causes the interpreter to issue serialized cancel commands for blocking
 participants with active turns. Startup and maintenance participants continue
 waiting. The interpreter publishes progress and dispatches only when lifecycle
-events satisfy the frozen barrier. The UI never calculates stage readiness or
+events satisfy the frozen readiness requirements. The UI never calculates stage readiness or
 advances stages from its own session-event projection.
 
 Representative state supplied to front ends is structured:
@@ -502,7 +502,7 @@ Representative state supplied to front ends is structured:
 type StagedSubmission struct {
     Raw        string
     Routing    []string
-    Blocking   []string
+    NotReadyAliases []string
     Interruptible []string
     Unavailable []string
     InterruptRequested bool
@@ -622,7 +622,7 @@ if !ok {
 err := gateway.Execute(handoffRequest{
     FromAlias:   fromAlias,
     ToAlias:     toAlias,
-    idleAliases: idleAliases,
+    requiredReadyAliases: requiredReadyAliases,
     source:      source,
 })
 ```
@@ -640,7 +640,7 @@ If the source is working, the stage waits for both its terminal idle status and
 the matching completed `AgentMessage` projection before reading the source.
 Either event may arrive first. This prevents dispatch from racing canonical
 room projection while ignoring unrelated or late-joining participants outside
-the frozen barrier.
+the frozen readiness requirements.
 
 ## Loops
 

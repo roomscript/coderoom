@@ -163,15 +163,15 @@ func (o *testObserver) OnEvent(e session.Event) {
 }
 
 func shouldSkipEvent[T session.Event](ev session.Event) bool {
-	_, wantStarted := any(*new(T)).(session.AgentStarted)
+	_, wantStarted := any(*new(T)).(session.AgentReady)
 	_, wantStarting := any(*new(T)).(session.AgentStarting)
 	_, isStarting := ev.(session.AgentStarting)
-	_, isStarted := ev.(session.AgentStarted)
+	_, isStarted := ev.(session.AgentReady)
 	// Skip startup lifecycle events unless the caller is explicitly waiting for
-	// one. This covers both "skip AgentStarting when waiting for AgentStarted"
-	// and "skip AgentStarted when waiting for AgentLog". The readLoop starts
-	// before AgentStarted is dispatched, so early agent output can arrive in
-	// either order relative to AgentStarted.
+	// one. This covers both "skip AgentStarting when waiting for AgentReady"
+	// and "skip AgentReady when waiting for AgentLog". The readLoop starts
+	// before AgentReady is dispatched, so early agent output can arrive in
+	// either order relative to AgentReady.
 	if isStarting && !wantStarting {
 		return true
 	}
@@ -302,7 +302,7 @@ func newSession(t *testing.T, opts ...session.Option) *session.Session {
 
 // --- tests ---
 
-func TestInvite_emitsAgentStarted(t *testing.T) {
+func TestInvite_emitsAgentReady(t *testing.T) {
 	obs := newTestObserver()
 	a := newMockAgent()
 	s := newSession(t, session.WithObserver(obs), fixedFactory(a))
@@ -310,15 +310,15 @@ func TestInvite_emitsAgentStarted(t *testing.T) {
 
 	invite(t, s, "ada")
 	mustReceive[session.AgentStarting](t, obs.ch)
-	mustReceive[session.AgentStarted](t, obs.ch)
+	mustReceive[session.AgentReady](t, obs.ch)
 }
 
 func TestInvite_earlyAgentOutputDeliveredAfterStarted(t *testing.T) {
-	// Verify that output buffered in the agent pipe before AgentStarted is
+	// Verify that output buffered in the agent pipe before AgentReady is
 	// dispatched (produced during Start()) is delivered while the participant
-	// is StatusIdle. The readLoop starts before AgentStarted fires, so the
+	// is StatusIdle. The readLoop starts before AgentReady fires, so the
 	// log and the lifecycle event may arrive in either order; shouldSkipEvent
-	// skips AgentStarted when waiting for AgentLog.
+	// skips AgentReady when waiting for AgentLog.
 	obs := newTestObserver()
 	a := &earlyOutputAgent{
 		mockAgent: newMockAgent(),
@@ -343,7 +343,7 @@ func TestCancel_interruptsAgent(t *testing.T) {
 
 	invite(t, s, "ada")
 	mustReceive[session.AgentStarting](t, obs.ch)
-	mustReceive[session.AgentStarted](t, obs.ch)
+	mustReceive[session.AgentReady](t, obs.ch)
 
 	if err := s.Execute(session.CancelCommand{Alias: "ada"}); err != nil {
 		t.Fatalf("CancelCommand: %v", err)
@@ -371,7 +371,7 @@ func TestCancel_notReadyWhileStarting(t *testing.T) {
 	}
 
 	close(g.startGate)
-	mustReceive[session.AgentStarted](t, obs.ch)
+	mustReceive[session.AgentReady](t, obs.ch)
 }
 
 func TestCancel_notReadyWhenCrashed(t *testing.T) {
@@ -430,7 +430,7 @@ func TestInvite_usesEchoFactoryWhenPolicyEnabled(t *testing.T) {
 	t.Cleanup(func() { _ = s.Execute(session.RemoveCommand{Alias: "ada"}) })
 
 	invite(t, s, "ada")
-	mustReceive[session.AgentStarted](t, obs.ch)
+	mustReceive[session.AgentReady](t, obs.ch)
 	if err := s.Execute(session.EnablePolicyCommand{Name: policy.EchoInvites}); err != nil {
 		t.Fatalf("idempotent EnablePolicyCommand: %v", err)
 	}
@@ -452,7 +452,7 @@ func TestInvite_usesNormalFactoryByDefault(t *testing.T) {
 	t.Cleanup(func() { _ = s.Execute(session.RemoveCommand{Alias: "ada"}) })
 
 	invite(t, s, "ada")
-	mustReceive[session.AgentStarted](t, obs.ch)
+	mustReceive[session.AgentReady](t, obs.ch)
 	if used != string(session.AgentBackendDefault) {
 		t.Fatalf("factory = %q, want default", used)
 	}
@@ -463,7 +463,7 @@ func TestEnableEchoInvites_rejectsAfterInvitation(t *testing.T) {
 	s := newSession(t, session.WithObserver(obs), fixedFactory(newMockAgent()))
 
 	invite(t, s, "ada")
-	mustReceive[session.AgentStarted](t, obs.ch)
+	mustReceive[session.AgentReady](t, obs.ch)
 	if err := s.Execute(session.RemoveCommand{Alias: "ada"}); err != nil {
 		t.Fatalf("RemoveCommand: %v", err)
 	}
@@ -488,15 +488,15 @@ func TestEchoInvite_completesAnchoredTurnWithUnchangedOutput(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = s.Execute(session.RemoveCommand{Alias: "ada"}) })
 	invite(t, s, "ada")
-	mustReceive[session.AgentStarted](t, obs.ch)
+	mustReceive[session.AgentReady](t, obs.ch)
 
 	const prompt = "repeat this exactly"
-	err := s.Execute(session.SharedSendCommand{
-		Plan:       s.PlanSharedSend("ada"),
-		TextDirect: prompt,
+	err := s.Execute(session.SendToParticipantCommand{
+		Plan:    s.CreateParticipantSendPlan("ada"),
+		Message: prompt,
 	})
 	if err != nil {
-		t.Fatalf("SharedSendCommand: %v", err)
+		t.Fatalf("SendToParticipantCommand: %v", err)
 	}
 	var msg session.AgentMessage
 	for {
@@ -538,7 +538,7 @@ func TestInvite_resolvesRoleFromConfig(t *testing.T) {
 		t.Fatalf("InviteCommand: %v", err)
 	}
 	mustReceive[session.AgentStarting](t, obs.ch)
-	mustReceive[session.AgentStarted](t, obs.ch)
+	mustReceive[session.AgentReady](t, obs.ch)
 
 	p, ok := s.Participant("ada")
 	if !ok {
@@ -560,7 +560,7 @@ func TestInvite_assignsColorToParticipant(t *testing.T) {
 		t.Fatalf("InviteCommand: %v", err)
 	}
 	mustReceive[session.AgentStarting](t, obs.ch)
-	mustReceive[session.AgentStarted](t, obs.ch)
+	mustReceive[session.AgentReady](t, obs.ch)
 	p, ok := s.Participant("ada")
 	if !ok {
 		t.Fatal("participant not found after invite")
@@ -589,7 +589,7 @@ func TestRemove_emitsAgentStopped(t *testing.T) {
 
 	invite(t, s, "ada")
 	mustReceive[session.AgentStarting](t, obs.ch)
-	mustReceive[session.AgentStarted](t, obs.ch)
+	mustReceive[session.AgentReady](t, obs.ch)
 
 	if err := s.Execute(session.RemoveCommand{Alias: "ada"}); err != nil {
 		t.Fatalf("RemoveCommand: %v", err)
@@ -599,7 +599,7 @@ func TestRemove_emitsAgentStopped(t *testing.T) {
 
 func TestRemove_duringStartup_isRejected(t *testing.T) {
 	// /remove must be rejected while the startup goroutine has not yet dispatched
-	// AgentStarted. Two sub-windows are covered:
+	// AgentReady. Two sub-windows are covered:
 	//
 	//  1. Before attachParticipant: participant is StatusStarting with no
 	//     s.agents entry → detachParticipant returns false → evictCrashedBeforeStart
@@ -608,8 +608,8 @@ func TestRemove_duringStartup_isRejected(t *testing.T) {
 	//     present in s.agents, but IsRemovable is still false →
 	//     detachParticipant returns false (same rejection path).
 	//
-	// StartupReady=true is set (under s.mu) before AgentStarted is dispatched.
-	// By the Go memory model, any goroutine that receives AgentStarted from the
+	// StartupReady=true is set (under s.mu) before AgentReady is dispatched.
+	// By the Go memory model, any goroutine that receives AgentReady from the
 	// observer channel is guaranteed to see StartupReady=true, so /remove
 	// succeeds immediately after the event is observed.
 	obs := newTestObserver()
@@ -629,7 +629,7 @@ func TestRemove_duringStartup_isRejected(t *testing.T) {
 	}
 
 	closeGate()
-	mustReceive[session.AgentStarted](t, obs.ch)
+	mustReceive[session.AgentReady](t, obs.ch)
 	if err := s.Execute(session.RemoveCommand{Alias: "ada"}); err != nil {
 		t.Fatalf("remove after startup: %v", err)
 	}
@@ -681,9 +681,9 @@ func TestBroadcast_emitsAndSendsToAllAgents(t *testing.T) {
 	})
 
 	invite(t, s, "ada")
-	mustReceive[session.AgentStarted](t, obs.ch)
+	mustReceive[session.AgentReady](t, obs.ch)
 	invite(t, s, "turing")
-	mustReceive[session.AgentStarted](t, obs.ch)
+	mustReceive[session.AgentReady](t, obs.ch)
 
 	if err := s.Execute(session.BroadcastCommand{Text: "hello"}); err != nil {
 		t.Fatalf("BroadcastCommand: %v", err)
@@ -722,9 +722,9 @@ func TestBroadcastCommand_excludesParticipantsOutsideFrozenAliases(t *testing.T)
 	})
 
 	invite(t, s, "ada")
-	mustReceive[session.AgentStarted](t, obs.ch)
+	mustReceive[session.AgentReady](t, obs.ch)
 	invite(t, s, "turing")
-	mustReceive[session.AgentStarted](t, obs.ch)
+	mustReceive[session.AgentReady](t, obs.ch)
 
 	if err := s.Execute(session.BroadcastCommand{Aliases: []string{"ada"}, Text: "hello"}); err != nil {
 		t.Fatalf("BroadcastCommand: %v", err)
@@ -757,9 +757,9 @@ func TestBroadcast_sendError_doesNotMarkWorking(t *testing.T) {
 	})
 
 	invite(t, s, "ada")
-	mustReceive[session.AgentStarted](t, obs.ch)
+	mustReceive[session.AgentReady](t, obs.ch)
 	invite(t, s, "turing")
-	mustReceive[session.AgentStarted](t, obs.ch)
+	mustReceive[session.AgentReady](t, obs.ch)
 
 	err := s.Execute(session.BroadcastCommand{Text: "hello"})
 	if err == nil {
@@ -795,7 +795,7 @@ func TestBroadcast_sendErrorDoesNotReviveCrashedParticipant(t *testing.T) {
 	t.Cleanup(func() { _ = s.Execute(session.RemoveCommand{Alias: "ada"}) })
 
 	invite(t, s, "ada")
-	mustReceive[session.AgentStarted](t, obs.ch)
+	mustReceive[session.AgentReady](t, obs.ch)
 
 	ada.sendHook = func(string) error {
 		_ = ada.Stop()
@@ -837,7 +837,7 @@ func TestReadLoop_dropsStreamFragmentsWhileIdle(t *testing.T) {
 	t.Cleanup(func() { _ = s.Execute(session.RemoveCommand{Alias: "ada"}) })
 
 	invite(t, s, "ada")
-	mustReceive[session.AgentStarted](t, obs.ch)
+	mustReceive[session.AgentReady](t, obs.ch)
 
 	// Participant should remain idle. The unmatched flush is forwarded as a
 	// message but now also surfaces an invariant log. The subsequent stream
@@ -899,13 +899,13 @@ func TestSharedSend_sendsToAddressedAndNotifiesOthers(t *testing.T) {
 	})
 
 	invite(t, s, "ada")
-	mustReceive[session.AgentStarted](t, obs.ch)
+	mustReceive[session.AgentReady](t, obs.ch)
 	invite(t, s, "turing")
-	mustReceive[session.AgentStarted](t, obs.ch)
+	mustReceive[session.AgentReady](t, obs.ch)
 	enableSendNotices(t, s)
 
-	if err := s.Execute(session.SharedSendCommand{Plan: s.PlanSharedSend("ada"), TextDirect: "do the thing", TextListeners: "ada is working on something"}); err != nil {
-		t.Fatalf("SharedSendCommand: %v", err)
+	if err := s.Execute(session.SendToParticipantCommand{Plan: s.CreateParticipantSendPlan("ada"), Message: "do the thing", Notice: "ada is working on something"}); err != nil {
+		t.Fatalf("SendToParticipantCommand: %v", err)
 	}
 	_ = mustReceive[session.SharedSend](t, obs.ch)
 	ev := mustReceive[session.SharedNotice](t, obs.ch)
@@ -942,14 +942,14 @@ func TestSharedSend_doesNotNotifyOthersByDefault(t *testing.T) {
 	})
 
 	invite(t, s, "ada")
-	mustReceive[session.AgentStarted](t, obs.ch)
+	mustReceive[session.AgentReady](t, obs.ch)
 	invite(t, s, "turing")
-	mustReceive[session.AgentStarted](t, obs.ch)
+	mustReceive[session.AgentReady](t, obs.ch)
 
-	if err := s.Execute(session.SharedSendCommand{
-		Plan: s.PlanSharedSend("ada"), TextDirect: "do it", TextListeners: "notice",
+	if err := s.Execute(session.SendToParticipantCommand{
+		Plan: s.CreateParticipantSendPlan("ada"), Message: "do it", Notice: "notice",
 	}); err != nil {
-		t.Fatalf("SharedSendCommand: %v", err)
+		t.Fatalf("SendToParticipantCommand: %v", err)
 	}
 	_ = mustReceive[session.SharedSend](t, obs.ch)
 
@@ -967,21 +967,21 @@ func TestSharedSendRecipientsFollowPolicy(t *testing.T) {
 	}))
 	for _, alias := range []string{"turing", "ada", "ben"} {
 		invite(t, s, alias)
-		mustReceive[session.AgentStarted](t, obs.ch)
+		mustReceive[session.AgentReady](t, obs.ch)
 	}
 
-	if got := s.PlanSharedSend("ada").Targets(); !slices.Equal(got, []string{"ada"}) {
+	if got := s.CreateParticipantSendPlan("ada").Targets(); !slices.Equal(got, []string{"ada"}) {
 		t.Fatalf("default recipients = %v, want [ada]", got)
 	}
 	enableSendNotices(t, s)
-	if got := s.PlanSharedSend("ada").Targets(); !slices.Equal(got, []string{"ada", "ben", "turing"}) {
+	if got := s.CreateParticipantSendPlan("ada").Targets(); !slices.Equal(got, []string{"ada", "ben", "turing"}) {
 		t.Fatalf("enabled recipients = %v, want [ada ben turing]", got)
 	}
 }
 
-func TestSharedSendPlanTargetsAreImmutable(t *testing.T) {
+func TestParticipantSendPlanTargetsAreImmutable(t *testing.T) {
 	s := newSession(t)
-	plan := s.PlanSharedSend("ada")
+	plan := s.CreateParticipantSendPlan("ada")
 	targets := plan.Targets()
 	targets[0] = "changed"
 	if got := plan.Targets(); !slices.Equal(got, []string{"ada"}) {
@@ -989,18 +989,18 @@ func TestSharedSendPlanTargetsAreImmutable(t *testing.T) {
 	}
 }
 
-func TestSharedSendPlanRejectsDifferentSession(t *testing.T) {
+func TestParticipantSendPlanRejectsDifferentSession(t *testing.T) {
 	first := newSession(t)
 	second := newSession(t)
-	err := second.Execute(session.SharedSendCommand{
-		Plan: first.PlanSharedSend("ada"), TextDirect: "do it",
+	err := second.Execute(session.SendToParticipantCommand{
+		Plan: first.CreateParticipantSendPlan("ada"), Message: "do it",
 	})
 	if err == nil {
 		t.Fatal("expected cross-session plan error")
 	}
 }
 
-func TestSharedSendPlanDoesNotAddNewlyRoutableListener(t *testing.T) {
+func TestParticipantSendPlanDoesNotAddNewlyRoutableListener(t *testing.T) {
 	obs := newTestObserver()
 	ada := newMockAgent()
 	turing := newMockAgent()
@@ -1010,17 +1010,17 @@ func TestSharedSendPlanDoesNotAddNewlyRoutableListener(t *testing.T) {
 	}))
 	for _, alias := range []string{"ada", "turing"} {
 		invite(t, s, alias)
-		mustReceive[session.AgentStarted](t, obs.ch)
+		mustReceive[session.AgentReady](t, obs.ch)
 	}
 	enableSendNotices(t, s)
-	plan := s.PlanSharedSend("ada")
+	plan := s.CreateParticipantSendPlan("ada")
 	invite(t, s, "ben")
-	mustReceive[session.AgentStarted](t, obs.ch)
+	mustReceive[session.AgentReady](t, obs.ch)
 
-	if err := s.Execute(session.SharedSendCommand{
-		Plan: plan, TextDirect: "do it", TextListeners: "notice",
+	if err := s.Execute(session.SendToParticipantCommand{
+		Plan: plan, Message: "do it", Notice: "notice",
 	}); err != nil {
-		t.Fatalf("SharedSendCommand: %v", err)
+		t.Fatalf("SendToParticipantCommand: %v", err)
 	}
 	ben.mu.Lock()
 	defer ben.mu.Unlock()
@@ -1029,7 +1029,7 @@ func TestSharedSendPlanDoesNotAddNewlyRoutableListener(t *testing.T) {
 	}
 }
 
-func TestSharedSendPlanDoesNotGainListenersWhenPolicyChanges(t *testing.T) {
+func TestParticipantSendPlanDoesNotGainListenersWhenPolicyChanges(t *testing.T) {
 	obs := newTestObserver()
 	turing := newMockAgent()
 	s := newSession(t, session.WithObserver(obs), mappedFactory(map[string]agent.Agent{
@@ -1037,15 +1037,15 @@ func TestSharedSendPlanDoesNotGainListenersWhenPolicyChanges(t *testing.T) {
 	}))
 	for _, alias := range []string{"ada", "turing"} {
 		invite(t, s, alias)
-		mustReceive[session.AgentStarted](t, obs.ch)
+		mustReceive[session.AgentReady](t, obs.ch)
 	}
-	plan := s.PlanSharedSend("ada")
+	plan := s.CreateParticipantSendPlan("ada")
 	enableSendNotices(t, s)
 
-	if err := s.Execute(session.SharedSendCommand{
-		Plan: plan, TextDirect: "do it", TextListeners: "notice",
+	if err := s.Execute(session.SendToParticipantCommand{
+		Plan: plan, Message: "do it", Notice: "notice",
 	}); err != nil {
-		t.Fatalf("SharedSendCommand: %v", err)
+		t.Fatalf("SendToParticipantCommand: %v", err)
 	}
 	turing.mu.Lock()
 	defer turing.mu.Unlock()
@@ -1054,23 +1054,23 @@ func TestSharedSendPlanDoesNotGainListenersWhenPolicyChanges(t *testing.T) {
 	}
 }
 
-func TestSharedSendPlanReportsListenerRemovedBeforeExecution(t *testing.T) {
+func TestParticipantSendPlanReportsListenerRemovedBeforeExecution(t *testing.T) {
 	obs := newTestObserver()
 	s := newSession(t, session.WithObserver(obs), mappedFactory(map[string]agent.Agent{
 		"ada": newMockAgent(), "turing": newMockAgent(),
 	}))
 	for _, alias := range []string{"ada", "turing"} {
 		invite(t, s, alias)
-		mustReceive[session.AgentStarted](t, obs.ch)
+		mustReceive[session.AgentReady](t, obs.ch)
 	}
 	enableSendNotices(t, s)
-	plan := s.PlanSharedSend("ada")
+	plan := s.CreateParticipantSendPlan("ada")
 	if err := s.Execute(session.RemoveCommand{Alias: "turing"}); err != nil {
 		t.Fatalf("remove turing: %v", err)
 	}
 
-	err := s.Execute(session.SharedSendCommand{
-		Plan: plan, TextDirect: "do it", TextListeners: "notice",
+	err := s.Execute(session.SendToParticipantCommand{
+		Plan: plan, Message: "do it", Notice: "notice",
 	})
 	if err == nil {
 		t.Fatal("expected removed-listener delivery error")
@@ -1080,7 +1080,7 @@ func TestSharedSendPlanReportsListenerRemovedBeforeExecution(t *testing.T) {
 	}
 }
 
-func TestSharedSendPlanDiscardUnavailableListenersExcludesSameAliasRejoin(t *testing.T) {
+func TestParticipantSendPlanDiscardUnavailableNoticeRecipientsExcludesSameAliasRejoin(t *testing.T) {
 	obs := newTestObserver()
 	ada := newMockAgent()
 	firstBob := newMockAgent()
@@ -1105,22 +1105,22 @@ func TestSharedSendPlanDiscardUnavailableListenersExcludesSameAliasRejoin(t *tes
 
 	for _, alias := range []string{"ada", "bob"} {
 		invite(t, s, alias)
-		mustReceive[session.AgentStarted](t, obs.ch)
+		mustReceive[session.AgentReady](t, obs.ch)
 	}
 	enableSendNotices(t, s)
-	plan := s.PlanSharedSend("ada")
+	plan := s.CreateParticipantSendPlan("ada")
 	if err := s.Execute(session.RemoveCommand{Alias: "bob"}); err != nil {
 		t.Fatalf("remove bob: %v", err)
 	}
 	mustReceive[session.AgentStopped](t, obs.ch)
 	invite(t, s, "bob")
-	mustReceive[session.AgentStarted](t, obs.ch)
+	mustReceive[session.AgentReady](t, obs.ch)
 
-	if err := s.Execute(session.SharedSendCommand{
-		Plan:       plan.DiscardUnavailableListeners([]string{"bob"}),
-		TextDirect: "do it", TextListeners: "notice",
+	if err := s.Execute(session.SendToParticipantCommand{
+		Plan:    plan.DiscardUnavailableNoticeRecipients([]string{"bob"}),
+		Message: "do it", Notice: "notice",
 	}); err != nil {
-		t.Fatalf("SharedSendCommand: %v", err)
+		t.Fatalf("SendToParticipantCommand: %v", err)
 	}
 	rejoinedBob.mu.Lock()
 	defer rejoinedBob.mu.Unlock()
@@ -1144,13 +1144,13 @@ func TestSharedSend_noticeMarksListenerWorkingUntilFlush(t *testing.T) {
 	})
 
 	invite(t, s, "ada")
-	mustReceive[session.AgentStarted](t, obs.ch)
+	mustReceive[session.AgentReady](t, obs.ch)
 	invite(t, s, "turing")
-	mustReceive[session.AgentStarted](t, obs.ch)
+	mustReceive[session.AgentReady](t, obs.ch)
 	enableSendNotices(t, s)
 
-	if err := s.Execute(session.SharedSendCommand{Plan: s.PlanSharedSend("ada"), TextDirect: "do it", TextListeners: "notice"}); err != nil {
-		t.Fatalf("SharedSendCommand: %v", err)
+	if err := s.Execute(session.SendToParticipantCommand{Plan: s.CreateParticipantSendPlan("ada"), Message: "do it", Notice: "notice"}); err != nil {
+		t.Fatalf("SendToParticipantCommand: %v", err)
 	}
 	waitForSharedKinds(t, obs.ch)
 
@@ -1194,13 +1194,13 @@ func TestSharedSend_noticeDoesNotResetWorkingSince(t *testing.T) {
 	})
 
 	invite(t, s, "ada")
-	mustReceive[session.AgentStarted](t, obs.ch)
+	mustReceive[session.AgentReady](t, obs.ch)
 	invite(t, s, "turing")
-	mustReceive[session.AgentStarted](t, obs.ch)
+	mustReceive[session.AgentReady](t, obs.ch)
 	enableSendNotices(t, s)
 
-	if err := s.Execute(session.PrivateSendCommand{Alias: "turing", Text: "busy"}); err != nil {
-		t.Fatalf("PrivateSendCommand: %v", err)
+	if err := s.Execute(session.SendToParticipantOutsideRoomCommand{Alias: "turing", Text: "busy"}); err != nil {
+		t.Fatalf("SendToParticipantOutsideRoomCommand: %v", err)
 	}
 
 	before, ok := s.Participant("turing")
@@ -1211,8 +1211,8 @@ func TestSharedSend_noticeDoesNotResetWorkingSince(t *testing.T) {
 		t.Fatalf("expected turing to be working before notice, got %q", before.Status)
 	}
 
-	if err := s.Execute(session.SharedSendCommand{Plan: s.PlanSharedSend("ada"), TextDirect: "do it", TextListeners: "notice"}); err != nil {
-		t.Fatalf("SharedSendCommand: %v", err)
+	if err := s.Execute(session.SendToParticipantCommand{Plan: s.CreateParticipantSendPlan("ada"), Message: "do it", Notice: "notice"}); err != nil {
+		t.Fatalf("SendToParticipantCommand: %v", err)
 	}
 
 	after, ok := s.Participant("turing")
@@ -1242,11 +1242,11 @@ func TestSharedSend_sendError_doesNotMarkWorking(t *testing.T) {
 	})
 
 	invite(t, s, "ada")
-	mustReceive[session.AgentStarted](t, obs.ch)
+	mustReceive[session.AgentReady](t, obs.ch)
 	invite(t, s, "turing")
-	mustReceive[session.AgentStarted](t, obs.ch)
+	mustReceive[session.AgentReady](t, obs.ch)
 
-	err := s.Execute(session.SharedSendCommand{Plan: s.PlanSharedSend("ada"), TextDirect: "do the thing", TextListeners: "ada is working on something"})
+	err := s.Execute(session.SendToParticipantCommand{Plan: s.CreateParticipantSendPlan("ada"), Message: "do the thing", Notice: "ada is working on something"})
 	if err == nil {
 		t.Fatal("expected shared send error, got nil")
 	}
@@ -1289,14 +1289,14 @@ func TestSharedSend_noticeErrorReportsDeliveredAlias(t *testing.T) {
 	})
 
 	invite(t, s, "ada")
-	mustReceive[session.AgentStarted](t, obs.ch)
+	mustReceive[session.AgentReady](t, obs.ch)
 	invite(t, s, "turing")
-	mustReceive[session.AgentStarted](t, obs.ch)
+	mustReceive[session.AgentReady](t, obs.ch)
 	invite(t, s, "ben")
-	mustReceive[session.AgentStarted](t, obs.ch)
+	mustReceive[session.AgentReady](t, obs.ch)
 	enableSendNotices(t, s)
 
-	err := s.Execute(session.SharedSendCommand{Plan: s.PlanSharedSend("ada"), TextDirect: "do the thing", TextListeners: "ada is working on something"})
+	err := s.Execute(session.SendToParticipantCommand{Plan: s.CreateParticipantSendPlan("ada"), Message: "do the thing", Notice: "ada is working on something"})
 	if err == nil {
 		t.Fatal("expected shared notice error, got nil")
 	}
@@ -1319,9 +1319,9 @@ func TestSharedSend_noticeErrorDoesNotReviveCrashedListener(t *testing.T) {
 	})
 
 	invite(t, s, "ada")
-	mustReceive[session.AgentStarted](t, obs.ch)
+	mustReceive[session.AgentReady](t, obs.ch)
 	invite(t, s, "turing")
-	mustReceive[session.AgentStarted](t, obs.ch)
+	mustReceive[session.AgentReady](t, obs.ch)
 	enableSendNotices(t, s)
 
 	turing.noticeHook = func(string) error {
@@ -1341,7 +1341,7 @@ func TestSharedSend_noticeErrorDoesNotReviveCrashedListener(t *testing.T) {
 		}
 	}
 
-	err := s.Execute(session.SharedSendCommand{Plan: s.PlanSharedSend("ada"), TextDirect: "do the thing", TextListeners: "ada is working on something"})
+	err := s.Execute(session.SendToParticipantCommand{Plan: s.CreateParticipantSendPlan("ada"), Message: "do the thing", Notice: "ada is working on something"})
 	if err == nil {
 		t.Fatal("expected shared notice error, got nil")
 	}
@@ -1357,7 +1357,7 @@ func TestSharedSend_noticeErrorDoesNotReviveCrashedListener(t *testing.T) {
 
 func TestSharedSend_notFound(t *testing.T) {
 	s := newSession(t)
-	if err := s.Execute(session.SharedSendCommand{Plan: s.PlanSharedSend("nobody"), TextDirect: "hi", TextListeners: "hi"}); err == nil {
+	if err := s.Execute(session.SendToParticipantCommand{Plan: s.CreateParticipantSendPlan("nobody"), Message: "hi", Notice: "hi"}); err == nil {
 		t.Fatal("expected error for unknown alias, got nil")
 	}
 }
@@ -1389,9 +1389,9 @@ func newHandoffTestSession(t *testing.T) (*testObserver, *noticeFlushAgent, *ses
 	})
 
 	invite(t, s, "ada")
-	mustReceive[session.AgentStarted](t, obs.ch)
+	mustReceive[session.AgentReady](t, obs.ch)
 	invite(t, s, "turing")
-	mustReceive[session.AgentStarted](t, obs.ch)
+	mustReceive[session.AgentReady](t, obs.ch)
 	return obs, turing, s
 }
 
@@ -1461,12 +1461,12 @@ func TestHandoff_requiresIdleParticipants(t *testing.T) {
 	})
 
 	invite(t, s, "ada")
-	mustReceive[session.AgentStarted](t, obs.ch)
+	mustReceive[session.AgentReady](t, obs.ch)
 	invite(t, s, "turing")
-	mustReceive[session.AgentStarted](t, obs.ch)
+	mustReceive[session.AgentReady](t, obs.ch)
 
-	if err := s.Execute(session.PrivateSendCommand{Alias: "turing", Text: "busy"}); err != nil {
-		t.Fatalf("PrivateSendCommand: %v", err)
+	if err := s.Execute(session.SendToParticipantOutsideRoomCommand{Alias: "turing", Text: "busy"}); err != nil {
+		t.Fatalf("SendToParticipantOutsideRoomCommand: %v", err)
 	}
 
 	err := s.Execute(session.HandoffCommand{
@@ -1500,9 +1500,9 @@ func TestHandoff_requiresCompletedSourceOutput(t *testing.T) {
 	})
 
 	invite(t, s, "ada")
-	mustReceive[session.AgentStarted](t, obs.ch)
+	mustReceive[session.AgentReady](t, obs.ch)
 	invite(t, s, "turing")
-	mustReceive[session.AgentStarted](t, obs.ch)
+	mustReceive[session.AgentReady](t, obs.ch)
 
 	err := s.Execute(session.HandoffCommand{
 		FromAlias: "ada",
@@ -1537,9 +1537,9 @@ func TestHandoff_rejectionLogCompactsMultilineReason(t *testing.T) {
 	})
 
 	invite(t, s, "ada")
-	mustReceive[session.AgentStarted](t, obs.ch)
+	mustReceive[session.AgentReady](t, obs.ch)
 	invite(t, s, "turing")
-	mustReceive[session.AgentStarted](t, obs.ch)
+	mustReceive[session.AgentReady](t, obs.ch)
 
 	err := s.Execute(session.HandoffCommand{
 		FromAlias: "ada",
@@ -1578,9 +1578,9 @@ func TestHandoff_ignoresStartingBystanderOutsideBarrier(t *testing.T) {
 	})
 
 	invite(t, s, "ada")
-	mustReceive[session.AgentStarted](t, obs.ch)
+	mustReceive[session.AgentReady](t, obs.ch)
 	invite(t, s, "turing")
-	mustReceive[session.AgentStarted](t, obs.ch)
+	mustReceive[session.AgentReady](t, obs.ch)
 	invite(t, s, "cat")
 
 	if err := s.Execute(session.HandoffCommand{
@@ -1596,7 +1596,7 @@ func TestHandoff_ignoresStartingBystanderOutsideBarrier(t *testing.T) {
 	for {
 		select {
 		case ev := <-obs.ch:
-			if started, ok := ev.(session.AgentStarted); ok && started.Alias == "cat" {
+			if started, ok := ev.(session.AgentReady); ok && started.Alias == "cat" {
 				return
 			}
 		case <-deadline:
@@ -1605,7 +1605,7 @@ func TestHandoff_ignoresStartingBystanderOutsideBarrier(t *testing.T) {
 	}
 }
 
-func TestHandoff_usesProvidedIdleAliasesInsteadOfLiveBarrier(t *testing.T) {
+func TestHandoff_usesProvidedRequiredReadyAliasesInsteadOfLiveBarrier(t *testing.T) {
 	obs := newTestObserver()
 	ada := newMockAgent()
 	turing := newNoticeFlushAgent()
@@ -1625,21 +1625,21 @@ func TestHandoff_usesProvidedIdleAliasesInsteadOfLiveBarrier(t *testing.T) {
 	})
 
 	invite(t, s, "ada")
-	mustReceive[session.AgentStarted](t, obs.ch)
+	mustReceive[session.AgentReady](t, obs.ch)
 	invite(t, s, "turing")
-	mustReceive[session.AgentStarted](t, obs.ch)
+	mustReceive[session.AgentReady](t, obs.ch)
 	invite(t, s, "cat")
-	mustReceive[session.AgentStarted](t, obs.ch)
+	mustReceive[session.AgentReady](t, obs.ch)
 
-	if err := s.Execute(session.PrivateSendCommand{Alias: "cat", Text: "busy"}); err != nil {
-		t.Fatalf("PrivateSendCommand cat: %v", err)
+	if err := s.Execute(session.SendToParticipantOutsideRoomCommand{Alias: "cat", Text: "busy"}); err != nil {
+		t.Fatalf("SendToParticipantOutsideRoomCommand cat: %v", err)
 	}
 
 	if err := s.Execute(session.HandoffCommand{
-		FromAlias:   "ada",
-		ToAlias:     "turing",
-		IdleAliases: []string{"ada", "turing"},
-		Source:      session.HandoffSource{Text: "final answer", RecordIndex: 7},
+		FromAlias:            "ada",
+		ToAlias:              "turing",
+		RequiredReadyAliases: []string{"ada", "turing"},
+		Source:               session.HandoffSource{Text: "final answer", RecordIndex: 7},
 	}); err != nil {
 		t.Fatalf("HandoffCommand with staged idle aliases: %v", err)
 	}
@@ -1659,16 +1659,16 @@ func TestSharedSend_rejectsBusyDirectParticipant(t *testing.T) {
 	})
 
 	invite(t, s, "ada")
-	mustReceive[session.AgentStarted](t, obs.ch)
+	mustReceive[session.AgentReady](t, obs.ch)
 	invite(t, s, "turing")
-	mustReceive[session.AgentStarted](t, obs.ch)
+	mustReceive[session.AgentReady](t, obs.ch)
 
 	if err := s.Execute(session.BroadcastCommand{Text: "busy"}); err != nil {
 		t.Fatalf("BroadcastCommand: %v", err)
 	}
 	mustReceive[session.Broadcast](t, obs.ch)
 
-	err := s.Execute(session.SharedSendCommand{Plan: s.PlanSharedSend("ada"), TextDirect: "do it", TextListeners: "notice"})
+	err := s.Execute(session.SendToParticipantCommand{Plan: s.CreateParticipantSendPlan("ada"), Message: "do it", Notice: "notice"})
 	if err == nil {
 		t.Fatal("expected shared send to reject busy direct participant")
 	}
@@ -1697,12 +1697,12 @@ func TestPrivateSend_forwardsToAgentOnly(t *testing.T) {
 	})
 
 	invite(t, s, "ada")
-	mustReceive[session.AgentStarted](t, obs.ch)
+	mustReceive[session.AgentReady](t, obs.ch)
 	invite(t, s, "turing")
-	mustReceive[session.AgentStarted](t, obs.ch)
+	mustReceive[session.AgentReady](t, obs.ch)
 
-	if err := s.Execute(session.PrivateSendCommand{Alias: "ada", Text: "secret"}); err != nil {
-		t.Fatalf("PrivateSendCommand: %v", err)
+	if err := s.Execute(session.SendToParticipantOutsideRoomCommand{Alias: "ada", Text: "secret"}); err != nil {
+		t.Fatalf("SendToParticipantOutsideRoomCommand: %v", err)
 	}
 
 	ada.mu.Lock()
@@ -1736,7 +1736,7 @@ func TestPrivateSend_forwardsToAgentOnly(t *testing.T) {
 
 func TestPrivateSend_notFound(t *testing.T) {
 	s := newSession(t)
-	if err := s.Execute(session.PrivateSendCommand{Alias: "nobody", Text: "hi"}); err == nil {
+	if err := s.Execute(session.SendToParticipantOutsideRoomCommand{Alias: "nobody", Text: "hi"}); err == nil {
 		t.Fatal("expected error for unknown alias, got nil")
 	}
 }
@@ -1748,14 +1748,14 @@ func TestPrivateSend_rejectsBusyParticipant(t *testing.T) {
 	t.Cleanup(func() { _ = s.Execute(session.RemoveCommand{Alias: "ada"}) })
 
 	invite(t, s, "ada")
-	mustReceive[session.AgentStarted](t, obs.ch)
+	mustReceive[session.AgentReady](t, obs.ch)
 
 	if err := s.Execute(session.BroadcastCommand{Text: "busy"}); err != nil {
 		t.Fatalf("BroadcastCommand: %v", err)
 	}
 	mustReceive[session.Broadcast](t, obs.ch)
 
-	err := s.Execute(session.PrivateSendCommand{Alias: "ada", Text: "secret"})
+	err := s.Execute(session.SendToParticipantOutsideRoomCommand{Alias: "ada", Text: "secret"})
 	if err == nil {
 		t.Fatal("expected private send to reject busy participant")
 	}
@@ -1774,7 +1774,7 @@ func TestReaderLoop_emitsDelta(t *testing.T) {
 	t.Cleanup(func() { _ = s.Execute(session.RemoveCommand{Alias: "ada"}) })
 
 	invite(t, s, "ada")
-	mustReceive[session.AgentStarted](t, obs.ch)
+	mustReceive[session.AgentReady](t, obs.ch)
 
 	// Simulate starting a turn so the session considers the agent working; the
 	// following stream delta should be accepted.
@@ -1819,7 +1819,7 @@ func TestReaderLoop_reasoningDoubleCloseDoesNotInvariant(t *testing.T) {
 	t.Cleanup(func() { _ = s.Execute(session.RemoveCommand{Alias: "ada"}) })
 
 	invite(t, s, "ada")
-	mustReceive[session.AgentStarted](t, obs.ch)
+	mustReceive[session.AgentReady](t, obs.ch)
 
 	if err := s.Execute(session.BroadcastCommand{Text: "go"}); err != nil {
 		t.Fatalf("BroadcastCommand: %v", err)
@@ -1902,7 +1902,7 @@ func TestReaderLoop_anchorStreamPreventsEarlyIdle(t *testing.T) {
 	t.Cleanup(func() { _ = s.Execute(session.RemoveCommand{Alias: "ada"}) })
 
 	invite(t, s, "ada")
-	mustReceive[session.AgentStarted](t, obs.ch)
+	mustReceive[session.AgentReady](t, obs.ch)
 
 	if err := s.Execute(session.BroadcastCommand{Text: "go"}); err != nil {
 		t.Fatalf("BroadcastCommand: %v", err)
@@ -1944,7 +1944,7 @@ func TestReaderLoop_marksIdleOnlyAfterAllObservedStreamsFlush(t *testing.T) {
 	t.Cleanup(func() { _ = s.Execute(session.RemoveCommand{Alias: "ada"}) })
 
 	invite(t, s, "ada")
-	mustReceive[session.AgentStarted](t, obs.ch)
+	mustReceive[session.AgentReady](t, obs.ch)
 
 	if err := s.Execute(session.BroadcastCommand{Text: "go"}); err != nil {
 		t.Fatalf("BroadcastCommand: %v", err)
@@ -1990,7 +1990,7 @@ func TestReaderLoop_emitsDone(t *testing.T) {
 	t.Cleanup(func() { _ = s.Execute(session.RemoveCommand{Alias: "ada"}) })
 
 	invite(t, s, "ada")
-	mustReceive[session.AgentStarted](t, obs.ch)
+	mustReceive[session.AgentReady](t, obs.ch)
 	mustReceive[session.AgentLog](t, obs.ch) // unmatched flush invariant
 	ev := mustReceive[session.AgentMessage](t, obs.ch)
 	if ev.Msg.Mode != agent.ModeFlush {
@@ -2006,8 +2006,8 @@ func TestMultipleObservers_bothNotified(t *testing.T) {
 	t.Cleanup(func() { _ = s.Execute(session.RemoveCommand{Alias: "ada"}) })
 
 	invite(t, s, "ada")
-	mustReceive[session.AgentStarted](t, obs1.ch)
-	mustReceive[session.AgentStarted](t, obs2.ch)
+	mustReceive[session.AgentReady](t, obs1.ch)
+	mustReceive[session.AgentReady](t, obs2.ch)
 }
 
 func TestReaderLoop_emitsAgentLog(t *testing.T) {
@@ -2017,7 +2017,7 @@ func TestReaderLoop_emitsAgentLog(t *testing.T) {
 	t.Cleanup(func() { _ = s.Execute(session.RemoveCommand{Alias: "ada"}) })
 
 	invite(t, s, "ada")
-	mustReceive[session.AgentStarted](t, obs.ch)
+	mustReceive[session.AgentReady](t, obs.ch)
 
 	ev := mustReceive[session.AgentLog](t, obs.ch)
 	if ev.Text != "npm warn something" {
@@ -2035,11 +2035,11 @@ func TestReaderLoop_agentCrash_emitsCrashed(t *testing.T) {
 	s := newSession(t, session.WithObserver(obs), fixedFactory(a))
 
 	invite(t, s, "ada")
-	mustReceive[session.AgentStarted](t, obs.ch)
+	mustReceive[session.AgentReady](t, obs.ch)
 	mustReceive[session.AgentCrashed](t, obs.ch)
 }
 
-func TestSharedSendPlan_includesStartingListenersAndFreezesRecipients(t *testing.T) {
+func TestParticipantSendPlan_includesStartingListenersAndFreezesRecipients(t *testing.T) {
 	obs := newTestObserver()
 	gate := make(chan struct{})
 	var once sync.Once
@@ -2049,22 +2049,22 @@ func TestSharedSendPlan_includesStartingListenersAndFreezesRecipients(t *testing
 	s := newSession(t, session.WithObserver(obs), mappedFactory(map[string]agent.Agent{"ada": newMockAgent(), "ben": ben, "later": later}))
 	t.Cleanup(closeGate)
 	invite(t, s, "ada")
-	mustReceive[session.AgentStarted](t, obs.ch)
+	mustReceive[session.AgentReady](t, obs.ch)
 	invite(t, s, "ben")
 	mustReceive[session.AgentStarting](t, obs.ch)
 	enableSendNotices(t, s)
-	plan := s.PlanSharedSend("ada")
+	plan := s.CreateParticipantSendPlan("ada")
 	if !slices.Equal(plan.Targets(), []string{"ada", "ben"}) {
 		t.Fatalf("targets = %v", plan.Targets())
 	}
 	invite(t, s, "later")
-	mustReceive[session.AgentStarted](t, obs.ch)
+	mustReceive[session.AgentReady](t, obs.ch)
 	closeGate()
-	mustReceive[session.AgentStarted](t, obs.ch)
+	mustReceive[session.AgentReady](t, obs.ch)
 	if !slices.Equal(plan.Targets(), []string{"ada", "ben"}) {
 		t.Fatalf("frozen targets = %v", plan.Targets())
 	}
-	if err := s.Execute(session.SharedSendCommand{Plan: plan, TextDirect: "hello", TextListeners: "notice"}); err != nil {
+	if err := s.Execute(session.SendToParticipantCommand{Plan: plan, Message: "hello", Notice: "notice"}); err != nil {
 		t.Fatal(err)
 	}
 	ben.mu.Lock()

@@ -1,7 +1,7 @@
 # Design: notice acknowledgment filtering
 
-When a `SharedSendCommand` targets one agent, all other agents in the session
-receive a listener notice via `TextListeners`. The problem: LLMs treat every
+When a `SendToParticipantCommand` targets one agent, all other agents in the session
+receive a listener notice via `Notice`. The problem: LLMs treat every
 message as a prompt and respond with a full turn. Listener agents should receive
 context silently — they should not produce output unless explicitly addressed.
 
@@ -43,15 +43,15 @@ response.
 
 ## Session routing
 
-`SharedSendCommand.execute` already sends `TextListeners` to non-addressed agents
+`SendToParticipantCommand.execute` already sends `Notice` to non-addressed agents
 via `Send`. That call changes to `SendNotice`:
 
 ```go
 // before
-a.Send(cmd.TextListeners)
+a.Send(cmd.Notice)
 
 // after
-a.SendNotice(cmd.TextListeners)
+a.SendNotice(cmd.Notice)
 ```
 
 No other session-layer changes are required.

@@ -13,7 +13,7 @@ import (
 func startReadinessHandoff(workflow *stageWorkflow, sourceStatus participant.Status, bystanderStatus participant.Status) {
 	sequence := workflow.start("/handoff ada turing", promptlang.Handoff{FromAlias: "ada", ToAlias: "turing"})
 	read := sequence[0].(readParticipantStateInstruction)
-	workflow.handleCompletion(participantStateResult{target: read.target, barrier: []participantState{
+	workflow.handleCompletion(participantStateResult{target: read.target, readinessRequirements: []participantState{
 		{alias: "ada", status: sourceStatus}, {alias: "turing", status: participant.StatusIdle}, {alias: "ben", status: bystanderStatus},
 	}})
 }
@@ -30,7 +30,7 @@ func TestStageWorkflow_handoffTemporarySourceReadsAfterReadiness(t *testing.T) {
 				sequence := workflow.handleSessionEvent(session.ParticipantStatusChanged{Alias: "ada", From: status, To: participant.StatusIdle})
 				if status != participant.StatusKeepalive {
 					assertNoHandoffSourceRead(t, sequence)
-					sequence = workflow.handleSessionEvent(session.AgentStarted{Alias: "ada"})
+					sequence = workflow.handleSessionEvent(session.AgentReady{Alias: "ada"})
 				}
 				read, ok := sequence[0].(readHandoffSourceInstruction)
 				if !ok || read.alias != "ada" {

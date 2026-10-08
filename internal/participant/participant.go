@@ -56,7 +56,7 @@ type Status string
 const (
 	StatusIdle      Status = "idle"
 	StatusStarting  Status = "starting"
-	StatusAttached  Status = "attached"  // agent process running, AgentStarted not yet dispatched
+	StatusAttached  Status = "attached"  // agent process running, AgentReady not yet dispatched
 	StatusPreparing Status = "preparing" // committed to a Send; anchor being established
 	StatusKeepalive Status = "keepalive"
 	StatusWorking   Status = "working"
@@ -72,7 +72,7 @@ type View struct {
 	Status     Status
 	Color      string // hex colour code, e.g. "#4ade80"; empty means default terminal colour
 	Since      time.Time
-	// StartupReady is set immediately before AgentStarted; Idle alone does not
+	// StartupReady is set immediately before AgentReady; Idle alone does not
 	// imply startup has completed.
 	StartupReady bool
 	// TurnID remains stable after completion to identify delayed turn events.
@@ -154,7 +154,7 @@ func (p *Participant) BeginStartup(now time.Time) {
 }
 
 // SessionReady marks the participant as fully started. It must be called while
-// the participant is StatusIdle, immediately before AgentStarted is dispatched,
+// the participant is StatusIdle, immediately before AgentReady is dispatched,
 // so that IsRemovable returns true by the time observers process the event.
 func (p *Participant) SessionReady() error {
 	if p.Status != StatusIdle {
@@ -166,7 +166,7 @@ func (p *Participant) SessionReady() error {
 
 // AttachAgent transitions the participant from Starting to Attached and binds
 // the running agent process. The Attached state signals that the process is
-// live but the startup sequence (commitStarted + AgentStarted) has not yet
+// live but the startup sequence (commitStarted + AgentReady) has not yet
 // completed; IsSendable returns false for Attached.
 func (p *Participant) AttachAgent(a agent.Agent, now time.Time) error {
 	if p.Status != StatusStarting {
@@ -179,7 +179,7 @@ func (p *Participant) AttachAgent(a agent.Agent, now time.Time) error {
 }
 
 // CommitIdle transitions the participant from Attached to Idle. Called before
-// AgentStarted is dispatched so that IsSendable returns true when the event
+// AgentReady is dispatched so that IsSendable returns true when the event
 // fires and observers can immediately send to the participant.
 func (p *Participant) CommitIdle(now time.Time) error {
 	if p.Status != StatusAttached {

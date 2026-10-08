@@ -21,10 +21,10 @@ type stageState struct {
 	raw                   string
 	statement             promptlang.Statement
 	pending               workflowRef
-	plan                  session.SharedSendPlan
+	plan                  session.ParticipantSendPlan
 	routing               []string
-	barrier               []participantState
-	blocking              []string
+	readinessRequirements []participantState
+	notReadyAliases       []string
 	unavailable           []string
 	phase                 stagePhase
 	dispatchRouting       []string
@@ -75,8 +75,8 @@ func (w *stageWorkflow) interruptAndDispatch() (instructionSequence, bool) {
 		return nil, false
 	}
 	state := w.active
-	state.blocking = blockedAliases(state.barrier, state.unavailable)
-	if len(state.blocking) == 0 {
+	state.notReadyAliases = notReadyAliases(state.readinessRequirements, state.unavailable)
+	if len(state.notReadyAliases) == 0 {
 		if state.interruptRequested {
 			return nil, false
 		}
@@ -125,7 +125,7 @@ func (w *stageWorkflow) start(raw string, statement promptlang.Statement) instru
 	ref := w.nextRef()
 	w.active.pending = ref
 	if send, ok := statement.(promptlang.Send); ok {
-		return instructionSequence{planSharedSendInstruction{target: ref, alias: send.Alias}}
+		return instructionSequence{createParticipantSendPlanInstruction{target: ref, alias: send.Alias}}
 	}
 	if _, ok := statement.(promptlang.Broadcast); ok {
 		return instructionSequence{planBroadcastInstruction{target: ref}}
@@ -135,8 +135,8 @@ func (w *stageWorkflow) start(raw string, statement promptlang.Statement) instru
 
 func (w *stageWorkflow) handleCompletion(completion workflowCompletion) instructionSequence {
 	switch completion := completion.(type) {
-	case sharedSendPlanResult:
-		return w.handleSharedSendPlan(completion)
+	case participantSendPlanResult:
+		return w.handleParticipantSendPlan(completion)
 	case broadcastPlanResult:
 		return w.handleBroadcastPlan(completion)
 	case participantStateResult:
@@ -160,7 +160,7 @@ func (w *stageWorkflow) handleBroadcastPlan(result broadcastPlanResult) instruct
 	return instructionSequence{readParticipantStateInstruction{target: ref}}
 }
 
-func (w *stageWorkflow) handleSharedSendPlan(result sharedSendPlanResult) instructionSequence {
+func (w *stageWorkflow) handleParticipantSendPlan(result participantSendPlanResult) instructionSequence {
 	if !w.matches(result.target) {
 		return nil
 	}
@@ -176,11 +176,11 @@ func (w *stageWorkflow) handleParticipantState(result participantStateResult) in
 		return nil
 	}
 	state := w.active
-	state.barrier = freezeStageBarrier(state, result.barrier)
+	state.readinessRequirements = freezeReadinessRequirements(state, result.readinessRequirements)
 	if handoff, ok := state.statement.(promptlang.Handoff); ok {
 		state.routing = handoffRouting(handoff)
 	}
-	state.blocking, state.unavailable = stageReadiness(state.barrier, state.routing)
+	state.notReadyAliases, state.unavailable = stageReadiness(state.readinessRequirements, state.routing)
 	state.sourceNeedsCompletion = handoffSourceIsWorking(state)
 	return w.completeParticipantPlanning(nil)
 }
@@ -203,7 +203,7 @@ func (w *stageWorkflow) completeParticipantPlanning(sequence instructionSequence
 	sequence = append(sequence, acceptedStageInputSequence(state.raw, state.routing)...)
 
 	if _, handoff := state.statement.(promptlang.Handoff); handoff {
-		if len(state.blocking) == 0 && !state.sourceNeedsCompletion {
+		if len(state.notReadyAliases) == 0 && !state.sourceNeedsCompletion {
 			return append(sequence, w.readHandoffSourceInstruction())
 		}
 		state.phase = stageWaiting
@@ -251,8 +251,8 @@ func (w *stageWorkflow) handleHandoffSource(result handoffSourceResult) instruct
 		target: ref,
 		request: handoffRequest{
 			fromAlias: handoff.FromAlias, toAlias: handoff.ToAlias,
-			idleAliases: activeBarrierAliases(state.barrier, state.unavailable),
-			source:      result.source,
+			requiredReadyAliases: activeRequiredReadyAliases(state.readinessRequirements, state.unavailable),
+			source:               result.source,
 		},
 		recordsOnSuccess: []room.Record{{
 			Kind: room.KindUserInput, Text: state.raw,
@@ -278,7 +278,7 @@ func (w *stageWorkflow) failHandoffSource() instructionSequence {
 
 func (w *stageWorkflow) readyToDispatch() bool {
 	if w.active == nil || len(w.active.routing) == 0 ||
-		len(w.active.blocking) != 0 {
+		len(w.active.notReadyAliases) != 0 {
 		return false
 	}
 	_, handoff := w.active.statement.(promptlang.Handoff)
@@ -294,9 +294,9 @@ func (w *stageWorkflow) dispatchInstruction() executeSessionInstruction {
 	switch statement := state.statement.(type) {
 	case promptlang.Send:
 		state.dispatchRouting = activeAliases(state.routing, state.unavailable)
-		request = executePlannedSharedSendRequest{
-			plan: state.plan.DiscardUnavailableListeners(state.unavailable), directText: statement.Text,
-			listenersText: fmt.Sprintf("@%s: %s", statement.Alias, statement.Text),
+		request = executePlannedParticipantSendRequest{
+			plan: state.plan.DiscardUnavailableNoticeRecipients(state.unavailable), message: statement.Text,
+			notice: fmt.Sprintf("@%s: %s", statement.Alias, statement.Text),
 		}
 	case promptlang.Broadcast:
 		state.dispatchRouting = activeAliases(state.routing, state.unavailable)
@@ -418,8 +418,8 @@ func (w *stageWorkflow) handleSessionEvent(event session.Event) instructionSeque
 	}
 	switch event := event.(type) {
 	case session.ParticipantStatusChanged:
-		w.updateBarrierStatus(event.Alias, event.To)
-	case session.AgentStarted:
+		w.updateRequiredStatus(event.Alias, event.To)
+	case session.AgentReady:
 		w.markStarted(event.Alias)
 	case session.AgentStopped:
 		w.markUnavailable(event.Alias)
@@ -456,7 +456,7 @@ func (w *stageWorkflow) applyHandoffSessionEvent(event session.Event) bool {
 		w.applyHandoffStatus(event, handoff)
 	case session.AgentMessage:
 		return w.applyHandoffMessage(event, handoff)
-	case session.AgentStarted:
+	case session.AgentReady:
 		w.markStarted(event.Alias)
 	case session.AgentStopped:
 		w.markUnavailable(event.Alias)
@@ -472,7 +472,7 @@ func (w *stageWorkflow) applyHandoffStatus(
 	event session.ParticipantStatusChanged,
 	handoff promptlang.Handoff,
 ) {
-	w.updateBarrierStatus(event.Alias, event.To)
+	w.updateRequiredStatus(event.Alias, event.To)
 	if event.Alias == handoff.FromAlias && (participant.View{Status: event.To}).HasActiveTurn() {
 		w.active.sourceNeedsCompletion = true
 	}
@@ -485,16 +485,16 @@ func (w *stageWorkflow) applyHandoffMessage(
 	if event.Alias != handoff.FromAlias || !event.TurnCompleted {
 		return false
 	}
-	if expected := barrierTurnID(w.active.barrier, event.Alias); event.TurnID < expected {
+	if expected := requiredTurnID(w.active.readinessRequirements, event.Alias); event.TurnID < expected {
 		return false
 	}
 	w.active.sourceNeedsCompletion = false
-	w.updateBarrierTurn(event.Alias, event.TurnID)
+	w.updateRequiredTurn(event.Alias, event.TurnID)
 	return true
 }
 
-func barrierTurnID(barrier []participantState, alias string) uint64 {
-	for _, value := range barrier {
+func requiredTurnID(readinessRequirements []participantState, alias string) uint64 {
+	for _, value := range readinessRequirements {
 		if value.alias == alias {
 			return value.turnID
 		}
@@ -502,10 +502,10 @@ func barrierTurnID(barrier []participantState, alias string) uint64 {
 	return 0
 }
 
-func (w *stageWorkflow) updateBarrierTurn(alias string, turnID uint64) {
-	for index := range w.active.barrier {
-		if w.active.barrier[index].alias == alias {
-			w.active.barrier[index].turnID = turnID
+func (w *stageWorkflow) updateRequiredTurn(alias string, turnID uint64) {
+	for index := range w.active.readinessRequirements {
+		if w.active.readinessRequirements[index].alias == alias {
+			w.active.readinessRequirements[index].turnID = turnID
 			return
 		}
 	}
@@ -513,33 +513,33 @@ func (w *stageWorkflow) updateBarrierTurn(alias string, turnID uint64) {
 
 func (w *stageWorkflow) advanceWaitingHandoff() instructionSequence {
 	state := w.active
-	state.blocking = blockedAliases(state.barrier, state.unavailable)
+	state.notReadyAliases = notReadyAliases(state.readinessRequirements, state.unavailable)
 	if w.mustDiscard() {
 		return w.discardUnavailableStage()
 	}
-	if len(state.blocking) != 0 || state.sourceNeedsCompletion {
+	if len(state.notReadyAliases) != 0 || state.sourceNeedsCompletion {
 		return instructionSequence{requestSnapshotInstruction{}}
 	}
 	return instructionSequence{w.readHandoffSourceInstruction(), requestSnapshotInstruction{}}
 }
 
-func (w *stageWorkflow) updateBarrierStatus(alias string, status participant.Status) {
+func (w *stageWorkflow) updateRequiredStatus(alias string, status participant.Status) {
 	if slices.Contains(w.active.unavailable, alias) {
 		return
 	}
-	for index := range w.active.barrier {
-		if w.active.barrier[index].alias == alias {
-			if status == participant.StatusIdle && (w.active.barrier[index].status == participant.StatusStarting || w.active.barrier[index].status == participant.StatusAttached) {
-				w.active.barrier[index].startupPending = true
+	for index := range w.active.readinessRequirements {
+		if w.active.readinessRequirements[index].alias == alias {
+			if status == participant.StatusIdle && (w.active.readinessRequirements[index].status == participant.StatusStarting || w.active.readinessRequirements[index].status == participant.StatusAttached) {
+				w.active.readinessRequirements[index].startupPending = true
 			}
-			w.active.barrier[index].status = status
+			w.active.readinessRequirements[index].status = status
 			return
 		}
 	}
 }
 
 func (w *stageWorkflow) markUnavailable(alias string) {
-	if !containsParticipant(w.active.barrier, alias) || slices.Contains(w.active.unavailable, alias) {
+	if !containsParticipant(w.active.readinessRequirements, alias) || slices.Contains(w.active.unavailable, alias) {
 		return
 	}
 	w.active.unavailable = append(w.active.unavailable, alias)
@@ -548,11 +548,11 @@ func (w *stageWorkflow) markUnavailable(alias string) {
 
 func (w *stageWorkflow) advanceWaitingStage() instructionSequence {
 	state := w.active
-	state.blocking = blockedAliases(state.barrier, state.unavailable)
+	state.notReadyAliases = notReadyAliases(state.readinessRequirements, state.unavailable)
 	if w.mustDiscard() {
 		return w.discardUnavailableStage()
 	}
-	if len(state.blocking) != 0 {
+	if len(state.notReadyAliases) != 0 {
 		return instructionSequence{requestSnapshotInstruction{}}
 	}
 	return instructionSequence{w.dispatchInstruction(), requestSnapshotInstruction{}}
@@ -604,12 +604,12 @@ func (w *stageWorkflow) discardUnavailableStage() instructionSequence {
 }
 
 func (w *stageWorkflow) snapshot() *StagedSubmission {
-	if w.active == nil || len(w.active.barrier) == 0 && len(w.active.routing) == 0 {
+	if w.active == nil || len(w.active.readinessRequirements) == 0 && len(w.active.routing) == 0 {
 		return nil
 	}
 	return &StagedSubmission{
 		Raw: w.active.raw, Routing: slices.Clone(w.active.routing),
-		Blocking:           slices.Clone(w.active.blocking),
+		NotReadyAliases:    slices.Clone(w.active.notReadyAliases),
 		Interruptible:      interruptibleStageAliases(w.active),
 		Unavailable:        slices.Clone(w.active.unavailable),
 		InterruptRequested: w.active.interruptRequested,
@@ -632,7 +632,7 @@ func acceptedStageInputSequence(raw string, routing []string) instructionSequenc
 	}
 }
 
-func freezeStageBarrier(state *stageState, participants []participantState) []participantState {
+func freezeReadinessRequirements(state *stageState, participants []participantState) []participantState {
 	switch state.statement.(type) {
 	case promptlang.Send, promptlang.Broadcast:
 	default:
@@ -645,18 +645,18 @@ func freezeStageBarrier(state *stageState, participants []participantState) []pa
 	for _, value := range participants {
 		byAlias[value.alias] = value
 	}
-	barrier := make([]participantState, 0, len(state.routing))
+	readinessRequirements := make([]participantState, 0, len(state.routing))
 	for _, alias := range state.routing {
 		if value, ok := byAlias[alias]; ok {
-			barrier = append(barrier, value)
+			readinessRequirements = append(readinessRequirements, value)
 		}
 	}
-	return barrier
+	return readinessRequirements
 }
 
-func stageReadiness(barrier []participantState, routing []string) ([]string, []string) {
-	byAlias := make(map[string]participant.Status, len(barrier))
-	for _, value := range barrier {
+func stageReadiness(readinessRequirements []participantState, routing []string) ([]string, []string) {
+	byAlias := make(map[string]participant.Status, len(readinessRequirements))
+	for _, value := range readinessRequirements {
 		byAlias[value.alias] = value.status
 	}
 	var unavailable []string
@@ -667,12 +667,12 @@ func stageReadiness(barrier []participantState, routing []string) ([]string, []s
 		}
 	}
 	slices.Sort(unavailable)
-	return blockedAliases(barrier, unavailable), unavailable
+	return notReadyAliases(readinessRequirements, unavailable), unavailable
 }
 
-func blockedAliases(barrier []participantState, unavailable []string) []string {
+func notReadyAliases(readinessRequirements []participantState, unavailable []string) []string {
 	var blocked []string
-	for _, value := range barrier {
+	for _, value := range readinessRequirements {
 		if !value.view().IsReadyForWork() && !slices.Contains(unavailable, value.alias) {
 			blocked = append(blocked, value.alias)
 		}
@@ -691,9 +691,9 @@ func activeAliases(routing, unavailable []string) []string {
 	return active
 }
 
-func activeBarrierAliases(barrier []participantState, unavailable []string) []string {
-	aliases := make([]string, 0, len(barrier))
-	for _, value := range barrier {
+func activeRequiredReadyAliases(readinessRequirements []participantState, unavailable []string) []string {
+	aliases := make([]string, 0, len(readinessRequirements))
+	for _, value := range readinessRequirements {
 		if !slices.Contains(unavailable, value.alias) {
 			aliases = append(aliases, value.alias)
 		}
@@ -707,7 +707,7 @@ func handoffSourceIsWorking(state *stageState) bool {
 	if !ok {
 		return false
 	}
-	for _, value := range state.barrier {
+	for _, value := range state.readinessRequirements {
 		if value.alias == handoff.FromAlias {
 			return value.view().HasActiveTurn()
 		}
@@ -730,9 +730,9 @@ func handoffRouting(statement promptlang.Handoff) []string {
 
 func interruptibleStageAliases(state *stageState) []string {
 	var aliases []string
-	for _, value := range state.barrier {
+	for _, value := range state.readinessRequirements {
 		if value.view().HasActiveTurn() && value.view().IsCancellable() &&
-			slices.Contains(state.blocking, value.alias) && !slices.Contains(state.interrupted, value.alias) {
+			slices.Contains(state.notReadyAliases, value.alias) && !slices.Contains(state.interrupted, value.alias) {
 			aliases = append(aliases, value.alias)
 		}
 	}
@@ -744,10 +744,10 @@ func (w *stageWorkflow) markStarted(alias string) {
 	if slices.Contains(w.active.unavailable, alias) {
 		return
 	}
-	for index := range w.active.barrier {
-		if w.active.barrier[index].alias == alias {
-			w.active.barrier[index].status = participant.StatusIdle
-			w.active.barrier[index].startupPending = false
+	for index := range w.active.readinessRequirements {
+		if w.active.readinessRequirements[index].alias == alias {
+			w.active.readinessRequirements[index].status = participant.StatusIdle
+			w.active.readinessRequirements[index].startupPending = false
 			return
 		}
 	}
@@ -761,7 +761,7 @@ func unavailableStageFailure(state *stageState) SubmissionFailed {
 	}
 	failure.Code = ErrorParticipantUnavailable
 	failure.Err = fmt.Errorf("%w %q", errStageTargetUnavailable, send.Alias)
-	for _, value := range state.barrier {
+	for _, value := range state.readinessRequirements {
 		if value.alias == send.Alias && value.status == participant.StatusCrashed {
 			failure.Err = fmt.Errorf("%w: %q", errStageTargetCrashed, send.Alias)
 			return failure

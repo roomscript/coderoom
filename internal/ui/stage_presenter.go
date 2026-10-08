@@ -58,9 +58,9 @@ func renderInterpreterStageStatus(
 		tail = "Waiting to send…"
 	}
 	busy := "none"
-	if len(stage.Blocking) > 0 {
-		aliases := make([]string, len(stage.Blocking))
-		for index, alias := range stage.Blocking {
+	if len(stage.NotReadyAliases) > 0 {
+		aliases := make([]string, len(stage.NotReadyAliases))
+		for index, alias := range stage.NotReadyAliases {
 			color := colorByAlias(alias)
 			if color == "" {
 				aliases[index] = alias

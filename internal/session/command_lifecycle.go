@@ -70,7 +70,7 @@ func startInvitedAgent(alias string, a agent.Agent, s *Session) {
 			_ = a.Stop()
 			return
 		}
-		// Transition to Idle first so IsSendable is true when AgentStarted fires.
+		// Transition to Idle first so IsSendable is true when AgentReady fires.
 		// The status-change event uses the pre-attach status as From so observers
 		// see Starting → Idle rather than the internal Attached intermediate state.
 		ev, ok := s.commitStarted(alias, from)
@@ -85,11 +85,11 @@ func startInvitedAgent(alias string, a agent.Agent, s *Session) {
 			return
 		}
 		s.notify(ev)
-		// Mark the participant session-ready before dispatching AgentStarted.
+		// Mark the participant session-ready before dispatching AgentReady.
 		// IsRemovable gates on StartupReady, so /remove cannot succeed until
 		// after the event fires. Go memory model: the channel send inside
 		// notify happens-after this write, so any goroutine that receives
-		// AgentStarted is guaranteed to observe StartupReady=true when it
+		// AgentReady is guaranteed to observe StartupReady=true when it
 		// subsequently calls detachParticipant.
 		if err := s.updateParticipant(alias, func(p *participant.Participant) (Event, error) {
 			return nil, p.SessionReady()
@@ -103,11 +103,11 @@ func startInvitedAgent(alias string, a agent.Agent, s *Session) {
 			_ = a.Stop()
 			return
 		}
-		// Start the reader before dispatching AgentStarted so the agent's pipe
+		// Start the reader before dispatching AgentReady so the agent's pipe
 		// is drained immediately. The participant is already StatusIdle with
 		// StartupReady=true, so all invariants are satisfied.
 		go s.readLoop(stop, alias, a)
-		s.notify(AgentStarted{Alias: alias})
+		s.notify(AgentReady{Alias: alias})
 	}()
 }
 
@@ -152,8 +152,8 @@ func (c RemoveCommand) execute(s *Session) error {
 	}
 }
 
-// CancelCommand requests an agent to interrupt its current in-flight work.
-// The agent remains in the session.
+// CancelCommand matches /cancel alias: it requests interruption of current work.
+// Interruption is asynchronous; the participant remains in the session.
 type CancelCommand struct {
 	Alias string
 }

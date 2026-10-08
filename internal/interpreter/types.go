@@ -71,7 +71,7 @@ type Snapshot struct {
 type StagePhase string
 
 const (
-	// StagePhasePending means the submission is waiting for its frozen barrier.
+	// StagePhasePending means the submission is waiting for its frozen readiness requirements.
 	StagePhasePending StagePhase = "pending"
 )
 
@@ -79,7 +79,7 @@ const (
 type StagedSubmission struct {
 	Raw                string
 	Routing            []string
-	Blocking           []string
+	NotReadyAliases    []string
 	Interruptible      []string
 	Unavailable        []string
 	InterruptRequested bool

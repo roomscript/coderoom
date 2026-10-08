@@ -38,7 +38,7 @@ func (o startupListenerObserver) OnEvent(event session.Event) {
 	if status, ok := event.(session.ParticipantStatusChanged); ok && status.Alias == "ben" {
 		o.gate.OnEvent(event)
 	}
-	if started, ok := event.(session.AgentStarted); ok {
+	if started, ok := event.(session.AgentReady); ok {
 		o.started <- started.Alias
 	}
 }
@@ -53,7 +53,7 @@ func TestSubmit_sendNoticesWaitsForStartingListenerAndFreezesRecipients(t *testi
 	mustSubmit(t, interp.Submit("@ada hello"))
 	awaitStartupWindowEvent[SubmissionSucceeded](t, events)
 	stage := awaitStartupWindowEvent[StateChanged](t, events).Snapshot.Stage
-	if stage == nil || !slices.Equal(stage.Blocking, []string{"ben"}) {
+	if stage == nil || !slices.Equal(stage.NotReadyAliases, []string{"ben"}) {
 		t.Fatalf("stage = %#v", stage)
 	}
 	assertNoStartupNoticeDelivery(t, backends["ada"])

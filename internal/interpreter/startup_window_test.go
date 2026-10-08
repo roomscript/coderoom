@@ -15,7 +15,7 @@ import (
 )
 
 // Hold the actual startup goroutine after it publishes Idle but before it
-// marks SessionReady and publishes AgentStarted.
+// marks SessionReady and publishes AgentReady.
 type startupIdleGate struct {
 	entered chan struct{}
 	release chan struct{}
@@ -68,7 +68,7 @@ func TestSubmit_planningDuringIdleBeforeSessionReadyWaitsForStartup(t *testing.T
 			mustSubmit(t, interp.Submit(raw))
 			awaitStartupWindowEvent[SubmissionSucceeded](t, events)
 			stage := awaitStartupWindowEvent[StateChanged](t, events).Snapshot.Stage
-			if stage == nil || len(stage.Blocking) != 1 || stage.Blocking[0] != "ben" {
+			if stage == nil || len(stage.NotReadyAliases) != 1 || stage.NotReadyAliases[0] != "ben" {
 				t.Fatalf("stage = %#v", stage)
 			}
 			assertStartupDelivery(t, backend.sent, false)
@@ -85,9 +85,9 @@ func assertIdleStartupWindow(t *testing.T, sess *session.Session) {
 	if !ok || runtime.Status != participant.StatusIdle || runtime.StartupReady {
 		t.Fatalf("runtime = %#v, %v", runtime, ok)
 	}
-	barrier := sess.Participants()
-	if len(barrier) != 1 || barrier[0].Status != participant.StatusIdle || barrier[0].StartupReady {
-		t.Fatalf("planning barrier = %#v", barrier)
+	readinessRequirements := sess.Participants()
+	if len(readinessRequirements) != 1 || readinessRequirements[0].Status != participant.StatusIdle || readinessRequirements[0].StartupReady {
+		t.Fatalf("planning readinessRequirements = %#v", readinessRequirements)
 	}
 }
 
@@ -132,8 +132,8 @@ func assertStartupDelivery(t *testing.T, sent <-chan string, ready bool) {
 func assertSessionRejectsStartupDelivery(t *testing.T, sess *session.Session) {
 	t.Helper()
 	commands := []session.Command{
-		session.PrivateSendCommand{Alias: "ben", Text: "premature"},
-		session.SharedSendCommand{Plan: sess.PlanSharedSend("ben"), TextDirect: "premature"},
+		session.SendToParticipantOutsideRoomCommand{Alias: "ben", Text: "premature"},
+		session.SendToParticipantCommand{Plan: sess.CreateParticipantSendPlan("ben"), Message: "premature"},
 		session.BroadcastCommand{Aliases: []string{"ben"}, Text: "premature"},
 	}
 	for _, command := range commands {

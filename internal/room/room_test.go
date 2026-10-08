@@ -41,7 +41,7 @@ func TestOnEvent_agentLifecycleAppendsSystemRecords(t *testing.T) {
 
 	room.OnEvent(session.AgentStarting{Alias: "ada"})
 	waitUpdate(t, updates)
-	room.OnEvent(session.AgentStarted{Alias: "ada"})
+	room.OnEvent(session.AgentReady{Alias: "ada"})
 	waitUpdate(t, updates)
 	room.OnEvent(session.AgentStopped{Alias: "ada"})
 	waitUpdate(t, updates)
@@ -154,7 +154,7 @@ func TestOnEvent_contextHandoffAppendsAuditRecord(t *testing.T) {
 func TestLatestCompletedOutput(t *testing.T) {
 	room, updates := newTestRoom(t)
 
-	room.OnEvent(session.AgentStarted{Alias: "ada"})
+	room.OnEvent(session.AgentReady{Alias: "ada"})
 	waitUpdate(t, updates)
 
 	room.OnEvent(session.AgentMessage{Alias: "ada", Msg: agent.Message{StreamID: "out1", Mode: agent.ModeStream, Content: agent.Output{Text: "partial"}}})
@@ -184,7 +184,7 @@ func TestLatestCompletedOutput(t *testing.T) {
 func TestLatestCompletedOutput_returnsFlushedStreamOutput(t *testing.T) {
 	room, updates := newTestRoom(t)
 
-	room.OnEvent(session.AgentStarted{Alias: "ada"})
+	room.OnEvent(session.AgentReady{Alias: "ada"})
 	waitUpdate(t, updates)
 
 	room.OnEvent(session.AgentMessage{Alias: "ada", Msg: agent.Message{StreamID: "out1", Mode: agent.ModeStream, Content: agent.Output{Text: "done"}}})
@@ -212,7 +212,7 @@ func TestLatestCompletedOutput_returnsFlushedStreamOutput(t *testing.T) {
 func TestLatestHandoffSource_movesToNewestCompletedOutput(t *testing.T) {
 	room, updates := newTestRoom(t)
 
-	room.OnEvent(session.AgentStarted{Alias: "ada"})
+	room.OnEvent(session.AgentReady{Alias: "ada"})
 	waitUpdate(t, updates)
 	room.OnEvent(session.AgentMessage{Alias: "ada", Msg: agent.Message{StreamID: "out1", Mode: agent.ModeSingle, Content: agent.Output{Text: "first"}}})
 	waitUpdate(t, updates)
@@ -231,7 +231,7 @@ func TestLatestHandoffSource_movesToNewestCompletedOutput(t *testing.T) {
 func TestLatestHandoffSource_clearsOnDeparture(t *testing.T) {
 	room, updates := newTestRoom(t)
 
-	room.OnEvent(session.AgentStarted{Alias: "ada"})
+	room.OnEvent(session.AgentReady{Alias: "ada"})
 	waitUpdate(t, updates)
 	room.OnEvent(session.AgentMessage{Alias: "ada", Msg: agent.Message{StreamID: "out1", Mode: agent.ModeSingle, Content: agent.Output{Text: "done"}}})
 	waitUpdate(t, updates)
@@ -250,13 +250,13 @@ func TestLatestHandoffSource_clearsOnDeparture(t *testing.T) {
 func TestLatestHandoffSource_restoredOnRejoin(t *testing.T) {
 	room, updates := newTestRoom(t)
 
-	room.OnEvent(session.AgentStarted{Alias: "ada"})
+	room.OnEvent(session.AgentReady{Alias: "ada"})
 	waitUpdate(t, updates)
 	room.OnEvent(session.AgentMessage{Alias: "ada", Msg: agent.Message{StreamID: "out1", Mode: agent.ModeSingle, Content: agent.Output{Text: "done"}}})
 	waitUpdate(t, updates)
 	room.OnEvent(session.AgentStopped{Alias: "ada"})
 	waitUpdate(t, updates)
-	room.OnEvent(session.AgentStarted{Alias: "ada"})
+	room.OnEvent(session.AgentReady{Alias: "ada"})
 	waitUpdate(t, updates)
 
 	source, ok := room.LatestHandoffSource("ada")
@@ -512,7 +512,7 @@ func TestSnapshotClonesRecordsAndState(t *testing.T) {
 	room, updates := newTestRoom(t)
 	exitCode := 7
 
-	room.OnEvent(session.AgentStarted{Alias: "ada"})
+	room.OnEvent(session.AgentReady{Alias: "ada"})
 	waitUpdate(t, updates)
 	room.AppendUserInputRecord("hello", []string{"ada"})
 	waitUpdate(t, updates)

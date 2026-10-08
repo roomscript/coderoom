@@ -89,10 +89,10 @@ func (w *loopWorkflow) dispatchInstruction(prompt string) executeSessionInstruct
 	state.pending = w.nextRef(state.generation)
 	return executeSessionInstruction{
 		target: state.pending,
-		request: planAndExecuteSharedSendRequest{
-			alias:         state.statement.Participant,
-			directText:    prompt,
-			listenersText: fmt.Sprintf("@%s: %s", state.statement.Participant, prompt),
+		request: createPlanAndExecuteParticipantSendRequest{
+			alias:   state.statement.Participant,
+			message: prompt,
+			notice:  fmt.Sprintf("@%s: %s", state.statement.Participant, prompt),
 		},
 	}
 }

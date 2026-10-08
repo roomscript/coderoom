@@ -13,16 +13,16 @@ import (
 )
 
 type submitContractSession struct {
-	mu         sync.Mutex
-	observer   session.Observer
-	roster     []participant.View
-	barrier    []participant.Participant
-	executed   chan session.Command
-	executeErr error
-	execute    func(session.Command, session.Observer)
-	active     atomic.Int32
-	maxActive  atomic.Int32
-	shutdowns  atomic.Int32
+	mu                    sync.Mutex
+	observer              session.Observer
+	roster                []participant.View
+	readinessRequirements []participant.Participant
+	executed              chan session.Command
+	executeErr            error
+	execute               func(session.Command, session.Observer)
+	active                atomic.Int32
+	maxActive             atomic.Int32
+	shutdowns             atomic.Int32
 }
 
 func newSubmitContractSession() *submitContractSession {
@@ -56,15 +56,15 @@ func (s *submitContractSession) AddObserver(observer session.Observer) {
 	s.observer = observer
 }
 
-func (*submitContractSession) PlanSharedSend(string) session.SharedSendPlan {
-	return session.SharedSendPlan{}
+func (*submitContractSession) CreateParticipantSendPlan(string) session.ParticipantSendPlan {
+	return session.ParticipantSendPlan{}
 }
 
 func (s *submitContractSession) Participants() []participant.View {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	values := append([]participant.View(nil), s.roster...)
-	for _, p := range s.barrier {
+	for _, p := range s.readinessRequirements {
 		found := false
 		for i := range values {
 			if values[i].Alias == p.Alias {
@@ -185,7 +185,7 @@ func TestSubmitContract_reportsNativeExecutionFailure(t *testing.T) {
 func TestSubmitContract_terminalOutcomeFollowsCausalEvents(t *testing.T) {
 	interp, sess, events := newSubmitContractInterpreter(t)
 	sess.execute = func(_ session.Command, observer session.Observer) {
-		observer.OnEvent(session.AgentStarted{Alias: "ada"})
+		observer.OnEvent(session.AgentReady{Alias: "ada"})
 	}
 
 	mustSubmit(t, interp.Submit("/cancel ada"))
@@ -274,7 +274,7 @@ func TestSubmitContract_appliesCausalEventBeforeNextExecution(t *testing.T) {
 	sess.execute = func(_ session.Command, observer session.Observer) {
 		calls++
 		if calls == 1 {
-			observer.OnEvent(session.AgentStarted{Alias: "ada"})
+			observer.OnEvent(session.AgentReady{Alias: "ada"})
 			return
 		}
 		members := interpreterModelOf(interp).Snapshot().room.Members

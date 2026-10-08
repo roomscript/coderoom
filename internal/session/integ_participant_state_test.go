@@ -16,9 +16,9 @@ func TestSession_sharedSendMarksWorkingUntilFlush(t *testing.T) {
 	s, events := newSessionWithCodexAgents(t, "ada")
 	b := newEventBuf(events)
 
-	if err := s.Execute(session.SharedSendCommand{
-		Plan:       s.PlanSharedSend("ada"),
-		TextDirect: "What is 2+2? Reply with just the number.",
+	if err := s.Execute(session.SendToParticipantCommand{
+		Plan:    s.CreateParticipantSendPlan("ada"),
+		Message: "What is 2+2? Reply with just the number.",
 	}); err != nil {
 		t.Fatalf("shared send: %v", err)
 	}
@@ -43,9 +43,9 @@ func TestSession_cancelInterruptEndsTurnAndReturnsIdle(t *testing.T) {
 	s, events := newSessionWithCodexAgents(t, "ada")
 	b := newEventBuf(events)
 
-	if err := s.Execute(session.SharedSendCommand{
-		Plan:       s.PlanSharedSend("ada"),
-		TextDirect: "Write 200 numbered bullet points, one per line, with short text. Keep going until you reach 200.",
+	if err := s.Execute(session.SendToParticipantCommand{
+		Plan:    s.CreateParticipantSendPlan("ada"),
+		Message: "Write 200 numbered bullet points, one per line, with short text. Keep going until you reach 200.",
 	}); err != nil {
 		t.Fatalf("shared send: %v", err)
 	}
@@ -66,7 +66,7 @@ func TestSession_privateSendMarksWorkingUntilFlush(t *testing.T) {
 	s, events := newSessionWithCodexAgents(t, "ada")
 	b := newEventBuf(events)
 
-	if err := s.Execute(session.PrivateSendCommand{
+	if err := s.Execute(session.SendToParticipantOutsideRoomCommand{
 		Alias: "ada",
 		Text:  "What is 2+2? Reply with just the number.",
 	}); err != nil {
@@ -128,10 +128,10 @@ func TestSession_sharedSendNoticeMarksListenerWorkingUntilFlush(t *testing.T) {
 		t.Fatalf("enable send notices: %v", err)
 	}
 
-	if err := s.Execute(session.SharedSendCommand{
-		Plan:          s.PlanSharedSend("ada"),
-		TextDirect:    "Reply with just the word: ok",
-		TextListeners: "You are a silent listener. Reply only with {\"acknowledge\":true}.",
+	if err := s.Execute(session.SendToParticipantCommand{
+		Plan:    s.CreateParticipantSendPlan("ada"),
+		Message: "Reply with just the word: ok",
+		Notice:  "You are a silent listener. Reply only with {\"acknowledge\":true}.",
 	}); err != nil {
 		t.Fatalf("shared send: %v", err)
 	}

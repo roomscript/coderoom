@@ -105,7 +105,7 @@ which aliases belong to it — not a mirrored snapshot of their status, role,
 or approval state.
 
 For V1, membership comes from the same agent-lifecycle events Room already
-consumes for system records: `AgentStarted` adds an alias,
+consumes for system records: `AgentReady` adds an alias,
 `AgentStopped`/`AgentCrashed` remove it. No new event is needed for
 the shared room, where membership is simply every participant that has
 joined and not since departed. `AgentStarting` still produces its own

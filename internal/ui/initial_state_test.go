@@ -19,8 +19,8 @@ type initialStateSession struct{ observer session.Observer }
 
 func (*initialStateSession) Execute(session.Command) error           { return nil }
 func (s *initialStateSession) AddObserver(observer session.Observer) { s.observer = observer }
-func (*initialStateSession) PlanSharedSend(string) session.SharedSendPlan {
-	return session.SharedSendPlan{}
+func (*initialStateSession) CreateParticipantSendPlan(string) session.ParticipantSendPlan {
+	return session.ParticipantSendPlan{}
 }
 func (*initialStateSession) Participants() []participant.View {
 	return []participant.View{{Alias: "ada", Status: participant.StatusWorking, StartupReady: true, Color: "#123456"}}
@@ -36,7 +36,7 @@ func TestNew_consumesEventsQueuedBeforeUIConstruction(t *testing.T) {
 	t.Cleanup(observer.Close)
 	interp := interpreter.New(context.Background(), sess, ".", interpreter.WithObserver(observer))
 	t.Cleanup(interp.Close)
-	sess.observer.OnEvent(session.AgentStarted{Alias: "ada"})
+	sess.observer.OnEvent(session.AgentReady{Alias: "ada"})
 	sess.observer.OnEvent(session.AgentMessage{Alias: "ada", Msg: agent.Message{StreamID: "output", Mode: agent.ModeStream, Content: agent.Output{Text: "existing output"}}})
 	sess.observer.OnEvent(session.ApprovalRequested{ID: 7, Alias: "ada", Req: agent.ApprovalRequest{Ask: "approve existing work?", Options: []agent.ApprovalOption{agent.OptionAccept, agent.OptionDecline}}})
 	if err := interp.Submit("next turn"); err != nil {

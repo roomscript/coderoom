@@ -16,7 +16,7 @@ import (
 
 func TestHandleEvent_agentStarted(t *testing.T) {
 	m := makeReadyModel(t)
-	m = pushEvent(m, session.AgentStarted{Alias: "ada"})
+	m = pushEvent(m, session.AgentReady{Alias: "ada"})
 	if !hasRecord(m, record.KindSystem, "[ada joined]") {
 		t.Errorf("expected [ada joined] system record; records: %v", m.room.HistoryRecords())
 	}
@@ -32,7 +32,7 @@ func TestHandleEvent_agentStarting(t *testing.T) {
 
 func TestHandleEvent_agentStopped(t *testing.T) {
 	m := makeReadyModel(t)
-	m = pushEvent(m, session.AgentStarted{Alias: "ada"})
+	m = pushEvent(m, session.AgentReady{Alias: "ada"})
 	m = pushEvent(m, session.AgentStopped{Alias: "ada"})
 	if !hasRecord(m, record.KindSystem, "[ada left]") {
 		t.Errorf("expected [ada left] system record; records: %v", m.room.HistoryRecords())
@@ -41,7 +41,7 @@ func TestHandleEvent_agentStopped(t *testing.T) {
 
 func TestHandleEvent_agentCrashed(t *testing.T) {
 	m := makeReadyModel(t)
-	m = pushEvent(m, session.AgentStarted{Alias: "ada"})
+	m = pushEvent(m, session.AgentReady{Alias: "ada"})
 	m = pushEvent(m, session.AgentCrashed{Alias: "ada"})
 	if !hasRecord(m, record.KindSystem, "[ada crashed]") {
 		t.Errorf("expected [ada crashed] system record; records: %v", m.room.HistoryRecords())

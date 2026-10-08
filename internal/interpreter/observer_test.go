@@ -11,7 +11,7 @@ type startupSession struct{ *submitContractSession }
 
 func (s startupSession) AddObserver(observer session.Observer) {
 	s.submitContractSession.AddObserver(observer)
-	observer.OnEvent(session.AgentStarted{Alias: "ada"})
+	observer.OnEvent(session.AgentReady{Alias: "ada"})
 }
 
 func TestWithObserver_initialStatePrecedesStartupCallbacks(t *testing.T) {
