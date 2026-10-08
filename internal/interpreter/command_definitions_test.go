@@ -140,7 +140,7 @@ func assertNativeHelpDispatch(t *testing.T, raw string, statement promptlang.Sta
 	if err := model.commands.Define(promptlang.CommandDefinition{Name: "check", Body: promptlang.Shell{Program: "true"}}); err != nil {
 		t.Fatal(err)
 	}
-	sequence, handled := model.submitCommand(raw, statement)
+	sequence, handled := model.prepareCommand(raw, statement)
 	if !handled || len(sequence) == 0 {
 		t.Fatal("help example did not reach a native handler")
 	}
@@ -162,7 +162,7 @@ func TestNativeCommandDefinitions_debugCommandsRemainUIOnly(t *testing.T) {
 			}
 			model := newInterpreterModel()
 			t.Cleanup(model.Close)
-			if _, handled := model.submitCommand(raw, statement); handled {
+			if _, handled := model.prepareCommand(raw, statement); handled {
 				t.Fatal("UI-only command dispatched natively")
 			}
 			for _, definition := range nativeCommandDefinitions {

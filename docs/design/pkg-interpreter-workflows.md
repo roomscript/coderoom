@@ -13,7 +13,7 @@ it does not imply the core algorithm refactor is complete.
 
 | Concept / responsibility | Entry point | Current algorithm / implementation |
 |---|---|---|
-| Submit a request | `Submit` in `api_requests.go` | `handleInput` in `core_input.go` checks the pending-stage gate, parses input, and runs `model.Submit` decisions. |
+| Submit a request | `Submit` in `api_requests.go` | `handleInput` in `core_input.go` checks the pending-stage gate, parses input, and runs `model.PrepareRequest` decisions. |
 | Edit or discard pending work | `TakeStageForEdit`, `DiscardStage` in `api_requests.go` | Atomic stage operations remove the retained plan, then return the draft or discard result. |
 | Interrupt work | `InterruptAndDispatchStage` in `api_requests.go` | Stage interruption selects cancellable blockers; lifecycle events establish readiness. |
 | Resolve an approval | `ResolveApproval` in `api_requests.go` | `resolveApprovalOperation.apply` validates the choice, sends it to session, and updates approval state. |
@@ -38,6 +38,12 @@ returned actions. `core_events.go` exposes incoming facts, complete-burst state
 updates, workflow advancement, and asynchronous shell resumption. Outgoing event
 publication remains in `api_events.go`. Queue draining and execution mechanics
 remain in the executor and runner.
+
+`PrepareRequest` names request preparation separately from the public `Submit`
+operation. `ApplySessionEvent` updates observable state before advancing loop and
+staged work. `ApplyResult` distinguishes synchronous preparation facts, session
+outcomes, and later shell results, routing each directly to its workflow decision.
+`workflowCollection` holds state only; it adds no event/result routing layer.
 
 These entry algorithms preserve the existing causal order: project the complete
 session-event burst before running derived actions, then apply the execution
@@ -457,7 +463,7 @@ back to its workflow.
 The runner's private work queue contains either an instruction or a typed
 completion-delivery item. Completion delivery is not a workflow instruction
 and is never returned by a workflow; it is how the runner delays calling
-`interpreterModel.ApplyCompletion` until earlier event-derived instructions settle.
+`interpreterModel.ApplyResult` until earlier event-derived instructions settle.
 
 ```text
 run(initialSequence):
@@ -468,7 +474,7 @@ run(initialSequence):
         item = pop front
 
         deliver completion:
-            resultSequence = model.ApplyCompletion(item.completion)
+            resultSequence = model.ApplyResult(item.completion)
             queue = instructions from resultSequence + queue
 
         request final snapshot:
@@ -572,7 +578,7 @@ child process and enqueues a completion operation containing the unchanged
 `workflowRef`, request, and result. It never invokes workflow code from the
 shell goroutine.
 
-On the operation loop, `interpreterModel.ApplyCompletion` checks correlation. A
+On the operation loop, `interpreterModel.ApplyResult` checks correlation. A
 stale completion returns no workflow-transition instructions. Existing observable
 shell-result recording is preserved independently when required: the
 completion operation can append the command record and publish
@@ -585,7 +591,7 @@ operations:
 
 ```go
 func (m *interpreterModel) CheckInputAllowed(raw string) instructionSequence
-func (m *interpreterModel) Submit(
+func (m *interpreterModel) PrepareRequest(
     raw string,
     statement promptlang.Statement,
     fallback session.Command,
@@ -593,16 +599,16 @@ func (m *interpreterModel) Submit(
 func (m *interpreterModel) ApplySessionEvent(
     event session.Event,
 ) (instructionSequence, bool)
-func (m *interpreterModel) ApplyCompletion(completion workflowCompletion) instructionSequence
+func (m *interpreterModel) ApplyResult(completion workflowCompletion) instructionSequence
 ```
 
 These operations are state transitions, not parsers or instruction factories.
 `CheckInputAllowed` preserves model-owned rejection decisions that must occur
-before parsing, including the pending-stage gate. `Submit` applies an already
+before parsing, including the pending-stage gate. `PrepareRequest` applies an already
 parsed statement, while the `Apply...` operations apply external facts to model
 state. Each returns the instructions caused by that transition. The submit
 operation never reads stage or workflow state directly. Unknown-command
-classification is also model-owned: `Submit` returns a `publishEventInstruction`
+classification is also model-owned: `PrepareRequest` returns a `publishEventInstruction`
 for `UnknownCommand` rather than an executor-facing “handled” flag.
 
 `ApplySessionEvent` returns `applied == false` when the event must be discarded
@@ -623,7 +629,7 @@ Input:
 /loop @ada fix tests /until /tests /max 3
 ```
 
-1. `interpreterModel.Submit(raw, statement)` validates the condition and
+1. `interpreterModel.PrepareRequest(raw, statement)` validates the condition and
    asks the loop workflow to start generation 7. The unchanged `raw` value is
    retained for room records and submission events.
 2. The workflow returns input-record and `InputAccepted` instructions followed by:
@@ -818,8 +824,8 @@ and submission timing; it refers to these components instead of carrying their
 individual bookkeeping fields.
 
 `workflow_stage_delivery.go` owns the shared completion and outcome reporting.
-`workflowCollection` routes typed completions directly to their handlers; no
-second production completion switch intervenes. The instruction runner's causal
+`ApplyResult` in `core_events.go` routes preparation facts and execution outcomes
+directly to their handlers; no workflow-collection switch intervenes. The instruction runner's causal
 ordering remains unchanged. `TestStageWorkflow_replacedSendIgnoresOldCompletions`
 protects the replacement stage after edit or discard.
 
@@ -875,7 +881,7 @@ gateway knows which interpreter-level request maps to which session command.
 4. Completion `{loop, 7, 22}` arrives.
 5. The completion's shell command record and public completion event are
    preserved if required by current behavior.
-6. `interpreterModel.ApplyCompletion` rejects the stale correlation because the
+6. `interpreterModel.ApplyResult` rejects the stale correlation because the
    active loop is generation 8. It returns no loop-transition instructions and does
    not alter generation 8.
 

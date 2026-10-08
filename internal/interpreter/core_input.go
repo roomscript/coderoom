@@ -14,7 +14,8 @@ func (e *interpreterExecutor) handleInput(raw string) {
 		e.publish(InputRejected{Raw: raw, Code: ErrorInvalidInput, Err: err})
 		return
 	}
-	e.runner.Run(e.model.Submit(raw, statement))
+	actions := e.model.PrepareRequest(raw, statement)
+	e.runner.Run(actions)
 }
 
 // CheckInputAllowed checks whether new input is allowed before parsing.
@@ -27,13 +28,13 @@ func (m *interpreterModel) CheckInputAllowed(raw string) instructionSequence {
 	}}}
 }
 
-// Submit selects the request workflow. It prepares its actions and requirements;
-// returned instructions execute ready work or publish the retained-stage outcome.
-func (m *interpreterModel) Submit(
+// PrepareRequest selects the workflow and returns its next actions. Preparation
+// reads run synchronously; unmet requirements retain work for a later event.
+func (m *interpreterModel) PrepareRequest(
 	raw string,
 	statement promptlang.Statement,
 ) instructionSequence {
-	if sequence, handled := m.submitCommand(raw, statement); handled {
+	if sequence, handled := m.prepareCommand(raw, statement); handled {
 		return sequence
 	}
 	return instructionSequence{publishEventInstruction{event: UnknownCommand{

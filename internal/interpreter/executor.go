@@ -30,7 +30,7 @@ type shutdownOperation struct{}
 type executorModelPort interface {
 	instructionModelPort
 	CheckInputAllowed(string) instructionSequence
-	Submit(string, promptlang.Statement) instructionSequence
+	PrepareRequest(string, promptlang.Statement) instructionSequence
 	ApplyShellResult(string, string, shell.Result) instructionSequence
 	TakeStageForEdit() (instructionSequence, string, bool)
 	DiscardStage() (instructionSequence, bool)

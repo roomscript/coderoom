@@ -15,7 +15,7 @@ func TestInterpreterModel_SubmitBuildsInstructionsWithoutExecutingThem(t *testin
 	model := newInterpreterModel()
 	t.Cleanup(model.Close)
 
-	sequence := model.Submit(
+	sequence := model.PrepareRequest(
 		"/invite ada",
 		promptlang.Invite{Alias: "ada"},
 	)
@@ -40,7 +40,7 @@ func TestInterpreterModel_SubmitDecidesUnknownCommand(t *testing.T) {
 	model := newInterpreterModel()
 	t.Cleanup(model.Close)
 
-	sequence := model.Submit(
+	sequence := model.PrepareRequest(
 		"/missing",
 		promptlang.CommandInvocation{Name: "missing"},
 	)

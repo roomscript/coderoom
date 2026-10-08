@@ -46,7 +46,7 @@ func newInterpreterModel() *interpreterModel {
 	return model
 }
 
-func (m *interpreterModel) submitCommand(raw string, statement promptlang.Statement) (instructionSequence, bool) {
+func (m *interpreterModel) prepareCommand(raw string, statement promptlang.Statement) (instructionSequence, bool) {
 	for _, definition := range nativeCommandDefinitions {
 		if definition.matches(statement) && definition.submit != nil {
 			return definition.submit(m, raw, statement), true

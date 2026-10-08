@@ -37,20 +37,46 @@ func (m *interpreterModel) ApplySessionEvent(event session.Event) (instructionSe
 		return nil, false
 	}
 	m.room.ApplyEvent(event)
-	return m.workflows.applySessionEvent(event), true
+	actions := m.workflows.loop.handleSessionEvent(event)
+	actions.append(m.workflows.stage.handleSessionEvent(event))
+	return actions, true
 }
 
-// ApplyCompletion advances current work from an execution or shell result.
-// Workflows reject results from superseded work; a synchronous delivery result
-// reaches this entry point only after its causal session events settle.
-func (m *interpreterModel) ApplyCompletion(completion workflowCompletion) instructionSequence {
-	switch completion := completion.(type) {
+// ApplyResult distinguishes synchronous preparation facts from execution outcomes.
+// A later shell result resumes a loop; session outcomes arrive after their causal
+// events settle. Each workflow checks that the result still belongs to its work.
+func (m *interpreterModel) ApplyResult(result workflowCompletion) instructionSequence {
+	switch result := result.(type) {
+	case sendPlanResult:
+		return m.workflows.stage.prepareSend(result)
+	case broadcastPlanResult:
+		return m.workflows.stage.handleBroadcastPlan(result)
+	case participantStateResult:
+		return m.workflows.stage.handleParticipantState(result)
+	case handoffSourceResult:
+		return m.workflows.stage.handleHandoffSource(result)
+	case sessionCompletion:
+		return m.applySessionOutcome(result)
+	case shellCompletion:
+		if result.target.kind == workflowLoop {
+			return m.workflows.loop.handleShellCompletion(result)
+		}
 	case submissionCompletion:
-		return submissionResultSequence(completion)
+		return submissionResultSequence(result)
 	case rosterCompletion:
-		return rosterResultSequence(completion)
+		return rosterResultSequence(result)
+	}
+	return nil
+}
+
+func (m *interpreterModel) applySessionOutcome(result sessionCompletion) instructionSequence {
+	switch result.target.kind {
+	case workflowLoop:
+		return m.workflows.loop.handleSessionCompletion(result)
+	case workflowStage:
+		return m.workflows.stage.handleSessionCompletion(result)
 	default:
-		return m.workflows.applyCompletion(completion)
+		return nil
 	}
 }
 
@@ -60,7 +86,7 @@ func (op shellCompletedOperation) apply(e *interpreterExecutor) {
 }
 
 func (op workflowShellCompletedOperation) apply(e *interpreterExecutor) {
-	e.runner.Run(e.model.ApplyCompletion(shellCompletion{
+	e.runner.Run(e.model.ApplyResult(shellCompletion{
 		target:  op.target,
 		request: op.request,
 		result:  op.result,

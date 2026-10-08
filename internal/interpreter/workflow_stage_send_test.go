@@ -12,8 +12,8 @@ func TestStageWorkflow_replacedSendIgnoresOldCompletions(t *testing.T) {
 	for _, remove := range []string{"edit", "discard"} {
 		for _, completion := range []string{"plan", "delivery"} {
 			t.Run(remove+"/"+completion, func(t *testing.T) {
-				workflows := workflowCollection{}
-				stage := &workflows.stage
+				model := interpreterModel{}
+				stage := &model.workflows.stage
 				stale := startOldSendCompletion(stage, completion)
 				if remove == "edit" {
 					stage.takeForEdit()
@@ -25,7 +25,7 @@ func TestStageWorkflow_replacedSendIgnoresOldCompletions(t *testing.T) {
 				before := stage.snapshot()
 				pending := stage.active.pending
 
-				if sequence := workflows.applyCompletion(stale); len(sequence) != 0 {
+				if sequence := model.ApplyResult(stale); len(sequence) != 0 {
 					t.Fatalf("stale completion returned instructions: %#v", sequence)
 				}
 				if !reflect.DeepEqual(stage.snapshot(), before) || stage.active.pending != pending {

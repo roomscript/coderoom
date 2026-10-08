@@ -26,7 +26,7 @@ type instructionExecutorPort interface {
 }
 
 type instructionModelPort interface {
-	ApplyCompletion(workflowCompletion) instructionSequence
+	ApplyResult(workflowCompletion) instructionSequence
 	ApplySessionEvent(session.Event) (instructionSequence, bool)
 	AppendRecord(room.Record)
 	TakeTranscriptChanges() []TranscriptChanged
@@ -56,7 +56,7 @@ func (r *instructionRunner) Run(sequence instructionSequence) {
 			queue = append(follow, queue...)
 			snapshotRequested = snapshotRequested || snapshot
 		case completionItem:
-			follow := r.model.ApplyCompletion(item.completion)
+			follow := r.model.ApplyResult(item.completion)
 			queue = append(instructionItems(follow), queue...)
 		case sessionEventsItem:
 			// Project the complete dispatch burst before running instructions derived
