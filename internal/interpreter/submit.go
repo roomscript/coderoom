@@ -18,16 +18,7 @@ func (e *interpreterExecutor) submit(raw string) error {
 }
 
 func (op submitOperation) apply(e *interpreterExecutor) {
-	if preflight := e.model.PreflightSubmission(op.raw); len(preflight) != 0 {
-		e.runner.Run(preflight)
-		return
-	}
-	statement, err := promptlang.Parse(op.raw)
-	if err != nil {
-		e.publish(InputRejected{Raw: op.raw, Code: ErrorInvalidInput, Err: err})
-		return
-	}
-	e.runner.Run(e.model.Submit(op.raw, statement))
+	e.handleInput(op.raw)
 }
 
 func submissionErrorCode(err error) ErrorCode {

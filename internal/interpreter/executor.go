@@ -29,7 +29,7 @@ type shutdownOperation struct{}
 
 type executorModelPort interface {
 	instructionModelPort
-	PreflightSubmission(string) instructionSequence
+	CheckInputAllowed(string) instructionSequence
 	Submit(string, promptlang.Statement) instructionSequence
 	ApplyShellResult(string, string, shell.Result) instructionSequence
 	TakeStageForEdit() (instructionSequence, string, bool)

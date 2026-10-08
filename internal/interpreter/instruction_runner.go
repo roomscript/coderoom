@@ -213,19 +213,6 @@ func (r *instructionRunner) executeSession(value executeSessionInstruction) []ex
 	return items
 }
 
-func (r *instructionRunner) ApplySessionEvents(events []session.Event) instructionSequence {
-	sequence := instructionSequence{}
-	for _, event := range events {
-		eventSequence, applied := r.model.ApplySessionEvent(event)
-		if !applied {
-			continue
-		}
-		sequence.append(eventSequence)
-		sequence = append(sequence, requestSnapshotInstruction{})
-	}
-	return sequence
-}
-
 func (r *instructionRunner) publishTranscriptChanges() {
 	for _, change := range r.model.TakeTranscriptChanges() {
 		r.executor.publish(change)

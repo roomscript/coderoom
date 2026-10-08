@@ -13,13 +13,13 @@ it does not imply the core algorithm refactor is complete.
 
 | Concept / responsibility | Entry point | Current algorithm / implementation |
 |---|---|---|
-| Submit a request | `Submit` in `api_requests.go` | `submitOperation.apply` checks the pending-stage gate, parses input, and runs `model.Submit` decisions. |
+| Submit a request | `Submit` in `api_requests.go` | `handleInput` in `core_input.go` checks the pending-stage gate, parses input, and runs `model.Submit` decisions. |
 | Edit or discard pending work | `TakeStageForEdit`, `DiscardStage` in `api_requests.go` | Atomic stage operations remove the retained plan, then return the draft or discard result. |
 | Interrupt work | `InterruptAndDispatchStage` in `api_requests.go` | Stage interruption selects cancellable blockers; lifecycle events establish readiness. |
 | Resolve an approval | `ResolveApproval` in `api_requests.go` | `resolveApprovalOperation.apply` validates the choice, sends it to session, and updates approval state. |
-| Receive session facts | `sessionObserver.OnEvent` in `session.go` | The inbox buffers events; `applySessionEvents` runs room/approval updates and workflow progression through the runner. |
-| Receive ordinary shell results | `shellCompletedOperation.apply` in `command_shell.go` | Record the shell outcome and publish observable changes. |
-| Receive workflow shell results | `workflowShellCompletedOperation.apply` in `workflow_instruction.go` | Route the result to current workflow work; stale results cannot advance a replacement workflow. |
+| Receive session facts | `sessionObserver.OnEvent` in `core_events.go` | Buffer incoming facts; `ApplySessionEvents` and `ApplySessionEvent` update the room/approval state and advance affected workflows. |
+| Receive ordinary shell results | `shellCompletedOperation.apply` in `core_events.go` | Record the shell outcome and publish observable changes. |
+| Receive workflow shell results | `workflowShellCompletedOperation.apply` in `core_events.go` | Route the result to current workflow work; stale results cannot advance a replacement workflow. |
 | Receive synchronous execution results | `instructionRunner.executeCommand` / `executeSession` | Apply causal events before delivering the result to the model. These are not asynchronous waits. |
 | Publish interpreter events | `publish` in `api_events.go` | Queue facts for ordered observer delivery; publication does not execute a workflow. |
 | Subscribe to published events | `WithObserver` in `api_events.go` | Install observers before startup; deliver initial state followed by ordered events. |
@@ -32,10 +32,23 @@ signatures or behavior. Public state/event DTOs remain in `types.go`, and the
 session dependency contract remains in `session.go`. Construction stays separate
 from request handling.
 
-The next core work is to expose the input and event algorithms in
-`core_input.go` and `core_events.go`. Preparation, pending work, and its resumption
-are still spread through model, workflow, and runner code. This organization
-provides a front door; it does not yet make those algorithms readable from it.
+`core_input.go` exposes the input entry algorithm and its model decisions:
+check whether input is allowed, parse it, select its workflow, and execute its
+returned actions. `core_events.go` exposes incoming facts, complete-burst state
+updates, workflow advancement, and asynchronous shell resumption. Outgoing event
+publication remains in `api_events.go`. Queue draining and execution mechanics
+remain in the executor and runner.
+
+These entry algorithms preserve the existing causal order: project the complete
+session-event burst before running derived actions, then apply the execution
+result. Routing outcomes go to execution completion rather than room projection;
+stale approval-clear events cannot clear a newer approval.
+
+The command-specific preparation and wait/resume decisions still live in the
+workflows. The next readability checkpoint is to make those paths expose plans
+and real waits without requiring readers to reconstruct instruction/completion
+mechanics. These core files are navigation and algorithm entry points, not a
+claim that the remaining workflow refactor is complete.
 
 ## Implemented shape
 
@@ -570,7 +583,7 @@ completion operation can append the command record and publish
 operations:
 
 ```go
-func (m *interpreterModel) PreflightSubmission(raw string) instructionSequence
+func (m *interpreterModel) CheckInputAllowed(raw string) instructionSequence
 func (m *interpreterModel) Submit(
     raw string,
     statement promptlang.Statement,
@@ -583,7 +596,7 @@ func (m *interpreterModel) ApplyCompletion(completion workflowCompletion) instru
 ```
 
 These operations are state transitions, not parsers or instruction factories.
-`PreflightSubmission` preserves model-owned rejection decisions that must occur
+`CheckInputAllowed` preserves model-owned rejection decisions that must occur
 before parsing, including the pending-stage gate. `Submit` applies an already
 parsed statement, while the `Apply...` operations apply external facts to model
 state. Each returns the instructions caused by that transition. The submit

@@ -72,10 +72,6 @@ func (e *interpreterExecutor) startShell(raw, command, program string) {
 	e.publish(SubmissionSucceeded{Raw: raw})
 }
 
-func (op shellCompletedOperation) apply(e *interpreterExecutor) {
-	e.runner.Run(e.model.ApplyShellResult(op.command, e.cwd, op.result))
-}
-
 func formatShellResult(result shell.Result) string {
 	sections := []string{"status: " + string(result.Status)}
 	if result.Stdout != "" {

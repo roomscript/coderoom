@@ -212,15 +212,6 @@ type workflowShellCompletedOperation struct {
 	result  shell.Result
 }
 
-func (op workflowShellCompletedOperation) apply(e *interpreterExecutor) {
-	e.runner.Run(e.model.ApplyCompletion(shellCompletion{
-		target:  op.target,
-		request: op.request,
-		result:  op.result,
-		cwd:     e.cwd,
-	}))
-}
-
 func instructionItems(instructions instructionSequence) []executorItem {
 	items := make([]executorItem, len(instructions))
 	for index, instruction := range instructions {

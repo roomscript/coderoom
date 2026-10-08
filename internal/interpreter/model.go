@@ -28,15 +28,6 @@ type modelSnapshot struct {
 	stage    *StagedSubmission
 }
 
-func (m *interpreterModel) PreflightSubmission(raw string) instructionSequence {
-	if !m.workflows.stage.pending() {
-		return nil
-	}
-	return instructionSequence{publishEventInstruction{event: InputRejected{
-		Raw: raw, Code: ErrorStagePending, Err: ErrStagePending,
-	}}}
-}
-
 func (m *interpreterModel) TakeStageForEdit() (instructionSequence, string, bool) {
 	return m.workflows.stage.takeForEdit()
 }
@@ -55,18 +46,6 @@ func newInterpreterModel() *interpreterModel {
 	return model
 }
 
-func (m *interpreterModel) Submit(
-	raw string,
-	statement promptlang.Statement,
-) instructionSequence {
-	if sequence, handled := m.submitCommand(raw, statement); handled {
-		return sequence
-	}
-	return instructionSequence{publishEventInstruction{event: UnknownCommand{
-		Raw: raw, Name: commandName(statement),
-	}}}
-}
-
 func (m *interpreterModel) submitCommand(raw string, statement promptlang.Statement) (instructionSequence, bool) {
 	for _, definition := range nativeCommandDefinitions {
 		if definition.matches(statement) && definition.submit != nil {
@@ -81,29 +60,6 @@ func sessionSubmissionSequence(raw, operation string, command session.Command) i
 		command:    command,
 		completion: submissionCompletion{raw: raw, operation: operation},
 	})
-}
-
-func (m *interpreterModel) ApplySessionEvent(event session.Event) (instructionSequence, bool) {
-	// Routing outcomes are consumed by the command completion, not a state projection.
-	if _, ok := event.(session.RoutingCompleted); ok {
-		return nil, false
-	}
-	if !m.applyApprovalEvent(event) {
-		return nil, false
-	}
-	m.room.ApplyEvent(event)
-	return m.workflows.applySessionEvent(event), true
-}
-
-func (m *interpreterModel) ApplyCompletion(completion workflowCompletion) instructionSequence {
-	switch completion := completion.(type) {
-	case submissionCompletion:
-		return submissionResultSequence(completion)
-	case rosterCompletion:
-		return rosterResultSequence(completion)
-	default:
-		return m.workflows.applyCompletion(completion)
-	}
 }
 
 func submissionResultSequence(completion submissionCompletion) instructionSequence {
