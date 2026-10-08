@@ -4,6 +4,7 @@ import (
 	"slices"
 
 	"github.com/roomscript/coderoom/internal/participant"
+	"github.com/roomscript/coderoom/internal/session"
 )
 
 // stageRequirements owns the frozen readiness facts and later lifecycle updates.
@@ -113,4 +114,21 @@ func containsParticipant(participants []participantState, alias string) bool {
 	return slices.ContainsFunc(participants, func(value participantState) bool {
 		return value.alias == alias
 	})
+}
+
+// applySessionEvent updates readiness facts without deciding whether to dispatch.
+func (r *stageRequirements) applySessionEvent(event session.Event) bool {
+	switch event := event.(type) {
+	case session.ParticipantStatusChanged:
+		r.updateStatus(event.Alias, event.To)
+	case session.AgentReady:
+		r.markReady(event.Alias)
+	case session.AgentStopped:
+		r.markUnavailable(event.Alias)
+	case session.AgentCrashed:
+		r.markUnavailable(event.Alias)
+	default:
+		return false
+	}
+	return true
 }

@@ -8,7 +8,6 @@ import (
 	"github.com/roomscript/coderoom/internal/participant"
 	"github.com/roomscript/coderoom/internal/promptlang"
 	"github.com/roomscript/coderoom/internal/room"
-	"github.com/roomscript/coderoom/internal/session"
 )
 
 var errNoStageTargets = errors.New("no participants available for staged submission")
@@ -61,30 +60,6 @@ func (w *stageWorkflow) discard() (instructionSequence, bool) {
 	}
 	w.active = nil
 	return instructionSequence{requestSnapshotInstruction{}}, true
-}
-
-func (w *stageWorkflow) start(raw string, statement promptlang.Statement) instructionSequence {
-	w.nextGeneration++
-	w.active = &stageState{
-		generation:        w.nextGeneration,
-		raw:               raw,
-		statement:         statement,
-		phase:             stagePlanning,
-		submissionPending: true,
-	}
-	if _, handoff := statement.(promptlang.Handoff); handoff {
-		w.active.handoff = &handoffStage{}
-	}
-	ref := w.nextRef()
-	w.active.pending = ref
-	if send, ok := statement.(promptlang.Send); ok {
-		w.active.send = &sendPlan{action: send}
-		return instructionSequence{prepareSendInstruction{target: ref, alias: send.Alias}}
-	}
-	if _, ok := statement.(promptlang.Broadcast); ok {
-		return instructionSequence{planBroadcastInstruction{target: ref}}
-	}
-	return instructionSequence{readParticipantStateInstruction{target: ref}}
 }
 
 func (w *stageWorkflow) handleBroadcastPlan(result broadcastPlanResult) instructionSequence {
@@ -150,17 +125,6 @@ func (w *stageWorkflow) completeParticipantPlanning(sequence instructionSequence
 	return append(sequence, w.retainPlanUntilReady()...)
 }
 
-// retainPlanUntilReady is the suspension point. After publishing queued success,
-// the stage waits for later lifecycle/output events to resume work.
-func (w *stageWorkflow) retainPlanUntilReady() instructionSequence {
-	w.active.phase = stageWaiting
-	w.active.submissionPending = false
-	return instructionSequence{
-		requestSnapshotInstruction{},
-		publishEventInstruction{event: SubmissionSucceeded{Raw: w.active.raw}},
-	}
-}
-
 func (w *stageWorkflow) readyToDispatch() bool {
 	if w.active == nil || len(w.active.routing) == 0 ||
 		!w.active.requirements.isReady() {
@@ -192,49 +156,6 @@ func (w *stageWorkflow) dispatchInstruction() executeSessionInstruction {
 		target: ref, request: request,
 		recordsOnSuccess: []room.Record{{Kind: room.KindUserInput, Text: state.raw}},
 	}
-}
-
-func (w *stageWorkflow) handleSessionEvent(event session.Event) instructionSequence {
-	if w.active == nil {
-		return nil
-	}
-	if w.active.phase == stageDispatching {
-		w.captureHandoffCompletion(event)
-		return nil
-	}
-	if w.active.phase != stageWaiting {
-		return nil
-	}
-	if _, handoff := w.active.statement.(promptlang.Handoff); handoff {
-		return w.handleHandoffSessionEvent(event)
-	}
-	switch event := event.(type) {
-	case session.ParticipantStatusChanged:
-		w.active.requirements.updateStatus(event.Alias, event.To)
-	case session.AgentReady:
-		w.active.requirements.markReady(event.Alias)
-	case session.AgentStopped:
-		w.active.requirements.markUnavailable(event.Alias)
-	case session.AgentCrashed:
-		w.active.requirements.markUnavailable(event.Alias)
-	default:
-		return nil
-	}
-	return w.advanceWaitingStage()
-}
-
-func (w *stageWorkflow) advanceWaitingStage() instructionSequence {
-	if w.active.send != nil {
-		return w.resumeSendOnReadiness()
-	}
-	state := w.active
-	if w.mustDiscard() {
-		return w.discardUnavailableStage()
-	}
-	if !state.requirements.isReady() {
-		return instructionSequence{requestSnapshotInstruction{}}
-	}
-	return instructionSequence{w.dispatchInstruction(), requestSnapshotInstruction{}}
 }
 
 func (w *stageWorkflow) mustDiscard() bool {

@@ -1,0 +1,78 @@
+package interpreter
+
+import (
+	"github.com/roomscript/coderoom/internal/promptlang"
+	"github.com/roomscript/coderoom/internal/session"
+)
+
+// Stage orchestration: begin synchronous preparation, suspend a retained plan,
+// and resume it on session facts. Send decisions live in core_send.go; delivery
+// results finish through core_delivery.go.
+func (w *stageWorkflow) start(raw string, statement promptlang.Statement) instructionSequence {
+	w.nextGeneration++
+	w.active = &stageState{
+		generation:        w.nextGeneration,
+		raw:               raw,
+		statement:         statement,
+		phase:             stagePlanning,
+		submissionPending: true,
+	}
+	if _, handoff := statement.(promptlang.Handoff); handoff {
+		w.active.handoff = &handoffStage{}
+	}
+	ref := w.nextRef()
+	w.active.pending = ref
+	if send, ok := statement.(promptlang.Send); ok {
+		w.active.send = &sendPlan{action: send}
+		return instructionSequence{prepareSendInstruction{target: ref, alias: send.Alias}}
+	}
+	if _, ok := statement.(promptlang.Broadcast); ok {
+		return instructionSequence{planBroadcastInstruction{target: ref}}
+	}
+	return instructionSequence{readParticipantStateInstruction{target: ref}}
+}
+
+// retainPlanUntilReady is the suspension point. After publishing queued success,
+// the stage waits for later lifecycle/output events to resume work.
+func (w *stageWorkflow) retainPlanUntilReady() instructionSequence {
+	w.active.phase = stageWaiting
+	w.active.submissionPending = false
+	return instructionSequence{
+		requestSnapshotInstruction{},
+		publishEventInstruction{event: SubmissionSucceeded{Raw: w.active.raw}},
+	}
+}
+
+func (w *stageWorkflow) handleSessionEvent(event session.Event) instructionSequence {
+	if w.active == nil {
+		return nil
+	}
+	if w.active.phase == stageDispatching {
+		w.captureHandoffCompletion(event)
+		return nil
+	}
+	if w.active.phase != stageWaiting {
+		return nil
+	}
+	if _, handoff := w.active.statement.(promptlang.Handoff); handoff {
+		return w.handleHandoffSessionEvent(event)
+	}
+	if !w.active.requirements.applySessionEvent(event) {
+		return nil
+	}
+	return w.advanceWaitingStage()
+}
+
+func (w *stageWorkflow) advanceWaitingStage() instructionSequence {
+	if w.active.send != nil {
+		return w.resumeSendOnReadiness()
+	}
+	state := w.active
+	if w.mustDiscard() {
+		return w.discardUnavailableStage()
+	}
+	if !state.requirements.isReady() {
+		return instructionSequence{requestSnapshotInstruction{}}
+	}
+	return instructionSequence{w.dispatchInstruction(), requestSnapshotInstruction{}}
+}

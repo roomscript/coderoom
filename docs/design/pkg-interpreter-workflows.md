@@ -924,3 +924,22 @@ methods that build these events. Immediate delivery reports submission success
 or failure; a queued submission already reported success when retained, so later
 failure is reported as an operation failure. Causal transcript ordering remains
 owned by the runner.
+
+### Reading the addressed-send path
+
+Start with `api_requests.go` (`Submit`), then `core_input.go` (`handleInput` and
+`PrepareRequest`). The command catalog selects stage preparation. From there:
+
+1. `core_stage.go`: `start` requests synchronous preparation; `retainPlanUntilReady`
+   marks the actual suspension point.
+2. `core_send.go`: `prepareSend` validates and accepts the frozen plan, then waits
+   or dispatches. `resumeSendOnReadiness` decides whether to wait, discard, or deliver.
+3. `core_events.go`: session facts update the room before advancing workflows.
+   `core_stage.go` applies readiness facts and resumes the waiting send.
+4. `core_delivery.go`: correlated delivery results finish the plan after causal
+   events have been applied, with outcome details in `stage_outcome.go`.
+
+For implementation details, `stage_plan.go` holds the plan and builds delivery
+requests; `stageRequirements` owns readiness updates. Cancellation acknowledgements
+remain separate from readiness. The runner supplies serialization and causal
+ordering, but is not needed to locate the send's actual suspension and resumption.
