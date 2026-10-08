@@ -795,7 +795,7 @@ Existing regression anchors are `TestStageWorkflow_freezesSendPlanAndDispatchesW
 
 ### Addressed-send implementation checkpoint
 
-`workflow_stage_send.go` owns the addressed-send algorithm. One synchronous
+`core_send.go` owns the addressed-send algorithm. One synchronous
 preparation instruction obtains the session routing plan and readiness facts.
 `prepareSend` freezes the plan, rejects unavailable required targets, accepts
 input, and dispatches now or retains the plan. `resumeSendOnReadiness` is the
@@ -830,7 +830,7 @@ ordering remains unchanged. `TestStageWorkflow_replacedSendIgnoresOldCompletions
 protects the replacement stage after edit or discard.
 
 This is a readability checkpoint, not completion of #55. The shared stage still
-stores command-specific statements and the send routing plan. Broadcast/handoff
+stores parsed statements for shared event reporting and broadcast/handoff decisions. Broadcast/handoff
 transitions and the remaining instruction-dispatch invariant
 panics still need their planned review. No new subpackage is needed for this path.
 
@@ -908,3 +908,10 @@ Normal package-graph tests enforce the completed dependency boundary.
 - Loop and staged-submission behavior, output, and ordering remain unchanged except
   for separately documented intentional behavior.
 - Race tests, lint, and the full repository test suite pass.
+
+The addressed-send plan is now retained in `stagePlan`: frozen routing and
+readiness requirements sit alongside a typed `sendPlan` holding the action and
+session delivery plan. `stage_plan.go` groups plan preparation and delivery
+request construction. `core_send.go` shows validation, acceptance, suspension,
+resumption and dispatch; correlated delivery results still finish through the
+shared `handleSessionCompletion` path in `workflow_stage_delivery.go`.
