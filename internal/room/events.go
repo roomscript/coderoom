@@ -55,7 +55,7 @@ func (r *Room) handleLifecycleEventLocked(e session.Event) ([]int, bool) {
 		return slices.Compact(dirty), true
 	case session.AgentLog:
 		return r.appendRecordLocked(Record{Kind: KindLog, Alias: e.Alias, Text: e.Text}), true
-	case session.ContextHandoff:
+	case session.HandoffDelivered:
 		return r.appendSystemRecordLocked(handoffPreview(e)), true
 	default:
 		return nil, false
@@ -79,7 +79,7 @@ func (r *Room) appendRecordLocked(record Record) []int {
 	return []int{idx}
 }
 
-func handoffPreview(e session.ContextHandoff) string {
+func handoffPreview(e session.HandoffDelivered) string {
 	if e.Preview != "" {
 		return e.Preview
 	}

@@ -1,6 +1,7 @@
 package interpreter
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/roomscript/coderoom/internal/participant"
@@ -191,18 +192,23 @@ func materializeSnapshot(sequence instructionSequence) instructionSequence {
 func (r *instructionRunner) executeSession(value executeSessionInstruction) []executorItem {
 	err := r.executor.executeSessionRequest(value.request)
 	events := r.executor.takeSessionEvents()
-	applySuccessRecords := err == nil && len(value.recordsOnSuccess) != 0
+	routing := routingResultFromEvents(events)
+	accepted, err := routingAcceptance(value.request, routing, err)
+	applySuccessRecords := accepted && len(value.recordsOnSuccess) != 0
 	items := []executorItem{}
 	if applySuccessRecords {
 		for _, record := range value.recordsOnSuccess {
+			if routing.Kind != "" {
+				record = recordWithRoutingResult(record, routing)
+			}
 			items = append(items, instructionItem{instruction: appendRecordInstruction{record: record}})
 		}
 	}
 	items = append(items, sessionEventsItem{events: events})
 	items = append(items, completionItem{completion: sessionCompletion{
-		target:                value.target,
-		err:                   err,
-		successRecordsApplied: applySuccessRecords,
+		target:  value.target,
+		routing: routing,
+		err:     err,
 	}})
 	return items
 }
@@ -223,5 +229,37 @@ func (r *instructionRunner) ApplySessionEvents(events []session.Event) instructi
 func (r *instructionRunner) publishTranscriptChanges() {
 	for _, change := range r.model.TakeTranscriptChanges() {
 		r.executor.publish(change)
+	}
+}
+
+// Routing commands are serialized, and emit exactly one outcome before returning.
+// The burst may also contain unrelated lifecycle messages, but no other routing command.
+func routingResultFromEvents(events []session.Event) session.RoutingResult {
+	for _, event := range events {
+		if completed, ok := event.(session.RoutingCompleted); ok {
+			return completed.Result.Clone()
+		}
+	}
+	return session.RoutingResult{}
+}
+
+func recordWithRoutingResult(record room.Record, result session.RoutingResult) room.Record {
+	record.Routing = result.Aliases(session.DeliveryDelivered)
+	record.FailedRouting = result.Aliases(session.DeliveryFailed)
+	record.UnsentRouting = result.Aliases(session.DeliveryNotAttempted)
+	return record
+}
+
+var errMissingRoutingOutcome = errors.New("routing command returned without a routing outcome")
+
+func routingAcceptance(request sessionRequest, result session.RoutingResult, err error) (bool, error) {
+	switch request.(type) {
+	case createPlanAndExecuteParticipantSendRequest, executePlannedParticipantSendRequest, broadcastRequest, handoffRequest:
+		if result.Kind == "" {
+			return false, errors.Join(err, errMissingRoutingOutcome)
+		}
+		return len(result.Aliases(session.DeliveryDelivered)) != 0, err
+	default:
+		return err == nil, err
 	}
 }

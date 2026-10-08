@@ -33,7 +33,7 @@ type stageState struct {
 	interruptRequested    bool
 	interruptPending      map[workflowRef]string
 	interrupted           []string
-	handoffCompleted      *session.ContextHandoff
+	handoffCompleted      *session.HandoffDelivered
 }
 
 type stagePhase uint8
@@ -304,7 +304,10 @@ func (w *stageWorkflow) dispatchInstruction() executeSessionInstruction {
 	default:
 		panic(fmt.Sprintf("unsupported immediate stage dispatch %T", state.statement))
 	}
-	return executeSessionInstruction{target: ref, request: request}
+	return executeSessionInstruction{
+		target: ref, request: request,
+		recordsOnSuccess: []room.Record{{Kind: room.KindUserInput, Text: state.raw}},
+	}
 }
 
 func (w *stageWorkflow) handleSessionCompletion(completion sessionCompletion) instructionSequence {
@@ -316,7 +319,7 @@ func (w *stageWorkflow) handleSessionCompletion(completion sessionCompletion) in
 	}
 	state := w.active
 	w.active = nil
-	sequence := stageDispatchRecordSequence(state, completion)
+	sequence := stageDispatchEventSequence(state, completion)
 	return append(sequence, stageDispatchOutcomeInstruction(state, completion)...)
 }
 
@@ -333,20 +336,12 @@ func (w *stageWorkflow) handlePendingInterruptCompletion(
 	return w.handleInterruptCompletion(completion, alias), true
 }
 
-func stageDispatchRecordSequence(
+func stageDispatchEventSequence(
 	state *stageState,
 	completion sessionCompletion,
 ) instructionSequence {
 	sequence := instructionSequence{requestSnapshotInstruction{}}
-	delivered := slices.Clone(state.dispatchRouting)
-	if completion.err != nil {
-		delivered = session.DeliveredAliases(completion.err)
-	}
-	if len(delivered) != 0 && !completion.successRecordsApplied {
-		sequence = append(sequence, appendRecordInstruction{record: room.Record{
-			Kind: room.KindUserInput, Text: state.raw, Routing: slices.Clone(delivered),
-		}})
-	}
+	delivered := completion.routing.Aliases(session.DeliveryDelivered)
 	switch state.statement.(type) {
 	case promptlang.Send, promptlang.Broadcast, promptlang.Handoff:
 		if len(delivered) == 0 {
@@ -433,7 +428,7 @@ func (w *stageWorkflow) handleSessionEvent(event session.Event) instructionSeque
 
 func (w *stageWorkflow) captureHandoffCompletion(event session.Event) {
 	statement, isHandoff := w.active.statement.(promptlang.Handoff)
-	handoff, completed := event.(session.ContextHandoff)
+	handoff, completed := event.(session.HandoffDelivered)
 	if !isHandoff || !completed ||
 		handoff.FromAlias != statement.FromAlias || handoff.ToAlias != statement.ToAlias {
 		return

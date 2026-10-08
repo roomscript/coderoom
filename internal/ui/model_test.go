@@ -58,7 +58,7 @@ func TestHandleEvent_agentLog(t *testing.T) {
 
 func TestHandleEvent_sharedNoticeProducesNoSystemRecord(t *testing.T) {
 	m := makeReadyModel(t)
-	m = pushEvent(m, session.SharedNotice{Alias: "ada"})
+	m = pushEvent(m, session.RoutingCompleted{Result: session.RoutingResult{Kind: session.RoutingParticipantSend}})
 	if len(m.room.HistoryRecords()) != 0 {
 		t.Errorf("expected no history record for shared notice; got %v", m.room.HistoryRecords())
 	}
@@ -66,8 +66,8 @@ func TestHandleEvent_sharedNoticeProducesNoSystemRecord(t *testing.T) {
 
 func TestHandleEvent_broadcastAndSharedSendProduceNoSystemRecord(t *testing.T) {
 	events := []session.Event{
-		session.Broadcast{Text: "hello"},
-		session.SharedSend{Alias: "ada", Text: "do it"},
+		session.RoutingCompleted{Result: session.RoutingResult{Kind: session.RoutingBroadcast}},
+		session.RoutingCompleted{Result: session.RoutingResult{Kind: session.RoutingParticipantSend}},
 	}
 	for _, e := range events {
 		m := makeReadyModel(t)
@@ -80,7 +80,7 @@ func TestHandleEvent_broadcastAndSharedSendProduceNoSystemRecord(t *testing.T) {
 
 func TestTranscript_contextHandoffPresentedOnce(t *testing.T) {
 	m := makeReadyModel(t)
-	m = pushEvent(m, session.ContextHandoff{FromAlias: "ada",
+	m = pushEvent(m, session.HandoffDelivered{FromAlias: "ada",
 		ToAlias: "turing",
 		Text:    "final answer",
 		Preview: "[handoff ada -> turing]\n  ↦ source: ada latest output\n  > final answer",

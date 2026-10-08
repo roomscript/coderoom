@@ -238,7 +238,11 @@ func (s *Session) notify(e Event) {
 	obs := s.obs
 	s.mu.Unlock()
 	for _, o := range obs {
-		o.OnEvent(e)
+		event := e
+		if completed, ok := e.(RoutingCompleted); ok {
+			event = RoutingCompleted{Result: completed.Result.Clone()}
+		}
+		o.OnEvent(event)
 	}
 }
 

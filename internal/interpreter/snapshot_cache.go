@@ -71,6 +71,8 @@ func cloneRoomSnapshot(source room.Snapshot) room.Snapshot {
 func cloneRoomRecord(source room.Record) room.Record {
 	record := source
 	record.Routing = append([]string(nil), source.Routing...)
+	record.FailedRouting = append([]string(nil), source.FailedRouting...)
+	record.UnsentRouting = append([]string(nil), source.UnsentRouting...)
 	if source.Msg != nil {
 		message := *source.Msg
 		message.Content = cloneMessageContent(source.Msg.Content)

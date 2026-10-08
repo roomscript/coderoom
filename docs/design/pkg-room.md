@@ -275,9 +275,13 @@ The room package therefore owns:
 - message state required to represent in-progress and completed chat-visible
   records correctly over time
 
-The interpreter records delivered routing on canonical user-input records.
-The UI formats the routing footer from those supplied aliases; it does not
-calculate recipients or reconstruct routing from session events.
+The interpreter records actual outcomes on canonical user-input records:
+`Routing` contains accepted deliveries, `FailedRouting` contains failed recipients,
+and `UnsentRouting` contains unattempted recipients. A record is committed when
+at least one delivery is accepted, including partial success. Total failure
+remains an execution failure without a committed user-input record. The UI
+formats these detached fields without calculating recipients or reconstructing
+routing from session events.
 
 ---
 

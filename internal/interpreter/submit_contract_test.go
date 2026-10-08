@@ -20,6 +20,7 @@ type submitContractSession struct {
 	executed              chan session.Command
 	executeErr            error
 	execute               func(session.Command, session.Observer)
+	routingOverride       bool
 	active                atomic.Int32
 	maxActive             atomic.Int32
 	shutdowns             atomic.Int32
@@ -46,6 +47,9 @@ func (s *submitContractSession) Execute(command session.Command) error {
 	if execute != nil {
 		execute(command, observer)
 	}
+	if observer != nil && !s.routingOverride {
+		emitFakeRoutingOutcome(command, err, observer)
+	}
 	s.executed <- command
 	return err
 }
@@ -56,8 +60,10 @@ func (s *submitContractSession) AddObserver(observer session.Observer) {
 	s.observer = observer
 }
 
-func (*submitContractSession) CreateParticipantSendPlan(string) session.ParticipantSendPlan {
-	return session.ParticipantSendPlan{}
+func (*submitContractSession) CreateParticipantSendPlan(alias string) session.ParticipantSendPlan {
+	planner := session.New()
+	defer planner.Shutdown()
+	return planner.CreateParticipantSendPlan(alias)
 }
 
 func (s *submitContractSession) Participants() []participant.View {
@@ -505,4 +511,28 @@ func TestSubmitContract_shutdownWaitsForAcceptedExecution(t *testing.T) {
 	receiveSubmitEvent[StateChanged](t, events)
 	receiveSubmitEvent[SubmissionSucceeded](t, events)
 	assertNoSubmitEvent(t, events)
+}
+
+func emitFakeRoutingOutcome(command session.Command, err error, observer session.Observer) {
+	result := session.RoutingResult{Err: err}
+	var aliases []string
+	role := session.RecipientPrimary
+	switch command := command.(type) {
+	case session.BroadcastCommand:
+		result.Kind, aliases, role = session.RoutingBroadcast, command.Aliases, session.RecipientBroadcast
+	case session.SendToParticipantCommand:
+		result.Kind, aliases = session.RoutingParticipantSend, command.Plan.Targets()
+	case session.HandoffCommand:
+		result.Kind, aliases, role = session.RoutingHandoff, []string{command.ToAlias}, session.RecipientHandoff
+	default:
+		return
+	}
+	for _, alias := range aliases {
+		status := session.DeliveryDelivered
+		if err != nil {
+			status = session.DeliveryFailed
+		}
+		result.Recipients = append(result.Recipients, session.RecipientResult{Alias: alias, Role: role, Status: status, Err: err})
+	}
+	observer.OnEvent(session.RoutingCompleted{Result: result})
 }

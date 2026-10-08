@@ -1,4 +1,5 @@
 BINARY        := coderoom
+INTEGRATION_TEST_TIMEOUT ?= 10m
 CODEX_VERSION := $(shell grep -v '^\#' CODEX_VERSION | tr -d '[:space:]')
 
 .PHONY: build
@@ -27,7 +28,7 @@ test-race:
 
 .PHONY: test-integration
 test-integration:
-	go test -tags integration ./...
+	go test -tags integration -p 1 -v -count=1 -timeout=$(INTEGRATION_TEST_TIMEOUT) ./...
 
 .PHONY: test-all
 test-all: lint test-race test-integration

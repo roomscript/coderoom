@@ -157,6 +157,12 @@ func renderUserInput(r Record, width int, colors func(string) string) string {
 	if len(r.Routing) > 0 {
 		wrapped += "\n" + renderRoutingFooter(r.Routing, colors)
 	}
+	if len(r.FailedRouting) > 0 {
+		wrapped += "\n" + renderRoutingOutcome("failed: ", r.FailedRouting)
+	}
+	if len(r.UnsentRouting) > 0 {
+		wrapped += "\n" + renderRoutingOutcome("not sent: ", r.UnsentRouting)
+	}
 	return wrapped
 }
 
@@ -414,6 +420,10 @@ func truncateColumns(s string, maxCols int) string {
 		cols += w
 	}
 	return b.String() + "…"
+}
+
+func renderRoutingOutcome(label string, aliases []string) string {
+	return strings.Repeat(" ", ansi.StringWidth(promptPrefix)) + label + strings.Join(aliases, ", ")
 }
 
 func renderRoutingFooter(aliases []string, colors func(string) string) string {

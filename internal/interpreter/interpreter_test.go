@@ -51,6 +51,9 @@ func (s *recordingSession) Execute(command session.Command) error {
 		observer.OnEvent(session.ParticipantStatusChanged{Alias: "ada", To: participant.StatusIdle})
 	}
 	time.Sleep(time.Millisecond)
+	if observer != nil {
+		emitFakeRoutingOutcome(command, err, observer)
+	}
 	s.executed <- command
 	return err
 }
@@ -61,8 +64,10 @@ func (s *recordingSession) AddObserver(observer session.Observer) {
 	s.observer = observer
 }
 
-func (*recordingSession) CreateParticipantSendPlan(string) session.ParticipantSendPlan {
-	return session.ParticipantSendPlan{}
+func (*recordingSession) CreateParticipantSendPlan(alias string) session.ParticipantSendPlan {
+	planner := session.New()
+	defer planner.Shutdown()
+	return planner.CreateParticipantSendPlan(alias)
 }
 
 func (s *recordingSession) Participants() []participant.View {
@@ -415,4 +420,28 @@ func assertNotExecuted(t *testing.T, commands <-chan session.Command) {
 		t.Fatalf("unexpected Execute command: %#v", command)
 	case <-time.After(20 * time.Millisecond):
 	}
+}
+
+func emitFakeRoutingOutcome(command session.Command, err error, observer session.Observer) {
+	result := session.RoutingResult{Err: err}
+	var aliases []string
+	role := session.RecipientPrimary
+	switch command := command.(type) {
+	case session.BroadcastCommand:
+		result.Kind, aliases, role = session.RoutingBroadcast, command.Aliases, session.RecipientBroadcast
+	case session.SendToParticipantCommand:
+		result.Kind, aliases = session.RoutingParticipantSend, command.Plan.Targets()
+	case session.HandoffCommand:
+		result.Kind, aliases, role = session.RoutingHandoff, []string{command.ToAlias}, session.RecipientHandoff
+	default:
+		return
+	}
+	for _, alias := range aliases {
+		status := session.DeliveryDelivered
+		if err != nil {
+			status = session.DeliveryFailed
+		}
+		result.Recipients = append(result.Recipients, session.RecipientResult{Alias: alias, Role: role, Status: status, Err: err})
+	}
+	observer.OnEvent(session.RoutingCompleted{Result: result})
 }

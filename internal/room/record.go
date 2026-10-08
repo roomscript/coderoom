@@ -22,9 +22,12 @@ const (
 
 // Record is the canonical chat-visible unit owned by the room package.
 type Record struct {
-	Kind          Kind
-	Alias         string
+	Kind  Kind
+	Alias string
+	// Routing contains only recipients that accepted delivery.
 	Routing       []string
+	FailedRouting []string
+	UnsentRouting []string
 	Text          string
 	Msg           *agent.Message
 	HandoffSource bool

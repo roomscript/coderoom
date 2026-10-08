@@ -287,10 +287,12 @@ type publishSnapshotInstruction struct{}
 type requestSnapshotInstruction struct{}
 ```
 
-On successful execution, `recordsOnSuccess` are applied before every causal
-session event produced by that execution; workflow completion follows those
-events. On failure they are not applied. An empty list preserves the normal
-event-then-completion order.
+For routing commands, `recordsOnSuccess` are applied when at least one recipient
+accepted delivery, including partial success. Their routing fields come from
+`RoutingCompleted`, not frozen plan targets or the returned error. They are
+applied before the causal event burst; workflow completion follows those events.
+Non-routing commands retain success-only behavior. An empty list preserves the
+normal event-then-completion order.
 
 `createParticipantSendPlanInstruction`, `planBroadcastInstruction`,
 `readParticipantStateInstruction`, and `readHandoffSourceInstruction` provide
@@ -335,6 +337,7 @@ Completions form a closed data-only vocabulary as well:
 type workflowCompletion interface{ workflowCompletion() }
 
 type sessionCompletion struct {
+    routing session.RoutingResult
     target workflowRef
     err    error
 }
@@ -587,10 +590,11 @@ Input:
    ```
 
 3. The session gateway plans and executes the shared send.
-4. Synchronous `ParticipantStatusChanged` and `SharedSend` events update the
-   room and are offered to all workflows. Event-derived instructions settle first.
-5. The successful result is routed to loop generation 7/request 21.
-6. The loop moves from dispatching to waiting and returns instructions for the
+4. Lifecycle events update the room and workflows. The runner captures the
+   single `RoutingCompleted` result from the execution burst for its correlated
+   command completion; the outcome alone does not trigger a state snapshot.
+5. The actual routing result is routed to loop generation 7/request 21.
+6. If the primary recipient accepted delivery, the loop moves to waiting and returns instructions for the
    `[loop] turn 1/3...` record/event plus `SubmissionSucceeded`.
 7. A `requestSnapshotInstruction` causes one final snapshot after the causal
    sequence settles.
@@ -640,11 +644,12 @@ condition evaluation.
    while staged; it cannot gain later or same-alias replacement notice recipients.
    Handoff execution receives the resolved source value and frozen active
    required-ready aliases in `handoffRequest`.
-6. After successful handoff execution, the generic `recordsOnSuccess` list
-   commits the submitted user record. Causal
-   departure, delivery, handoff, and status events then update the room and
-   workflows before the command result is returned. Other session requests
-   leave the pre-event sequence empty.
+6. When any delivery is accepted, sends, broadcasts, and handoffs commit the
+   submitted user record before projecting the causal burst, using actual
+   accepted, failed, and unattempted aliases. A handoff records its destination
+   as the recipient; its source is context metadata, not a delivery target.
+   `HandoffDelivered` adds accepted context to the room, while `RoutingCompleted`
+   is captured for the command completion, including partial failure.
 7. The correlated result commits delivered aliases or clears/discards the
    stage according to existing partial-delivery rules, returning record/event
    instructions including `requestSnapshotInstruction{}`.

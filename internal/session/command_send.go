@@ -17,46 +17,45 @@ type BroadcastCommand struct {
 	Text    string
 }
 
-func (c BroadcastCommand) execute(s *Session) error {
+func (c BroadcastCommand) execute(s *Session) (err error) {
 	aliases := c.Aliases
 	if aliases == nil {
 		for _, value := range s.Participants() {
-			if !value.IsRoutable() {
-				continue
+			if value.IsRoutable() {
+				aliases = append(aliases, value.Alias)
 			}
-			aliases = append(aliases, value.Alias)
 		}
 	}
-	s.notify(Broadcast{Text: c.Text})
+	result := createRoutingResult(RoutingBroadcast, aliases, RecipientBroadcast)
+	defer func() { s.notifyRoutingCompleted(result, err) }()
 	var errs []error
-	var delivered []string
-	for _, alias := range aliases {
-		p, ok := s.readParticipantRuntime(alias)
-		if !ok {
-			errs = append(errs, fmt.Errorf("broadcast to %q: %w", alias, errParticipantNotFound))
-			continue
+	for index, alias := range aliases {
+		deliveryErr := sendBroadcastRecipient(alias, c.Text, s)
+		result.record(index, deliveryErr)
+		if deliveryErr != nil {
+			errs = append(errs, deliveryErr)
 		}
-		err := s.prepareParticipantForWork(p.Alias)
-		if err != nil {
-			if !errors.Is(err, errParticipantNotFound) {
-				s.notifyParticipantInvariant(p.Alias, err)
-			}
-			errs = append(errs, fmt.Errorf("broadcast to %q: %w", p.Alias, err))
-			continue
-		}
-		anchorID, err := p.Agent.Send(c.Text)
-		if err != nil {
-			s.abortWork(p.Alias)
-			errs = append(errs, fmt.Errorf("broadcast to %q: %w", p.Alias, err))
-			continue
-		}
-		s.beginParticipantWorking(p.Alias, anchorID)
-		delivered = append(delivered, p.Alias)
 	}
-	joined := errors.Join(errs...)
-	if joined != nil {
-		return newDeliveryError(delivered, joined)
+	return newDeliveryError(result.Aliases(DeliveryDelivered), errors.Join(errs...))
+}
+
+func sendBroadcastRecipient(alias, text string, s *Session) error {
+	p, ok := s.readParticipantRuntime(alias)
+	if !ok {
+		return fmt.Errorf("broadcast to %q: %w", alias, errParticipantNotFound)
 	}
+	if err := s.prepareParticipantForWork(p.Alias); err != nil {
+		if !errors.Is(err, errParticipantNotFound) {
+			s.notifyParticipantInvariant(p.Alias, err)
+		}
+		return fmt.Errorf("broadcast to %q: %w", p.Alias, err)
+	}
+	anchorID, err := p.Agent.Send(text)
+	if err != nil {
+		s.abortWork(p.Alias)
+		return fmt.Errorf("broadcast to %q: %w", p.Alias, err)
+	}
+	s.beginParticipantWorking(p.Alias, anchorID)
 	return nil
 }
 
@@ -64,7 +63,7 @@ func (c BroadcastCommand) execute(s *Session) error {
 // Message is sent to the primary participant. When send-notices is enabled,
 // Notice is sent to the planned notice recipients. The caller is responsible for
 // both texts — the session controller does not construct or format messages.
-// One SharedSend event is emitted to observers.
+// RoutingCompleted reports all delivery outcomes after the attempts finish.
 type SendToParticipantCommand struct {
 	Plan    ParticipantSendPlan
 	Message string
@@ -133,24 +132,37 @@ func (p ParticipantSendPlan) validate(s *Session) error {
 	return nil
 }
 
-func (c SendToParticipantCommand) execute(s *Session) error {
+func (c SendToParticipantCommand) execute(s *Session) (err error) {
+	result := createRoutingResult(RoutingParticipantSend, []string{c.Plan.primaryAlias}, RecipientPrimary)
+	for _, alias := range c.Plan.noticeAliases {
+		result.Recipients = append(result.Recipients, RecipientResult{
+			Alias: alias, Role: RecipientNotice, Status: DeliveryNotAttempted,
+		})
+	}
+	defer func() { s.notifyRoutingCompleted(result, err) }()
 	if err := c.Plan.validate(s); err != nil {
 		return err
 	}
 	alias := c.Plan.primaryAlias
 	a, err := acquireParticipantForDirectSend(alias, s)
 	if err != nil {
+		result.record(0, err)
 		return err
 	}
 	if err := sendPreparedDirect(alias, a, c.Message, s); err != nil {
+		result.record(0, err)
 		return err
 	}
-	s.notify(SharedSend{Alias: alias, Text: c.Message})
-	delivered, err := sendSharedNotices(c.Plan.noticeAliases, c.Notice, s)
-	if err != nil {
-		return newDeliveryError(append([]string{alias}, delivered...), err)
+	result.record(0, nil)
+	var errs []error
+	for index, alias := range c.Plan.noticeAliases {
+		deliveryErr := sendNoticeRecipient(alias, c.Notice, s)
+		result.record(index+1, deliveryErr)
+		if deliveryErr != nil {
+			errs = append(errs, deliveryErr)
+		}
 	}
-	return nil
+	return newDeliveryError(result.Aliases(DeliveryDelivered), errors.Join(errs...))
 }
 
 // SendToParticipantOutsideRoomCommand sends an outgoing message without a room
@@ -161,18 +173,17 @@ type SendToParticipantOutsideRoomCommand struct {
 	Text  string
 }
 
-func (c SendToParticipantOutsideRoomCommand) execute(s *Session) error {
+func (c SendToParticipantOutsideRoomCommand) execute(s *Session) (err error) {
+	result := createRoutingResult(RoutingOutsideRoomSend, []string{c.Alias}, RecipientPrimary)
+	defer func() { s.notifyRoutingCompleted(result, err) }()
 	a, err := acquireParticipantForDirectSend(c.Alias, s)
 	if err != nil {
+		result.record(0, err)
 		return err
 	}
-	anchorID, sendErr := a.Send(c.Text)
-	if sendErr != nil {
-		s.abortWork(c.Alias)
-		return fmt.Errorf("send to %q: %w", c.Alias, sendErr)
-	}
-	s.beginParticipantWorking(c.Alias, anchorID)
-	return nil
+	err = sendPreparedDirect(c.Alias, a, c.Text, s)
+	result.record(0, err)
+	return err
 }
 
 // acquireParticipantForDirectSend captures the participant's agent and
@@ -236,28 +247,20 @@ func sendPreparedDirect(alias string, a agent.Agent, text string, s *Session) er
 	return nil
 }
 
-func sendSharedNotices(noticeAliases []string, text string, s *Session) ([]string, error) {
-	var errs []error
-	var delivered []string
-	for _, alias := range noticeAliases {
-		a, prepared, err := acquireParticipantForNotice(alias, s)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("notice to %q: %w", alias, err))
-			continue
-		}
-		anchorID, err := a.SendNotice(text)
-		if err != nil {
-			s.abortWork(alias)
-			errs = append(errs, fmt.Errorf("notice to %q: %w", alias, err))
-			continue
-		}
-		if prepared {
-			s.beginParticipantWorking(alias, anchorID)
-		} else {
-			s.trackAnchorStream(alias, anchorID)
-		}
-		s.notify(SharedNotice{Alias: alias, Text: text})
-		delivered = append(delivered, alias)
+func sendNoticeRecipient(alias, text string, s *Session) error {
+	a, prepared, err := acquireParticipantForNotice(alias, s)
+	if err != nil {
+		return fmt.Errorf("notice to %q: %w", alias, err)
 	}
-	return delivered, errors.Join(errs...)
+	anchorID, err := a.SendNotice(text)
+	if err != nil {
+		s.abortWork(alias)
+		return fmt.Errorf("notice to %q: %w", alias, err)
+	}
+	if prepared {
+		s.beginParticipantWorking(alias, anchorID)
+	} else {
+		s.trackAnchorStream(alias, anchorID)
+	}
+	return nil
 }

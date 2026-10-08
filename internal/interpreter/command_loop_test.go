@@ -261,11 +261,11 @@ func TestLoopWorkflow_consumesDispatchCompletionOnce(t *testing.T) {
 		pending:    target,
 	}}
 
-	first := workflow.handleSessionCompletion(sessionCompletion{target: target})
+	first := workflow.handleSessionCompletion(sessionCompletion{target: target, routing: session.RoutingResult{Kind: session.RoutingParticipantSend, Recipients: []session.RecipientResult{{Alias: "ada", Role: session.RecipientPrimary, Status: session.DeliveryDelivered}}}})
 	if len(first) == 0 || workflow.active.phase != loopWaitingForParticipant {
 		t.Fatalf("first completion did not advance dispatch: %#v", first)
 	}
-	second := workflow.handleSessionCompletion(sessionCompletion{target: target})
+	second := workflow.handleSessionCompletion(sessionCompletion{target: target, routing: session.RoutingResult{Kind: session.RoutingParticipantSend, Recipients: []session.RecipientResult{{Alias: "ada", Role: session.RecipientPrimary, Status: session.DeliveryDelivered}}}})
 	if len(second) != 0 || workflow.active.turns != 1 {
 		t.Fatalf("duplicate completion advanced workflow: %#v", second)
 	}

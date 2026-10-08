@@ -140,6 +140,11 @@ Prefer hand-written fakes that implement the full interface over mocking librari
 ### Integration tests
 
 Tag integration tests with `//go:build integration`. They require external processes (Codex) and run via `make test-integration`, not the default `make test`.
+The integration target runs packages sequentially, uncached, with streaming
+verbose progress and a 10-minute
+per-package timeout. Override it with
+`make test-integration INTEGRATION_TEST_TIMEOUT=3m` when diagnosing a stalled run.
+Live transcript scenarios report their current scenario and action.
 
 ---
 

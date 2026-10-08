@@ -17,7 +17,12 @@ type HandoffCommand struct {
 	Source               HandoffSource
 }
 
-func (c HandoffCommand) execute(s *Session) error {
+func (c HandoffCommand) execute(s *Session) (err error) {
+	result := createRoutingResult(RoutingHandoff, []string{c.ToAlias}, RecipientHandoff)
+	defer func() {
+		result.record(0, err)
+		s.notifyRoutingCompleted(result, err)
+	}()
 	attempt := newHandoffAttempt(c, s)
 	if err := c.validate(attempt, s); err != nil {
 		return err
@@ -109,7 +114,7 @@ func rejectHandoffAttempt(attempt *handoffAttempt, s *Session, reason string, er
 }
 
 func notifyHandoffDelivered(fromAlias, toAlias string, attempt *handoffAttempt, s *Session) {
-	s.notify(ContextHandoff{
+	s.notify(HandoffDelivered{
 		FromAlias:            fromAlias,
 		ToAlias:              toAlias,
 		Text:                 attempt.source.Text,

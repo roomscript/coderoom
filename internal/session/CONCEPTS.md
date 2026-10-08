@@ -28,6 +28,8 @@ workflow coordination; the room projects conversation history.
   `CancelCommand` matches `/cancel alias`: interruption is asynchronous and the
   participant remains in the session.
 
-Events report explicit milestones: a request does not imply delivery; delivery
-means adapter acceptance, not completed work. Routing results report actual
-outcomes; completion is separate.
+`RoutingCompleted` reports every routing command's actual outcomes after its
+attempts or rejection: recipient role, delivered/failed/not-attempted status,
+and errors. Delivery means adapter acceptance; work completion is separate.
+`HandoffDelivered` carries accepted context for room projection. Footers use
+accepted recipients and distinguish failed or unsent recipients.

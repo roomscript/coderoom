@@ -191,19 +191,23 @@ type ParticipantStatusChanged struct {
     Since time.Time
 }
 
-type Broadcast struct{ Text string }
+// One outcome after each routing command's attempts or rejection.
+type RoutingCompleted struct { Result RoutingResult }
 
-type SharedSend struct {
-    Alias string
-    Text  string
+type RoutingResult struct {
+    Kind       RoutingKind
+    Recipients []RecipientResult
+    Err        error
 }
 
-type SharedNotice struct {
-    Alias string
-    Text  string
+type RecipientResult struct {
+    Alias  string
+    Role   RecipientRole
+    Status DeliveryStatus
+    Err    error
 }
 
-type ContextHandoff struct {
+type HandoffDelivered struct {
     FromAlias string
     ToAlias   string
     Text      string
@@ -213,7 +217,6 @@ type ContextHandoff struct {
     RequiredReadyAliases    []string
     IdleAliases       []string
     NotReadyAliases       []string
-    RejectionReason   string
 }
 
 type ApprovalRequested struct {
@@ -300,14 +303,37 @@ when it exits), then calls `agent.Stop`.
 
 | Command | Routing |
 |---|---|
-| `BroadcastCommand` | Emits `Broadcast`; sends text to the frozen `Aliases`, or to all currently routable participants when `Aliases` is nil for legacy callers |
-| `SendToParticipantCommand` | Executes a session-created `ParticipantSendPlan`: sends `Message` to its addressed participant and `Notice` to its frozen listeners; emits one `SharedSend` event and one `SharedNotice` event per delivered listener |
+| `BroadcastCommand` | Attempts work delivery to frozen `Aliases`, or all currently routable participants when `Aliases` is nil; reports each recipient in `RoutingCompleted` |
+| `SendToParticipantCommand` | Sends `Message` to the primary participant and `Notice` to frozen notice recipients; reports all outcomes in `RoutingCompleted`. Primary failure leaves notices unattempted |
 | `EnablePolicyCommand` | Idempotently enables a room-local runtime policy; unknown policies fail |
-| `SendToParticipantOutsideRoomCommand` | Sends text to the addressed agent only; no shared room event; no other agents notified |
+| `SendToParticipantOutsideRoomCommand` | Sends only to the primary participant; emits a body-free `RoutingCompleted`, without an outgoing room record or notices |
+| `HandoffCommand` | Sends context to the destination; emits `HandoffDelivered` only after adapter acceptance and `RoutingCompleted` on both success and rejection |
 
-Shared room visibility is a property of the event kind, but the session does
-not own the final chat projection. It emits runtime events; the room package
-decides how those events become rooms and records for the UI.
+Every routing command emits exactly one `RoutingCompleted` after delivery
+attempts or rejection, before `Execute` returns. Its execution-time intended
+recipients have roles `primary`, `notice`, `broadcast`, or `handoff`, and outcomes
+`delivered`, `failed`, or `not-attempted`. Failure includes readiness/validation
+rejection. A rejected plan leaves its recipients unattempted and records the
+command-wide error. Failed recipients carry their error; `RoutingResult.Err`
+retains the command error even on partial success. Existing returned errors,
+including `DeliveryError` metadata, remain available to callers.
+
+Delivered means adapter acceptance, not completion of agent work. Completion
+still follows the tracked agent turn. Lifecycle/agent messages may interleave
+with delivery; consumers must not treat their relative order as work completion.
+No request-only routing event is emitted. The retired `Broadcast`, `SharedSend`,
+and `SharedNotice` notifications are replaced by the command-wide outcome.
+
+The interpreter associates the outcome with the serialized command execution
+burst and its existing workflow request reference. No persistent send ID is
+needed. Outcome storage is detached per observer. Results carry no message body,
+including outside-room messages; `HandoffDelivered` separately carries the
+accepted context and source metadata for room projection. Handoff rejection is
+observable in the structured result; logs remain supplemental diagnostics.
+
+The interpreter records only confirmed accepted aliases in delivery footers,
+with failed and unattempted aliases distinguished. Session does not own the
+final chat projection or construct outgoing message bodies.
 
 `CreateParticipantSendPlan` freezes the policy-aware audience when the user submits the
 message. Enabling `send-notices` later or making another participant routable

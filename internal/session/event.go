@@ -53,23 +53,15 @@ type ParticipantStatusChanged struct {
 	Since time.Time
 }
 
-// Broadcast reports a shared-room broadcast command.
-type Broadcast struct{ Text string }
+// RoutingCompleted is emitted exactly once for each routing command, after its
+// delivery attempts (or rejection), before Execute returns. It carries no message
+// body, including for outside-room sends. It does not report agent work completion.
+// Commands execute serially; consumers associate the outcome with that execution
+// burst rather than a persistent send ID. Lifecycle/agent events may interleave.
+type RoutingCompleted struct{ Result RoutingResult }
 
-// SharedSend reports a shared-room direct send to one addressed alias.
-type SharedSend struct {
-	Alias string
-	Text  string
-}
-
-// SharedNotice reports a shared-room listener notice sent to one alias.
-type SharedNotice struct {
-	Alias string
-	Text  string
-}
-
-// ContextHandoff reports a delivered handoff plus its audit metadata.
-type ContextHandoff struct {
+// HandoffDelivered reports a delivered handoff plus its audit metadata.
+type HandoffDelivered struct {
 	FromAlias string
 	ToAlias   string
 	Text      string
@@ -79,7 +71,6 @@ type ContextHandoff struct {
 	RequiredReadyAliases []string
 	IdleAliases          []string
 	NotReadyAliases      []string
-	RejectionReason      string
 }
 
 // ApprovalRequested reports that a new approval prompt became active.
@@ -102,10 +93,8 @@ func (AgentCrashed) sessionEvent()             {}
 func (AgentLog) sessionEvent()                 {}
 func (AgentMessage) sessionEvent()             {}
 func (ParticipantStatusChanged) sessionEvent() {}
-func (Broadcast) sessionEvent()                {}
-func (SharedSend) sessionEvent()               {}
-func (SharedNotice) sessionEvent()             {}
-func (ContextHandoff) sessionEvent()           {}
+func (RoutingCompleted) sessionEvent()         {}
+func (HandoffDelivered) sessionEvent()         {}
 func (ApprovalRequested) sessionEvent()        {}
 func (ApprovalCleared) sessionEvent()          {}
 

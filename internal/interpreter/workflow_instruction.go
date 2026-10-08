@@ -28,8 +28,8 @@ type instruction interface{ instruction() }
 type executeSessionInstruction struct {
 	target  workflowRef
 	request sessionRequest
-	// recordsOnSuccess are applied before causal events from the execution;
-	// workflow completion follows those events.
+	// recordsOnSuccess are applied on acceptance (including partial delivery)
+	// before causal events; non-routing commands require a nil execution error.
 	recordsOnSuccess []room.Record
 }
 
@@ -132,9 +132,9 @@ type shellRequest struct {
 type workflowCompletion interface{ workflowCompletion() }
 
 type sessionCompletion struct {
-	target                workflowRef
-	err                   error
-	successRecordsApplied bool
+	routing session.RoutingResult
+	target  workflowRef
+	err     error
 }
 
 type shellCompletion struct {

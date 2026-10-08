@@ -688,7 +688,7 @@ func TestBroadcast_emitsAndSendsToAllAgents(t *testing.T) {
 	if err := s.Execute(session.BroadcastCommand{Text: "hello"}); err != nil {
 		t.Fatalf("BroadcastCommand: %v", err)
 	}
-	mustReceive[session.Broadcast](t, obs.ch)
+	mustReceive[session.RoutingCompleted](t, obs.ch)
 
 	for _, a := range []*mockAgent{a1, a2} {
 		a.mu.Lock()
@@ -729,7 +729,7 @@ func TestBroadcastCommand_excludesParticipantsOutsideFrozenAliases(t *testing.T)
 	if err := s.Execute(session.BroadcastCommand{Aliases: []string{"ada"}, Text: "hello"}); err != nil {
 		t.Fatalf("BroadcastCommand: %v", err)
 	}
-	mustReceive[session.Broadcast](t, obs.ch)
+	mustReceive[session.RoutingCompleted](t, obs.ch)
 
 	ada.mu.Lock()
 	adaSends := slices.Clone(ada.sends)
@@ -765,7 +765,7 @@ func TestBroadcast_sendError_doesNotMarkWorking(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected broadcast error, got nil")
 	}
-	mustReceive[session.Broadcast](t, obs.ch)
+	mustReceive[session.RoutingCompleted](t, obs.ch)
 
 	p, ok := s.Participant("ada")
 	if !ok {
@@ -863,25 +863,9 @@ func TestReadLoop_dropsStreamFragmentsWhileIdle(t *testing.T) {
 
 func waitForSharedKinds(t *testing.T, ch <-chan session.Event) {
 	t.Helper()
-	seenSend := false
-	seenNotice := false
-	deadline := time.After(time.Second)
-	for !seenSend || !seenNotice {
-		select {
-		case ev := <-ch:
-			switch ev.(type) {
-			case session.SharedSend:
-				seenSend = true
-			case session.SharedNotice:
-				seenNotice = true
-			case session.ParticipantStatusChanged, session.AgentMessage:
-				// ignore noise in this unit test
-			default:
-				// ignore other noise (e.g. logs)
-			}
-		case <-deadline:
-			t.Fatalf("timed out waiting for shared send + shared notice; got: send=%v notice=%v", seenSend, seenNotice)
-		}
+	result := mustReceive[session.RoutingCompleted](t, ch).Result
+	if len(result.Recipients) != 2 || result.Recipients[0].Role != session.RecipientPrimary || result.Recipients[1].Role != session.RecipientNotice {
+		t.Fatalf("routing recipients = %#v", result.Recipients)
 	}
 }
 
@@ -907,13 +891,9 @@ func TestSharedSend_sendsToAddressedAndNotifiesOthers(t *testing.T) {
 	if err := s.Execute(session.SendToParticipantCommand{Plan: s.CreateParticipantSendPlan("ada"), Message: "do the thing", Notice: "ada is working on something"}); err != nil {
 		t.Fatalf("SendToParticipantCommand: %v", err)
 	}
-	_ = mustReceive[session.SharedSend](t, obs.ch)
-	ev := mustReceive[session.SharedNotice](t, obs.ch)
-	if ev.Alias != "turing" {
-		t.Errorf("expected notice for turing, got %q", ev.Alias)
-	}
-	if ev.Text != "ada is working on something" {
-		t.Errorf("unexpected notice text: %q", ev.Text)
+	result := mustReceive[session.RoutingCompleted](t, obs.ch).Result
+	if len(result.Recipients) != 2 || result.Recipients[1].Alias != "turing" || result.Recipients[1].Role != session.RecipientNotice || result.Recipients[1].Status != session.DeliveryDelivered {
+		t.Fatalf("notice outcome = %#v", result)
 	}
 
 	ada.mu.Lock()
@@ -951,7 +931,7 @@ func TestSharedSend_doesNotNotifyOthersByDefault(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("SendToParticipantCommand: %v", err)
 	}
-	_ = mustReceive[session.SharedSend](t, obs.ch)
+	_ = mustReceive[session.RoutingCompleted](t, obs.ch)
 
 	turing.mu.Lock()
 	defer turing.mu.Unlock()
@@ -1410,7 +1390,7 @@ func executeResolvedHandoff(t *testing.T, s *session.Session, text string, recor
 func assertHandoffEvent(t *testing.T, obs *testObserver, wantText string, wantRecordIndex int) {
 	t.Helper()
 
-	ev := mustReceive[session.ContextHandoff](t, obs.ch)
+	ev := mustReceive[session.HandoffDelivered](t, obs.ch)
 	if ev.FromAlias != "ada" || ev.ToAlias != "turing" {
 		t.Fatalf("unexpected handoff event: %#v", ev)
 	}
@@ -1469,6 +1449,7 @@ func TestHandoff_requiresIdleParticipants(t *testing.T) {
 		t.Fatalf("SendToParticipantOutsideRoomCommand: %v", err)
 	}
 
+	mustReceive[session.RoutingCompleted](t, obs.ch)
 	err := s.Execute(session.HandoffCommand{
 		FromAlias: "ada",
 		ToAlias:   "turing",
@@ -1666,7 +1647,7 @@ func TestSharedSend_rejectsBusyDirectParticipant(t *testing.T) {
 	if err := s.Execute(session.BroadcastCommand{Text: "busy"}); err != nil {
 		t.Fatalf("BroadcastCommand: %v", err)
 	}
-	mustReceive[session.Broadcast](t, obs.ch)
+	mustReceive[session.RoutingCompleted](t, obs.ch)
 
 	err := s.Execute(session.SendToParticipantCommand{Plan: s.CreateParticipantSendPlan("ada"), Message: "do it", Notice: "notice"})
 	if err == nil {
@@ -1722,7 +1703,7 @@ func TestPrivateSend_forwardsToAgentOnly(t *testing.T) {
 		select {
 		case ev := <-obs.ch:
 			switch ev.(type) {
-			case session.ParticipantStatusChanged:
+			case session.ParticipantStatusChanged, session.RoutingCompleted:
 				continue
 			default:
 				t.Errorf("expected no shared room event, got %T", ev)
@@ -1753,7 +1734,7 @@ func TestPrivateSend_rejectsBusyParticipant(t *testing.T) {
 	if err := s.Execute(session.BroadcastCommand{Text: "busy"}); err != nil {
 		t.Fatalf("BroadcastCommand: %v", err)
 	}
-	mustReceive[session.Broadcast](t, obs.ch)
+	mustReceive[session.RoutingCompleted](t, obs.ch)
 
 	err := s.Execute(session.SendToParticipantOutsideRoomCommand{Alias: "ada", Text: "secret"})
 	if err == nil {
@@ -1781,7 +1762,7 @@ func TestReaderLoop_emitsDelta(t *testing.T) {
 	if err := s.Execute(session.BroadcastCommand{Text: "go"}); err != nil {
 		t.Fatalf("BroadcastCommand: %v", err)
 	}
-	mustReceive[session.Broadcast](t, obs.ch)
+	mustReceive[session.RoutingCompleted](t, obs.ch)
 
 	a.ch <- agent.Message{StreamID: "out1", Mode: agent.ModeStream, Content: agent.Output{Text: "hello"}}
 
@@ -1824,7 +1805,7 @@ func TestReaderLoop_reasoningDoubleCloseDoesNotInvariant(t *testing.T) {
 	if err := s.Execute(session.BroadcastCommand{Text: "go"}); err != nil {
 		t.Fatalf("BroadcastCommand: %v", err)
 	}
-	mustReceive[session.Broadcast](t, obs.ch)
+	mustReceive[session.RoutingCompleted](t, obs.ch)
 
 	// 1. Reasoning and output streams open.
 	sendTurnMessage(a, "codex:reasoning:r1", agent.ModeStream, agent.Reasoning{Text: "thinking"})
@@ -1907,7 +1888,7 @@ func TestReaderLoop_anchorStreamPreventsEarlyIdle(t *testing.T) {
 	if err := s.Execute(session.BroadcastCommand{Text: "go"}); err != nil {
 		t.Fatalf("BroadcastCommand: %v", err)
 	}
-	mustReceive[session.Broadcast](t, obs.ch)
+	mustReceive[session.RoutingCompleted](t, obs.ch)
 
 	// Reasoning opens and then closes — before any output stream appears.
 	// Without the anchor this would set allClosed=true and mark the participant
@@ -1949,7 +1930,7 @@ func TestReaderLoop_marksIdleOnlyAfterAllObservedStreamsFlush(t *testing.T) {
 	if err := s.Execute(session.BroadcastCommand{Text: "go"}); err != nil {
 		t.Fatalf("BroadcastCommand: %v", err)
 	}
-	mustReceive[session.Broadcast](t, obs.ch)
+	mustReceive[session.RoutingCompleted](t, obs.ch)
 
 	a.ch <- agent.Message{StreamID: "out1", Mode: agent.ModeStream, Content: agent.Output{Text: "hello"}}
 	a.ch <- agent.Message{StreamID: "reason1", Mode: agent.ModeStream, Content: agent.Reasoning{Text: "thinking"}}

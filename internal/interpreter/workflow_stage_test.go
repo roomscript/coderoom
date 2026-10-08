@@ -292,7 +292,7 @@ func TestInterpreterExecutor_planBroadcastSortsDetachedAliases(t *testing.T) {
 	executor := interpreterExecutor{session: session}
 
 	if got := executor.planBroadcast(); !slices.Equal(got, []string{"ada", "turing"}) {
-		t.Fatalf("routing = %v, want [ada turing]", got)
+		t.Fatalf("routing = %v, want [turing]", got)
 	}
 }
 
@@ -414,24 +414,24 @@ func TestStageWorkflow_capturesOnlyActiveHandoffCompletion(t *testing.T) {
 	tests := []struct {
 		name      string
 		statement promptlang.Statement
-		event     session.ContextHandoff
+		event     session.HandoffDelivered
 		want      bool
 	}{
 		{
 			name:      "matching handoff",
 			statement: promptlang.Handoff{FromAlias: "ada", ToAlias: "turing"},
-			event:     session.ContextHandoff{FromAlias: "ada", ToAlias: "turing"},
+			event:     session.HandoffDelivered{FromAlias: "ada", ToAlias: "turing"},
 			want:      true,
 		},
 		{
 			name:      "different handoff",
 			statement: promptlang.Handoff{FromAlias: "ada", ToAlias: "turing"},
-			event:     session.ContextHandoff{FromAlias: "grace", ToAlias: "turing"},
+			event:     session.HandoffDelivered{FromAlias: "grace", ToAlias: "turing"},
 		},
 		{
 			name:      "different staged action",
 			statement: promptlang.Broadcast{Text: "hello"},
-			event:     session.ContextHandoff{FromAlias: "ada", ToAlias: "turing"},
+			event:     session.HandoffDelivered{FromAlias: "ada", ToAlias: "turing"},
 		},
 	}
 
@@ -631,7 +631,7 @@ func configureSuccessfulHandoff(sess *submitContractSession) {
 		if !ok {
 			return
 		}
-		observer.OnEvent(session.ContextHandoff{
+		observer.OnEvent(session.HandoffDelivered{
 			FromAlias:         handoff.FromAlias,
 			ToAlias:           handoff.ToAlias,
 			SourceRecordIndex: handoff.Source.RecordIndex,
@@ -670,8 +670,8 @@ func assertCanonicalHandoffDispatch(
 		t.Fatalf("readinessRequirements = %v", handoff.RequiredReadyAliases)
 	}
 	dispatched := receiveSubmitEvent[StagedInputDispatched](t, events)
-	if !slices.Equal(dispatched.Routing, []string{"ada", "turing"}) {
-		t.Fatalf("routing = %v, want [ada turing]", dispatched.Routing)
+	if !slices.Equal(dispatched.Routing, []string{"turing"}) {
+		t.Fatalf("routing = %v, want [turing]", dispatched.Routing)
 	}
 	completed := receiveSubmitEvent[HandoffCompleted](t, events)
 	if completed.Preview != "[handoff ada -> turing]" {

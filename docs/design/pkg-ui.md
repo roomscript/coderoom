@@ -128,12 +128,11 @@ UI-local viewport state. `history.Model` wraps a `bubbles/viewport` and
 re-renders content on every change, but it should not be the source of truth
 for chat semantics.
 
-User-authored routing footers are presentation, but their data comes from the
-interpreter. For an addressed send, the interpreter retains the opaque routing
-plan created at submission time and publishes its frozen targets. The UI
-renders those targets and never recalculates listeners. This does not require
-room to project `Broadcast`, `SharedSend`, or `SharedNotice` into canonical
-message state.
+User-authored routing footers render actual session outcomes supplied by the
+interpreter. `Routing` lists only adapter-accepted recipients; `FailedRouting`
+and `UnsentRouting` render separately as failed and not sent. Frozen plan targets
+remain stage-planning information, not proof of delivery. The UI never
+recalculates notice recipients or infers delivery from a request event.
 
 ---
 

@@ -50,9 +50,10 @@ func TestClientLiveTranscriptScenarios(t *testing.T) {
 	startClient(t, client)
 
 	stats := &liveTranscriptStats{}
-	for _, tc := range cases {
+	for index, tc := range cases {
+		t.Logf("scenario %d/%d: %s", index+1, len(cases), tc.name)
 		stats.scenariosRun++
-		if err := runLiveTranscriptCase(client, tc.input, stats); err != nil {
+		if err := runLiveTranscriptCase(t, client, tc.input, stats); err != nil {
 			t.Fatalf("run %s: %v", tc.name, err)
 		}
 	}
@@ -75,8 +76,10 @@ type liveTranscriptStats struct {
 	noticeTurnFlushes  int
 }
 
-func runLiveTranscriptCase(client *codex.Client, input transcript.Input, stats *liveTranscriptStats) error {
-	for _, action := range input.Actions {
+func runLiveTranscriptCase(t *testing.T, client *codex.Client, input transcript.Input, stats *liveTranscriptStats) error {
+	t.Helper()
+	for index, action := range input.Actions {
+		t.Logf("action %d/%d: %s", index+1, len(input.Actions), action.Kind)
 		anchor, err := sendLiveAction(client, action)
 		if err != nil {
 			return err

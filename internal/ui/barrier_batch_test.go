@@ -182,7 +182,7 @@ func isStreamOutput(alias, text string) func(session.Event) bool {
 
 func isHandoff(fromAlias, toAlias string) func(session.Event) bool {
 	return func(ev session.Event) bool {
-		handoff, ok := ev.(session.ContextHandoff)
+		handoff, ok := ev.(session.HandoffDelivered)
 		return ok &&
 			handoff.FromAlias == fromAlias &&
 			handoff.ToAlias == toAlias

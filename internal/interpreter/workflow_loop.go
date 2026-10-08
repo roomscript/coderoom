@@ -3,7 +3,6 @@ package interpreter
 import (
 	"errors"
 	"fmt"
-	"slices"
 	"strconv"
 	"strings"
 
@@ -164,9 +163,13 @@ func (w *loopWorkflow) handleSessionCompletion(completion sessionCompletion) ins
 	}
 	state := w.active
 	state.pending = workflowRef{}
-	started := completion.err == nil || slices.Contains(
-		session.DeliveredAliases(completion.err), state.statement.Participant,
-	)
+	started := false
+	for _, recipient := range completion.routing.Recipients {
+		if recipient.Role == session.RecipientPrimary && recipient.Alias == state.statement.Participant && recipient.Status == session.DeliveryDelivered {
+			started = true
+			break
+		}
+	}
 	if !started {
 		return w.finishDispatch("[loop] stopped: participant turn could not start")
 	}

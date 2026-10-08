@@ -26,7 +26,7 @@ func wireObserverForTest(t *testing.T) codex.ProtocolObserver {
 	if dir == "" {
 		dir = t.TempDir()
 	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		t.Fatalf("wirelog-dir mkdir: %v", err)
 	}
 	f, err := os.CreateTemp(dir, "codex-wire-*.log")

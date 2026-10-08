@@ -30,6 +30,8 @@ func (r *Room) notify(update Update) {
 func cloneRecord(record Record) Record {
 	cloned := record
 	cloned.Routing = slices.Clone(record.Routing)
+	cloned.FailedRouting = slices.Clone(record.FailedRouting)
+	cloned.UnsentRouting = slices.Clone(record.UnsentRouting)
 	if record.Msg != nil {
 		msgCopy := *record.Msg
 		cloned.Msg = &msgCopy

@@ -84,6 +84,10 @@ func sessionSubmissionSequence(raw, operation string, command session.Command) i
 }
 
 func (m *interpreterModel) ApplySessionEvent(event session.Event) (instructionSequence, bool) {
+	// Routing outcomes are consumed by the command completion, not a state projection.
+	if _, ok := event.(session.RoutingCompleted); ok {
+		return nil, false
+	}
 	if !m.applyApprovalEvent(event) {
 		return nil, false
 	}

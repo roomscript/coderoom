@@ -629,8 +629,8 @@ err := gateway.Execute(handoffRequest{
 
 `HandoffCommand` receives the resolved `session.HandoffSource` value. It does
 not receive a resolver callback. Session remains responsible for participant
-validation, barrier validation, delivery, and the `ContextHandoff` runtime
-event. The interpreter is responsible for selecting the room-visible source.
+validation, readiness validation, delivery, and the `HandoffDelivered` and
+`RoutingCompleted` runtime events. The interpreter is responsible for selecting the room-visible source.
 
 The source's record index refers to the interpreter-owned canonical room
 snapshot. Because the UI renders snapshots from that same room, the audit index
@@ -758,3 +758,23 @@ retain canonical room record values and use `CommandFromRecord` and
 `FileChangesFromRecord` for detached tool details. Protocol constructors remain
 in test fixtures only. The interpreter migration and package-graph enforcement
 are complete.
+
+## Routing outcomes
+
+The instruction runner captures the single `session.RoutingCompleted` outcome
+from each serialized routing command's event burst and passes its detached
+`RoutingResult` through the existing workflow completion reference. Unrelated
+agent/lifecycle messages may be present in the burst; no new send ID is needed.
+Routing results themselves do not trigger redundant state snapshots. A routing
+request without an outcome is a contract failure, preserving any execution error;
+only non-routing requests may use a nil error as acceptance. The runner alone
+commits accepted input records before the causal burst; stage completion only
+publishes dispatch/outcome events.
+
+Stage records and `StagedInputDispatched.Routing` use actual accepted recipients,
+not planned aliases or a nil command error. Partial-success records also retain
+failed and unattempted recipients for separate footers. These records precede
+the causal burst, including fast agent output. No accepted recipients means no
+committed staged user-input record. For handoff, only the destination is a
+recipient; the source belongs to context metadata. Loops advance only after a
+reported primary delivery, even if notice delivery fails.

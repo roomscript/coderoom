@@ -132,7 +132,7 @@ func TestOnEvent_outputFlushClosesStreamAndPreservesAccumulatedRecord(t *testing
 func TestOnEvent_contextHandoffAppendsAuditRecord(t *testing.T) {
 	room, updates := newTestRoom(t)
 
-	room.OnEvent(session.ContextHandoff{FromAlias: "ada",
+	room.OnEvent(session.HandoffDelivered{FromAlias: "ada",
 		ToAlias: "turing",
 		Text:    "ship it",
 		Preview: "[handoff ada -> turing]\n  ↦ source: ada latest output\n  > ship it",
