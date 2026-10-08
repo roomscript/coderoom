@@ -59,6 +59,7 @@ func TestClientLiveTranscriptScenarios(t *testing.T) {
 	}
 
 	assertLiveTranscriptStats(t, cases, stats)
+	t.Logf("reasoning summary messages observed: %d", stats.reasoningMessages)
 }
 
 type liveTranscriptCase struct {
@@ -166,9 +167,8 @@ func assertLiveTranscriptStats(t *testing.T, cases []liveTranscriptCase, stats *
 	if stats.fileChangeMessages == 0 {
 		t.Fatal("expected at least one file-change message across transcript scenarios")
 	}
-	if stats.reasoningMessages == 0 {
-		t.Fatal("expected at least one reasoning message across transcript scenarios")
-	}
+	// Reasoning summaries are optional model output. Recorded transcript tests
+	// verify reasoning decoding even when the live model emits no summaries.
 	if noticeCases > 0 && stats.noticeTurnFlushes == 0 {
 		t.Fatal("expected at least one notice turn flush across transcript scenarios")
 	}

@@ -144,6 +144,8 @@ The integration target runs packages sequentially, uncached, with streaming
 verbose progress and a 10-minute
 per-package timeout. Override it with
 `make test-integration INTEGRATION_TEST_TIMEOUT=3m` when diagnosing a stalled run.
+The live Codex smoke test uses the configured model. Reasoning summaries are
+optional model output; reasoning decoding is checked by recorded transcript tests.
 Live transcript scenarios report their current scenario and action.
 
 ---
