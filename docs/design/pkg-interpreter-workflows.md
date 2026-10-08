@@ -623,6 +623,124 @@ condition evaluation.
 6. On success, cancellation, or maximum turns, it clears generation 7 and
    returns the corresponding loop-status instructions.
 
+## Stage algorithm for the readability refactor (#55)
+
+This is the behavior-preserving algorithm to make visible in the implementation.
+It describes existing behavior, not a new execution mechanism. Shared readiness
+and interruption mechanics support explicit send, broadcast, and handoff decisions.
+The first implementation checkpoint is one complete addressed-send path, reviewed
+for readability before extending the structure to the other commands.
+
+```text
+submit staged input:
+    freeze the command's recipients and readiness requirements
+    reject unavailable required participants or an empty audience
+    publish input acceptance
+    if recipients or required source output are not ready:
+        retain the stage and report queued submission success
+        wait for lifecycle and output events
+    otherwise:
+        begin dispatch
+
+advance waiting stage after a relevant event:
+    update readiness, departures, and required source completion
+    if a required participant is unavailable or no recipients remain:
+        discard the stage with an explanation
+        return
+    if recipients or required source output are not ready:
+        retain the stage and refresh its presentation
+        return
+    begin dispatch
+
+begin dispatch:
+    for a handoff, resolve completed context from the canonical room
+    if no eligible handoff source exists:
+        clear the stage and report failure
+        return
+    request delivery to the remaining eligible frozen recipients
+
+finish delivery:
+    record input if any recipient accepted delivery, before causal output
+    project the complete causal session-event burst
+    apply its derived instructions before the correlated delivery completion
+    clear the stage and report actual deliveries and failures
+    publish the settled snapshot
+```
+
+Acceptance, queued submission success, and delivery are distinct milestones.
+`InputAccepted` follows planning validation. A waiting stage reports
+`SubmissionSucceeded` when retained; an immediate dispatch reports its submission
+outcome after execution. Later failure of a queued dispatch produces
+`OperationFailed`, while an immediate failure produces `SubmissionFailed`.
+`StagedInputDispatched` reports delivered aliases even on partial success; input
+records retain delivered, failed, and unattempted routing from the session result.
+No delivery means no submitted user record. Delivery does not mean agent work
+has completed.
+
+Command-specific decisions remain explicit:
+
+| Command | Frozen decision | Waiting and departure rules |
+|---|---|---|
+| Addressed send | Session-owned primary target and policy-enabled notice recipients | Wait for frozen recipients, including startup. Losing the primary target discards the stage; departed notice recipients are removed from its plan. |
+| Broadcast | Audience selected during planning | Wait for frozen recipients. Departed recipients are removed; discard only when no recipients remain. |
+| Handoff | Source, destination, and readiness barrier | Source and destination must remain available. Wait for barrier readiness and completed source output before resolving context. Source is context metadata, not a delivery recipient. |
+
+Later joiners and same-alias replacements do not enlarge the frozen audience.
+Idle status alone does not establish startup readiness: startup waits end on
+`AgentReady`. Handoff output waits apply to active turns, not startup or maintenance;
+stale turn output cannot satisfy the current source-completion requirement.
+
+### Edit, discard, and interrupt transitions
+
+These operations run atomically on the interpreter operation loop. Already
+buffered session events settle before an operation runs, so automatic dispatch
+can win before edit or discard. In that case the operation finds no stage and
+returns false. Removing a stage invalidates its pending correlated completions.
+
+```text
+take stage for edit:
+    if no stage remains, return no draft
+    remove the stage, refresh presentation, and return its original input
+
+discard stage explicitly:
+    if no stage remains, return false
+    remove the stage, refresh presentation, and return true
+
+interrupt and dispatch:
+    if no stage remains or cancellation requests are pending, return false
+    recompute readiness blockers
+    if none remain:
+        reject a duplicate interrupt request
+        mark interruption requested and resume dispatch or source resolution
+        return true
+    select blocked active turns not already successfully cancelled
+    if none are cancellable, return false
+    mark interruption requested and issue one cancellation per selected alias
+    return true
+
+receive cancellation completion:
+    remove the matching pending request
+    retain successful cancellation acknowledgement, or report its failure
+    refresh presentation
+    let causal lifecycle and output events drive readiness and dispatch
+```
+
+Cancellation acceptance does not establish readiness. Startup and maintenance
+continue waiting and are never cancellation targets. After partial cancellation
+failure, retries target only aliases without successful acknowledgement. Explicit
+discard and edit do not emit the explanatory discard record/event used when a
+required participant becomes unavailable.
+
+Existing regression anchors are `TestStageWorkflow_freezesSendPlanAndDispatchesWhenReady`,
+`TestStageWorkflow_discardsSendWhenAddressedTargetDeparts`,
+`TestStageWorkflow_departedBroadcastTargetDoesNotBlockRemainingTargets`,
+`TestStageWorkflow_handoffWaitsForSourceProjectionAndIdle`,
+`TestSubmit_planningDuringIdleBeforeSessionReadyWaitsForStartup`,
+`TestStageOperations_interruptDispatchesAfterCausalIdle`,
+`TestStageOperations_partialCancelRetryTargetsOnlyFailures`,
+`TestStageOperations_autoDispatchWinsBeforeEditOrDiscard`, and
+`TestInstructionRunner_partialDeliveryRecordsInputBeforeCausalOutput`.
+
 ## Worked sequence: staged dispatch
 
 1. The stage workflow allocates request 29 and returns a typed planning
