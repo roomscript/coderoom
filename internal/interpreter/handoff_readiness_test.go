@@ -24,7 +24,7 @@ func TestStageWorkflow_handoffTemporarySourceReadsAfterReadiness(t *testing.T) {
 			t.Run(fmt.Sprintf("%s/output=%v", status, hasOutput), func(t *testing.T) {
 				workflow := stageWorkflow{}
 				startReadinessHandoff(&workflow, status, participant.StatusIdle)
-				if workflow.active.sourceNeedsCompletion {
+				if workflow.active.handoff.sourceNeedsCompletion {
 					t.Fatal("temporary state requires a user output event")
 				}
 				sequence := workflow.handleSessionEvent(session.ParticipantStatusChanged{Alias: "ada", From: status, To: participant.StatusIdle})
@@ -74,7 +74,7 @@ func TestStageWorkflow_handoffSourceEnteringKeepaliveDoesNotRequireOutput(t *tes
 	startReadinessHandoff(&workflow, participant.StatusIdle, participant.StatusWorking)
 	workflow.handleSessionEvent(session.ParticipantStatusChanged{Alias: "ada", From: participant.StatusIdle, To: participant.StatusKeepalive})
 	workflow.handleSessionEvent(session.ParticipantStatusChanged{Alias: "ben", From: participant.StatusWorking, To: participant.StatusIdle})
-	if workflow.active.sourceNeedsCompletion {
+	if workflow.active.handoff.sourceNeedsCompletion {
 		t.Fatal("keepalive requires a user output event")
 	}
 	sequence := workflow.handleSessionEvent(session.ParticipantStatusChanged{Alias: "ada", From: participant.StatusKeepalive, To: participant.StatusIdle})

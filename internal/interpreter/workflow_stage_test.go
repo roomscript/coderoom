@@ -413,14 +413,13 @@ func TestStageWorkflow_capturesOnlyActiveHandoffCompletion(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			workflow := stageWorkflow{active: &stageState{
-				statement: tt.statement,
-				phase:     stageDispatching,
-			}}
+			workflow := stageWorkflow{}
+			workflow.start("input", tt.statement)
+			workflow.active.phase = stageDispatching
 
 			workflow.handleSessionEvent(tt.event)
 
-			if got := workflow.active.handoffCompleted != nil; got != tt.want {
+			if got := workflow.active.handoff != nil && workflow.active.handoff.completed != nil; got != tt.want {
 				t.Fatalf("completion captured = %v, want %v", got, tt.want)
 			}
 		})

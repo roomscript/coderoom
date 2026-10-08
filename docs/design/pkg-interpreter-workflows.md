@@ -800,14 +800,26 @@ Preparation results are consumed once; stale or repeated results cannot restart
 retained work.
 
 Readiness updates, atomic stage operations, and interruption remain shared.
+Cancellation requests and successful acknowledgements are owned by
+`stageInterruption` in `workflow_stage_interrupt.go`. Its completion operation
+consumes each reply once and retains successful aliases so retries target only
+failures. Shared readiness still determines when delivery can proceed.
+
+Source-output tracking and accepted context belong to the optional `handoffStage`
+in `workflow_stage_handoff.go`, created only for handoffs. Sends and broadcasts
+do not allocate that state. The shared stage owns input, routing/readiness, phase,
+and submission timing; it refers to these components instead of carrying their
+individual bookkeeping fields.
+
 `workflow_stage_delivery.go` owns the shared completion and outcome reporting.
 `workflowCollection` routes typed completions directly to their handlers; no
 second production completion switch intervenes. The instruction runner's causal
 ordering remains unchanged. `TestStageWorkflow_replacedSendIgnoresOldCompletions`
 protects the replacement stage after edit or discard.
 
-This is the first readability checkpoint, not completion of #55. Stage state,
-broadcast/handoff transitions, and the remaining instruction-dispatch invariant
+This is a readability checkpoint, not completion of #55. The shared stage still
+stores command-specific statements and the send routing plan. Broadcast/handoff
+transitions and the remaining instruction-dispatch invariant
 panics still need their planned review. No new subpackage is needed for this path.
 
 ## Worked sequence: staged dispatch

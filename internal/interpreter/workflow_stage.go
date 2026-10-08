@@ -29,11 +29,8 @@ type stageState struct {
 	phase                 stagePhase
 	dispatchRouting       []string
 	submissionPending     bool
-	sourceNeedsCompletion bool
-	interruptRequested    bool
-	interruptPending      map[workflowRef]string
-	interrupted           []string
-	handoffCompleted      *session.HandoffDelivered
+	interruption          stageInterruption
+	handoff               *handoffStage
 }
 
 type stagePhase uint8
@@ -70,49 +67,6 @@ func (w *stageWorkflow) discard() (instructionSequence, bool) {
 	return instructionSequence{requestSnapshotInstruction{}}, true
 }
 
-func (w *stageWorkflow) interruptAndDispatch() (instructionSequence, bool) {
-	if w.active == nil || len(w.active.interruptPending) != 0 {
-		return nil, false
-	}
-	state := w.active
-	state.notReadyAliases = notReadyAliases(state.readinessRequirements, state.unavailable)
-	if len(state.notReadyAliases) == 0 {
-		if state.interruptRequested {
-			return nil, false
-		}
-		state.interruptRequested = true
-		return w.advanceInterruptedStage(), true
-	}
-	aliases := interruptibleStageAliases(state)
-	if len(aliases) == 0 {
-		return nil, false
-	}
-	state.interruptRequested = true
-	state.interruptPending = make(map[workflowRef]string, len(aliases))
-	sequence := make(instructionSequence, 0, len(aliases)+1)
-	for _, alias := range aliases {
-		ref := w.nextRef()
-		state.interruptPending[ref] = alias
-		sequence = append(sequence, executeSessionInstruction{
-			target: ref, request: cancelRequest{alias: alias},
-			recordsOnSuccess: []room.Record{{
-				Kind: room.KindSystem, Text: fmt.Sprintf("[→ %s] interrupt requested", alias),
-			}},
-		})
-	}
-	return append(sequence, requestSnapshotInstruction{}), true
-}
-
-func (w *stageWorkflow) advanceInterruptedStage() instructionSequence {
-	if _, handoff := w.active.statement.(promptlang.Handoff); handoff {
-		if w.active.sourceNeedsCompletion {
-			return instructionSequence{requestSnapshotInstruction{}}
-		}
-		return instructionSequence{w.readHandoffSourceInstruction(), requestSnapshotInstruction{}}
-	}
-	return instructionSequence{w.dispatchInstruction(), requestSnapshotInstruction{}}
-}
-
 func (w *stageWorkflow) start(raw string, statement promptlang.Statement) instructionSequence {
 	w.nextGeneration++
 	w.active = &stageState{
@@ -121,6 +75,9 @@ func (w *stageWorkflow) start(raw string, statement promptlang.Statement) instru
 		statement:         statement,
 		phase:             stagePlanning,
 		submissionPending: true,
+	}
+	if _, handoff := statement.(promptlang.Handoff); handoff {
+		w.active.handoff = &handoffStage{}
 	}
 	ref := w.nextRef()
 	w.active.pending = ref
@@ -156,7 +113,9 @@ func (w *stageWorkflow) handleParticipantState(result participantStateResult) in
 		state.routing = handoffRouting(handoff)
 	}
 	state.notReadyAliases, state.unavailable = stageReadiness(state.readinessRequirements, state.routing)
-	state.sourceNeedsCompletion = handoffSourceIsWorking(state)
+	if state.handoff != nil {
+		state.handoff.sourceNeedsCompletion = handoffSourceIsWorking(state)
+	}
 	return w.completeParticipantPlanning(nil)
 }
 
@@ -178,7 +137,7 @@ func (w *stageWorkflow) completeParticipantPlanning(sequence instructionSequence
 	sequence = append(sequence, acceptedStageInputSequence(state.raw, state.routing)...)
 
 	if _, handoff := state.statement.(promptlang.Handoff); handoff {
-		if len(state.notReadyAliases) == 0 && !state.sourceNeedsCompletion {
+		if len(state.notReadyAliases) == 0 && !state.handoff.sourceNeedsCompletion {
 			return append(sequence, w.readHandoffSourceInstruction())
 		}
 		state.phase = stageWaiting
@@ -203,57 +162,6 @@ func (w *stageWorkflow) retainPlanUntilReady() instructionSequence {
 		requestSnapshotInstruction{},
 		publishEventInstruction{event: SubmissionSucceeded{Raw: w.active.raw}},
 	}
-}
-
-func (w *stageWorkflow) readHandoffSourceInstruction() readHandoffSourceInstruction {
-	state := w.active
-	state.phase = stageReadingHandoffSource
-	ref := w.nextRef()
-	state.pending = ref
-	handoff := state.statement.(promptlang.Handoff)
-	return readHandoffSourceInstruction{target: ref, alias: handoff.FromAlias}
-}
-
-func (w *stageWorkflow) handleHandoffSource(result handoffSourceResult) instructionSequence {
-	if !w.matches(result.target) || w.active.phase != stageReadingHandoffSource {
-		return nil
-	}
-	if !result.ok {
-		return w.failHandoffSource()
-	}
-	state := w.active
-	handoff := state.statement.(promptlang.Handoff)
-	state.phase = stageDispatching
-	state.dispatchRouting = activeAliases(state.routing, state.unavailable)
-	ref := w.nextRef()
-	state.pending = ref
-	return instructionSequence{executeSessionInstruction{
-		target: ref,
-		request: handoffRequest{
-			fromAlias: handoff.FromAlias, toAlias: handoff.ToAlias,
-			requiredReadyAliases: activeRequiredReadyAliases(state.readinessRequirements, state.unavailable),
-			source:               result.source,
-		},
-		recordsOnSuccess: []room.Record{{
-			Kind: room.KindUserInput, Text: state.raw,
-			Routing: slices.Clone(state.dispatchRouting),
-		}},
-	}}
-}
-
-func (w *stageWorkflow) failHandoffSource() instructionSequence {
-	state := w.active
-	w.active = nil
-	sequence := instructionSequence{requestSnapshotInstruction{}}
-	if !state.submissionPending {
-		return append(sequence, publishEventInstruction{event: OperationFailed{
-			Operation: "handoff source", Err: errNoHandoffSource,
-		}})
-	}
-	return append(sequence, publishEventInstruction{event: SubmissionFailed{
-		Raw: state.raw, Operation: "handoff source",
-		Code: ErrorExecutionFailed, Err: errNoHandoffSource,
-	}})
 }
 
 func (w *stageWorkflow) readyToDispatch() bool {
@@ -289,35 +197,6 @@ func (w *stageWorkflow) dispatchInstruction() executeSessionInstruction {
 	}
 }
 
-func (w *stageWorkflow) handlePendingInterruptCompletion(
-	completion sessionCompletion,
-) (instructionSequence, bool) {
-	if w.active == nil {
-		return nil, false
-	}
-	alias, ok := w.active.interruptPending[completion.target]
-	if !ok {
-		return nil, false
-	}
-	return w.handleInterruptCompletion(completion, alias), true
-}
-
-func (w *stageWorkflow) handleInterruptCompletion(
-	completion sessionCompletion,
-	alias string,
-) instructionSequence {
-	delete(w.active.interruptPending, completion.target)
-	sequence := instructionSequence{requestSnapshotInstruction{}}
-	if completion.err == nil {
-		w.active.interrupted = append(w.active.interrupted, alias)
-		slices.Sort(w.active.interrupted)
-		return sequence
-	}
-	return append(sequence, publishEventInstruction{event: OperationFailed{
-		Operation: "interrupt staged submission", Err: completion.err,
-	}})
-}
-
 func (w *stageWorkflow) handleSessionEvent(event session.Event) instructionSequence {
 	if w.active == nil {
 		return nil
@@ -345,98 +224,6 @@ func (w *stageWorkflow) handleSessionEvent(event session.Event) instructionSeque
 		return nil
 	}
 	return w.advanceWaitingStage()
-}
-
-func (w *stageWorkflow) captureHandoffCompletion(event session.Event) {
-	statement, isHandoff := w.active.statement.(promptlang.Handoff)
-	handoff, completed := event.(session.HandoffDelivered)
-	if !isHandoff || !completed ||
-		handoff.FromAlias != statement.FromAlias || handoff.ToAlias != statement.ToAlias {
-		return
-	}
-	handoffCopy := handoff
-	w.active.handoffCompleted = &handoffCopy
-}
-
-func (w *stageWorkflow) handleHandoffSessionEvent(event session.Event) instructionSequence {
-	if !w.applyHandoffSessionEvent(event) {
-		return nil
-	}
-	return w.advanceWaitingHandoff()
-}
-
-func (w *stageWorkflow) applyHandoffSessionEvent(event session.Event) bool {
-	handoff := w.active.statement.(promptlang.Handoff)
-	switch event := event.(type) {
-	case session.ParticipantStatusChanged:
-		w.applyHandoffStatus(event, handoff)
-	case session.AgentMessage:
-		return w.applyHandoffMessage(event, handoff)
-	case session.AgentReady:
-		w.markStarted(event.Alias)
-	case session.AgentStopped:
-		w.markUnavailable(event.Alias)
-	case session.AgentCrashed:
-		w.markUnavailable(event.Alias)
-	default:
-		return false
-	}
-	return true
-}
-
-func (w *stageWorkflow) applyHandoffStatus(
-	event session.ParticipantStatusChanged,
-	handoff promptlang.Handoff,
-) {
-	w.updateRequiredStatus(event.Alias, event.To)
-	if event.Alias == handoff.FromAlias && (participant.View{Status: event.To}).HasActiveTurn() {
-		w.active.sourceNeedsCompletion = true
-	}
-}
-
-func (w *stageWorkflow) applyHandoffMessage(
-	event session.AgentMessage,
-	handoff promptlang.Handoff,
-) bool {
-	if event.Alias != handoff.FromAlias || !event.TurnCompleted {
-		return false
-	}
-	if expected := requiredTurnID(w.active.readinessRequirements, event.Alias); event.TurnID < expected {
-		return false
-	}
-	w.active.sourceNeedsCompletion = false
-	w.updateRequiredTurn(event.Alias, event.TurnID)
-	return true
-}
-
-func requiredTurnID(readinessRequirements []participantState, alias string) uint64 {
-	for _, value := range readinessRequirements {
-		if value.alias == alias {
-			return value.turnID
-		}
-	}
-	return 0
-}
-
-func (w *stageWorkflow) updateRequiredTurn(alias string, turnID uint64) {
-	for index := range w.active.readinessRequirements {
-		if w.active.readinessRequirements[index].alias == alias {
-			w.active.readinessRequirements[index].turnID = turnID
-			return
-		}
-	}
-}
-
-func (w *stageWorkflow) advanceWaitingHandoff() instructionSequence {
-	state := w.active
-	state.notReadyAliases = notReadyAliases(state.readinessRequirements, state.unavailable)
-	if w.mustDiscard() {
-		return w.discardUnavailableStage()
-	}
-	if len(state.notReadyAliases) != 0 || state.sourceNeedsCompletion {
-		return instructionSequence{requestSnapshotInstruction{}}
-	}
-	return instructionSequence{w.readHandoffSourceInstruction(), requestSnapshotInstruction{}}
 }
 
 func (w *stageWorkflow) updateRequiredStatus(alias string, status participant.Status) {
@@ -531,7 +318,7 @@ func (w *stageWorkflow) snapshot() *StagedSubmission {
 		NotReadyAliases:    slices.Clone(w.active.notReadyAliases),
 		Interruptible:      interruptibleStageAliases(w.active),
 		Unavailable:        slices.Clone(w.active.unavailable),
-		InterruptRequested: w.active.interruptRequested,
+		InterruptRequested: w.active.interruption.requested,
 		Phase:              StagePhasePending,
 	}
 }
@@ -610,53 +397,10 @@ func activeAliases(routing, unavailable []string) []string {
 	return active
 }
 
-func activeRequiredReadyAliases(readinessRequirements []participantState, unavailable []string) []string {
-	aliases := make([]string, 0, len(readinessRequirements))
-	for _, value := range readinessRequirements {
-		if !slices.Contains(unavailable, value.alias) {
-			aliases = append(aliases, value.alias)
-		}
-	}
-	slices.Sort(aliases)
-	return aliases
-}
-
-func handoffSourceIsWorking(state *stageState) bool {
-	handoff, ok := state.statement.(promptlang.Handoff)
-	if !ok {
-		return false
-	}
-	for _, value := range state.readinessRequirements {
-		if value.alias == handoff.FromAlias {
-			return value.view().HasActiveTurn()
-		}
-	}
-	return false
-}
-
 func containsParticipant(participants []participantState, alias string) bool {
 	return slices.ContainsFunc(participants, func(value participantState) bool {
 		return value.alias == alias
 	})
-}
-
-func handoffRouting(statement promptlang.Handoff) []string {
-	if statement.FromAlias == statement.ToAlias {
-		return []string{statement.FromAlias}
-	}
-	return []string{statement.FromAlias, statement.ToAlias}
-}
-
-func interruptibleStageAliases(state *stageState) []string {
-	var aliases []string
-	for _, value := range state.readinessRequirements {
-		if value.view().HasActiveTurn() && value.view().IsCancellable() &&
-			slices.Contains(state.notReadyAliases, value.alias) && !slices.Contains(state.interrupted, value.alias) {
-			aliases = append(aliases, value.alias)
-		}
-	}
-	slices.Sort(aliases)
-	return aliases
 }
 
 func (w *stageWorkflow) markStarted(alias string) {
