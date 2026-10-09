@@ -15,7 +15,7 @@ func TestStageWorkflow_unsupportedActionDoesNotReplaceWork(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			stage := stageWorkflow{}
 			if tc.pending {
-				stage.start("@ada hello", promptlang.Send{Alias: "ada", Text: "hello"})
+				stage.start("@ada hello", promptlang.Send{Alias: located("ada"), Text: located("hello")})
 			}
 			before, generation, requestID := stage.active, stage.nextGeneration, stage.nextRequestID
 			actions := stage.start("/who", promptlang.Who{})

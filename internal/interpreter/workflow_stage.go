@@ -47,15 +47,15 @@ func (w *stageWorkflow) pending() bool { return w.active != nil }
 func (w *stageWorkflow) mustDiscard() bool {
 	state := w.active
 	if state.send != nil {
-		return slices.Contains(state.requirements.unavailable, state.send.action.Alias)
+		return slices.Contains(state.requirements.unavailable, state.send.action.Alias.Value)
 	}
 	if state.broadcast != nil {
 		return len(activeAliases(state.routing, state.requirements.unavailable)) == 0
 	}
 	if state.handoff != nil {
 		handoff := state.handoff.action
-		return slices.Contains(state.requirements.unavailable, handoff.FromAlias) ||
-			slices.Contains(state.requirements.unavailable, handoff.ToAlias)
+		return slices.Contains(state.requirements.unavailable, handoff.FromAlias.Value) ||
+			slices.Contains(state.requirements.unavailable, handoff.ToAlias.Value)
 	}
 	return false
 }
@@ -66,13 +66,13 @@ func (w *stageWorkflow) discardUnavailableStage() instructionSequence {
 	presentationMessage := "staged message discarded: no active targets"
 	if state.send != nil &&
 		len(activeAliases(state.routing, state.requirements.unavailable)) != 0 {
-		message = fmt.Sprintf("staged submission discarded: %q is no longer available", state.send.action.Alias)
-		presentationMessage = fmt.Sprintf("staged message discarded: %q is no longer available", state.send.action.Alias)
+		message = fmt.Sprintf("staged submission discarded: %q is no longer available", state.send.action.Alias.Value)
+		presentationMessage = fmt.Sprintf("staged message discarded: %q is no longer available", state.send.action.Alias.Value)
 	} else if state.handoff != nil {
 		handoff := state.handoff.action
-		missing := handoff.FromAlias
+		missing := handoff.FromAlias.Value
 		if !slices.Contains(state.requirements.unavailable, missing) {
-			missing = handoff.ToAlias
+			missing = handoff.ToAlias.Value
 		}
 		message = fmt.Sprintf("staged submission discarded: %q is no longer available", missing)
 		presentationMessage = fmt.Sprintf("staged message discarded: %q is no longer available", missing)
@@ -132,10 +132,10 @@ func unavailableStageFailure(state *stageState) SubmissionFailed {
 		return failure
 	}
 	failure.Code = ErrorParticipantUnavailable
-	failure.Err = fmt.Errorf("%w %q", errStageTargetUnavailable, state.send.action.Alias)
+	failure.Err = fmt.Errorf("%w %q", errStageTargetUnavailable, state.send.action.Alias.Value)
 	for _, value := range state.requirements.participants {
-		if value.alias == state.send.action.Alias && value.status == participant.StatusCrashed {
-			failure.Err = fmt.Errorf("%w: %q", errStageTargetCrashed, state.send.action.Alias)
+		if value.alias == state.send.action.Alias.Value && value.status == participant.StatusCrashed {
+			failure.Err = fmt.Errorf("%w: %q", errStageTargetCrashed, state.send.action.Alias.Value)
 			return failure
 		}
 	}

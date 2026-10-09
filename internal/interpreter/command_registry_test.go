@@ -8,6 +8,10 @@ import (
 	"github.com/roomscript/coderoom/internal/promptlang"
 )
 
+func located[T any](value T) promptlang.Located[T] {
+	return promptlang.Located[T]{Value: value}
+}
+
 func TestInterpreter_ownsRoomScopedCommandDefinitions(t *testing.T) {
 	firstEvents := make(chan interpreter.Event, 8)
 	first := interpreter.New(context.Background(), newRecordingSession(), t.TempDir(), interpreter.WithObserver(eventObserver{events: firstEvents}))
@@ -16,8 +20,8 @@ func TestInterpreter_ownsRoomScopedCommandDefinitions(t *testing.T) {
 	second := interpreter.New(context.Background(), newRecordingSession(), t.TempDir())
 	t.Cleanup(second.Close)
 	definition := promptlang.CommandDefinition{
-		Name: "tests",
-		Body: promptlang.Shell{Program: "go test ./..."},
+		Name: located("tests"),
+		Body: located(promptlang.Shell{Program: located("go test ./...")}),
 	}
 
 	if err := first.Submit("/def tests /shell go test ./..."); err != nil {
@@ -26,14 +30,14 @@ func TestInterpreter_ownsRoomScopedCommandDefinitions(t *testing.T) {
 	receiveEvent[interpreter.InputAccepted](t, firstEvents)
 	receiveEvent[interpreter.StateChanged](t, firstEvents)
 	receiveEvent[interpreter.SubmissionSucceeded](t, firstEvents)
-	body, err := first.ResolveCommand(promptlang.CommandInvocation{Name: "tests"})
+	body, err := first.ResolveCommand(promptlang.CommandInvocation{Name: located("tests")})
 	if err != nil {
 		t.Fatalf("ResolveCommand: %v", err)
 	}
-	if body != definition.Body {
+	if body.Program.Value != definition.Body.Value.Program.Value {
 		t.Fatalf("body = %#v, want %#v", body, definition.Body)
 	}
-	if _, err := second.ResolveCommand(promptlang.CommandInvocation{Name: "tests"}); err == nil {
+	if _, err := second.ResolveCommand(promptlang.CommandInvocation{Name: located("tests")}); err == nil {
 		t.Fatal("second interpreter resolved command defined in first interpreter")
 	}
 }

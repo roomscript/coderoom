@@ -31,7 +31,7 @@ func (w *stageWorkflow) start(raw string, statement promptlang.Statement) instru
 	ref := w.nextRef()
 	w.active.pending = ref
 	if plan.send != nil {
-		return instructionSequence{prepareSendInstruction{target: ref, alias: plan.send.action.Alias}}
+		return instructionSequence{prepareSendInstruction{target: ref, alias: plan.send.action.Alias.Value}}
 	}
 	if plan.broadcast != nil {
 		return instructionSequence{planBroadcastInstruction{target: ref}}

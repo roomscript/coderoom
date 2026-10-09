@@ -27,8 +27,8 @@ type sendPlan struct {
 func (p *sendPlan) deliveryRequest(unavailable []string) executePlannedParticipantSendRequest {
 	return executePlannedParticipantSendRequest{
 		plan:    p.delivery.DiscardUnavailableNoticeRecipients(unavailable),
-		message: p.action.Text,
-		notice:  fmt.Sprintf("@%s: %s", p.action.Alias, p.action.Text),
+		message: p.action.Text.Value,
+		notice:  fmt.Sprintf("@%s: %s", p.action.Alias.Value, p.action.Text.Value),
 	}
 }
 
@@ -57,7 +57,7 @@ func (p *stagePlan) freezeBroadcastRequirements(participants []participantState)
 }
 
 func (p *stagePlan) broadcastDeliveryRequest() broadcastRequest {
-	return broadcastRequest{aliases: activeAliases(p.routing, p.requirements.unavailable), text: p.broadcast.Text}
+	return broadcastRequest{aliases: activeAliases(p.routing, p.requirements.unavailable), text: p.broadcast.Text.Value}
 }
 
 func (p *stagePlan) freezeHandoffRequirements(routing []string, participants []participantState) {

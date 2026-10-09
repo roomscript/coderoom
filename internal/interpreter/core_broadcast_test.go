@@ -12,7 +12,7 @@ func TestStageWorkflow_broadcastPreparationIsConsumedOnce(t *testing.T) {
 	for _, status := range []participant.Status{participant.StatusIdle, participant.StatusWorking} {
 		t.Run(string(status), func(t *testing.T) {
 			stage := stageWorkflow{}
-			stage.start("hello", promptlang.Broadcast{Text: "hello"})
+			stage.start("hello", promptlang.Broadcast{Text: located("hello")})
 			selection := broadcastPlanResult{target: stage.active.pending, targets: []string{"ada"}}
 			stage.handleBroadcastPlan(selection)
 			readiness := participantStateResult{

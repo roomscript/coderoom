@@ -8,58 +8,72 @@ import (
 	"github.com/roomscript/coderoom/internal/policy"
 )
 
-// Statement is a sealed interface representing a parsed user input line.
+// Statement is a sealed interface representing the content of a user input line.
 // Only types defined in this package can implement it.
 type Statement interface {
 	isStatement()
 }
 
 // Invite invites a new agent into the session.
-type Invite struct{ Alias string }
+type Invite struct {
+	Alias Located[string]
+}
 
 // Remove stops and removes an agent from the session.
-type Remove struct{ Alias string }
+type Remove struct {
+	Alias Located[string]
+}
 
 // Cancel requests an agent to interrupt its current work.
-type Cancel struct{ Alias string }
+type Cancel struct {
+	Alias Located[string]
+}
 
 // Handoff transfers one agent's latest completed output to another.
 type Handoff struct {
-	FromAlias string
-	ToAlias   string
+	FromAlias Located[string]
+	ToAlias   Located[string]
 }
 
 // Send sends a message to one agent in the shared room (@alias text).
 type Send struct {
-	Alias string
-	Text  string
+	Alias Located[string]
+	Text  Located[string]
 }
 
 // Broadcast sends a message to all agents.
-type Broadcast struct{ Text string }
+type Broadcast struct {
+	Text Located[string]
+}
 
 // PolicyEnable enables a room-local runtime policy.
-type PolicyEnable struct{ Name policy.Name }
+type PolicyEnable struct {
+	Name Located[policy.Name]
+}
 
 // Shell executes a shell program in the coderoom workspace.
-type Shell struct{ Program string }
+type Shell struct {
+	Program Located[string]
+}
 
 // CommandDefinition associates a command name with an unevaluated shell expression.
 type CommandDefinition struct {
-	Name string
-	Body Shell
+	Name Located[string]
+	Body Located[Shell]
 }
 
 // CommandInvocation calls a user-defined command by name.
-type CommandInvocation struct{ Name string }
+type CommandInvocation struct {
+	Name Located[string]
+}
 
 // Loop repeatedly prompts a participant until a command succeeds or the turn
 // bound is reached.
 type Loop struct {
-	Participant string
-	Prompt      string
-	Condition   string
-	MaxTurns    int
+	Participant Located[string]
+	Prompt      Located[string]
+	Condition   Located[string]
+	MaxTurns    Located[int]
 }
 
 // Who displays the current agent roster.

@@ -6,5 +6,5 @@ import (
 )
 
 func (*interpreterModel) submitInvite(raw string, invite promptlang.Invite) instructionSequence {
-	return sessionSubmissionSequence(raw, "invite", session.InviteCommand{Alias: invite.Alias})
+	return sessionSubmissionSequence(raw, "invite", session.InviteCommand{Alias: invite.Alias.Value})
 }

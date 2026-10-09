@@ -38,5 +38,5 @@ func commandName(statement promptlang.Statement) string {
 	if !ok {
 		return ""
 	}
-	return invocation.Name
+	return invocation.Name.Value
 }

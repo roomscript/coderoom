@@ -14,7 +14,7 @@ import (
 
 func TestStageWorkflow_freezesSendPlanAndDispatchesWhenReady(t *testing.T) {
 	workflow := stageWorkflow{}
-	sequence := workflow.start("@ada hello", promptlang.Send{Alias: "ada", Text: "hello"})
+	sequence := workflow.start("@ada hello", promptlang.Send{Alias: located("ada"), Text: located("hello")})
 	planRequest := sequence[0].(prepareSendInstruction)
 
 	sequence = workflow.handleCompletion(sendPlanResult{
@@ -48,8 +48,8 @@ func TestStageWorkflow_copiesSuppliedPlanTargets(t *testing.T) {
 		statement promptlang.Statement
 		targets   []string
 	}{
-		{name: "send", statement: promptlang.Send{Alias: "ada", Text: "hello"}, targets: []string{"ada"}},
-		{name: "broadcast", statement: promptlang.Broadcast{Text: "hello"}, targets: []string{"ada", "turing"}},
+		{name: "send", statement: promptlang.Send{Alias: located("ada"), Text: located("hello")}, targets: []string{"ada"}},
+		{name: "broadcast", statement: promptlang.Broadcast{Text: located("hello")}, targets: []string{"ada", "turing"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -108,7 +108,7 @@ func stageDispatchRecipients(t *testing.T, dispatch executeSessionInstruction) [
 
 func TestStageWorkflow_stagesBusyBroadcastWithDetachedSnapshot(t *testing.T) {
 	workflow := stageWorkflow{}
-	sequence := workflow.start("hello", promptlang.Broadcast{Text: "hello"})
+	sequence := workflow.start("hello", promptlang.Broadcast{Text: located("hello")})
 	planRequest := sequence[0].(planBroadcastInstruction)
 	sequence = workflow.handleCompletion(broadcastPlanResult{
 		target: planRequest.target, targets: []string{"ada", "turing"},
@@ -142,7 +142,7 @@ func TestStageWorkflow_stagesBusyBroadcastWithDetachedSnapshot(t *testing.T) {
 
 func TestStageWorkflow_lifecycleDispatchUsesFrozenBroadcastTargets(t *testing.T) {
 	workflow := stageWorkflow{}
-	sequence := workflow.start("hello", promptlang.Broadcast{Text: "hello"})
+	sequence := workflow.start("hello", promptlang.Broadcast{Text: located("hello")})
 	plan := sequence[0].(planBroadcastInstruction)
 	sequence = workflow.handleCompletion(broadcastPlanResult{
 		target: plan.target, targets: []string{"ada", "turing"},
@@ -187,7 +187,7 @@ func TestStageWorkflow_lifecycleDispatchUsesFrozenBroadcastTargets(t *testing.T)
 
 func TestStageWorkflow_departedBroadcastTargetDoesNotBlockRemainingTargets(t *testing.T) {
 	workflow := stageWorkflow{}
-	sequence := workflow.start("hello", promptlang.Broadcast{Text: "hello"})
+	sequence := workflow.start("hello", promptlang.Broadcast{Text: located("hello")})
 	plan := sequence[0].(planBroadcastInstruction)
 	sequence = workflow.handleCompletion(broadcastPlanResult{
 		target: plan.target, targets: []string{"ada", "turing"},
@@ -217,7 +217,7 @@ func TestStageWorkflow_departedBroadcastTargetDoesNotBlockRemainingTargets(t *te
 
 func TestStageWorkflow_discardsSendWhenAddressedTargetDeparts(t *testing.T) {
 	workflow := stageWorkflow{}
-	sequence := workflow.start("@ada hello", promptlang.Send{Alias: "ada", Text: "hello"})
+	sequence := workflow.start("@ada hello", promptlang.Send{Alias: located("ada"), Text: located("hello")})
 	plan := sequence[0].(prepareSendInstruction)
 	workflow.handleCompletion(sendPlanResult{
 		target: plan.target, targets: []string{"ada"},
@@ -238,7 +238,7 @@ func TestStageWorkflow_discardsSendWhenAddressedTargetDeparts(t *testing.T) {
 
 func TestStageWorkflow_namesDepartedSendTargetWhenListenerRemains(t *testing.T) {
 	workflow := stageWorkflow{}
-	sequence := workflow.start("@ada hello", promptlang.Send{Alias: "ada", Text: "hello"})
+	sequence := workflow.start("@ada hello", promptlang.Send{Alias: located("ada"), Text: located("hello")})
 	plan := sequence[0].(prepareSendInstruction)
 	workflow.handleCompletion(sendPlanResult{
 		target: plan.target, targets: []string{"ada", "turing"},
@@ -274,7 +274,7 @@ func TestInterpreterExecutor_planBroadcastSortsDetachedAliases(t *testing.T) {
 
 func TestStageWorkflow_keepsHandoffPendingForSourceResolution(t *testing.T) {
 	workflow := stageWorkflow{}
-	statement := promptlang.Handoff{FromAlias: "ada", ToAlias: "turing"}
+	statement := promptlang.Handoff{FromAlias: located("ada"), ToAlias: located("turing")}
 	sequence := workflow.start("/handoff ada turing", statement)
 	request := sequence[0].(readParticipantStateInstruction)
 	sequence = workflow.handleCompletion(participantStateResult{
@@ -303,7 +303,7 @@ func TestStageWorkflow_keepsHandoffPendingForSourceResolution(t *testing.T) {
 
 func TestStageWorkflow_handoffWaitsForSourceProjectionAndIdle(t *testing.T) {
 	workflow := stageWorkflow{}
-	statement := promptlang.Handoff{FromAlias: "ada", ToAlias: "turing"}
+	statement := promptlang.Handoff{FromAlias: located("ada"), ToAlias: located("turing")}
 	sequence := workflow.start("/handoff ada turing", statement)
 	readParticipants := sequence[0].(readParticipantStateInstruction)
 	workflow.handleCompletion(participantStateResult{
@@ -342,7 +342,7 @@ func TestStageWorkflow_handoffWaitsForSourceProjectionAndIdle(t *testing.T) {
 
 func TestStageWorkflow_handoffDiscardsDepartedTarget(t *testing.T) {
 	workflow := stageWorkflow{}
-	statement := promptlang.Handoff{FromAlias: "ada", ToAlias: "turing"}
+	statement := promptlang.Handoff{FromAlias: located("ada"), ToAlias: located("turing")}
 	sequence := workflow.start("/handoff ada turing", statement)
 	read := sequence[0].(readParticipantStateInstruction)
 	workflow.handleCompletion(participantStateResult{
@@ -367,7 +367,7 @@ func TestStageWorkflow_handoffDiscardsDepartedTarget(t *testing.T) {
 
 func TestStageWorkflow_handoffIgnoresBusyLateJoiner(t *testing.T) {
 	workflow := stageWorkflow{}
-	statement := promptlang.Handoff{FromAlias: "ada", ToAlias: "turing"}
+	statement := promptlang.Handoff{FromAlias: located("ada"), ToAlias: located("turing")}
 	sequence := workflow.start("/handoff ada turing", statement)
 	read := sequence[0].(readParticipantStateInstruction)
 	workflow.handleCompletion(participantStateResult{
@@ -395,18 +395,18 @@ func TestStageWorkflow_capturesOnlyActiveHandoffCompletion(t *testing.T) {
 	}{
 		{
 			name:      "matching handoff",
-			statement: promptlang.Handoff{FromAlias: "ada", ToAlias: "turing"},
+			statement: promptlang.Handoff{FromAlias: located("ada"), ToAlias: located("turing")},
 			event:     session.HandoffDelivered{FromAlias: "ada", ToAlias: "turing"},
 			want:      true,
 		},
 		{
 			name:      "different handoff",
-			statement: promptlang.Handoff{FromAlias: "ada", ToAlias: "turing"},
+			statement: promptlang.Handoff{FromAlias: located("ada"), ToAlias: located("turing")},
 			event:     session.HandoffDelivered{FromAlias: "grace", ToAlias: "turing"},
 		},
 		{
 			name:      "different staged action",
-			statement: promptlang.Broadcast{Text: "hello"},
+			statement: promptlang.Broadcast{Text: located("hello")},
 			event:     session.HandoffDelivered{FromAlias: "ada", ToAlias: "turing"},
 		},
 	}
@@ -445,7 +445,7 @@ func TestInterpreterModel_readsCanonicalHandoffSource(t *testing.T) {
 
 func TestStageWorkflow_failsBroadcastWithoutTargets(t *testing.T) {
 	workflow := stageWorkflow{}
-	sequence := workflow.start("hello", promptlang.Broadcast{Text: "hello"})
+	sequence := workflow.start("hello", promptlang.Broadcast{Text: located("hello")})
 	planRequest := sequence[0].(planBroadcastInstruction)
 	sequence = workflow.handleCompletion(broadcastPlanResult{target: planRequest.target})
 	request := sequence[0].(readParticipantStateInstruction)
@@ -459,7 +459,7 @@ func TestStageWorkflow_failsBroadcastWithoutTargets(t *testing.T) {
 
 func TestStageWorkflow_rejectsInitiallyUnavailableSendTarget(t *testing.T) {
 	workflow := stageWorkflow{}
-	sequence := workflow.start("@missing hello", promptlang.Send{Alias: "missing", Text: "hello"})
+	sequence := workflow.start("@missing hello", promptlang.Send{Alias: located("missing"), Text: located("hello")})
 	plan := sequence[0].(prepareSendInstruction)
 	sequence = workflow.handleCompletion(sendPlanResult{
 		target: plan.target, targets: []string{"missing"},
@@ -473,7 +473,7 @@ func TestStageWorkflow_rejectsInitiallyUnavailableSendTarget(t *testing.T) {
 
 func TestStageWorkflow_dispatchesRemainingBroadcastTargetAfterPlanningDeparture(t *testing.T) {
 	workflow := stageWorkflow{}
-	sequence := workflow.start("hello", promptlang.Broadcast{Text: "hello"})
+	sequence := workflow.start("hello", promptlang.Broadcast{Text: located("hello")})
 	plan := sequence[0].(planBroadcastInstruction)
 	sequence = workflow.handleCompletion(broadcastPlanResult{
 		target: plan.target, targets: []string{"ada", "turing"},

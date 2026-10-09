@@ -29,18 +29,18 @@ type loopState struct {
 
 func (state *loopState) participantRequest(prompt string) createPlanAndExecuteParticipantSendRequest {
 	return createPlanAndExecuteParticipantSendRequest{
-		alias: state.statement.Participant, message: prompt,
-		notice: fmt.Sprintf("@%s: %s", state.statement.Participant, prompt),
+		alias: state.statement.Participant.Value, message: prompt,
+		notice: fmt.Sprintf("@%s: %s", state.statement.Participant.Value, prompt),
 	}
 }
 
 func (state *loopState) conditionRequest() shellRequest {
-	return shellRequest{command: "/" + state.statement.Condition, program: state.body.Program}
+	return shellRequest{command: "/" + state.statement.Condition.Value, program: state.body.Program.Value}
 }
 
 func (state *loopState) participantTurnStarted(routing session.RoutingResult) bool {
 	for _, recipient := range routing.Recipients {
-		if recipient.Role == session.RecipientPrimary && recipient.Alias == state.statement.Participant && recipient.Status == session.DeliveryDelivered {
+		if recipient.Role == session.RecipientPrimary && recipient.Alias == state.statement.Participant.Value && recipient.Status == session.DeliveryDelivered {
 			return true
 		}
 	}
@@ -48,7 +48,7 @@ func (state *loopState) participantTurnStarted(routing session.RoutingResult) bo
 }
 
 func (state *loopState) retainDispatchTerminalEvent(event session.Event) {
-	alias := state.statement.Participant
+	alias := state.statement.Participant.Value
 	switch event := event.(type) {
 	case session.AgentStopped:
 		if event.Alias == alias {

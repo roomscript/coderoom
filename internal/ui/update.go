@@ -104,7 +104,7 @@ func (m Model) submit(raw string) (Model, tea.Cmd) {
 		return m, nil
 	}
 	statement, err := promptlang.Parse(raw)
-	if err != nil || !isUIOnlyStatement(statement) {
+	if err != nil || !isUIOnlyStatement(statement.Value) {
 		return m.submitToInterpreter(raw), nil
 	}
 	m.releaseSubmissionGate()
@@ -177,7 +177,7 @@ func (m Model) restoreFailedStagedDraft(raw string) Model {
 	if err != nil {
 		return m
 	}
-	switch statement.(type) {
+	switch statement.Value.(type) {
 	case promptlang.Send, promptlang.Broadcast, promptlang.Handoff:
 	default:
 		return m
@@ -194,13 +194,13 @@ func formatSubmissionFailure(event interpreter.SubmissionFailed) string {
 	}
 	statement, err := promptlang.Parse(event.Raw)
 	if err == nil {
-		switch action := statement.(type) {
+		switch action := statement.Value.(type) {
 		case promptlang.Invite:
-			return fmt.Sprintf("error: invite %q: %v", action.Alias, event.Err)
+			return fmt.Sprintf("error: invite %q: %v", action.Alias.Value, event.Err)
 		case promptlang.Remove:
-			return fmt.Sprintf("error: remove %q: %v", action.Alias, event.Err)
+			return fmt.Sprintf("error: remove %q: %v", action.Alias.Value, event.Err)
 		case promptlang.Cancel:
-			return fmt.Sprintf("error: cancel %q: %v", action.Alias, event.Err)
+			return fmt.Sprintf("error: cancel %q: %v", action.Alias.Value, event.Err)
 		case promptlang.PolicyEnable:
 			return "error: policy: " + event.Err.Error()
 		}
@@ -213,11 +213,11 @@ func (m Model) renderSubmissionSuccess(raw string) Model {
 	if err != nil {
 		return m
 	}
-	switch action := statement.(type) {
+	switch action := statement.Value.(type) {
 	case promptlang.Cancel:
-		m.room = m.room.AppendSystem("[→ " + action.Alias + "] cancel requested")
+		m.room = m.room.AppendSystem("[→ " + action.Alias.Value + "] cancel requested")
 	case promptlang.PolicyEnable:
-		m.room = m.room.AppendSystem("[policy] " + string(action.Name) + " enabled")
+		m.room = m.room.AppendSystem("[policy] " + string(action.Name.Value) + " enabled")
 	}
 	return m
 }
@@ -370,7 +370,7 @@ func (m Model) handleSubmit(raw string) (Model, tea.Cmd) {
 
 	m.room = m.room.AppendUserInput(raw, nil)
 	m.room = m.clearSubmittedComposer(raw)
-	m, _ = m.executeDebugAction(action)
+	m, _ = m.executeDebugAction(action.Value)
 	return m, nil
 }
 

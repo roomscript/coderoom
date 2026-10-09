@@ -17,7 +17,7 @@ func (e *interpreterExecutor) handleInput(raw string) {
 		e.publish(InputRejected{Raw: raw, Code: ErrorInvalidInput, Err: err})
 		return
 	}
-	actions := e.model.PrepareRequest(raw, statement)
+	actions := e.model.PrepareRequest(raw, statement.Value)
 	e.runner.Run(actions)
 }
 

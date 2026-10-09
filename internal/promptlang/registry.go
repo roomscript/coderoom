@@ -14,27 +14,27 @@ func NewRegistry() *Registry {
 
 // Define stores a command definition without evaluating its body.
 func (r *Registry) Define(definition CommandDefinition) error {
-	if !isIdentifier(definition.Name) {
-		return InvalidCommandNameError{Name: definition.Name}
+	if !isIdentifier(definition.Name.Value) {
+		return diagnosticForError(DiagnosticInvalidIdentifier, definition.Name.Span, InvalidCommandNameError{Name: definition.Name.Value})
 	}
-	if isReservedCommand(definition.Name) {
-		return ReservedCommandNameError{Name: definition.Name}
+	if isReservedCommand(definition.Name.Value) {
+		return diagnosticForError(DiagnosticReservedCommand, definition.Name.Span, ReservedCommandNameError{Name: definition.Name.Value})
 	}
-	if _, exists := r.definitions[definition.Name]; exists {
-		return CommandAlreadyDefinedError{Name: definition.Name}
+	if _, exists := r.definitions[definition.Name.Value]; exists {
+		return diagnosticForError(DiagnosticCommandExists, definition.Name.Span, CommandAlreadyDefinedError{Name: definition.Name.Value})
 	}
 	if r.definitions == nil {
 		r.definitions = make(map[string]CommandDefinition)
 	}
-	r.definitions[definition.Name] = definition
+	r.definitions[definition.Name.Value] = definition
 	return nil
 }
 
 // Resolve returns the unevaluated shell body for a command invocation.
-func (r *Registry) Resolve(invocation CommandInvocation) (Shell, error) {
-	definition, exists := r.definitions[invocation.Name]
+func (r *Registry) Resolve(invocation CommandInvocation) (Located[Shell], error) {
+	definition, exists := r.definitions[invocation.Name.Value]
 	if !exists {
-		return Shell{}, UndefinedCommandError(invocation)
+		return Located[Shell]{}, diagnosticForError(DiagnosticUndefinedCommand, invocation.Name.Span, UndefinedCommandError{Name: invocation.Name.Value})
 	}
 	return definition.Body, nil
 }

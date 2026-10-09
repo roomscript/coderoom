@@ -674,6 +674,39 @@ definition state after reporting the error.
 
 ## Implementation Shape
 
+### Current parser and source contract (#39)
+
+`internal/promptlang` owns syntax, typed AST nodes and parsing diagnostics.
+Parsing is independent of runtime validation and dispatch.
+
+`Parse` reads one complete submission with a source-aware cursor. Built-in forms
+have named parsers registered in a syntax catalog, independently of execution
+handlers. Scanning is contextual: prompt and shell payloads remain opaque,
+including embedded command markers, quotes and newlines. The existing single-send
+loop recognizes its control clause from the end of the input.
+
+`Parse` returns `ParsedStatement`, an alias for `Located[Statement]`. Its `Value`
+contains command content and its `Span` covers the whole statement. Spans are
+half-open UTF-8 byte offsets into the original, untrimmed submission. Named
+arguments use `Located[T]` to keep each value and its span together: aliases,
+definition and invocation names, prompt and shell text, policy names and loop
+bounds. For example, `send.Alias.Value` and `send.Alias.Span` describe one argument.
+A definition's shell body uses `Located[Shell]`. An empty
+span identifies an insertion point. Runtime-created values may have zero spans.
+
+`Diagnostic` carries a stable `Code`, a `Span`, display text and an optional
+underlying error. Syntax categories distinguish empty input, missing arguments,
+unexpected input, invalid identifiers, invalid arguments and unknown commands.
+Registry validation supplies reserved, duplicate and undefined-command categories;
+the same diagnostic type can carry application error categories. Wrapping preserves
+`errors.Is` and `errors.As` identities and existing displayed error text.
+
+This implements the current forms only. In particular, `/def name /shell program`
+remains the supported definition syntax; parameters, `=`, and blocks below are
+future work. Current validation rules and whitespace behavior remain unchanged.
+
+### Future language extensions
+
 The implementation preserves the separation between parsing, resolution, and
 execution:
 

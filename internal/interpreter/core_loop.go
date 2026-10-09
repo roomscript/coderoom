@@ -29,7 +29,7 @@ func (w *loopWorkflow) start(
 	body, err := commands.Resolve(promptlang.CommandInvocation{Name: statement.Condition})
 	if err != nil {
 		sequence = append(sequence, publishEventInstruction{event: SubmissionFailed{
-			Raw: raw, Operation: "loop condition /" + statement.Condition,
+			Raw: raw, Operation: "loop condition /" + statement.Condition.Value,
 			Code: ErrorExecutionFailed, Err: err,
 		}})
 		return sequence
@@ -39,11 +39,11 @@ func (w *loopWorkflow) start(
 		generation:        w.nextGeneration,
 		raw:               raw,
 		statement:         statement,
-		body:              body,
+		body:              body.Value,
 		phase:             loopDispatchingParticipant,
 		submissionPending: true,
 	}
-	sequence = append(sequence, w.startParticipantTurn(statement.Prompt))
+	sequence = append(sequence, w.startParticipantTurn(statement.Prompt.Value))
 	return sequence
 }
 
@@ -72,7 +72,7 @@ func (w *loopWorkflow) handleSessionEvent(event session.Event) instructionSequen
 }
 
 func (w *loopWorkflow) resumeOnParticipantEvent(event session.Event) instructionSequence {
-	alias := w.active.statement.Participant
+	alias := w.active.statement.Participant.Value
 	switch event := event.(type) {
 	case session.ParticipantStatusChanged:
 		if event.Alias != alias || event.To != participant.StatusIdle {
@@ -115,7 +115,7 @@ func (w *loopWorkflow) waitForParticipant() instructionSequence {
 	state.turns++
 	state.phase = loopWaitingForParticipant
 	sequence := loopStatusSequence(fmt.Sprintf("[loop] turn %d/%d sent to @%s",
-		state.turns, state.statement.MaxTurns, state.statement.Participant))
+		state.turns, state.statement.MaxTurns.Value, state.statement.Participant.Value))
 	state.appendSubmissionSuccess(&sequence)
 	return sequence
 }
@@ -158,13 +158,13 @@ func (w *loopWorkflow) advanceAfterCondition(result shell.Result) instructionSeq
 	state := w.active
 	switch result.Status {
 	case shell.StatusSuccess:
-		return w.finish("[loop] condition /" + state.statement.Condition + " succeeded")
+		return w.finish("[loop] condition /" + state.statement.Condition.Value + " succeeded")
 	case shell.StatusCancelled:
-		return w.finish("[loop] condition /" + state.statement.Condition + " cancelled")
+		return w.finish("[loop] condition /" + state.statement.Condition.Value + " cancelled")
 	case shell.StatusFailure:
-		if state.turns >= state.statement.MaxTurns {
+		if state.turns >= state.statement.MaxTurns.Value {
 			return w.finish(fmt.Sprintf("[loop] reached /max %d; condition /%s still failing",
-				state.statement.MaxTurns, state.statement.Condition))
+				state.statement.MaxTurns.Value, state.statement.Condition.Value))
 		}
 		return instructionSequence{w.startParticipantTurn(formatLoopPrompt(state.statement, result))}
 	}

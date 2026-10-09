@@ -1,6 +1,7 @@
 package promptlang_test
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/roomscript/coderoom/internal/policy"
@@ -12,20 +13,20 @@ func TestParse_slashCommands(t *testing.T) {
 		input string
 		want  promptlang.Statement
 	}{
-		{"/invite ada", promptlang.Invite{Alias: "ada"}},
-		{"/invite   ada  ", promptlang.Invite{Alias: "ada"}},
-		{"/remove ada", promptlang.Remove{Alias: "ada"}},
-		{"/cancel ada", promptlang.Cancel{Alias: "ada"}},
-		{"/handoff ada turing", promptlang.Handoff{FromAlias: "ada", ToAlias: "turing"}},
-		{"/policy enable send-notices", promptlang.PolicyEnable{Name: policy.SendNotices}},
-		{"/policy enable echo-invites", promptlang.PolicyEnable{Name: policy.EchoInvites}},
-		{"/shell go test ./...", promptlang.Shell{Program: "go test ./..."}},
-		{`/shell echo "hello world" | tee out`, promptlang.Shell{Program: `echo "hello world" | tee out`}},
-		{"/def tests /shell go test ./...", promptlang.CommandDefinition{Name: "tests", Body: promptlang.Shell{Program: "go test ./..."}}},
-		{"/def check-tests_2 /shell go test ./...", promptlang.CommandDefinition{Name: "check-tests_2", Body: promptlang.Shell{Program: "go test ./..."}}},
-		{"/def help /shell go test ./...", promptlang.CommandDefinition{Name: "help", Body: promptlang.Shell{Program: "go test ./..."}}},
-		{"/tests", promptlang.CommandInvocation{Name: "tests"}},
-		{"/check-tests_2", promptlang.CommandInvocation{Name: "check-tests_2"}},
+		{"/invite ada", promptlang.Invite{Alias: located("ada")}},
+		{"/invite   ada  ", promptlang.Invite{Alias: located("ada")}},
+		{"/remove ada", promptlang.Remove{Alias: located("ada")}},
+		{"/cancel ada", promptlang.Cancel{Alias: located("ada")}},
+		{"/handoff ada turing", promptlang.Handoff{FromAlias: located("ada"), ToAlias: located("turing")}},
+		{"/policy enable send-notices", promptlang.PolicyEnable{Name: located(policy.SendNotices)}},
+		{"/policy enable echo-invites", promptlang.PolicyEnable{Name: located(policy.EchoInvites)}},
+		{"/shell go test ./...", promptlang.Shell{Program: located("go test ./...")}},
+		{`/shell echo "hello world" | tee out`, promptlang.Shell{Program: located(`echo "hello world" | tee out`)}},
+		{"/def tests /shell go test ./...", promptlang.CommandDefinition{Name: located("tests"), Body: located(promptlang.Shell{Program: located("go test ./...")})}},
+		{"/def check-tests_2 /shell go test ./...", promptlang.CommandDefinition{Name: located("check-tests_2"), Body: located(promptlang.Shell{Program: located("go test ./...")})}},
+		{"/def help /shell go test ./...", promptlang.CommandDefinition{Name: located("help"), Body: located(promptlang.Shell{Program: located("go test ./...")})}},
+		{"/tests", promptlang.CommandInvocation{Name: located("tests")}},
+		{"/check-tests_2", promptlang.CommandInvocation{Name: located("check-tests_2")}},
 		{"/who", promptlang.Who{}},
 		{"/help", promptlang.Help{}},
 		{"/quit", promptlang.Quit{}},
@@ -36,7 +37,7 @@ func TestParse_slashCommands(t *testing.T) {
 			t.Errorf("Parse(%q): unexpected error: %v", tt.input, err)
 			continue
 		}
-		if got != tt.want {
+		if !sameStatementFields(got.Value, tt.want) {
 			t.Errorf("Parse(%q) = %v, want %v", tt.input, got, tt.want)
 		}
 	}
@@ -47,8 +48,8 @@ func TestParse_sendAction(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	want := promptlang.Send{Alias: "ada", Text: "do the thing"}
-	if got != want {
+	want := promptlang.Send{Alias: located("ada"), Text: located("do the thing")}
+	if !sameStatementFields(got.Value, want) {
 		t.Errorf("got %v, want %v", got, want)
 	}
 }
@@ -60,11 +61,11 @@ func TestParse_loop(t *testing.T) {
 	}{
 		{
 			"/loop @ada make the tests pass /until /tests /max 3",
-			promptlang.Loop{Participant: "ada", Prompt: "make the tests pass", Condition: "tests", MaxTurns: 3},
+			promptlang.Loop{Participant: located("ada"), Prompt: located("make the tests pass"), Condition: located("tests"), MaxTurns: located(3)},
 		},
 		{
 			"/loop @agent-2 discuss /max and /until markers /until /check_tests /max 12",
-			promptlang.Loop{Participant: "agent-2", Prompt: "discuss /max and /until markers", Condition: "check_tests", MaxTurns: 12},
+			promptlang.Loop{Participant: located("agent-2"), Prompt: located("discuss /max and /until markers"), Condition: located("check_tests"), MaxTurns: located(12)},
 		},
 	}
 	for _, tt := range tests {
@@ -73,7 +74,7 @@ func TestParse_loop(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Parse: unexpected error: %v", err)
 			}
-			if got != tt.want {
+			if !sameStatementFields(got.Value, tt.want) {
 				t.Errorf("Parse = %#v, want %#v", got, tt.want)
 			}
 		})
@@ -111,7 +112,7 @@ func TestParse_broadcast(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if got != (promptlang.Broadcast{Text: "hello everyone"}) {
+	if !sameStatementFields(got.Value, promptlang.Broadcast{Text: located("hello everyone")}) {
 		t.Errorf("unexpected result: %v", got)
 	}
 }
@@ -121,7 +122,7 @@ func TestParse_trimming(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if got != (promptlang.Invite{Alias: "ada"}) {
+	if !sameStatementFields(got.Value, promptlang.Invite{Alias: located("ada")}) {
 		t.Errorf("unexpected result: %v", got)
 	}
 }
@@ -170,4 +171,29 @@ func TestParse_errors(t *testing.T) {
 			t.Errorf("Parse(%q): expected error, got nil", tt.input)
 		}
 	}
+}
+
+// Existing behavior cases compare semantic fields; source ranges are checked
+// independently against exact offsets in source_test.go.
+func sameStatementFields(got, want promptlang.Statement) bool {
+	return reflect.DeepEqual(withoutSource(reflect.ValueOf(got)), withoutSource(reflect.ValueOf(want)))
+}
+
+func withoutSource(value reflect.Value) any {
+	if value.Kind() != reflect.Struct {
+		return value.Interface()
+	}
+	fields := map[string]any{"type": value.Type()}
+	for index := 0; index < value.NumField(); index++ {
+		field := value.Field(index)
+		if field.Type() == reflect.TypeOf(promptlang.Span{}) {
+			continue
+		}
+		fields[value.Type().Field(index).Name] = withoutSource(field)
+	}
+	return fields
+}
+
+func located[T any](value T) promptlang.Located[T] {
+	return promptlang.Located[T]{Value: value}
 }

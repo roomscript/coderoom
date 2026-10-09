@@ -18,7 +18,7 @@ func planStageForTest(t *testing.T, workflow *stageWorkflow, statement promptlan
 		sess := session.New()
 		t.Cleanup(sess.Shutdown)
 		request := sequence[0].(prepareSendInstruction)
-		return workflow.handleCompletion(sendPlanResult{target: request.target, plan: sess.CreateParticipantSendPlan(send.Alias), targets: targets, participants: states})
+		return workflow.handleCompletion(sendPlanResult{target: request.target, plan: sess.CreateParticipantSendPlan(send.Alias.Value), targets: targets, participants: states})
 	}
 	sequence = acceptSuppliedStagePlan(t, workflow, sequence, targets)
 	read := sequence[0].(readParticipantStateInstruction)
@@ -27,7 +27,7 @@ func planStageForTest(t *testing.T, workflow *stageWorkflow, statement promptlan
 
 func TestStageWorkflow_waitsForTemporaryStates(t *testing.T) {
 	for _, status := range []participant.Status{participant.StatusStarting, participant.StatusAttached, participant.StatusPreparing, participant.StatusKeepalive} {
-		for _, statement := range []promptlang.Statement{promptlang.Send{Alias: "ben", Text: "hello"}, promptlang.Broadcast{Text: "hello"}} {
+		for _, statement := range []promptlang.Statement{promptlang.Send{Alias: located("ben"), Text: located("hello")}, promptlang.Broadcast{Text: located("hello")}} {
 			t.Run(fmt.Sprintf("%s/%T", status, statement), func(t *testing.T) {
 				workflow := stageWorkflow{}
 				planStageForTest(t, &workflow, statement, []string{"ben"}, []participantState{{alias: "ben", status: status}})
@@ -59,7 +59,7 @@ func TestStageWorkflow_distinguishesMissingAndCrashed(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			workflow := stageWorkflow{}
-			sequence := planStageForTest(t, &workflow, promptlang.Send{Alias: "ben", Text: "hello"}, []string{"ben"}, tt.states)
+			sequence := planStageForTest(t, &workflow, promptlang.Send{Alias: located("ben"), Text: located("hello")}, []string{"ben"}, tt.states)
 			failed := sequence[len(sequence)-1].(publishEventInstruction).event.(SubmissionFailed)
 			if !errors.Is(failed.Err, tt.want) || workflow.pending() {
 				t.Fatalf("failure = %#v", failed)
@@ -71,7 +71,7 @@ func TestStageWorkflow_distinguishesMissingAndCrashed(t *testing.T) {
 func TestStageWorkflow_startupDepartureDiscards(t *testing.T) {
 	for _, event := range []session.Event{session.AgentCrashed{Alias: "ben"}, session.AgentStopped{Alias: "ben"}} {
 		workflow := stageWorkflow{}
-		planStageForTest(t, &workflow, promptlang.Send{Alias: "ben", Text: "hello"}, []string{"ben"}, []participantState{{alias: "ben", status: participant.StatusStarting}})
+		planStageForTest(t, &workflow, promptlang.Send{Alias: located("ben"), Text: located("hello")}, []string{"ben"}, []participantState{{alias: "ben", status: participant.StatusStarting}})
 		sequence := workflow.handleSessionEvent(event)
 		if workflow.pending() {
 			t.Fatal("stage survived departure")
@@ -85,7 +85,7 @@ func TestStageWorkflow_startupDepartureDiscards(t *testing.T) {
 
 func TestStageWorkflow_interruptSkipsStartupAndMaintenance(t *testing.T) {
 	workflow := stageWorkflow{}
-	planStageForTest(t, &workflow, promptlang.Broadcast{Text: "hello"}, []string{"ada", "ben", "cat"}, []participantState{
+	planStageForTest(t, &workflow, promptlang.Broadcast{Text: located("hello")}, []string{"ada", "ben", "cat"}, []participantState{
 		{alias: "ada", status: participant.StatusWorking}, {alias: "ben", status: participant.StatusStarting}, {alias: "cat", status: participant.StatusKeepalive},
 	})
 	if !slices.Equal(workflow.snapshot().Interruptible, []string{"ada"}) {
@@ -140,7 +140,7 @@ func TestStageWorkflow_startupStageCanBeEditedOrDiscarded(t *testing.T) {
 	for _, edit := range []bool{true, false} {
 		t.Run(fmt.Sprintf("edit=%v", edit), func(t *testing.T) {
 			workflow := stageWorkflow{}
-			planStageForTest(t, &workflow, promptlang.Send{Alias: "ben", Text: "hello"}, []string{"ben"}, []participantState{{alias: "ben", status: participant.StatusStarting}})
+			planStageForTest(t, &workflow, promptlang.Send{Alias: located("ben"), Text: located("hello")}, []string{"ben"}, []participantState{{alias: "ben", status: participant.StatusStarting}})
 			if edit {
 				_, raw, ok := workflow.takeForEdit()
 				if !ok || raw != "hello" {

@@ -21,7 +21,7 @@ func TestHandoffStage_completeSourceTurn(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			handoff := handoffStage{
-				action:                promptlang.Handoff{FromAlias: "ada", ToAlias: "ben"},
+				action:                promptlang.Handoff{FromAlias: located("ada"), ToAlias: located("ben")},
 				sourceNeedsCompletion: true,
 			}
 			if got := handoff.completeSourceTurn(tc.event, 7); got != tc.completes {

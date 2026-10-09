@@ -9,14 +9,14 @@ import (
 func TestRegistry_defineAndResolve(t *testing.T) {
 	registry := promptlang.NewRegistry()
 	definition := promptlang.CommandDefinition{
-		Name: "tests",
-		Body: promptlang.Shell{Program: "go test ./..."},
+		Name: located("tests"),
+		Body: located(promptlang.Shell{Program: located("go test ./...")}),
 	}
 	if err := registry.Define(definition); err != nil {
 		t.Fatalf("Define: unexpected error: %v", err)
 	}
 
-	got, err := registry.Resolve(promptlang.CommandInvocation{Name: "tests"})
+	got, err := registry.Resolve(promptlang.CommandInvocation{Name: located("tests")})
 	if err != nil {
 		t.Fatalf("Resolve: unexpected error: %v", err)
 	}
@@ -27,17 +27,17 @@ func TestRegistry_defineAndResolve(t *testing.T) {
 
 func TestRegistry_rejectsInvalidDefinitions(t *testing.T) {
 	tests := []promptlang.CommandDefinition{
-		{Name: ""},
-		{Name: "1test"},
-		{Name: "help"},
-		{Name: "tests"},
+		{Name: located("")},
+		{Name: located("1test")},
+		{Name: located("help")},
+		{Name: located("tests")},
 	}
 	registry := promptlang.NewRegistry()
-	if err := registry.Define(promptlang.CommandDefinition{Name: "tests"}); err != nil {
+	if err := registry.Define(promptlang.CommandDefinition{Name: located("tests")}); err != nil {
 		t.Fatalf("seed definition: %v", err)
 	}
 	for _, definition := range tests {
-		t.Run(definition.Name, func(t *testing.T) {
+		t.Run(definition.Name.Value, func(t *testing.T) {
 			if err := registry.Define(definition); err == nil {
 				t.Fatal("Define: expected error")
 			}
@@ -47,7 +47,7 @@ func TestRegistry_rejectsInvalidDefinitions(t *testing.T) {
 
 func TestRegistry_rejectsUndefinedInvocation(t *testing.T) {
 	registry := promptlang.NewRegistry()
-	if _, err := registry.Resolve(promptlang.CommandInvocation{Name: "tests"}); err == nil {
+	if _, err := registry.Resolve(promptlang.CommandInvocation{Name: located("tests")}); err == nil {
 		t.Fatal("Resolve: expected error")
 	}
 }

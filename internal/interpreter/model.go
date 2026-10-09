@@ -96,7 +96,7 @@ func (m *interpreterModel) ResolveCommand(invocation promptlang.CommandInvocatio
 	if err != nil {
 		return promptlang.Shell{}, fmt.Errorf("resolve command: %w", err)
 	}
-	return body, nil
+	return body.Value, nil
 }
 
 func (m *interpreterModel) Snapshot() modelSnapshot {

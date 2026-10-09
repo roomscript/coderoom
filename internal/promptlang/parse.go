@@ -2,6 +2,7 @@ package promptlang
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -16,202 +17,163 @@ var noArgCommands = map[string]Statement{
 	"/debugrows": DebugRows{},
 }
 
-// Parse trims line and parses it into a Statement.
-// It returns an error for malformed input or unknown slash commands.
-func Parse(line string) (Statement, error) {
-	line = strings.TrimSpace(line)
-	if line == "" {
-		return nil, fmt.Errorf("input is empty")
+// Parse reads one complete submission. Prompts and shell programs remain opaque;
+// statement and argument spans refer to the original, untrimmed line.
+func Parse(line string) (ParsedStatement, error) {
+	input := sourceCursor{source: line, end: len(line)}.trim()
+	statement, err := parseStatement(input)
+	if err != nil {
+		return ParsedStatement{}, err
 	}
-	if strings.HasPrefix(line, "/") {
-		return parseSlash(line)
-	}
-	if strings.HasPrefix(line, "@") {
-		return parseSend(line[1:])
-	}
-	return Broadcast{Text: line}, nil
+	return ParsedStatement{Value: statement, Span: input.span()}, nil
 }
 
-func parseSlash(line string) (Statement, error) {
-	cmd, rest := cutToken(line)
-	rest = strings.TrimSpace(rest)
-	if statement, ok := noArgCommands[cmd]; ok {
-		return parseNoArgCommand(cmd, rest, statement)
+func parseStatement(input sourceCursor) (Statement, error) {
+	if input.text() == "" {
+		return nil, input.diagnostic(DiagnosticEmptyInput, "input is empty")
 	}
-	switch cmd {
-	case "/invite", "/remove", "/cancel":
-		return parseAliasStatement(cmd, rest)
-	case "/handoff":
-		fromAlias, toAlias, err := parseHandoffArgs(rest)
-		if err != nil {
-			return nil, err
+	if strings.HasPrefix(input.text(), "/") {
+		return parseSlash(input)
+	}
+	if strings.HasPrefix(input.text(), "@") {
+		return parseSend(input)
+	}
+	return Broadcast{Text: input.locatedText()}, nil
+}
+
+// Built-in syntax is registered independently of runtime command handlers.
+// Adding a form does not require changing Parse or the slash dispatch algorithm.
+var builtinParsers = map[string]func(sourceCursor, sourceCursor) (Statement, error){
+	"/invite":  parseAliasStatement,
+	"/remove":  parseAliasStatement,
+	"/cancel":  parseAliasStatement,
+	"/handoff": parseHandoff,
+	"/shell":   parseShell,
+	"/policy":  parsePolicy,
+	"/def":     parseDefinition,
+	"/loop":    parseLoop,
+}
+
+// BuiltinNames returns the recognized built-in command names without slashes.
+// It describes syntax, not which runtime implements each command.
+func BuiltinNames() []string {
+	names := make([]string, 0, len(noArgCommands)+len(builtinParsers))
+	for name := range noArgCommands {
+		names = append(names, strings.TrimPrefix(name, "/"))
+	}
+	for name := range builtinParsers {
+		names = append(names, strings.TrimPrefix(name, "/"))
+	}
+	slices.Sort(names)
+	return names
+}
+
+func parseSlash(input sourceCursor) (Statement, error) {
+	command, rest := input.token()
+	if statement, ok := noArgCommands[command.text()]; ok {
+		if rest.text() != "" {
+			return nil, rest.diagnostic(DiagnosticUnexpectedInput, command.text()+" does not accept arguments")
 		}
-		return Handoff{FromAlias: fromAlias, ToAlias: toAlias}, nil
-	case "/shell", "/policy":
-		return parseRuntimeCommand(cmd, rest)
-	case "/def":
-		return parseDefinition(rest)
-	case "/loop":
-		return parseLoop(rest)
+		return statement, nil
+	}
+	if parser, ok := builtinParsers[command.text()]; ok {
+		return parser(input, rest)
+	}
+	return parseInvocation(input, command, rest)
+}
+
+func parseAliasStatement(input, rest sourceCursor) (Statement, error) {
+	command, _ := input.token()
+	if rest.text() == "" {
+		return nil, rest.diagnostic(DiagnosticMissingArgument, "usage: "+command.text()+" <alias>")
+	}
+	// Preserve the current grammar: these commands accept the complete remainder
+	// as an alias. Identifier validation remains the session's responsibility.
+	switch command.text() {
+	case "/invite":
+		return Invite{Alias: rest.locatedText()}, nil
+	case "/remove":
+		return Remove{Alias: rest.locatedText()}, nil
 	default:
-		return parseInvocation(cmd, rest)
+		return Cancel{Alias: rest.locatedText()}, nil
 	}
 }
 
-func parseRuntimeCommand(cmd, rest string) (Statement, error) {
-	if cmd == "/policy" {
-		return parsePolicy(rest)
+func parseHandoff(_, rest sourceCursor) (Statement, error) {
+	// Handoff historically uses Unicode whitespace between its two arguments.
+	from, remainder := rest.field()
+	to, extra := remainder.field()
+	if from.text() == "" || to.text() == "" {
+		return nil, to.diagnostic(DiagnosticMissingArgument, "usage: /handoff <from> <to>")
 	}
-	if rest == "" {
-		return nil, fmt.Errorf("usage: /shell <program>")
+	if extra.text() != "" {
+		return nil, extra.diagnostic(DiagnosticUnexpectedInput, "usage: /handoff <from> <to>")
 	}
-	return Shell{Program: rest}, nil
+	return Handoff{FromAlias: from.locatedText(), ToAlias: to.locatedText()}, nil
 }
 
-func parsePolicy(rest string) (Statement, error) {
-	action, name := cutToken(rest)
-	policyName := policy.Name(strings.TrimSpace(name))
-	if action != "enable" || (policyName != policy.SendNotices && policyName != policy.EchoInvites) {
-		return nil, fmt.Errorf("usage: /policy enable <send-notices|echo-invites>")
+func parseShell(_, program sourceCursor) (Statement, error) {
+	if program.text() == "" {
+		return nil, program.diagnostic(DiagnosticMissingArgument, "usage: /shell <program>")
 	}
-	return PolicyEnable{Name: policyName}, nil
+	return Shell{Program: program.locatedText()}, nil
 }
 
-func parseLoop(rest string) (Statement, error) {
-	participantReference, remainder := cutToken(rest)
-	participant := strings.TrimPrefix(participantReference, "@")
-	if !strings.HasPrefix(participantReference, "@") || !isIdentifier(participant) {
-		return nil, fmt.Errorf("invalid loop participant")
+func parsePolicy(_, rest sourceCursor) (Statement, error) {
+	action, name := rest.token()
+	policyName := policy.Name(name.text())
+	if action.text() != "enable" {
+		return nil, action.argumentDiagnostic("usage: /policy enable <send-notices|echo-invites>")
 	}
-	prompt, condition, maxTurns, err := parseLoopSuffix(remainder)
-	if err != nil {
-		return nil, err
+	if policyName != policy.SendNotices && policyName != policy.EchoInvites {
+		return nil, name.argumentDiagnostic("usage: /policy enable <send-notices|echo-invites>")
 	}
-	return Loop{
-		Participant: participant,
-		Prompt:      prompt,
-		Condition:   condition,
-		MaxTurns:    maxTurns,
-	}, nil
+	return PolicyEnable{Name: Located[policy.Name]{Value: policyName, Span: name.span()}}, nil
 }
 
-func parseLoopSuffix(input string) (string, string, int, error) {
-	remainder, maxText := popToken(input)
-	remainder, maxKeyword := popToken(remainder)
-	remainder, conditionReference := popToken(remainder)
-	prompt, untilKeyword := popToken(remainder)
-	if maxKeyword != "/max" || untilKeyword != "/until" || strings.TrimSpace(prompt) == "" {
-		return "", "", 0, fmt.Errorf("usage: /loop @<participant> <prompt> /until /<command> /max <turns>")
+func parseDefinition(_, rest sourceCursor) (Statement, error) {
+	name, body := rest.token()
+	if !isIdentifier(name.text()) {
+		return nil, name.identifierDiagnostic("invalid command name")
 	}
-	condition, err := parseCommandReference(conditionReference)
-	if err != nil {
-		return "", "", 0, err
-	}
-	maxTurns, err := parsePositiveInteger(maxText)
-	if err != nil {
-		return "", "", 0, err
-	}
-	return strings.TrimSpace(prompt), condition, maxTurns, nil
-}
-
-func parseCommandReference(reference string) (string, error) {
-	name := strings.TrimPrefix(reference, "/")
-	if !strings.HasPrefix(reference, "/") || !isIdentifier(name) || isReservedCommand(name) {
-		return "", fmt.Errorf("invalid loop condition")
-	}
-	return name, nil
-}
-
-func parsePositiveInteger(text string) (int, error) {
-	if !isDecimalInteger(text) {
-		return 0, fmt.Errorf("invalid positive integer")
-	}
-	value, err := strconv.Atoi(text)
-	if err != nil || value <= 0 {
-		return 0, fmt.Errorf("invalid positive integer")
-	}
-	return value, nil
-}
-
-func isDecimalInteger(text string) bool {
-	if text == "" {
-		return false
-	}
-	for _, char := range text {
-		if char < '0' || char > '9' {
-			return false
-		}
-	}
-	return true
-}
-
-func parseDefinition(rest string) (Statement, error) {
-	name, body := cutToken(rest)
-	if !isIdentifier(name) {
-		return nil, fmt.Errorf("invalid command name")
-	}
-	bodyCommand, program := cutToken(strings.TrimSpace(body))
-	if bodyCommand != "/shell" || strings.TrimSpace(program) == "" {
-		return nil, fmt.Errorf("usage: /def <name> /shell <program>")
+	command, program := body.token()
+	if command.text() != "/shell" || program.text() == "" {
+		return nil, body.argumentDiagnostic("usage: /def <name> /shell <program>")
 	}
 	return CommandDefinition{
-		Name: name,
-		Body: Shell{Program: strings.TrimSpace(program)},
+		Name: name.locatedText(),
+		Body: Located[Shell]{Value: Shell{Program: program.locatedText()}, Span: body.span()},
 	}, nil
 }
 
-func parseAliasStatement(cmd, alias string) (Statement, error) {
-	if alias == "" {
-		return nil, fmt.Errorf("usage: %s <alias>", cmd)
+func parseInvocation(_ sourceCursor, command, rest sourceCursor) (Statement, error) {
+	name := command.afterPrefix()
+	if rest.text() != "" || !isIdentifier(name.text()) || isReservedCommand(name.text()) {
+		cause := UnknownCommandError{Cmd: command.text()}
+		site := name
+		if rest.text() != "" {
+			site = rest
+		}
+		return nil, &Diagnostic{Code: DiagnosticUnknownCommand, Span: site.span(), Message: cause.Error(), Cause: cause}
 	}
-	switch cmd {
-	case "/invite":
-		return Invite{Alias: alias}, nil
-	case "/remove":
-		return Remove{Alias: alias}, nil
-	default:
-		return Cancel{Alias: alias}, nil
-	}
+	return CommandInvocation{Name: name.locatedText()}, nil
 }
 
-func parseHandoffArgs(rest string) (string, string, error) {
-	parts := strings.Fields(rest)
-	if len(parts) != 2 {
-		return "", "", fmt.Errorf("usage: /handoff <from> <to>")
-	}
-	return parts[0], parts[1], nil
-}
-
-func parseNoArgCommand(cmd, rest string, statement Statement) (Statement, error) {
-	if rest != "" {
-		return nil, fmt.Errorf("%s does not accept arguments", cmd)
-	}
-	return statement, nil
-}
-
-func parseInvocation(cmd, rest string) (Statement, error) {
-	name := strings.TrimPrefix(cmd, "/")
-	if rest != "" || !isIdentifier(name) || isReservedCommand(name) {
-		return nil, UnknownCommandError{Cmd: cmd}
-	}
-	return CommandInvocation{Name: name}, nil
-}
-
-func cutToken(input string) (string, string) {
-	index := strings.IndexAny(input, " \t\r\n")
+func parseSend(input sourceCursor) (Statement, error) {
+	rest := input.afterPrefix()
+	index := strings.IndexByte(rest.text(), ' ')
 	if index < 0 {
-		return input, ""
+		return nil, (sourceCursor{source: input.source, start: input.end, end: input.end}).diagnostic(DiagnosticMissingArgument, "usage: @<alias> <text>")
 	}
-	return input[:index], input[index+1:]
-}
-
-func popToken(input string) (string, string) {
-	input = strings.TrimSpace(input)
-	index := strings.LastIndexAny(input, " \t\r\n")
-	if index < 0 {
-		return "", input
+	alias := (sourceCursor{source: input.source, start: rest.start, end: rest.start + index}).trim()
+	text := (sourceCursor{source: input.source, start: rest.start + index + 1, end: rest.end}).trim()
+	if alias.text() == "" {
+		return nil, alias.diagnostic(DiagnosticMissingArgument, "usage: @<alias> <text>")
 	}
-	return strings.TrimSpace(input[:index]), input[index+1:]
+	if text.text() == "" {
+		return nil, text.diagnostic(DiagnosticMissingArgument, "usage: @<alias> <text>")
+	}
+	return Send{Alias: alias.locatedText(), Text: text.locatedText()}, nil
 }
 
 func isIdentifier(name string) bool {
@@ -242,11 +204,15 @@ func isReservedCommand(name string) bool {
 	}
 }
 
-func parseSend(rest string) (Statement, error) {
-	alias, text, ok := strings.Cut(rest, " ")
-	alias = strings.TrimSpace(alias)
-	if !ok || alias == "" || strings.TrimSpace(text) == "" {
-		return nil, fmt.Errorf("usage: @<alias> <text>")
+func parsePositiveInteger(text string) (int, error) {
+	for _, char := range text {
+		if char < '0' || char > '9' {
+			return 0, fmt.Errorf("invalid positive integer")
+		}
 	}
-	return Send{Alias: alias, Text: strings.TrimSpace(text)}, nil
+	value, err := strconv.Atoi(text)
+	if err != nil || value <= 0 {
+		return 0, fmt.Errorf("invalid positive integer")
+	}
+	return value, nil
 }

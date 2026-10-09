@@ -22,7 +22,7 @@ func (w *stageWorkflow) prepareSend(result sendPlanResult) instructionSequence {
 			Err: errNoStageTargets,
 		})
 	}
-	if slices.Contains(w.active.requirements.unavailable, w.active.send.action.Alias) {
+	if slices.Contains(w.active.requirements.unavailable, w.active.send.action.Alias.Value) {
 		return w.rejectSendPlanning(unavailableStageFailure(w.active))
 	}
 
@@ -41,7 +41,7 @@ func (w *stageWorkflow) rejectSendPlanning(failure SubmissionFailed) instruction
 // resumeSendOnReadiness is the entry point after a retained send returns control.
 func (w *stageWorkflow) resumeSendOnReadiness() instructionSequence {
 	state := w.active
-	if slices.Contains(state.requirements.unavailable, state.send.action.Alias) {
+	if slices.Contains(state.requirements.unavailable, state.send.action.Alias.Value) {
 		return w.discardUnavailableStage()
 	}
 	if !state.requirements.isReady() {

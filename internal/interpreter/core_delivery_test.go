@@ -20,7 +20,7 @@ func TestStageWorkflow_deliveryOnlyFinishesDispatchingPlan(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			stage := stageWorkflow{}
-			stage.start("@ada hello", promptlang.Send{Alias: "ada", Text: "hello"})
+			stage.start("@ada hello", promptlang.Send{Alias: located("ada"), Text: located("hello")})
 			stage.active.phase = tc.phase
 			before := *stage.active
 			result := sessionOutcome{target: stage.active.pending}

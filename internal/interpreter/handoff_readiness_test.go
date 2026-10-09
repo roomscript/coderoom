@@ -11,7 +11,7 @@ import (
 )
 
 func startReadinessHandoff(workflow *stageWorkflow, sourceStatus participant.Status, bystanderStatus participant.Status) {
-	sequence := workflow.start("/handoff ada turing", promptlang.Handoff{FromAlias: "ada", ToAlias: "turing"})
+	sequence := workflow.start("/handoff ada turing", promptlang.Handoff{FromAlias: located("ada"), ToAlias: located("turing")})
 	read := sequence[0].(readParticipantStateInstruction)
 	workflow.handleCompletion(participantStateResult{target: read.target, readinessRequirements: []participantState{
 		{alias: "ada", status: sourceStatus}, {alias: "turing", status: participant.StatusIdle}, {alias: "ben", status: bystanderStatus},

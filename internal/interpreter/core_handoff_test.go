@@ -12,7 +12,7 @@ func TestStageWorkflow_handoffPreparationIsConsumedOnce(t *testing.T) {
 	for _, status := range []participant.Status{participant.StatusIdle, participant.StatusWorking} {
 		t.Run(string(status), func(t *testing.T) {
 			stage := stageWorkflow{}
-			stage.start("/handoff ada ben", promptlang.Handoff{FromAlias: "ada", ToAlias: "ben"})
+			stage.start("/handoff ada ben", promptlang.Handoff{FromAlias: located("ada"), ToAlias: located("ben")})
 			facts := participantStateResult{
 				target: stage.active.pending,
 				readinessRequirements: []participantState{

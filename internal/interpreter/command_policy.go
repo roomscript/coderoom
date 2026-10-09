@@ -6,5 +6,5 @@ import (
 )
 
 func (*interpreterModel) submitPolicyEnable(raw string, enable promptlang.PolicyEnable) instructionSequence {
-	return sessionSubmissionSequence(raw, "policy", session.EnablePolicyCommand{Name: enable.Name})
+	return sessionSubmissionSequence(raw, "policy", session.EnablePolicyCommand{Name: enable.Name.Value})
 }

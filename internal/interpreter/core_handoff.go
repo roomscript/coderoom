@@ -35,7 +35,7 @@ func (w *stageWorkflow) readHandoffSourceInstruction() readHandoffSourceInstruct
 	ref := w.nextRef()
 	state.pending = ref
 	handoff := state.handoff.action
-	return readHandoffSourceInstruction{target: ref, alias: handoff.FromAlias}
+	return readHandoffSourceInstruction{target: ref, alias: handoff.FromAlias.Value}
 }
 
 func (w *stageWorkflow) handleHandoffSource(result handoffSourceResult) instructionSequence {

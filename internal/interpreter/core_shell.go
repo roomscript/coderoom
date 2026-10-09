@@ -10,7 +10,7 @@ import (
 // Shell requests resolve a program, accept input, then launch asynchronous work.
 // Command definitions only update the registry; invocation resolves before acceptance.
 func (*interpreterModel) prepareShell(raw string, statement promptlang.Shell) instructionSequence {
-	return prepareShellExecution(raw, statement.Program, statement.Program)
+	return prepareShellExecution(raw, statement.Program.Value, statement.Program.Value)
 }
 
 func (m *interpreterModel) defineShellCommand(
@@ -20,13 +20,13 @@ func (m *interpreterModel) defineShellCommand(
 	sequence := acceptedInputSequence(raw)
 	if err := m.commands.Define(definition); err != nil {
 		sequence = append(sequence, publishEventInstruction{event: SubmissionFailed{
-			Raw: raw, Operation: "define /" + definition.Name,
+			Raw: raw, Operation: "define /" + definition.Name.Value,
 			Code: submissionErrorCode(err), Err: err,
 		}})
 		return sequence
 	}
 	sequence = append(sequence,
-		appendRecordInstruction{record: room.Record{Kind: room.KindSystem, Text: "[defined] /" + definition.Name}},
+		appendRecordInstruction{record: room.Record{Kind: room.KindSystem, Text: "[defined] /" + definition.Name.Value}},
 		publishSnapshotInstruction{},
 		publishEventInstruction{event: SubmissionSucceeded{Raw: raw}},
 	)
@@ -40,10 +40,10 @@ func (m *interpreterModel) prepareShellCommand(
 	body, err := m.commands.Resolve(invocation)
 	if err != nil {
 		return instructionSequence{
-			publishEventInstruction{event: UnknownCommand{Raw: raw, Name: invocation.Name}},
+			publishEventInstruction{event: UnknownCommand{Raw: raw, Name: invocation.Name.Value}},
 		}
 	}
-	return prepareShellExecution(raw, "/"+invocation.Name, body.Program)
+	return prepareShellExecution(raw, "/"+invocation.Name.Value, body.Value.Program.Value)
 }
 
 func prepareShellExecution(raw, command, program string) instructionSequence {

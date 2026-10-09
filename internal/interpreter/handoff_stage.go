@@ -16,7 +16,7 @@ type handoffStage struct {
 
 func (h *handoffStage) captureCompletion(event session.Event) {
 	delivered, ok := event.(session.HandoffDelivered)
-	if !ok || delivered.FromAlias != h.action.FromAlias || delivered.ToAlias != h.action.ToAlias {
+	if !ok || delivered.FromAlias != h.action.FromAlias.Value || delivered.ToAlias != h.action.ToAlias.Value {
 		return
 	}
 	h.completed = &delivered
@@ -24,7 +24,7 @@ func (h *handoffStage) captureCompletion(event session.Event) {
 
 func (h *handoffStage) trackSourceCompletion(participants []participantState) {
 	for _, value := range participants {
-		if value.alias == h.action.FromAlias {
+		if value.alias == h.action.FromAlias.Value {
 			h.sourceNeedsCompletion = value.view().HasActiveTurn()
 			return
 		}
@@ -32,13 +32,13 @@ func (h *handoffStage) trackSourceCompletion(participants []participantState) {
 }
 
 func (h *handoffStage) updateSourceStatus(event session.ParticipantStatusChanged) {
-	if event.Alias == h.action.FromAlias && (participant.View{Status: event.To}).HasActiveTurn() {
+	if event.Alias == h.action.FromAlias.Value && (participant.View{Status: event.To}).HasActiveTurn() {
 		h.sourceNeedsCompletion = true
 	}
 }
 
 func (h *handoffStage) completeSourceTurn(event session.AgentMessage, expectedTurnID uint64) bool {
-	if event.Alias != h.action.FromAlias || !event.TurnCompleted || event.TurnID < expectedTurnID {
+	if event.Alias != h.action.FromAlias.Value || !event.TurnCompleted || event.TurnID < expectedTurnID {
 		return false
 	}
 	h.sourceNeedsCompletion = false
@@ -46,15 +46,15 @@ func (h *handoffStage) completeSourceTurn(event session.AgentMessage, expectedTu
 }
 
 func (h *handoffStage) routing() []string {
-	if h.action.FromAlias == h.action.ToAlias {
-		return []string{h.action.FromAlias}
+	if h.action.FromAlias.Value == h.action.ToAlias.Value {
+		return []string{h.action.FromAlias.Value}
 	}
-	return []string{h.action.FromAlias, h.action.ToAlias}
+	return []string{h.action.FromAlias.Value, h.action.ToAlias.Value}
 }
 
 func (h *handoffStage) deliveryRequest(source session.HandoffSource, requiredReadyAliases []string) handoffRequest {
 	return handoffRequest{
-		fromAlias: h.action.FromAlias, toAlias: h.action.ToAlias,
+		fromAlias: h.action.FromAlias.Value, toAlias: h.action.ToAlias.Value,
 		requiredReadyAliases: requiredReadyAliases, source: source,
 	}
 }

@@ -40,9 +40,9 @@ func formatLoopPrompt(statement promptlang.Loop, result shell.Result) string {
 		errorText = result.Err.Error()
 	}
 	return strings.Join([]string{
-		statement.Prompt, "",
+		statement.Prompt.Value, "",
 		"The outcome condition is failing. Continue working on the task using the evidence below.", "",
-		"Condition command: /" + statement.Condition,
+		"Condition command: /" + statement.Condition.Value,
 		"Status: " + string(result.Status),
 		"Exit code: " + formatExitCode(result.ExitCode),
 		"Stdout:\n" + formatEvidence(result.Stdout),

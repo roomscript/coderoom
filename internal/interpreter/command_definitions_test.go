@@ -1,10 +1,6 @@
 package interpreter
 
 import (
-	"go/ast"
-	"go/parser"
-	"go/token"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -12,15 +8,11 @@ import (
 )
 
 func TestNativeCommandDefinitions_coverParserBuiltins(t *testing.T) {
-	// Read parser recognition independently of the interpreter catalog so adding
-	// a parser built-in without registering dispatch cannot silently pass.
-	file, err := parser.ParseFile(token.NewFileSet(), "../promptlang/parse.go", nil, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	names := readParserBuiltinNames(file)
-	if len(names) == 0 {
-		t.Fatal("no parser built-ins found")
+	// Query syntax independently of the execution catalog so a recognized form
+	// cannot silently lack a runtime handler.
+	names := map[string]bool{}
+	for _, name := range promptlang.BuiltinNames() {
+		names[name] = true
 	}
 	registered := map[string]bool{}
 	for _, definition := range nativeCommandDefinitions {
@@ -41,57 +33,6 @@ func TestNativeCommandDefinitions_coverParserBuiltins(t *testing.T) {
 		if !names[name] {
 			t.Errorf("definition %s has no parser built-in", name)
 		}
-	}
-}
-
-func readParserBuiltinNames(file *ast.File) map[string]bool {
-	names := map[string]bool{}
-	for _, declaration := range file.Decls {
-		switch declaration := declaration.(type) {
-		case *ast.GenDecl:
-			collectNoArgBuiltinNames(declaration, names)
-		case *ast.FuncDecl:
-			if declaration.Name.Name == "parseSlash" {
-				collectSlashBuiltinNames(declaration, names)
-			}
-		}
-	}
-	return names
-}
-
-func collectNoArgBuiltinNames(declaration *ast.GenDecl, names map[string]bool) {
-	for _, specification := range declaration.Specs {
-		value, ok := specification.(*ast.ValueSpec)
-		if !ok || len(value.Names) != 1 || value.Names[0].Name != "noArgCommands" {
-			continue
-		}
-		ast.Inspect(value, func(node ast.Node) bool {
-			collectBuiltinName(node, names)
-			return true
-		})
-	}
-}
-
-func collectSlashBuiltinNames(declaration *ast.FuncDecl, names map[string]bool) {
-	ast.Inspect(declaration.Body, func(node ast.Node) bool {
-		clause, ok := node.(*ast.CaseClause)
-		if ok {
-			for _, expression := range clause.List {
-				collectBuiltinName(expression, names)
-			}
-		}
-		return true
-	})
-}
-
-func collectBuiltinName(node ast.Node, names map[string]bool) {
-	literal, ok := node.(*ast.BasicLit)
-	if !ok || literal.Kind != token.STRING {
-		return
-	}
-	value, err := strconv.Unquote(literal.Value)
-	if err == nil && strings.HasPrefix(value, "/") {
-		names[strings.TrimPrefix(value, "/")] = true
 	}
 }
 
@@ -118,26 +59,26 @@ func assertHelpExampleDefinition(t *testing.T, definition nativeCommandDefinitio
 	if err != nil {
 		t.Fatalf("parse help example: %v", err)
 	}
-	if !definition.matches(statement) {
+	if !definition.matches(statement.Value) {
 		t.Fatalf("help example parsed as %T, outside its definition", statement)
 	}
 	matches := 0
 	for _, candidate := range nativeCommandDefinitions {
-		if candidate.matches(statement) {
+		if candidate.matches(statement.Value) {
 			matches++
 		}
 	}
 	if matches != 1 {
 		t.Fatalf("matching definitions = %d, want 1", matches)
 	}
-	return statement
+	return statement.Value
 }
 
 func assertNativeHelpDispatch(t *testing.T, raw string, statement promptlang.Statement) {
 	t.Helper()
 	model := newInterpreterModel()
 	t.Cleanup(model.Close)
-	if err := model.commands.Define(promptlang.CommandDefinition{Name: "check", Body: promptlang.Shell{Program: "true"}}); err != nil {
+	if err := model.commands.Define(promptlang.CommandDefinition{Name: located("check"), Body: located(promptlang.Shell{Program: located("true")})}); err != nil {
 		t.Fatal(err)
 	}
 	sequence, handled := model.prepareCommand(raw, statement)
@@ -162,11 +103,11 @@ func TestNativeCommandDefinitions_debugCommandsRemainUIOnly(t *testing.T) {
 			}
 			model := newInterpreterModel()
 			t.Cleanup(model.Close)
-			if _, handled := model.prepareCommand(raw, statement); handled {
+			if _, handled := model.prepareCommand(raw, statement.Value); handled {
 				t.Fatal("UI-only command dispatched natively")
 			}
 			for _, definition := range nativeCommandDefinitions {
-				if definition.matches(statement) && (definition.submit != nil || len(definition.help) != 0) {
+				if definition.matches(statement.Value) && (definition.submit != nil || len(definition.help) != 0) {
 					t.Fatal("UI-only definition exposes native dispatch or help")
 				}
 			}

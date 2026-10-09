@@ -41,7 +41,7 @@ func (op causalBurstProbeOperation) apply(e *interpreterExecutor) {
 	model.workflows.loop.active = &loopState{
 		generation: 1,
 		statement:  testLoopStatement(1),
-		body:       promptlang.Shell{Program: "probe"},
+		body:       promptlang.Shell{Program: located("probe")},
 		phase:      loopWaitingForParticipant,
 	}
 	// Probe shell startup synchronously; a goroutine would make the assertion
@@ -339,5 +339,5 @@ func assertLoopEvidence(t *testing.T, prompt, stdout string) {
 }
 
 func testLoopStatement(maxTurns int) promptlang.Loop {
-	return promptlang.Loop{Participant: "ada", Prompt: "make the tests pass", Condition: "tests", MaxTurns: maxTurns}
+	return promptlang.Loop{Participant: located("ada"), Prompt: located("make the tests pass"), Condition: located("tests"), MaxTurns: located(maxTurns)}
 }
