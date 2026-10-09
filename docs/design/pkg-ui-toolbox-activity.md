@@ -261,7 +261,7 @@ If there are more participants than can fit in the single row:
 
 ## Future work
 
-- Multi-row layout for very wide rosters (revisit if activity-first movement is
+- Multi-row layout for very wide participant lists (revisit if activity-first movement is
   too disruptive).
-- Optional affordance to expand the roster temporarily (e.g. press a key to show
+- Optional affordance to expand the participant list temporarily (e.g. press a key to show
   all participants for one tick).

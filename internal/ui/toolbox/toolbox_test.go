@@ -78,15 +78,15 @@ func TestToolboxGlyphs_andElapsedFormatting(t *testing.T) {
 	}
 }
 
-func TestRosterWantsTick(t *testing.T) {
+func TestParticipantsWantsTick(t *testing.T) {
 	now := time.Unix(100, 0)
 
 	if New().WantsTick() {
-		t.Fatal("expected false for empty roster")
+		t.Fatal("expected false for empty participants")
 	}
 	idleOnly, _ := New().SetParticipants([]participant.View{{Alias: "ada", Status: participant.StatusIdle, Since: now}})
 	if idleOnly.WantsTick() {
-		t.Fatal("expected false for idle-only roster")
+		t.Fatal("expected false for idle-only participants")
 	}
 	working, _ := New().SetParticipants([]participant.View{{Alias: "ada", Status: participant.StatusWorking, Since: now}})
 	if !working.WantsTick() {

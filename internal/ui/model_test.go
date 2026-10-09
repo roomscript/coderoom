@@ -277,11 +277,11 @@ func TestBroadcast_noAgentsPreservesDraft(t *testing.T) {
 	}
 }
 
-// --- roster / help rendering ---
+// --- participants / help rendering ---
 
-func TestRenderRoster_noAgents(t *testing.T) {
+func TestRenderParticipants_noAgents(t *testing.T) {
 	m := makeReadyModel(t)
-	m = m.renderRoster(nil)
+	m = m.renderParticipants(nil)
 	if !hasRecord(m, record.KindSystem, "[no agents]") {
 		t.Errorf("expected [no agents] system record; records: %v", m.room.HistoryRecords())
 	}

@@ -15,7 +15,7 @@ import (
 type submitContractSession struct {
 	mu                    sync.Mutex
 	observer              session.Observer
-	roster                []participant.View
+	participants          []participant.View
 	readinessRequirements []participant.Participant
 	executed              chan session.Command
 	executeErr            error
@@ -69,7 +69,7 @@ func (*submitContractSession) CreateParticipantSendPlan(alias string) session.Pa
 func (s *submitContractSession) Participants() []participant.View {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	values := append([]participant.View(nil), s.roster...)
+	values := append([]participant.View(nil), s.participants...)
 	for _, p := range s.readinessRequirements {
 		found := false
 		for i := range values {

@@ -140,9 +140,9 @@ type UnknownCommand struct {
 	Name      string
 }
 
-// RosterListed reports the participant roster requested by /who. Front ends
+// ParticipantsListed reports the participants requested by /who. Front ends
 // decide how to format the participant values for presentation.
-type RosterListed struct{ Participants []participant.View }
+type ParticipantsListed struct{ Participants []participant.View }
 
 // HelpEntry describes one prompt-language form without prescribing how a
 // front end lays it out.
@@ -209,7 +209,7 @@ func (HandoffCompleted) interpreterEvent()      {}
 func (StagedInputDiscarded) interpreterEvent()  {}
 func (InputRejected) interpreterEvent()         {}
 func (UnknownCommand) interpreterEvent()        {}
-func (RosterListed) interpreterEvent()          {}
+func (ParticipantsListed) interpreterEvent()    {}
 func (HelpListed) interpreterEvent()            {}
 func (ExitRequested) interpreterEvent()         {}
 func (ShellCompleted) interpreterEvent()        {}

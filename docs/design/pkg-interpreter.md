@@ -93,9 +93,9 @@ invariant is that front ends express intent to the interpreter and do not
 receive the underlying `*session.Session`.
 
 `Snapshot` contains the application state needed for presentation, including
-the canonical room snapshot, participant roster, and optional detached
+the canonical room snapshot, participant list, and optional detached
 `StagedSubmission`. It contains values, not live session or room objects. The
-roster uses `participant.View`, the safe
+participant list uses `participant.View`, the safe
 observable portion embedded in the live `participant.Participant`. This keeps
 participant fields and domain types canonical while preventing front ends from
 receiving agent capabilities or runtime bookkeeping.
@@ -156,7 +156,8 @@ type SessionController interface {
 Participant queries return detached `View` values with actual status, startup
 readiness, and turn identity. The interpreter selects its shared-room recipients
 using View predicates; Session supplies all registered participants in one
-locked list rather than separate roster, routable, or barrier APIs.
+locked list rather than separate APIs for participant lists, routable recipients,
+or readiness barriers.
 Send and broadcast planning freezes known recipients, including startup,
 preparing, and keepalive states. Crashed states remain in the planning snapshot
 for error classification but are excluded from broadcast and notice recipients.
@@ -599,7 +600,7 @@ arrive before submission completion. Dispatched input precedes the handoff
 audit; shell output and loop records use this same stream. Repeated delta
 versions are ignored by the presenter.
 
-`StateChanged` snapshots supply roster, approval, and stage state. `Snapshot.Room`
+`StateChanged` snapshots supply participants, approval, and stage state. `Snapshot.Room`
 is a detached inspection/bootstrap contract, not a live record delivery path.
 Observers are installed through `WithObserver` during interpreter construction,
 before startup. The first event is an initial `StateChanged` snapshot, followed
@@ -625,7 +626,7 @@ Projection coverage mapping for the cutover:
 | Former production path | Replacement coverage |
 | --- | --- |
 | Independent session/room observers for lifecycle, log, output, reasoning, flush, departure | Retained `model_test.go` scenarios through canonical room deltas and interpreter DTOs; `TestTranscriptProjection_updatesCanonicalStreamAroundPresentationNotices` |
-| Session roster queries and approval events | Interpreter `StateChanged` roster/approval projection; retained native lifecycle and approval adapter tests |
+| Session participant queries and approval events | Interpreter `StateChanged` participant/approval projection; retained native lifecycle and approval adapter tests |
 | UI echoes of accepted/dispatched input and handoff audit | Retained native send/broadcast/handoff lifecycle tests; `TestTranscriptProjection_semanticEventsAndSnapshotsDoNotEchoRecords` |
 | UI shell, definition, and loop record appends | Interpreter canonical record stream; adapted shell/definition/loop presentation tests |
 | Independent observer draining to tighten ordering | Serialized canonical changes; `TestTranscriptStream_acceptancePrecedesRecordsAndCausalUpdatesPrecedeCompletion` |

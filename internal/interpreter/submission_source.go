@@ -23,7 +23,7 @@ func withSubmissionSource(sequence instructionSequence, statement promptlang.Par
 		case startUserShellInstruction:
 			item.statement = statement
 			sequence[index] = item
-		case readRosterInstruction:
+		case readParticipantsInstruction:
 			item.statement = statement
 			sequence[index] = item
 		}

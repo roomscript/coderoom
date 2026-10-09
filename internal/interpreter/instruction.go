@@ -35,7 +35,7 @@ type startUserShellInstruction struct {
 	program   string
 }
 
-type readRosterInstruction struct {
+type readParticipantsInstruction struct {
 	raw       string
 	statement promptlang.ParsedStatement
 }
@@ -61,7 +61,7 @@ func (executeSessionInstruction) instruction()       {}
 func (startShellInstruction) instruction()           {}
 func (executeCommandInstruction) instruction()       {}
 func (startUserShellInstruction) instruction()       {}
-func (readRosterInstruction) instruction()           {}
+func (readParticipantsInstruction) instruction()     {}
 func (prepareSendInstruction) instruction()          {}
 func (planBroadcastInstruction) instruction()        {}
 func (readParticipantStateInstruction) instruction() {}

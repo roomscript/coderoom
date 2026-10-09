@@ -193,7 +193,7 @@ func TestSubmissionSource_rejectedLoopPreservesActiveSource(t *testing.T) {
 
 func TestSubmissionSource_debugDispatchPreservesPendingStage(t *testing.T) {
 	interp, sess, events := newSubmitContractInterpreter(t)
-	sess.roster = []participant.View{{Alias: "ada", Status: participant.StatusWorking, StartupReady: true}}
+	sess.participants = []participant.View{{Alias: "ada", Status: participant.StatusWorking, StartupReady: true}}
 	mustSubmit(t, interp.Submit("@ada hello"))
 	receiveSubmitEvent[InputAccepted](t, events)
 	receiveSubmitEvent[SubmissionSucceeded](t, events)

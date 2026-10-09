@@ -204,8 +204,8 @@ func (m Model) handleInterpreterPresentationEvent(event interpreter.Event) (Mode
 	case interpreter.StateChanged:
 		next, cmd := m.presentInterpreterSnapshot(event.Snapshot)
 		return next, cmd, true
-	case interpreter.RosterListed:
-		return m.renderRoster(event.Participants), nil, true
+	case interpreter.ParticipantsListed:
+		return m.renderParticipants(event.Participants), nil, true
 	case interpreter.HelpListed:
 		return m.renderHelp(event), nil, true
 	case interpreter.ExitRequested:
@@ -246,7 +246,7 @@ func (m Model) handleInterpreterTranscriptEvent(event interpreter.Event) (Model,
 	}
 }
 
-func (m Model) renderRoster(participants []participant.View) Model {
+func (m Model) renderParticipants(participants []participant.View) Model {
 	if len(participants) == 0 {
 		m.room = m.room.AppendSystem("[no agents]")
 		return m

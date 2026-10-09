@@ -24,7 +24,7 @@ initiative, actual lifecycle status, color, status timestamp, `StartupReady`,
 and `TurnID`. `Participant`
 embeds that view and adds live agent capabilities and runtime bookkeeping.
 Embedding keeps one canonical copy of every observable field while allowing
-session rosters and interpreter snapshots to return `View` values without
+session participant lists and interpreter snapshots to return `View` values without
 exposing an `agent.Agent` or mutable stream tracking.
 
 ```go

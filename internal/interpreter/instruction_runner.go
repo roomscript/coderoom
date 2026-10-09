@@ -38,7 +38,7 @@ type instructionExecutorPort interface {
 	createParticipantSendPlan(string) (session.ParticipantSendPlan, []string)
 	planBroadcast() []string
 	participantState() []participantState
-	roster() []participant.View
+	participants() []participant.View
 	takeSessionEvents() []session.Event
 	refreshSnapshot() Snapshot
 	requestClose()
@@ -150,9 +150,9 @@ func (r *instructionRunner) applyExecutionInstruction(value instruction) ([]runn
 // Preparation reads return facts immediately; they never introduce a wait.
 func (r *instructionRunner) applyPreparationInstruction(value instruction) ([]runnerItem, bool) {
 	switch value := value.(type) {
-	case readRosterInstruction:
-		return []runnerItem{preparationItem{result: rosterResult{
-			raw: value.raw, statement: value.statement, participants: r.executor.roster(),
+	case readParticipantsInstruction:
+		return []runnerItem{preparationItem{result: participantsResult{
+			raw: value.raw, statement: value.statement, participants: r.executor.participants(),
 		}}}, true
 	case prepareSendInstruction:
 		plan, targets := r.executor.createParticipantSendPlan(value.alias)

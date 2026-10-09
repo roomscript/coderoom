@@ -217,7 +217,7 @@ func (e *interpreterExecutor) executeCommand(command session.Command) error {
 	return e.session.Execute(command) //nolint:wrapcheck
 }
 
-func (e *interpreterExecutor) roster() []participant.View {
+func (e *interpreterExecutor) participants() []participant.View {
 	return append([]participant.View(nil), e.session.Participants()...)
 }
 

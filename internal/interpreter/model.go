@@ -75,10 +75,10 @@ func submissionResultSequence(outcome submissionOutcome) instructionSequence {
 	return withSubmissionSource(sequence, outcome.statement)
 }
 
-func rosterResultSequence(outcome rosterResult) instructionSequence {
+func participantsResultSequence(outcome participantsResult) instructionSequence {
 	return withSubmissionSource(instructionSequence{
 		publishSnapshotInstruction{},
-		publishEventInstruction{event: RosterListed{
+		publishEventInstruction{event: ParticipantsListed{
 			Participants: append([]participant.View(nil), outcome.participants...),
 		}},
 		publishEventInstruction{event: SubmissionSucceeded{Raw: outcome.raw}},

@@ -33,7 +33,7 @@ type submissionOutcome struct {
 	err       error
 }
 
-type rosterResult struct {
+type participantsResult struct {
 	statement    promptlang.ParsedStatement
 	raw          string
 	participants []participant.View
@@ -65,7 +65,7 @@ type handoffSourceResult struct {
 func (sessionOutcome) executionOutcome()          {}
 func (shellOutcome) executionOutcome()            {}
 func (submissionOutcome) executionOutcome()       {}
-func (rosterResult) preparationResult()           {}
+func (participantsResult) preparationResult()     {}
 func (sendPlanResult) preparationResult()         {}
 func (broadcastPlanResult) preparationResult()    {}
 func (participantStateResult) preparationResult() {}

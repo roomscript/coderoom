@@ -286,6 +286,6 @@ disruptive action auditable, but do not emit records for normal queue drainage.
 - How to map queued entry IDs to a friendly UI reference (e.g. `q1`, `q2`)?
 - Do we want to surface `failed` and `cancelled` targets in the queue area (for
   closure), or keep the UI strictly “pending only”?
-- Are queued entry targets fixed at creation time or dynamic when the roster
+- Are queued entry targets fixed at creation time or dynamic when the participant list
   changes? Proposal for v1: fixed at creation time; newly invited agents do not
   retroactively become targets of existing queued entries.

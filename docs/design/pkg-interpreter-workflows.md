@@ -319,7 +319,7 @@ type startUserShellInstruction struct {
     program string
 }
 
-type readRosterInstruction struct { raw string }
+type readParticipantsInstruction struct { raw string }
 type prepareSendInstruction struct {
     target workflowRef
     alias  string
@@ -360,7 +360,7 @@ The executor instructions preserve native command behavior:
   gateway has been removed.
 - `startUserShellInstruction` preserves ordinary user shell execution, which
   has different submission timing from a workflow-correlated shell request.
-- `readRosterInstruction` keeps session-owned participant inspection outside
+- `readParticipantsInstruction` keeps session-owned participant inspection outside
   the model and returns detached preparation facts.
 - `requestCloseInstruction` stops accepting operations, while
   `shutdownSessionInstruction` shuts down the session and projects its final
@@ -407,7 +407,7 @@ type submissionOutcome struct {
     err       error
 }
 
-type rosterResult struct {
+type participantsResult struct {
     raw          string
     participants []participant.View
 }
@@ -416,7 +416,7 @@ type rosterResult struct {
 Correlated shared-send planning and participant-state completions provide
 frozen routing and readiness inputs to the implemented stage workflow.
 
-`submissionOutcome` and `rosterResult` are native command completions
+`submissionOutcome` and `participantsResult` are native command completions
 routed through the same model-owned decision boundary. They contain detached
 data and introduce no callback from the model to the executor.
 

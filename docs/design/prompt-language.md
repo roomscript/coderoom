@@ -502,7 +502,7 @@ Other executable statements produce results as follows:
 | `/remove` | Completes successfully when removal finishes; an invalid target or stop failure produces `failure`. |
 | `/cancel` | Completes when the interrupt request is accepted; rejection produces `failure`. It does not wait for the target turn's eventual outcome. |
 | `/handoff` | Completes after the destination participant turn; source resolution or destination-turn failure produces `failure`. |
-| `/who` | Completes immediately with the roster as output. |
+| `/who` | Completes immediately with the participant list as output. |
 | `/loop` | Uses the loop result rules defined below. |
 | User command | Binding, resolution, or recursion errors produce `failure`; otherwise it returns its body result. |
 

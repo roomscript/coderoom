@@ -15,15 +15,15 @@ import (
 )
 
 type recordingSession struct {
-	mu          sync.Mutex
-	observer    session.Observer
-	roster      []participant.View
-	executed    chan session.Command
-	executeErr  error
-	executeHook func(session.Command, session.Observer)
-	active      atomic.Int32
-	maxActive   atomic.Int32
-	shutdowns   atomic.Int32
+	mu           sync.Mutex
+	observer     session.Observer
+	participants []participant.View
+	executed     chan session.Command
+	executeErr   error
+	executeHook  func(session.Command, session.Observer)
+	active       atomic.Int32
+	maxActive    atomic.Int32
+	shutdowns    atomic.Int32
 }
 
 func newRecordingSession() *recordingSession {
@@ -73,7 +73,7 @@ func (*recordingSession) CreateParticipantSendPlan(alias string) session.Partici
 func (s *recordingSession) Participants() []participant.View {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return append([]participant.View(nil), s.roster...)
+	return append([]participant.View(nil), s.participants...)
 }
 
 func (s *recordingSession) Participant(alias string) (participant.View, bool) {
@@ -104,7 +104,7 @@ func (o eventObserver) OnEvent(event interpreter.Event) {
 
 func TestInterpreter_projectsSessionEventBeforePublishingSnapshot(t *testing.T) {
 	sess := newRecordingSession()
-	sess.roster = []participant.View{{
+	sess.participants = []participant.View{{
 		Alias:      "ada",
 		Role:       "builder",
 		Initiative: participant.InitiativeManual,
@@ -162,7 +162,7 @@ func TestInterpreter_translatesApprovalState(t *testing.T) {
 
 func TestInterpreter_snapshotAfterCloseUsesDetachedCache(t *testing.T) {
 	sess := newRecordingSession()
-	sess.roster = []participant.View{{Alias: "ada", Status: participant.StatusIdle, StartupReady: true}}
+	sess.participants = []participant.View{{Alias: "ada", Status: participant.StatusIdle, StartupReady: true}}
 	events := make(chan interpreter.Event, 2)
 	interp := interpreter.New(context.Background(), sess, t.TempDir(), interpreter.WithObserver(eventObserver{events: events}))
 	receiveEvent[interpreter.StateChanged](t, events)

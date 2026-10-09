@@ -145,7 +145,7 @@ is done. Nested and concurrent loops are not yet supported.
 /def <name> /shell <program>            # define a reusable command
 /<name>                                 # invoke a defined command
 /loop @<alias> <prompt> /until /<name> /max <turns>
-/who                                    # show roster
+/who                                    # show participants
 /cancel <alias>                         # interrupt current work (best-effort)
 /remove <alias>                         # stop and remove an agent
 /policy enable send-notices             # notify other agents after @alias sends

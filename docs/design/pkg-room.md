@@ -208,7 +208,7 @@ directly.
 
 The UI integration point is the room Bubble Tea presenter:
 `internal/ui/room`. Canonical records and stream metadata arrive through ordered
-interpreter `TranscriptChanged` deltas. Application snapshots supply roster,
+interpreter `TranscriptChanged` deltas. Application snapshots supply participants,
 approvals, and stage state, but their room records are not reapplied to the live
 transcript. The presenter has no live `room.Room`, observer queue, or session observer API.
 Room component tests also construct this presentation-only model.

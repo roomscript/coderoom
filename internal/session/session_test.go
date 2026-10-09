@@ -639,7 +639,7 @@ func TestRemove_duringStartup_isRejected(t *testing.T) {
 func TestRemove_crashedBeforeStart_succeeds(t *testing.T) {
 	// A participant whose Start() fails never has its reader started, so it
 	// lives in the registry but not in the agents table. /remove must still
-	// work and emit AgentStopped so the UI roster refreshes.
+	// work and emit AgentStopped so the UI participants refreshes.
 	obs := newTestObserver()
 	a := newMockAgent()
 	a.startErr = errors.New("missing native binary")
@@ -654,9 +654,9 @@ func TestRemove_crashedBeforeStart_succeeds(t *testing.T) {
 	}
 	mustReceive[session.AgentStopped](t, obs.ch)
 
-	// Participant must be gone from the roster after removal.
+	// Participant must be absent from the participant list after removal.
 	if _, ok := s.Participant("ada"); ok {
-		t.Error("participant still in roster after remove")
+		t.Error("participant still in participant list after remove")
 	}
 }
 

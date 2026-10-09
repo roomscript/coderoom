@@ -47,7 +47,7 @@ Each participant in a session is defined by:
 - **Capabilities**: what the agent is allowed to do (read, write, test, shell)
 - **Initiative level**: how autonomously the agent acts
 
-Example session roster:
+Example session participants:
 
 ```
 alias   backend       role      capabilities     initiative

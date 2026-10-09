@@ -76,7 +76,7 @@ type Loop struct {
 	MaxTurns    Located[int]
 }
 
-// Who displays the current agent roster.
+// Who displays the current participants.
 type Who struct{}
 
 // Help displays available commands.

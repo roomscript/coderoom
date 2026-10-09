@@ -56,7 +56,7 @@ The Session Controller is the central orchestrator. All commands, messages, and 
 
 - Shared room view (all agents + user)
 - Private agent tabs
-- Session roster with status indicators
+- Session participants with status indicators
 - Command input
 
 The intended UI boundary is raw input and structured intent sent to
@@ -78,7 +78,7 @@ text, status, focus, and approval-overlay presentation only.
 
 The interpreter owns canonical transcript records. The TUI receives detached,
 ordered `TranscriptChanged` deltas for records and stream/departure metadata,
-and `StateChanged` snapshots for roster, approval, and stage presentation.
+and `StateChanged` snapshots for participants, approval, and stage presentation.
 The construction-time observer receives an initial `StateChanged`, then all
 application events in order. The UI consumes that queue without snapshot
 queries. Snapshot records are for inspection, not a second transcript delivery
@@ -183,7 +183,7 @@ Normal transitions include:
 - `idle -> preparing -> working -> idle`
 - `idle -> keepalive -> idle`
 
-The UI may render `keepalive` distinctly in the roster, but it does not create
+The UI may render `keepalive` distinctly in the participant list, but it does not create
 its own shared-room transcript record.
 
 ---

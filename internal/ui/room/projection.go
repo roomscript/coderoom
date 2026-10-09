@@ -48,7 +48,7 @@ func (m Model) appendPresentationRecord(record roomstate.Record) Model {
 	return m.syncHistoryFollowAnchor()
 }
 
-// RefreshColors repaints records after the roster's participant colors change.
+// RefreshColors repaints records after the participants' colors change.
 func (m Model) RefreshColors() Model {
 	m.history = m.history.RebuildColors()
 	return m.syncHistoryFollowAnchor()
