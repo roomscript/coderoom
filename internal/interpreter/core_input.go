@@ -1,6 +1,9 @@
 package interpreter
 
-import "github.com/roomscript/coderoom/internal/promptlang"
+import (
+	"github.com/roomscript/coderoom/internal/promptlang"
+	"github.com/roomscript/coderoom/internal/room"
+)
 
 // handleInput checks the request, interprets it, then executes model decisions.
 // A retained stage returns control; later session events resume it.
@@ -40,4 +43,11 @@ func (m *interpreterModel) PrepareRequest(
 	return instructionSequence{publishEventInstruction{event: UnknownCommand{
 		Raw: raw, Name: commandName(statement),
 	}}}
+}
+
+func acceptedInputSequence(raw string) instructionSequence {
+	return instructionSequence{
+		appendRecordInstruction{record: room.Record{Kind: room.KindUserInput, Text: raw}},
+		publishEventInstruction{event: InputAccepted{Raw: raw}},
+	}
 }

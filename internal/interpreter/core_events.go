@@ -59,7 +59,7 @@ func (m *interpreterModel) ApplyResult(result workflowCompletion) instructionSeq
 		return m.applySessionOutcome(result)
 	case shellCompletion:
 		if result.target.kind == workflowLoop {
-			return m.workflows.loop.handleShellCompletion(result)
+			return m.workflows.loop.resumeOnConditionResult(result)
 		}
 	case submissionCompletion:
 		return submissionResultSequence(result)
@@ -72,7 +72,7 @@ func (m *interpreterModel) ApplyResult(result workflowCompletion) instructionSeq
 func (m *interpreterModel) applySessionOutcome(result sessionCompletion) instructionSequence {
 	switch result.target.kind {
 	case workflowLoop:
-		return m.workflows.loop.handleSessionCompletion(result)
+		return m.workflows.loop.finishParticipantDelivery(result)
 	case workflowStage:
 		return m.workflows.stage.applySessionOutcome(result)
 	default:

@@ -831,8 +831,9 @@ ordering remains unchanged. `TestStageWorkflow_replacedSendIgnoresOldCompletions
 protects the replacement stage after edit or discard.
 
 This is a readability checkpoint, not completion of #55. Stages now retain typed
-actions only; send, broadcast and handoff algorithms are exposed in core files. Loops, command execution and the remaining runner
-instruction-dispatch invariants still need their planned review. No new subpackage
+actions only; send, broadcast, handoff and loop algorithms are exposed in core
+files. Command execution and the remaining runner instruction-dispatch invariants
+still need their planned review. No new subpackage
 is needed for this path.
 
 ## Worked sequence: staged dispatch
@@ -986,12 +987,35 @@ shared state no longer keeps a second generic statement. Unsupported stage actio
 are rejected before changing current work, and interruption dispatches directly to
 the typed action rather than a generic dispatch switch.
 
-Remaining substantial work is concentrated in `workflow_loop.go`, where loop
-transitions, condition execution and formatting are mixed, and `command_shell.go`,
-where command preparation and asynchronous execution share a file. These need
-purpose-based core algorithms with explicit participant/output and shell-result
-resumption points. After that, review the runner's synchronous preparation-result
+Remaining substantial work is concentrated in `command_shell.go`, where command
+preparation and asynchronous execution share a file. Loop decisions now have a
+core algorithm and explicit participant and shell-result resumption points, as
+described below. Shell command preparation still needs the same treatment. After
+that, review the runner's synchronous preparation-result
 vocabulary and finalize file/type organization. The runner must continue applying
 causal events before delivery results; simplifying navigation must preserve that
 ordering. The API/core split is useful but does not by itself complete #55's
 human readability requirement.
+
+### Loop core checkpoint
+
+`core_loop.go` now shows the loop algorithm: resolve its condition, send the first
+turn, wait for the participant, evaluate the condition, and repeat or finish within
+`/max`. `finishParticipantDelivery` consumes the synchronous delivery result after
+causal events; it verifies actual primary delivery and respects departures recorded
+during dispatch. `waitForParticipant` is the first suspension point.
+`resumeOnParticipantEvent` starts condition evaluation on the participant's idle
+transition, or stops the loop after departure or crash.
+
+`startConditionEvaluation` is the second suspension point: shell execution is
+asynchronous. `resumeOnConditionResult` records the shell result, then
+`advanceAfterCondition` finishes on success/cancellation or retries a failure until
+the turn bound. Superseded shell results remain observable without advancing the
+current loop. Initial submission success is still reported once after dispatch,
+including a failed attempt to start the participant turn.
+
+`loopState` in `loop_state.go` owns action details, request construction,
+dispatch-time departure tracking and submission bookkeeping. `loopWorkflow` in
+`workflow_loop.go` owns the active loop and result correlation. `loop_output.go`
+contains transcript and evidence formatting. Shared input acceptance now lives
+with request preparation in `core_input.go` rather than inside loop support.
