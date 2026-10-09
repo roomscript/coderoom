@@ -14,8 +14,8 @@ it does not imply the core algorithm refactor is complete.
 | Concept / responsibility | Entry point | Current algorithm / implementation |
 |---|---|---|
 | Submit a request | `Submit` in `api_requests.go` | `handleInput` in `core_input.go` checks the pending-stage gate, parses input, and runs `model.PrepareRequest` decisions. |
-| Edit or discard pending work | `TakeStageForEdit`, `DiscardStage` in `api_requests.go` | Atomic stage operations remove the retained plan, then return the draft or discard result. |
-| Interrupt work | `InterruptAndDispatchStage` in `api_requests.go` | Stage interruption selects cancellable blockers; lifecycle events establish readiness. |
+| Edit or discard pending work | `TakeStageForEdit`, `DiscardStage` in `api_requests.go` | `core_stage_operations.go` removes the retained plan, then returns the draft or discard result. |
+| Interrupt work | `InterruptAndDispatchStage` in `api_requests.go` | `core_stage_operations.go` selects cancellable blockers; lifecycle events establish readiness. |
 | Resolve an approval | `ResolveApproval` in `api_requests.go` | `resolveApprovalOperation.apply` validates the choice, sends it to session, and updates approval state. |
 | Receive session facts | `sessionObserver.OnEvent` in `core_events.go` | Buffer incoming facts; `ApplySessionEvents` and `ApplySessionEvent` update the room/approval state and advance affected workflows. |
 | Receive ordinary shell results | `shellCompletedOperation.apply` in `core_events.go` | Record the shell outcome and publish observable changes. |
@@ -41,8 +41,8 @@ remain in the executor and runner.
 
 `PrepareRequest` names request preparation separately from the public `Submit`
 operation. `ApplySessionEvent` updates observable state before advancing loop and
-staged work. `ApplyResult` distinguishes synchronous preparation facts, session
-outcomes, and later shell results, routing each directly to its workflow decision.
+staged work. `ApplyPreparation` routes synchronous inspection/planning facts;
+`ApplyOutcome` routes session and shell execution outcomes to workflow decisions.
 `workflowCollection` holds state only; it adds no event/result routing layer.
 
 These entry algorithms preserve the existing causal order: project the complete
@@ -50,11 +50,11 @@ session-event burst before running derived actions, then apply the execution
 result. Routing outcomes go to execution completion rather than room projection;
 stale approval-clear events cannot clear a newer approval.
 
-The command-specific preparation and wait/resume decisions still live in the
-workflows. The next readability checkpoint is to make those paths expose plans
-and real waits without requiring readers to reconstruct instruction/completion
-mechanics. These core files are navigation and algorithm entry points, not a
-claim that the remaining workflow refactor is complete.
+The command-specific preparation and wait/resume decisions are exposed in the
+core send, broadcast, handoff, loop and shell files. Supporting types own their
+state updates and request construction. Human review of complete paths remains
+the acceptance check for #55; passing behavior tests alone does not establish
+that the algorithms are easy to read.
 
 ## Implemented shape
 
@@ -310,7 +310,7 @@ type startShellInstruction struct {
 // Compatibility instructions for the existing command and legacy APIs.
 type executeCommandInstruction struct {
     command    session.Command
-    completion submissionCompletion
+    outcome submissionOutcome
 }
 
 type startUserShellInstruction struct {
@@ -361,7 +361,7 @@ The executor instructions preserve native command behavior:
 - `startUserShellInstruction` preserves ordinary user shell execution, which
   has different submission timing from a workflow-correlated shell request.
 - `readRosterInstruction` keeps session-owned participant inspection outside
-  the model and returns a detached completion.
+  the model and returns detached preparation facts.
 - `requestCloseInstruction` stops accepting operations, while
   `shutdownSessionInstruction` shuts down the session and projects its final
   causal events. Their separation preserves `/quit` ordering.
@@ -383,30 +383,31 @@ The runner controls when these operations occur but never reads or mutates the
 room directly. The session gateway is executor-owned; it is not part of
 `interpreterModel`.
 
-Completions form a closed data-only vocabulary as well:
+Preparation facts and execution outcomes have separate closed data vocabularies:
 
 ```go
-type workflowCompletion interface{ workflowCompletion() }
+type preparationResult interface{ preparationResult() }
+type executionOutcome interface{ executionOutcome() }
 
-type sessionCompletion struct {
+type sessionOutcome struct {
     routing session.RoutingResult
     target workflowRef
     err    error
 }
 
-type shellCompletion struct {
+type shellOutcome struct {
     target  workflowRef
     request shellRequest
     result  shell.Result
 }
 
-type submissionCompletion struct {
+type submissionOutcome struct {
     raw       string
     operation string
     err       error
 }
 
-type rosterCompletion struct {
+type rosterResult struct {
     raw          string
     participants []participant.View
 }
@@ -415,7 +416,7 @@ type rosterCompletion struct {
 Correlated shared-send planning and participant-state completions provide
 frozen routing and readiness inputs to the implemented stage workflow.
 
-`submissionCompletion` and `rosterCompletion` are native command completions
+`submissionOutcome` and `rosterResult` are native command completions
 routed through the same model-owned decision boundary. They contain detached
 data and introduce no callback from the model to the executor.
 
@@ -460,10 +461,11 @@ The operation loop applies one causal chain at a time. Instructions returned by 
 causal session event are completed before the session-command result is sent
 back to its workflow.
 
-The runner's private work queue contains either an instruction or a typed
-completion-delivery item. Completion delivery is not a workflow instruction
-and is never returned by a workflow; it is how the runner delays calling
-`interpreterModel.ApplyResult` until earlier event-derived instructions settle.
+The runner's private queue holds instructions, synchronous preparation facts,
+execution outcomes and causal event bursts. Preparation facts go immediately to
+`ApplyPreparation`. Outcomes go to `ApplyOutcome`; for session execution, the
+runner delays that step until earlier event-derived instructions settle. These
+private queue items are not instructions returned by workflows.
 
 ```text
 run(initialSequence):
@@ -473,9 +475,13 @@ run(initialSequence):
     while queue is not empty:
         item = pop front
 
-        deliver completion:
-            resultSequence = model.ApplyResult(item.completion)
-            queue = instructions from resultSequence + queue
+        apply preparation facts:
+            actions = model.ApplyPreparation(item.result)
+            queue = instructions from actions + queue
+
+        apply execution outcome:
+            actions = model.ApplyOutcome(item.outcome)
+            queue = instructions from actions + queue
 
         request final snapshot:
             snapshotRequested = true
@@ -504,7 +510,7 @@ run(initialSequence):
                 append eventSequence to eventInstructions
 
             queue = eventInstructions
-                + deliver-completion(target, result)
+                + apply-outcome(target, result)
                 + queue
 
     drain any session events queued before the chain boundary
@@ -578,7 +584,7 @@ child process and enqueues a completion operation containing the unchanged
 `workflowRef`, request, and result. It never invokes workflow code from the
 shell goroutine.
 
-On the operation loop, `interpreterModel.ApplyResult` checks correlation. A
+On the operation loop, `interpreterModel.ApplyOutcome` routes the result; the workflow checks correlation. A
 stale completion returns no workflow-transition instructions. Existing observable
 shell-result recording is preserved independently when required: the
 completion operation can append the command record and publish
@@ -594,12 +600,12 @@ func (m *interpreterModel) CheckInputAllowed(raw string) instructionSequence
 func (m *interpreterModel) PrepareRequest(
     raw string,
     statement promptlang.Statement,
-    fallback session.Command,
 ) instructionSequence
 func (m *interpreterModel) ApplySessionEvent(
     event session.Event,
 ) (instructionSequence, bool)
-func (m *interpreterModel) ApplyResult(completion workflowCompletion) instructionSequence
+func (m *interpreterModel) ApplyPreparation(result preparationResult) instructionSequence
+func (m *interpreterModel) ApplyOutcome(outcome executionOutcome) instructionSequence
 ```
 
 These operations are state transitions, not parsers or instruction factories.
@@ -806,14 +812,14 @@ Preparation results are consumed once; stale or repeated results cannot restart
 retained work.
 
 Readiness updates, atomic stage operations, and interruption remain shared.
-`stageRequirements` in `workflow_stage_requirements.go` owns frozen participant
+`stageRequirements` in `stage_requirements.go` owns frozen participant
 facts, startup readiness, turn identity, and departures. Its `isReady` and
 `waitingAliases` queries derive readiness from those facts, avoiding a separate
 cached blocker list. Workflows retain the command-specific decision to wait,
 discard, or execute; sends and handoffs share the same readiness updates.
 
 Cancellation requests and successful acknowledgements are owned by
-`stageInterruption` in `workflow_stage_interrupt.go`. Its completion operation
+`stageInterruption` in `stage_interruption.go`. Its completion operation
 consumes each reply once and retains successful aliases so retries target only
 failures. Shared readiness still determines when delivery can proceed.
 
@@ -825,15 +831,17 @@ individual bookkeeping fields.
 
 `core_delivery.go` owns shared delivery completion; `stage_outcome.go` builds
 the outcome reports.
-`ApplyResult` in `core_events.go` routes preparation facts and execution outcomes
+`ApplyPreparation` and `ApplyOutcome` in `core_events.go` route facts and outcomes
 directly to their handlers; no workflow-collection switch intervenes. The instruction runner's causal
 ordering remains unchanged. `TestStageWorkflow_replacedSendIgnoresOldCompletions`
 protects the replacement stage after edit or discard.
 
 This is a readability checkpoint, not completion of #55. Stages now retain typed
 actions only; send, broadcast, handoff and loop algorithms are exposed in core
-files. Shell command execution now also has a core algorithm. The remaining runner
-instruction-dispatch invariants still need their planned review. No new subpackage
+files. Shell command execution now also has a core algorithm. The runner
+instruction-dispatch review is complete: preparation and execution have distinct
+routes, and causal session events still precede their outcomes. Final acceptance
+still requires the human readability review described below. No new subpackage
 is needed for this path.
 
 ## Worked sequence: staged dispatch
@@ -883,7 +891,7 @@ gateway knows which interpreter-level request maps to which session command.
 4. Completion `{loop, 7, 22}` arrives.
 5. The completion's shell command record and public completion event are
    preserved if required by current behavior.
-6. `interpreterModel.ApplyResult` rejects the stale correlation because the
+6. `interpreterModel.ApplyOutcome` routes the stale outcome; its workflow rejects the correlation because the
    active loop is generation 8. It returns no loop-transition instructions and does
    not alter generation 8.
 
@@ -988,8 +996,8 @@ are rejected before changing current work, and interruption dispatches directly 
 the typed action rather than a generic dispatch switch.
 
 Stages, loops and shell commands now have core algorithms and explicit waiting
-and resumption points. Remaining work is reviewing the runner's synchronous
-preparation-result vocabulary and finalizing file/type organization. The runner
+and resumption points. The runner now distinguishes synchronous preparation facts from execution
+outcomes, and supporting files have been reviewed for cohesive ownership. The runner
 must continue applying causal events before delivery results; simplifying
 navigation must preserve that ordering. The API/core split is useful but does
 not by itself complete #55's human readability requirement.
@@ -1035,3 +1043,25 @@ run away from the serialized interpreter, then enqueue the result. Shutdown
 cancels the lifetime and waits for those goroutines. `shell_output.go` contains
 result formatting. `TestSubmitContract_shellWaitAllowsAnotherRequest` verifies
 that a blocked shell does not prevent a new request from completing.
+
+### Runner and ownership checkpoint
+
+`instruction.go` declares instructions without execution methods.
+`action_result.go` separates synchronous preparation facts from execution outcomes.
+`instruction_runner.go` applies preparation reads immediately, processes complete
+session-event bursts before their outcomes, and starts asynchronous shell work
+without waiting for it. The scheduling algorithm and public event order are unchanged.
+`session_execution.go` owns concrete session requests and executor dispatch;
+`shell_execution.go` owns shell launch mechanics.
+
+`stage_requirements.go` owns readiness facts and eligible interrupt targets.
+`stage_interruption.go` owns cancellation acknowledgements and retries, while
+`core_stage_operations.go` exposes edit, discard and interrupt decisions.
+Preparation and execution retain distinct routes all the way to `core_events.go`;
+planning facts are no longer named workflow completions.
+
+The planned implementation pass is complete. Final acceptance remains a human
+readability review: follow addressed send, broadcast, handoff, loop and shell
+paths from the API/core files, opening supporting files only for details. Existing
+behavior regressions protect causal order, stale outcomes, partial delivery,
+startup readiness and cancellation races; they do not replace that review.

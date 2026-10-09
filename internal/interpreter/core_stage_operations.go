@@ -2,17 +2,27 @@ package interpreter
 
 import (
 	"fmt"
-	"slices"
 
 	"github.com/roomscript/coderoom/internal/room"
 )
 
-// stageInterruption owns cancellation correlation and successful acknowledgements.
-// Readiness remains owned by the stage; cancellation success does not imply idle.
-type stageInterruption struct {
-	requested bool
-	pending   map[workflowRef]string
-	cancelled []string
+// Stage requests atomically edit/discard retained work or request interruption.
+// Cancellation results update acknowledgements; readiness events resume delivery.
+func (w *stageWorkflow) takeForEdit() (instructionSequence, string, bool) {
+	if w.active == nil {
+		return nil, "", false
+	}
+	raw := w.active.raw
+	w.active = nil
+	return instructionSequence{requestSnapshotInstruction{}}, raw, true
+}
+
+func (w *stageWorkflow) discard() (instructionSequence, bool) {
+	if w.active == nil {
+		return nil, false
+	}
+	w.active = nil
+	return instructionSequence{requestSnapshotInstruction{}}, true
 }
 
 func (w *stageWorkflow) interruptAndDispatch() (instructionSequence, bool) {
@@ -27,7 +37,7 @@ func (w *stageWorkflow) interruptAndDispatch() (instructionSequence, bool) {
 		state.interruption.requested = true
 		return w.advanceInterruptedStage(), true
 	}
-	aliases := interruptibleStageAliases(state)
+	aliases := state.requirements.interruptibleAliases(state.interruption.cancelled)
 	if len(aliases) == 0 {
 		return nil, false
 	}
@@ -61,48 +71,20 @@ func (w *stageWorkflow) advanceInterruptedStage() instructionSequence {
 }
 
 func (w *stageWorkflow) handlePendingInterruptCompletion(
-	completion sessionCompletion,
+	outcome sessionOutcome,
 ) (instructionSequence, bool) {
 	if w.active == nil {
 		return nil, false
 	}
-	handled := w.active.interruption.completeCancellation(completion)
+	handled := w.active.interruption.completeCancellation(outcome)
 	if !handled {
 		return nil, false
 	}
 	sequence := instructionSequence{requestSnapshotInstruction{}}
-	if completion.err == nil {
+	if outcome.err == nil {
 		return sequence, true
 	}
 	return append(sequence, publishEventInstruction{event: OperationFailed{
-		Operation: "interrupt staged submission", Err: completion.err,
+		Operation: "interrupt staged submission", Err: outcome.err,
 	}}), true
-}
-
-// completeCancellation consumes a reply and remembers successful cancellations.
-// Failed aliases remain eligible for retry; duplicates and stale replies do nothing.
-func (s *stageInterruption) completeCancellation(completion sessionCompletion) bool {
-	alias, ok := s.pending[completion.target]
-	if !ok {
-		return false
-	}
-	delete(s.pending, completion.target)
-	if completion.err == nil {
-		s.cancelled = append(s.cancelled, alias)
-		slices.Sort(s.cancelled)
-	}
-	return true
-}
-
-func interruptibleStageAliases(state *stageState) []string {
-	waiting := state.requirements.waitingAliases()
-	var aliases []string
-	for _, value := range state.requirements.participants {
-		if value.view().HasActiveTurn() && value.view().IsCancellable() &&
-			slices.Contains(waiting, value.alias) && !slices.Contains(state.interruption.cancelled, value.alias) {
-			aliases = append(aliases, value.alias)
-		}
-	}
-	slices.Sort(aliases)
-	return aliases
 }

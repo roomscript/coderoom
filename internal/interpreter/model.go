@@ -55,31 +55,31 @@ func (m *interpreterModel) prepareCommand(raw string, statement promptlang.State
 
 func sessionSubmissionSequence(raw, operation string, command session.Command) instructionSequence {
 	return append(acceptedInputSequence(raw), executeCommandInstruction{
-		command:    command,
-		completion: submissionCompletion{raw: raw, operation: operation},
+		command: command,
+		outcome: submissionOutcome{raw: raw, operation: operation},
 	})
 }
 
-func submissionResultSequence(completion submissionCompletion) instructionSequence {
+func submissionResultSequence(outcome submissionOutcome) instructionSequence {
 	sequence := instructionSequence{publishSnapshotInstruction{}}
-	if completion.err != nil {
+	if outcome.err != nil {
 		sequence = append(sequence, publishEventInstruction{event: SubmissionFailed{
-			Raw: completion.raw, Operation: completion.operation,
-			Code: ErrorExecutionFailed, Err: completion.err,
+			Raw: outcome.raw, Operation: outcome.operation,
+			Code: ErrorExecutionFailed, Err: outcome.err,
 		}})
 		return sequence
 	}
-	sequence = append(sequence, publishEventInstruction{event: SubmissionSucceeded{Raw: completion.raw}})
+	sequence = append(sequence, publishEventInstruction{event: SubmissionSucceeded{Raw: outcome.raw}})
 	return sequence
 }
 
-func rosterResultSequence(completion rosterCompletion) instructionSequence {
+func rosterResultSequence(outcome rosterResult) instructionSequence {
 	return instructionSequence{
 		publishSnapshotInstruction{},
 		publishEventInstruction{event: RosterListed{
-			Participants: append([]participant.View(nil), completion.participants...),
+			Participants: append([]participant.View(nil), outcome.participants...),
 		}},
-		publishEventInstruction{event: SubmissionSucceeded{Raw: completion.raw}},
+		publishEventInstruction{event: SubmissionSucceeded{Raw: outcome.raw}},
 	}
 }
 

@@ -25,7 +25,14 @@ func TestStageWorkflow_replacedSendIgnoresOldCompletions(t *testing.T) {
 				before := stage.snapshot()
 				pending := stage.active.pending
 
-				if sequence := model.ApplyResult(stale); len(sequence) != 0 {
+				var sequence instructionSequence
+				switch stale := stale.(type) {
+				case preparationResult:
+					sequence = model.ApplyPreparation(stale)
+				case executionOutcome:
+					sequence = model.ApplyOutcome(stale)
+				}
+				if len(sequence) != 0 {
 					t.Fatalf("stale completion returned instructions: %#v", sequence)
 				}
 				if !reflect.DeepEqual(stage.snapshot(), before) || stage.active.pending != pending {
@@ -36,7 +43,7 @@ func TestStageWorkflow_replacedSendIgnoresOldCompletions(t *testing.T) {
 	}
 }
 
-func startOldSendCompletion(stage *stageWorkflow, phase string) workflowCompletion {
+func startOldSendCompletion(stage *stageWorkflow, phase string) any {
 	stage.start("@ada old", promptlang.Send{Alias: "ada", Text: "old"})
 	plan := sendPlanResult{target: stage.active.pending, targets: []string{"ada"}}
 	if phase == "plan" {
@@ -44,7 +51,7 @@ func startOldSendCompletion(stage *stageWorkflow, phase string) workflowCompleti
 	}
 	plan.participants = []participantState{{alias: "ada", status: participant.StatusIdle}}
 	stage.prepareSend(plan)
-	return sessionCompletion{target: stage.active.pending}
+	return sessionOutcome{target: stage.active.pending}
 }
 
 func TestStageWorkflow_sendPreparationIsConsumedOnce(t *testing.T) {

@@ -10,19 +10,19 @@ import (
 	"github.com/roomscript/coderoom/internal/shell"
 )
 
-func shellObservationSequence(completion shellCompletion) instructionSequence {
-	output := formatLoopConditionResult(completion.result)
+func shellObservationSequence(outcome shellOutcome) instructionSequence {
+	output := formatLoopConditionResult(outcome.result)
 	return instructionSequence{
 		appendRecordInstruction{record: room.NewAgentRecord(shellRecordAlias, agent.Message{
 			Mode: agent.ModeSingle,
 			Content: agent.Command{
-				Command: completion.request.command, Cwd: completion.cwd,
-				Output: output, ExitCode: completion.result.ExitCode,
+				Command: outcome.request.command, Cwd: outcome.cwd,
+				Output: output, ExitCode: outcome.result.ExitCode,
 			},
 		})},
 		publishEventInstruction{event: ShellCompleted{
-			Command: completion.request.command, Cwd: completion.cwd,
-			Result: completion.result, Output: output,
+			Command: outcome.request.command, Cwd: outcome.cwd,
+			Result: outcome.result, Output: output,
 		}},
 	}
 }
@@ -41,7 +41,7 @@ func formatLoopPrompt(statement promptlang.Loop, result shell.Result) string {
 	}
 	return strings.Join([]string{
 		statement.Prompt, "",
-		"The completion condition is failing. Continue working on the task using the evidence below.", "",
+		"The outcome condition is failing. Continue working on the task using the evidence below.", "",
 		"Condition command: /" + statement.Condition,
 		"Status: " + string(result.Status),
 		"Exit code: " + formatExitCode(result.ExitCode),

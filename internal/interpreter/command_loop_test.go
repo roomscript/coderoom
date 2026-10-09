@@ -261,11 +261,11 @@ func TestLoopWorkflow_consumesDispatchCompletionOnce(t *testing.T) {
 		pending:    target,
 	}}
 
-	first := workflow.finishParticipantDelivery(sessionCompletion{target: target, routing: session.RoutingResult{Kind: session.RoutingParticipantSend, Recipients: []session.RecipientResult{{Alias: "ada", Role: session.RecipientPrimary, Status: session.DeliveryDelivered}}}})
+	first := workflow.finishParticipantDelivery(sessionOutcome{target: target, routing: session.RoutingResult{Kind: session.RoutingParticipantSend, Recipients: []session.RecipientResult{{Alias: "ada", Role: session.RecipientPrimary, Status: session.DeliveryDelivered}}}})
 	if len(first) == 0 || workflow.active.phase != loopWaitingForParticipant {
 		t.Fatalf("first completion did not advance dispatch: %#v", first)
 	}
-	second := workflow.finishParticipantDelivery(sessionCompletion{target: target, routing: session.RoutingResult{Kind: session.RoutingParticipantSend, Recipients: []session.RecipientResult{{Alias: "ada", Role: session.RecipientPrimary, Status: session.DeliveryDelivered}}}})
+	second := workflow.finishParticipantDelivery(sessionOutcome{target: target, routing: session.RoutingResult{Kind: session.RoutingParticipantSend, Recipients: []session.RecipientResult{{Alias: "ada", Role: session.RecipientPrimary, Status: session.DeliveryDelivered}}}})
 	if len(second) != 0 || workflow.active.turns != 1 {
 		t.Fatalf("duplicate completion advanced workflow: %#v", second)
 	}
@@ -279,7 +279,7 @@ func TestLoopWorkflow_staleShellCompletionDoesNotAdvanceCurrentGeneration(t *tes
 		phase:      loopEvaluating,
 		pending:    current,
 	}}
-	stale := shellCompletion{
+	stale := shellOutcome{
 		target:  workflowRef{kind: workflowLoop, generation: 1, requestID: 1},
 		request: shellRequest{command: "/tests"},
 		result:  shell.Result{Status: shell.StatusSuccess},

@@ -9,6 +9,25 @@ import (
 	"github.com/roomscript/coderoom/internal/session"
 )
 
+type runnerItem interface{ runnerItem() }
+type instructionItem struct{ instruction instruction }
+type preparationItem struct{ result preparationResult }
+type outcomeItem struct{ outcome executionOutcome }
+type sessionEventsItem struct{ events []session.Event }
+
+func (instructionItem) runnerItem()   {}
+func (preparationItem) runnerItem()   {}
+func (outcomeItem) runnerItem()       {}
+func (sessionEventsItem) runnerItem() {}
+
+func instructionItems(instructions instructionSequence) []runnerItem {
+	items := make([]runnerItem, len(instructions))
+	for index, instruction := range instructions {
+		items[index] = instructionItem{instruction: instruction}
+	}
+	return items
+}
+
 type instructionExecutorPort interface {
 	publish(Event)
 	startWorkflowShell(startShellInstruction)
@@ -26,7 +45,8 @@ type instructionExecutorPort interface {
 }
 
 type instructionModelPort interface {
-	ApplyResult(workflowCompletion) instructionSequence
+	ApplyPreparation(preparationResult) instructionSequence
+	ApplyOutcome(executionOutcome) instructionSequence
 	ApplySessionEvent(session.Event) (instructionSequence, bool)
 	AppendRecord(room.Record)
 	TakeTranscriptChanges() []TranscriptChanged
@@ -55,8 +75,11 @@ func (r *instructionRunner) Run(sequence instructionSequence) {
 			follow, snapshot := r.apply(item.instruction)
 			queue = append(follow, queue...)
 			snapshotRequested = snapshotRequested || snapshot
-		case completionItem:
-			follow := r.model.ApplyResult(item.completion)
+		case preparationItem:
+			follow := r.model.ApplyPreparation(item.result)
+			queue = append(instructionItems(follow), queue...)
+		case outcomeItem:
+			follow := r.model.ApplyOutcome(item.outcome)
 			queue = append(instructionItems(follow), queue...)
 		case sessionEventsItem:
 			// Project the complete dispatch burst before running instructions derived
@@ -73,9 +96,12 @@ func (r *instructionRunner) Run(sequence instructionSequence) {
 	}
 }
 
-func (r *instructionRunner) apply(value instruction) ([]executorItem, bool) {
+func (r *instructionRunner) apply(value instruction) ([]runnerItem, bool) {
 	if snapshot, handled := r.applyStateInstruction(value); handled {
 		return nil, snapshot
+	}
+	if items, handled := r.applyPreparationInstruction(value); handled {
+		return items, false
 	}
 	if items, snapshot, handled := r.applyExecutionInstruction(value); handled {
 		return items, snapshot
@@ -108,43 +134,51 @@ func (r *instructionRunner) applyStateInstruction(value instruction) (bool, bool
 	}
 }
 
-func (r *instructionRunner) applyExecutionInstruction(value instruction) ([]executorItem, bool, bool) {
+func (r *instructionRunner) applyExecutionInstruction(value instruction) ([]runnerItem, bool, bool) {
 	switch value := value.(type) {
 	case executeCommandInstruction:
 		items, snapshot := r.executeCommand(value)
 		return items, snapshot, true
 	case executeSessionInstruction:
 		return r.executeSession(value), false, true
-	case readRosterInstruction:
-		return []executorItem{completionItem{completion: rosterCompletion{
-			raw: value.raw, participants: r.executor.roster(),
-		}}}, false, true
-	case prepareSendInstruction:
-		plan, targets := r.executor.createParticipantSendPlan(value.alias)
-		return []executorItem{completionItem{completion: sendPlanResult{
-			target: value.target, plan: plan, targets: targets, participants: r.executor.participantState(),
-		}}}, false, true
-	case planBroadcastInstruction:
-		targets := r.executor.planBroadcast()
-		return []executorItem{completionItem{completion: broadcastPlanResult{
-			target: value.target, targets: targets,
-		}}}, false, true
-	case readParticipantStateInstruction:
-		readinessRequirements := r.executor.participantState()
-		return []executorItem{completionItem{completion: participantStateResult{
-			target: value.target, readinessRequirements: readinessRequirements,
-		}}}, false, true
-	case readHandoffSourceInstruction:
-		source, ok := r.model.ReadHandoffSource(value.alias)
-		return []executorItem{completionItem{completion: handoffSourceResult{
-			target: value.target, source: source, ok: ok,
-		}}}, false, true
 	default:
 		return nil, false, false
 	}
 }
 
-func (r *instructionRunner) applyLifecycleInstruction(value instruction) ([]executorItem, bool) {
+// Preparation reads return facts immediately; they never introduce a wait.
+func (r *instructionRunner) applyPreparationInstruction(value instruction) ([]runnerItem, bool) {
+	switch value := value.(type) {
+	case readRosterInstruction:
+		return []runnerItem{preparationItem{result: rosterResult{
+			raw: value.raw, participants: r.executor.roster(),
+		}}}, true
+	case prepareSendInstruction:
+		plan, targets := r.executor.createParticipantSendPlan(value.alias)
+		return []runnerItem{preparationItem{result: sendPlanResult{
+			target: value.target, plan: plan, targets: targets, participants: r.executor.participantState(),
+		}}}, true
+	case planBroadcastInstruction:
+		targets := r.executor.planBroadcast()
+		return []runnerItem{preparationItem{result: broadcastPlanResult{
+			target: value.target, targets: targets,
+		}}}, true
+	case readParticipantStateInstruction:
+		readinessRequirements := r.executor.participantState()
+		return []runnerItem{preparationItem{result: participantStateResult{
+			target: value.target, readinessRequirements: readinessRequirements,
+		}}}, true
+	case readHandoffSourceInstruction:
+		source, ok := r.model.ReadHandoffSource(value.alias)
+		return []runnerItem{preparationItem{result: handoffSourceResult{
+			target: value.target, source: source, ok: ok,
+		}}}, true
+	default:
+		return nil, false
+	}
+}
+
+func (r *instructionRunner) applyLifecycleInstruction(value instruction) ([]runnerItem, bool) {
 	switch value := value.(type) {
 	case startShellInstruction:
 		r.executor.startWorkflowShell(value)
@@ -164,12 +198,12 @@ func (r *instructionRunner) applyLifecycleInstruction(value instruction) ([]exec
 	}
 }
 
-func (r *instructionRunner) executeCommand(value executeCommandInstruction) ([]executorItem, bool) {
-	completion := value.completion
-	completion.err = r.executor.executeCommand(value.command)
+func (r *instructionRunner) executeCommand(value executeCommandInstruction) ([]runnerItem, bool) {
+	outcome := value.outcome
+	outcome.err = r.executor.executeCommand(value.command)
 	eventSequence := materializeSnapshot(r.ApplySessionEvents(r.executor.takeSessionEvents()))
 	items := instructionItems(eventSequence)
-	items = append(items, completionItem{completion: completion})
+	items = append(items, outcomeItem{outcome: outcome})
 	return items, false
 }
 
@@ -189,13 +223,13 @@ func materializeSnapshot(sequence instructionSequence) instructionSequence {
 	return result
 }
 
-func (r *instructionRunner) executeSession(value executeSessionInstruction) []executorItem {
+func (r *instructionRunner) executeSession(value executeSessionInstruction) []runnerItem {
 	err := r.executor.executeSessionRequest(value.request)
 	events := r.executor.takeSessionEvents()
 	routing := routingResultFromEvents(events)
 	accepted, err := routingAcceptance(value.request, routing, err)
 	applySuccessRecords := accepted && len(value.recordsOnSuccess) != 0
-	items := []executorItem{}
+	items := []runnerItem{}
 	if applySuccessRecords {
 		for _, record := range value.recordsOnSuccess {
 			if routing.Kind != "" {
@@ -205,7 +239,7 @@ func (r *instructionRunner) executeSession(value executeSessionInstruction) []ex
 		}
 	}
 	items = append(items, sessionEventsItem{events: events})
-	items = append(items, completionItem{completion: sessionCompletion{
+	items = append(items, outcomeItem{outcome: sessionOutcome{
 		target:  value.target,
 		routing: routing,
 		err:     err,

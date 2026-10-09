@@ -143,3 +143,27 @@ func (r *stageRequirements) requiredReadyAliases() []string {
 	slices.Sort(aliases)
 	return aliases
 }
+
+type participantState struct {
+	alias          string
+	status         participant.Status
+	turnID         uint64
+	startupPending bool
+}
+
+func (s participantState) view() participant.View {
+	return participant.View{Alias: s.alias, Status: s.status, TurnID: s.turnID, StartupReady: !s.startupPending}
+}
+
+func (r *stageRequirements) interruptibleAliases(cancelled []string) []string {
+	waiting := r.waitingAliases()
+	var aliases []string
+	for _, value := range r.participants {
+		if value.view().HasActiveTurn() && value.view().IsCancellable() &&
+			slices.Contains(waiting, value.alias) && !slices.Contains(cancelled, value.alias) {
+			aliases = append(aliases, value.alias)
+		}
+	}
+	slices.Sort(aliases)
+	return aliases
+}

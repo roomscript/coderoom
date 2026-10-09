@@ -42,10 +42,9 @@ func (m *interpreterModel) ApplySessionEvent(event session.Event) (instructionSe
 	return actions, true
 }
 
-// ApplyResult distinguishes synchronous preparation facts from execution outcomes.
-// A later shell result resumes a loop; session outcomes arrive after their causal
-// events settle. Each workflow checks that the result still belongs to its work.
-func (m *interpreterModel) ApplyResult(result workflowCompletion) instructionSequence {
+// ApplyPreparation applies synchronous planning and inspection facts. No work
+// is suspended while these reads run; workflows may retain the prepared plan.
+func (m *interpreterModel) ApplyPreparation(result preparationResult) instructionSequence {
 	switch result := result.(type) {
 	case sendPlanResult:
 		return m.workflows.stage.prepareSend(result)
@@ -55,21 +54,29 @@ func (m *interpreterModel) ApplyResult(result workflowCompletion) instructionSeq
 		return m.workflows.stage.handleParticipantState(result)
 	case handoffSourceResult:
 		return m.workflows.stage.handleHandoffSource(result)
-	case sessionCompletion:
-		return m.applySessionOutcome(result)
-	case shellCompletion:
-		if result.target.kind == workflowLoop {
-			return m.workflows.loop.resumeOnConditionResult(result)
-		}
-	case submissionCompletion:
-		return submissionResultSequence(result)
-	case rosterCompletion:
+	case rosterResult:
 		return rosterResultSequence(result)
 	}
 	return nil
 }
 
-func (m *interpreterModel) applySessionOutcome(result sessionCompletion) instructionSequence {
+// ApplyOutcome handles execution outcomes. Session commands are synchronous and
+// their causal events settle first. A later shell outcome resumes suspended work.
+func (m *interpreterModel) ApplyOutcome(outcome executionOutcome) instructionSequence {
+	switch outcome := outcome.(type) {
+	case sessionOutcome:
+		return m.applySessionOutcome(outcome)
+	case shellOutcome:
+		if outcome.target.kind == workflowLoop {
+			return m.workflows.loop.resumeOnConditionResult(outcome)
+		}
+	case submissionOutcome:
+		return submissionResultSequence(outcome)
+	}
+	return nil
+}
+
+func (m *interpreterModel) applySessionOutcome(result sessionOutcome) instructionSequence {
 	switch result.target.kind {
 	case workflowLoop:
 		return m.workflows.loop.finishParticipantDelivery(result)
@@ -86,7 +93,7 @@ func (op shellCompletedOperation) apply(e *interpreterExecutor) {
 }
 
 func (op workflowShellCompletedOperation) apply(e *interpreterExecutor) {
-	e.runner.Run(e.model.ApplyResult(shellCompletion{
+	e.runner.Run(e.model.ApplyOutcome(shellOutcome{
 		target:  op.target,
 		request: op.request,
 		result:  op.result,

@@ -93,13 +93,13 @@ func (w *loopWorkflow) resumeOnParticipantEvent(event session.Event) instruction
 
 // finishParticipantDelivery consumes the synchronous command result after its
 // causal events have been applied. A successful delivery starts the actual wait.
-func (w *loopWorkflow) finishParticipantDelivery(completion sessionCompletion) instructionSequence {
-	if !w.matches(completion.target, loopDispatchingParticipant) {
+func (w *loopWorkflow) finishParticipantDelivery(outcome sessionOutcome) instructionSequence {
+	if !w.matches(outcome.target, loopDispatchingParticipant) {
 		return nil
 	}
 	state := w.active
 	state.pending = workflowRef{}
-	if !state.participantTurnStarted(completion.routing) {
+	if !state.participantTurnStarted(outcome.routing) {
 		return w.finishDispatch("[loop] stopped: participant turn could not start")
 	}
 	if state.dispatchTerminalStatus != "" {
@@ -137,14 +137,14 @@ func (w *loopWorkflow) finishDispatch(message string) instructionSequence {
 
 // resumeOnConditionResult resumes after shell execution. Stale results are still
 // observed, but cannot advance the current loop.
-func (w *loopWorkflow) resumeOnConditionResult(completion shellCompletion) instructionSequence {
-	sequence := shellObservationSequence(completion)
-	if !w.matches(completion.target, loopEvaluating) {
+func (w *loopWorkflow) resumeOnConditionResult(outcome shellOutcome) instructionSequence {
+	sequence := shellObservationSequence(outcome)
+	if !w.matches(outcome.target, loopEvaluating) {
 		return sequence
 	}
 	state := w.active
 	state.pending = workflowRef{}
-	sequence.append(w.advanceAfterCondition(completion.result))
+	sequence.append(w.advanceAfterCondition(outcome.result))
 	sequence = append(sequence, requestSnapshotInstruction{})
 	return sequence
 }

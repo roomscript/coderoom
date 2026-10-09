@@ -44,23 +44,6 @@ type stageWorkflow struct {
 
 func (w *stageWorkflow) pending() bool { return w.active != nil }
 
-func (w *stageWorkflow) takeForEdit() (instructionSequence, string, bool) {
-	if w.active == nil {
-		return nil, "", false
-	}
-	raw := w.active.raw
-	w.active = nil
-	return instructionSequence{requestSnapshotInstruction{}}, raw, true
-}
-
-func (w *stageWorkflow) discard() (instructionSequence, bool) {
-	if w.active == nil {
-		return nil, false
-	}
-	w.active = nil
-	return instructionSequence{requestSnapshotInstruction{}}, true
-}
-
 func (w *stageWorkflow) mustDiscard() bool {
 	state := w.active
 	if state.send != nil {
@@ -111,7 +94,7 @@ func (w *stageWorkflow) snapshot() *StagedSubmission {
 	return &StagedSubmission{
 		Raw: w.active.raw, Routing: slices.Clone(w.active.routing),
 		NotReadyAliases:    w.active.requirements.waitingAliases(),
-		Interruptible:      interruptibleStageAliases(w.active),
+		Interruptible:      w.active.requirements.interruptibleAliases(w.active.interruption.cancelled),
 		Unavailable:        slices.Clone(w.active.requirements.unavailable),
 		InterruptRequested: w.active.interruption.requested,
 		Phase:              StagePhasePending,

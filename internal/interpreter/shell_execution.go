@@ -32,3 +32,14 @@ func (e *interpreterExecutor) startWorkflowShell(value startShellInstruction) {
 		})
 	}()
 }
+
+type shellRequest struct {
+	command string
+	program string
+}
+
+type workflowShellCompletedOperation struct {
+	target  workflowRef
+	request shellRequest
+	result  shell.Result
+}

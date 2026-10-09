@@ -5,7 +5,7 @@ until they can proceed. It owns prompt meaning, command definitions, workflows,
 and the room's conversation history. Session owns lifecycle and delivery;
 front ends present interpreter state and events.
 
-This is the proposed core model for #55, not a description of new Go types.
+For code entry points, start at `api_requests.go`, `core_input.go`, and `core_events.go`.
 
 | Concept | Meaning |
 |---|---|

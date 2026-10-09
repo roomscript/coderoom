@@ -99,7 +99,7 @@ func TestStageWorkflow_interruptSkipsStartupAndMaintenance(t *testing.T) {
 	if cancel.request != (cancelRequest{alias: "ada"}) {
 		t.Fatalf("request = %#v", cancel.request)
 	}
-	workflow.handleCompletion(sessionCompletion{target: cancel.target})
+	workflow.handleCompletion(sessionOutcome{target: cancel.target})
 	workflow.handleSessionEvent(session.ParticipantStatusChanged{Alias: "ada", To: participant.StatusIdle})
 	workflow.handleSessionEvent(session.AgentReady{Alias: "ben"})
 	if !workflow.pending() {
