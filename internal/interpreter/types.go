@@ -157,6 +157,18 @@ type HelpListed struct {
 	Messages []HelpEntry
 }
 
+// DebugAction identifies a front-end debug operation parsed by the interpreter.
+type DebugAction string
+
+// Supported presentation-only debug actions.
+const (
+	DebugActionView DebugAction = "view"
+	DebugActionRows DebugAction = "rows"
+)
+
+// DebugRequested asks the front end to execute a presentation-only debug action.
+type DebugRequested struct{ Action DebugAction }
+
 // ExitRequested asks a front end to end its interactive session.
 type ExitRequested struct{}
 
@@ -236,3 +248,5 @@ func approvalOptionLabel(option agent.ApprovalOption) string {
 		return string(option)
 	}
 }
+
+func (DebugRequested) interpreterEvent() {}

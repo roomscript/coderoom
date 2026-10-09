@@ -191,6 +191,26 @@ func TestSubmissionSource_rejectedLoopPreservesActiveSource(t *testing.T) {
 	}
 }
 
+func TestSubmissionSource_debugDispatchPreservesPendingStage(t *testing.T) {
+	interp, sess, events := newSubmitContractInterpreter(t)
+	sess.roster = []participant.View{{Alias: "ada", Status: participant.StatusWorking, StartupReady: true}}
+	mustSubmit(t, interp.Submit("@ada hello"))
+	receiveSubmitEvent[InputAccepted](t, events)
+	receiveSubmitEvent[SubmissionSucceeded](t, events)
+	receiveSubmitEvent[StateChanged](t, events)
+	mustSubmit(t, interp.Submit("/debugrows"))
+	receiveSubmitEvent[InputAccepted](t, events)
+	debug := receiveSubmitEvent[DebugRequested](t, events)
+	if debug.Action != DebugActionRows {
+		t.Fatalf("debug action = %q", debug.Action)
+	}
+	receiveSubmitEvent[SubmissionSucceeded](t, events)
+	if stage := interp.Snapshot().Stage; stage == nil || stage.Raw != "@ada hello" {
+		t.Fatalf("stage = %#v", stage)
+	}
+	assertNoSubmitExecution(t, sess.executed)
+}
+
 func parseSourceStatement(t *testing.T, raw string) promptlang.ParsedStatement {
 	t.Helper()
 	statement, err := promptlang.Parse(raw)

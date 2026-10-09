@@ -113,8 +113,8 @@ through `errors.Is` and `errors.As`. Existing parser and registry diagnostics ar
 preserved. Native argument failures identify the relevant argument; shell failures
 identify the submitted program or command reference, and loop condition failures
 identify the condition reference. Other failures use the whole statement span.
-The pending-stage admission gate still runs before parsing and identifies the
-complete rejected submission.
+The pending-stage admission gate precedes syntax diagnostics and identifies the
+complete rejected submission; presentation-only debug commands remain available.
 
 ### Internal ownership
 
@@ -344,12 +344,13 @@ sequenceDiagram
 errors and unknown commands become interpreter events; they are not rendered
 inside the interpreter.
 
-Before parsing, `Submit` checks staged-submission state
-on the interpreter loop. If a stage exists, the submission is rejected with
-`InputRejected{Raw: raw, Err: ErrStagePending}`. This preserves the current
+`Submit` parses once on the interpreter loop, then checks staged-submission
+admission before reporting syntax diagnostics or executing application commands.
+If a stage exists, application submissions are rejected with an `InputRejected`
+diagnostic wrapping `ErrStagePending`. This preserves the current
 single-stage policy:
 
-- the raw input is not parsed or appended to room history
+- the raw input is not validated for execution or appended to room history
 - `InputAccepted` and `UnknownCommand` are not published; `InputRejected` is
   the terminal outcome
 - the existing stage is neither replaced nor modified
@@ -361,6 +362,13 @@ through the dedicated stage operations: take for edit, discard, or
 interrupt-and-dispatch. Because the stage check and rejection run on the
 interpreter loop, they are atomic with auto-dispatch and other stage
 transitions.
+
+Presentation-only `/debugview` and `/debugrows` remain available during a stage.
+The interpreter recognizes them, records accepted input, emits `DebugRequested`
+and finishes the submission. The front end owns debug enablement and execution;
+it uses structured events and parsed statements without reparsing input or
+appending a duplicate input record. An architecture test rejects production UI
+access to `promptlang.Parse`.
 
 ```go
 var ErrStagePending = errors.New("submission blocked by pending stage")
@@ -424,6 +432,7 @@ the rendered transcript. Representative event categories are:
 
 ```go
 type InputAccepted struct {
+    Statement promptlang.ParsedStatement
     Raw     string
     Routing []string
 }
@@ -435,15 +444,19 @@ type InputRejected struct {
 }
 
 type UnknownCommand struct {
+    Statement promptlang.ParsedStatement
+    Err error
     Raw  string
     Name string
 }
 
 type SubmissionSucceeded struct {
+    Statement promptlang.ParsedStatement
     Raw string
 }
 
 type SubmissionFailed struct {
+    Statement promptlang.ParsedStatement
 	Raw       string
 	Operation string
 	Code      ErrorCode
@@ -728,7 +741,7 @@ blocking, synchronous observer callbacks, and active-call counters.
 | Synchronous session callback | `Submit` completes without deadlock; the callback is projected only after it is dequeued by the interpreter loop. |
 | Sequential submissions | A later submission cannot execute before an earlier submission and its synchronously emitted session events are fully applied. |
 | Concurrent submissions | Every resulting `session.Execute` call has at most one active invocation; order is the interpreter queue's acceptance order. |
-| Submission during an active stage | `InputRejected.Err` wraps or equals `ErrStagePending`; that rejection is terminal; the input is not parsed or recorded, the existing stage is unchanged, and neither a native handler nor `session.Execute` runs. |
+| Submission during an active stage | `InputRejected.Err` wraps or equals `ErrStagePending`; that rejection is terminal; the input is not recorded, the existing stage is unchanged, and neither a native handler nor `session.Execute` runs. |
 | Submission after shutdown | The submission returns `ErrClosed`, does not execute, and does not publish through the closed dispatcher. |
 
 Every successfully enqueued scenario above publishes exactly one of

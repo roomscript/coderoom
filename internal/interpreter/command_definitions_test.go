@@ -94,7 +94,7 @@ func assertNativeHelpDispatch(t *testing.T, raw string, statement promptlang.Sta
 	}
 }
 
-func TestNativeCommandDefinitions_debugCommandsRemainUIOnly(t *testing.T) {
+func TestNativeCommandDefinitions_debugCommandsRequestPresentation(t *testing.T) {
 	for _, raw := range []string{"/debugview", "/debugrows"} {
 		t.Run(raw, func(t *testing.T) {
 			statement, err := promptlang.Parse(raw)
@@ -103,12 +103,14 @@ func TestNativeCommandDefinitions_debugCommandsRemainUIOnly(t *testing.T) {
 			}
 			model := newInterpreterModel()
 			t.Cleanup(model.Close)
-			if _, handled := model.prepareCommand(raw, statement.Value); handled {
-				t.Fatal("UI-only command dispatched natively")
+			sequence, handled := model.prepareCommand(raw, statement.Value)
+			if !handled {
+				t.Fatal("debug command did not reach interpreter dispatch")
 			}
+			sourceEvent[DebugRequested](t, sequence)
 			for _, definition := range nativeCommandDefinitions {
-				if definition.matches(statement.Value) && (definition.submit != nil || len(definition.help) != 0) {
-					t.Fatal("UI-only definition exposes native dispatch or help")
+				if definition.matches(statement.Value) && (definition.submit == nil || len(definition.help) != 0) {
+					t.Fatal("debug definition lacks dispatch or exposes native help")
 				}
 			}
 		})

@@ -13,7 +13,7 @@ it does not imply the core algorithm refactor is complete.
 
 | Concept / responsibility | Entry point | Current algorithm / implementation |
 |---|---|---|
-| Submit a request | `Submit` in `api_requests.go` | `handleInput` in `core_input.go` checks the pending-stage gate, parses input, and runs `model.PrepareRequest` decisions. |
+| Submit a request | `Submit` in `api_requests.go` | `handleInput` in `core_input.go` parses input once, checks admission, and runs `model.PrepareRequest` decisions. |
 | Edit or discard pending work | `TakeStageForEdit`, `DiscardStage` in `api_requests.go` | `core_stage_operations.go` removes the retained plan, then returns the draft or discard result. |
 | Interrupt work | `InterruptAndDispatchStage` in `api_requests.go` | `core_stage_operations.go` selects cancellable blockers; lifecycle events establish readiness. |
 | Resolve an approval | `ResolveApproval` in `api_requests.go` | `resolveApprovalOperation.apply` validates the choice, sends it to session, and updates approval state. |
@@ -599,7 +599,7 @@ operations:
 func (m *interpreterModel) CheckInputAllowed(raw string) instructionSequence
 func (m *interpreterModel) PrepareRequest(
     raw string,
-    statement promptlang.Statement,
+    statement promptlang.ParsedStatement,
 ) instructionSequence
 func (m *interpreterModel) ApplySessionEvent(
     event session.Event,
@@ -609,8 +609,9 @@ func (m *interpreterModel) ApplyOutcome(outcome executionOutcome) instructionSeq
 ```
 
 These operations are state transitions, not parsers or instruction factories.
-`CheckInputAllowed` preserves model-owned rejection decisions that must occur
-before parsing, including the pending-stage gate. `PrepareRequest` applies an already
+`CheckInputAllowed` preserves model-owned rejection decisions that precede
+syntax diagnostics and execution, including the pending-stage gate. Pure parsing
+occurs once so presentation-only debug requests remain available during a stage. `PrepareRequest` applies an already
 parsed statement, while the `Apply...` operations apply external facts to model
 state. Each returns the instructions caused by that transition. The submit
 operation never reads stage or workflow state directly. Unknown-command

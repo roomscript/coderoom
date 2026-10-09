@@ -11,6 +11,7 @@ import (
 	roomconfig "github.com/roomscript/coderoom/internal/config"
 	"github.com/roomscript/coderoom/internal/interpreter"
 	"github.com/roomscript/coderoom/internal/participant"
+	"github.com/roomscript/coderoom/internal/promptlang"
 	"github.com/roomscript/coderoom/internal/session"
 	"github.com/roomscript/coderoom/internal/ui/room/history/record"
 )
@@ -25,7 +26,7 @@ func (a *quitTrackingAgent) Stop() error {
 	return a.testAgent.Stop()
 }
 
-func TestSubmit_LegacyCommandBypassesInterpreter(t *testing.T) {
+func TestSubmit_DebugCommandUsesInterpreterDispatch(t *testing.T) {
 	m := makeReadyModel(t)
 
 	m = submitThroughInterpreter(t, m, "/debugview")
@@ -34,10 +35,10 @@ func TestSubmit_LegacyCommandBypassesInterpreter(t *testing.T) {
 		t.Fatalf("user input records = %d, want 1", got)
 	}
 	if !hasRecord(m, record.KindSystem, "debug commands disabled") {
-		t.Fatalf("expected legacy debug result; records: %v", m.room.HistoryRecords())
+		t.Fatalf("expected debug result; records: %v", m.room.HistoryRecords())
 	}
 	if _, ok := m.interpreterQueue.TryPull(); ok {
-		t.Fatal("legacy command produced an interpreter event")
+		t.Fatal("debug submission left unexpected interpreter events")
 	}
 }
 
@@ -253,7 +254,12 @@ func TestSubmit_FallbackFailuresPreserveCommandContext(t *testing.T) {
 			m := makeReadyModel(t)
 			m.submissionPending = true
 
+			statement, err := promptlang.Parse(tt.raw)
+			if err != nil {
+				t.Fatal(err)
+			}
 			m, _ = m.handleInterpreterEvent(interpreter.SubmissionFailed{
+				Statement: statement,
 				Raw:       tt.raw,
 				Operation: tt.name,
 				Err:       errors.New("failed"),

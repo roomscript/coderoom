@@ -3,7 +3,7 @@ package interpreter
 import "github.com/roomscript/coderoom/internal/promptlang"
 
 // nativeCommandDefinition binds statement dispatch to its help metadata.
-// UI-only debug statements are registered without native handlers or help.
+// Debug statements dispatch presentation requests without native help.
 type nativeCommandDefinition struct {
 	name    string
 	message bool
@@ -43,8 +43,8 @@ func init() {
 		defineNativeCommand("who", submitWho, HelpEntry{Usage: "/who", Description: "list agents"}),
 		defineNativeCommand("help", submitHelp, HelpEntry{Usage: "/help", Description: "show this message"}),
 		defineNativeCommand("quit", submitQuit, HelpEntry{Usage: "/quit", Description: "exit"}),
-		defineNativeCommand[promptlang.DebugView]("debugview", nil),
-		defineNativeCommand[promptlang.DebugRows]("debugrows", nil),
+		defineNativeCommand("debugview", submitDebugView),
+		defineNativeCommand("debugrows", submitDebugRows),
 		defineMessageCommand(submitStage[promptlang.Send], HelpEntry{Usage: "@<alias> <text>", Description: "send to one agent"}),
 		defineMessageCommand(submitStage[promptlang.Broadcast], HelpEntry{Usage: "<text>", Description: "broadcast to all agents"}),
 	}

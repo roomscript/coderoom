@@ -112,7 +112,7 @@ UI-independent application layer. Responsible for:
 - Parsing and executing prompt-language statements
 - Owning room-scoped command definitions
 - Using one native definition catalog for statement dispatch and help metadata;
-  debug display statements remain explicitly UI-only
+  debug display statements dispatch interpreter requests for front-end execution
 - Executing shell-backed commands
 - Coordinating bounded loops
 - Coordinating pending barrier batches and interrupt-and-dispatch

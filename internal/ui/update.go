@@ -53,7 +53,7 @@ func (m Model) handleNonSessionMessage(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case stageDiscardedMsg, stageInterruptRequestedMsg:
 		return m, nil
 	case room.SubmitMsg:
-		return m.submit(msg.Text)
+		return m.submitToInterpreter(msg.Text), nil
 	case room.ApprovalDecisionMsg:
 		return m.handleApprovalDecision(msg)
 	default:
@@ -99,27 +99,6 @@ func (m Model) handleStageTakenForEdit(msg stageTakenForEditMsg) Model {
 	return m
 }
 
-func (m Model) submit(raw string) (Model, tea.Cmd) {
-	if strings.TrimSpace(raw) == "" {
-		return m, nil
-	}
-	statement, err := promptlang.Parse(raw)
-	if err != nil || !isUIOnlyStatement(statement.Value) {
-		return m.submitToInterpreter(raw), nil
-	}
-	m.releaseSubmissionGate()
-	return m.handleSubmit(raw)
-}
-
-func isUIOnlyStatement(statement promptlang.Statement) bool {
-	switch statement.(type) {
-	case promptlang.DebugView, promptlang.DebugRows:
-		return true
-	default:
-		return false
-	}
-}
-
 func (m Model) submitToInterpreter(raw string) Model {
 	if strings.TrimSpace(raw) == "" {
 		return m
@@ -144,14 +123,20 @@ func (m Model) handleInterpreterEvent(event interpreter.Event) (Model, tea.Cmd) 
 		return next, cmd
 	}
 	switch event := event.(type) {
+	case interpreter.DebugRequested:
+		return m.executeDebugAction(event.Action), nil
 	case interpreter.UnknownCommand:
 		m.releaseSubmissionGate()
 		if event.Name != "" {
-			err := promptlang.UndefinedCommandError{Name: event.Name}
+			err := event.Err
+			if err == nil {
+				err = promptlang.UndefinedCommandError{Name: event.Name}
+			}
 			m.room = m.room.AppendSystem(fmt.Sprintf("error: invoke /%s: %v", event.Name, err))
 			return m, nil
 		}
-		return m.handleSubmit(event.Raw)
+		m.room = m.room.AppendSystem("error: unknown command (type /help)")
+		return m, nil
 	case interpreter.InputRejected:
 		m.releaseSubmissionGate()
 		m.room = m.room.AppendSystem(formatInputRejection(event.Err))
@@ -159,11 +144,11 @@ func (m Model) handleInterpreterEvent(event interpreter.Event) (Model, tea.Cmd) 
 	case interpreter.SubmissionSucceeded:
 		m.releaseSubmissionGate()
 		m.stagedDispatchRaw = ""
-		m = m.renderSubmissionSuccess(event.Raw)
+		m = m.renderSubmissionSuccess(event.Statement.Value)
 		return m, nil
 	case interpreter.SubmissionFailed:
 		m.releaseSubmissionGate()
-		m = m.restoreFailedStagedDraft(event.Raw)
+		m = m.restoreFailedStagedDraft(event)
 		m.stagedDispatchRaw = ""
 		m.room = m.room.AppendSystem(formatSubmissionFailure(event))
 		return m, nil
@@ -172,48 +157,37 @@ func (m Model) handleInterpreterEvent(event interpreter.Event) (Model, tea.Cmd) 
 	}
 }
 
-func (m Model) restoreFailedStagedDraft(raw string) Model {
-	statement, err := promptlang.Parse(raw)
-	if err != nil {
-		return m
-	}
-	switch statement.Value.(type) {
+func (m Model) restoreFailedStagedDraft(event interpreter.SubmissionFailed) Model {
+	switch event.Statement.Value.(type) {
 	case promptlang.Send, promptlang.Broadcast, promptlang.Handoff:
 	default:
 		return m
 	}
-	if m.stagedDispatchRaw == raw {
+	if m.stagedDispatchRaw == event.Raw {
 		return m
 	}
-	return m.restoreSubmittedComposer(raw)
+	return m.restoreSubmittedComposer(event.Raw)
 }
 
 func formatSubmissionFailure(event interpreter.SubmissionFailed) string {
 	if event.Code == interpreter.ErrorParticipantUnavailable {
 		return "error: " + event.Err.Error()
 	}
-	statement, err := promptlang.Parse(event.Raw)
-	if err == nil {
-		switch action := statement.Value.(type) {
-		case promptlang.Invite:
-			return fmt.Sprintf("error: invite %q: %v", action.Alias.Value, event.Err)
-		case promptlang.Remove:
-			return fmt.Sprintf("error: remove %q: %v", action.Alias.Value, event.Err)
-		case promptlang.Cancel:
-			return fmt.Sprintf("error: cancel %q: %v", action.Alias.Value, event.Err)
-		case promptlang.PolicyEnable:
-			return "error: policy: " + event.Err.Error()
-		}
+	switch action := event.Statement.Value.(type) {
+	case promptlang.Invite:
+		return fmt.Sprintf("error: invite %q: %v", action.Alias.Value, event.Err)
+	case promptlang.Remove:
+		return fmt.Sprintf("error: remove %q: %v", action.Alias.Value, event.Err)
+	case promptlang.Cancel:
+		return fmt.Sprintf("error: cancel %q: %v", action.Alias.Value, event.Err)
+	case promptlang.PolicyEnable:
+		return "error: policy: " + event.Err.Error()
 	}
 	return fmt.Sprintf("error: %s: %v", event.Operation, event.Err)
 }
 
-func (m Model) renderSubmissionSuccess(raw string) Model {
-	statement, err := promptlang.Parse(raw)
-	if err != nil {
-		return m
-	}
-	switch action := statement.Value.(type) {
+func (m Model) renderSubmissionSuccess(statement promptlang.Statement) Model {
+	switch action := statement.(type) {
 	case promptlang.Cancel:
 		m.room = m.room.AppendSystem("[→ " + action.Alias.Value + "] cancel requested")
 	case promptlang.PolicyEnable:
@@ -351,29 +325,6 @@ func (m Model) handleResize(msg tea.WindowSizeMsg) Model {
 	return m
 }
 
-func (m Model) handleSubmit(raw string) (Model, tea.Cmd) {
-	if strings.TrimSpace(raw) == "" {
-		return m, nil
-	}
-	action, err := promptlang.Parse(raw)
-	if err != nil {
-		var unknown promptlang.UnknownCommandError
-		if errors.As(err, &unknown) {
-			m.room = m.room.AppendSystem("error: " + err.Error() + " (type /help)")
-			m.room = m.clearSubmittedComposer(raw)
-			return m, nil
-		}
-		m.room = m.room.AppendSystem("error: " + err.Error())
-		m.room = m.clearSubmittedComposer(raw)
-		return m, nil
-	}
-
-	m.room = m.room.AppendUserInput(raw, nil)
-	m.room = m.clearSubmittedComposer(raw)
-	m, _ = m.executeDebugAction(action.Value)
-	return m, nil
-}
-
 func (m Model) clearSubmittedComposer(raw string) room.Model {
 	if m.room.ComposeValue() != raw {
 		return m.room
@@ -433,24 +384,18 @@ func (m Model) updateParticipantColors(participants []participant.View) Model {
 	return m
 }
 
-func (m Model) executeDebugAction(a promptlang.Statement) (Model, bool) {
-	switch a.(type) {
-	case promptlang.DebugView:
-		if !m.debug {
-			m.room = m.room.AppendSystem("error: debug commands disabled (set CODEROOM_DEBUG=1)")
-			return m, true
-		}
-		return m.debugView(), true
-	case promptlang.DebugRows:
-		if !m.debug {
-			m.room = m.room.AppendSystem("error: debug commands disabled (set CODEROOM_DEBUG=1)")
-			return m, true
-		}
-		m.room = m.room.ToggleDebugRowNums()
-		return m, true
-	default:
-		return m, false
+func (m Model) executeDebugAction(action interpreter.DebugAction) Model {
+	if !m.debug {
+		m.room = m.room.AppendSystem("error: debug commands disabled (set CODEROOM_DEBUG=1)")
+		return m
 	}
+	switch action {
+	case interpreter.DebugActionView:
+		return m.debugView()
+	case interpreter.DebugActionRows:
+		m.room = m.room.ToggleDebugRowNums()
+	}
+	return m
 }
 
 const helpKeysText = `General keys:
