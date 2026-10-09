@@ -832,8 +832,8 @@ protects the replacement stage after edit or discard.
 
 This is a readability checkpoint, not completion of #55. Stages now retain typed
 actions only; send, broadcast, handoff and loop algorithms are exposed in core
-files. Command execution and the remaining runner instruction-dispatch invariants
-still need their planned review. No new subpackage
+files. Shell command execution now also has a core algorithm. The remaining runner
+instruction-dispatch invariants still need their planned review. No new subpackage
 is needed for this path.
 
 ## Worked sequence: staged dispatch
@@ -987,15 +987,12 @@ shared state no longer keeps a second generic statement. Unsupported stage actio
 are rejected before changing current work, and interruption dispatches directly to
 the typed action rather than a generic dispatch switch.
 
-Remaining substantial work is concentrated in `command_shell.go`, where command
-preparation and asynchronous execution share a file. Loop decisions now have a
-core algorithm and explicit participant and shell-result resumption points, as
-described below. Shell command preparation still needs the same treatment. After
-that, review the runner's synchronous preparation-result
-vocabulary and finalize file/type organization. The runner must continue applying
-causal events before delivery results; simplifying navigation must preserve that
-ordering. The API/core split is useful but does not by itself complete #55's
-human readability requirement.
+Stages, loops and shell commands now have core algorithms and explicit waiting
+and resumption points. Remaining work is reviewing the runner's synchronous
+preparation-result vocabulary and finalizing file/type organization. The runner
+must continue applying causal events before delivery results; simplifying
+navigation must preserve that ordering. The API/core split is useful but does
+not by itself complete #55's human readability requirement.
 
 ### Loop core checkpoint
 
@@ -1019,3 +1016,22 @@ dispatch-time departure tracking and submission bookkeeping. `loopWorkflow` in
 `workflow_loop.go` owns the active loop and result correlation. `loop_output.go`
 contains transcript and evidence formatting. Shared input acceptance now lives
 with request preparation in `core_input.go` rather than inside loop support.
+
+### Shell core checkpoint
+
+`core_shell.go` shows direct shell preparation, command definition and named
+invocation. Invocation resolves the program before accepting input. Definition
+updates the registry synchronously. Shell execution accepts input, launches work,
+then returns control so other requests can proceed.
+
+`startShell` reports submission success after launching. This is launch acceptance,
+not command success. A later `shellCompletedOperation` enters through
+`core_events.go` and calls `ApplyShellResult`: record the command outcome, publish
+`ShellCompleted`, and update observable state. Errors and cancellation remain
+structured shell results. Input and transcript publication order is preserved.
+
+`shell_execution.go` groups executor mechanics for user and loop-condition shells:
+run away from the serialized interpreter, then enqueue the result. Shutdown
+cancels the lifetime and waits for those goroutines. `shell_output.go` contains
+result formatting. `TestSubmitContract_shellWaitAllowsAnotherRequest` verifies
+that a blocked shell does not prevent a new request from completing.

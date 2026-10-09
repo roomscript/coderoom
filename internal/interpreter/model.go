@@ -3,12 +3,10 @@ package interpreter
 import (
 	"fmt"
 
-	"github.com/roomscript/coderoom/internal/agent"
 	"github.com/roomscript/coderoom/internal/participant"
 	"github.com/roomscript/coderoom/internal/promptlang"
 	"github.com/roomscript/coderoom/internal/room"
 	"github.com/roomscript/coderoom/internal/session"
-	"github.com/roomscript/coderoom/internal/shell"
 )
 
 // interpreterModel owns mutable interpreter state and deterministic decisions.
@@ -82,22 +80,6 @@ func rosterResultSequence(completion rosterCompletion) instructionSequence {
 			Participants: append([]participant.View(nil), completion.participants...),
 		}},
 		publishEventInstruction{event: SubmissionSucceeded{Raw: completion.raw}},
-	}
-}
-
-func (m *interpreterModel) ApplyShellResult(command, cwd string, result shell.Result) instructionSequence {
-	output := formatShellResult(result)
-	return instructionSequence{
-		appendRecordInstruction{record: room.NewAgentRecord(shellRecordAlias, agent.Message{
-			Mode: agent.ModeSingle,
-			Content: agent.Command{
-				Command: command, Cwd: cwd, Output: output, ExitCode: result.ExitCode,
-			},
-		})},
-		publishEventInstruction{event: ShellCompleted{
-			Command: command, Cwd: cwd, Result: result, Output: output,
-		}},
-		publishSnapshotInstruction{},
 	}
 }
 

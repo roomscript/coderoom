@@ -275,14 +275,3 @@ func (e *interpreterExecutor) executeCancelRequest(request cancelRequest) error 
 	}
 	return nil
 }
-
-func (e *interpreterExecutor) startWorkflowShell(value startShellInstruction) {
-	e.shellWG.Add(1)
-	go func() {
-		defer e.shellWG.Done()
-		result := e.runShell.Run(e.lifetime, e.cwd, value.request.program)
-		e.enqueue(workflowShellCompletedOperation{
-			target: value.target, request: value.request, result: result,
-		})
-	}()
-}

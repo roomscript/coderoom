@@ -216,3 +216,32 @@ func newShellTestInterpreter(t *testing.T, runner ShellRunner) (*Interpreter, ch
 	t.Cleanup(interp.Close)
 	return interp, events
 }
+
+func TestSubmitContract_shellWaitAllowsAnotherRequest(t *testing.T) {
+	runner := &fakeShellRunner{
+		result:  shell.Result{Status: shell.StatusSuccess},
+		started: make(chan struct{}), release: make(chan struct{}),
+	}
+	interp, events := newShellTestInterpreter(t, runner)
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(runner.release) }) }
+	t.Cleanup(release)
+	mustSubmit(t, interp.Submit("/shell blocked"))
+	receiveSubmitEvent[InputAccepted](t, events)
+	receiveSubmitEvent[SubmissionSucceeded](t, events)
+	<-runner.started
+
+	mustSubmit(t, interp.Submit("/who"))
+	receiveSubmitEvent[InputAccepted](t, events)
+	receiveSubmitEvent[StateChanged](t, events)
+	receiveSubmitEvent[RosterListed](t, events)
+	receiveSubmitEvent[SubmissionSucceeded](t, events)
+	assertNoSubmitEvent(t, events)
+
+	release()
+	completed := receiveSubmitEvent[ShellCompleted](t, events)
+	if completed.Command != "blocked" || completed.Result.Status != shell.StatusSuccess {
+		t.Fatalf("shell result = %#v", completed)
+	}
+	receiveSubmitEvent[StateChanged](t, events)
+}
