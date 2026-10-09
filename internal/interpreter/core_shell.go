@@ -40,7 +40,7 @@ func (m *interpreterModel) prepareShellCommand(
 	body, err := m.commands.Resolve(invocation)
 	if err != nil {
 		return instructionSequence{
-			publishEventInstruction{event: UnknownCommand{Raw: raw, Name: invocation.Name.Value}},
+			publishEventInstruction{event: UnknownCommand{Raw: raw, Name: invocation.Name.Value, Err: err}},
 		}
 	}
 	return prepareShellExecution(raw, "/"+invocation.Name.Value, body.Value.Program.Value)
@@ -54,16 +54,16 @@ func prepareShellExecution(raw, command, program string) instructionSequence {
 
 // startShell launches work and returns control. Submission success means the
 // launch was accepted; a later shellCompletedOperation reports execution results.
-func (e *interpreterExecutor) startShell(raw, command, program string) {
-	e.launchUserShell(command, program)
-	e.publish(SubmissionSucceeded{Raw: raw})
+func (e *interpreterExecutor) startShell(raw, command, program string, statement promptlang.ParsedStatement) {
+	e.launchUserShell(raw, command, program, statement)
+	e.publish(SubmissionSucceeded{Raw: raw, Statement: statement})
 }
 
 // ApplyShellResult resumes observation after asynchronous work completes: record
 // the command outcome, publish its structured result, then publish updated state.
-func (m *interpreterModel) ApplyShellResult(command, cwd string, result shell.Result) instructionSequence {
+func (m *interpreterModel) ApplyShellResult(raw, command, cwd string, result shell.Result, statement promptlang.ParsedStatement) instructionSequence {
 	output := formatShellResult(result)
-	return instructionSequence{
+	return withSubmissionSource(instructionSequence{
 		appendRecordInstruction{record: room.NewAgentRecord(shellRecordAlias, agent.Message{
 			Mode: agent.ModeSingle,
 			Content: agent.Command{
@@ -71,8 +71,8 @@ func (m *interpreterModel) ApplyShellResult(command, cwd string, result shell.Re
 			},
 		})},
 		publishEventInstruction{event: ShellCompleted{
-			Command: command, Cwd: cwd, Result: result, Output: output,
+			Raw: raw, Command: command, Cwd: cwd, Result: result, Output: output,
 		}},
 		publishSnapshotInstruction{},
-	}
+	}, statement)
 }

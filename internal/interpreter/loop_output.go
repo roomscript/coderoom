@@ -12,7 +12,7 @@ import (
 
 func shellObservationSequence(outcome shellOutcome) instructionSequence {
 	output := formatLoopConditionResult(outcome.result)
-	return instructionSequence{
+	return withSubmissionSource(instructionSequence{
 		appendRecordInstruction{record: room.NewAgentRecord(shellRecordAlias, agent.Message{
 			Mode: agent.ModeSingle,
 			Content: agent.Command{
@@ -21,10 +21,10 @@ func shellObservationSequence(outcome shellOutcome) instructionSequence {
 			},
 		})},
 		publishEventInstruction{event: ShellCompleted{
-			Command: outcome.request.command, Cwd: outcome.cwd,
+			Raw: outcome.request.raw, Command: outcome.request.command, Cwd: outcome.cwd,
 			Result: outcome.result, Output: output,
 		}},
-	}
+	}, outcome.request.statement)
 }
 
 func loopStatusSequence(message string) instructionSequence {

@@ -100,6 +100,22 @@ observable portion embedded in the live `participant.Participant`. This keeps
 participant fields and domain types canonical while preventing front ends from
 receiving agent capabilities or runtime bookkeeping.
 
+### Submission source locations
+
+Command preparation receives the parser's `ParsedStatement`. Submission acceptance,
+success, failure, unknown-command and shell-completion events carry that same
+located statement. Deferred stage and loop state retain it; asynchronous shell
+requests retain their own source so stale results cannot acquire a replacement
+workflow's locations. Operational failures from staged work also carry the source.
+
+Runtime errors use `promptlang.Diagnostic`, preserving their underlying errors
+through `errors.Is` and `errors.As`. Existing parser and registry diagnostics are
+preserved. Native argument failures identify the relevant argument; shell failures
+identify the submitted program or command reference, and loop condition failures
+identify the condition reference. Other failures use the whole statement span.
+The pending-stage admission gate still runs before parsing and identifies the
+complete rejected submission.
+
 ### Internal ownership
 
 `Interpreter` is only the public facade and composition root. Its two fields

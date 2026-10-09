@@ -85,6 +85,6 @@ func (w *stageWorkflow) handlePendingInterruptCompletion(
 		return sequence, true
 	}
 	return append(sequence, publishEventInstruction{event: OperationFailed{
-		Operation: "interrupt staged submission", Err: outcome.err,
+		Raw: w.active.raw, Operation: "interrupt staged submission", Err: outcome.err,
 	}}), true
 }

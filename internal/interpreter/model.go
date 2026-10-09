@@ -35,7 +35,9 @@ func (m *interpreterModel) DiscardStage() (instructionSequence, bool) {
 }
 
 func (m *interpreterModel) InterruptAndDispatchStage() (instructionSequence, bool) {
-	return m.workflows.stage.interruptAndDispatch()
+	source := m.workflows.stage.statement()
+	sequence, ok := m.workflows.stage.interruptAndDispatch()
+	return withSubmissionSource(sequence, source), ok
 }
 
 func newInterpreterModel() *interpreterModel {
@@ -67,20 +69,20 @@ func submissionResultSequence(outcome submissionOutcome) instructionSequence {
 			Raw: outcome.raw, Operation: outcome.operation,
 			Code: ErrorExecutionFailed, Err: outcome.err,
 		}})
-		return sequence
+		return withSubmissionSource(sequence, outcome.statement)
 	}
 	sequence = append(sequence, publishEventInstruction{event: SubmissionSucceeded{Raw: outcome.raw}})
-	return sequence
+	return withSubmissionSource(sequence, outcome.statement)
 }
 
 func rosterResultSequence(outcome rosterResult) instructionSequence {
-	return instructionSequence{
+	return withSubmissionSource(instructionSequence{
 		publishSnapshotInstruction{},
 		publishEventInstruction{event: RosterListed{
 			Participants: append([]participant.View(nil), outcome.participants...),
 		}},
 		publishEventInstruction{event: SubmissionSucceeded{Raw: outcome.raw}},
-	}
+	}, outcome.statement)
 }
 
 func (m *interpreterModel) AppendRecord(record room.Record) {

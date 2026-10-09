@@ -17,7 +17,7 @@ func (e *interpreterExecutor) handleInput(raw string) {
 		e.publish(InputRejected{Raw: raw, Code: ErrorInvalidInput, Err: err})
 		return
 	}
-	actions := e.model.PrepareRequest(raw, statement.Value)
+	actions := e.model.PrepareRequest(raw, statement)
 	e.runner.Run(actions)
 }
 
@@ -27,7 +27,10 @@ func (m *interpreterModel) CheckInputAllowed(raw string) instructionSequence {
 		return nil
 	}
 	return instructionSequence{publishEventInstruction{event: InputRejected{
-		Raw: raw, Code: ErrorStagePending, Err: ErrStagePending,
+		Raw: raw, Code: ErrorStagePending, Err: &promptlang.Diagnostic{
+			Code: promptlang.DiagnosticCode(ErrorStagePending), Span: promptlang.Span{End: len(raw)},
+			Message: ErrStagePending.Error(), Cause: ErrStagePending,
+		},
 	}}}
 }
 
@@ -35,14 +38,21 @@ func (m *interpreterModel) CheckInputAllowed(raw string) instructionSequence {
 // reads run synchronously; unmet requirements retain work for a later event.
 func (m *interpreterModel) PrepareRequest(
 	raw string,
-	statement promptlang.Statement,
+	statement promptlang.ParsedStatement,
 ) instructionSequence {
-	if sequence, handled := m.prepareCommand(raw, statement); handled {
-		return sequence
+	previousStage, previousLoop := m.workflows.stage.active, m.workflows.loop.active
+	if sequence, handled := m.prepareCommand(raw, statement.Value); handled {
+		if active := m.workflows.stage.active; active != nil && active != previousStage {
+			active.source = statement
+		}
+		if active := m.workflows.loop.active; active != nil && active != previousLoop {
+			active.source = statement
+		}
+		return withSubmissionSource(sequence, statement)
 	}
-	return instructionSequence{publishEventInstruction{event: UnknownCommand{
-		Raw: raw, Name: commandName(statement),
-	}}}
+	return withSubmissionSource(instructionSequence{publishEventInstruction{event: UnknownCommand{
+		Raw: raw, Name: commandName(statement.Value),
+	}}}, statement)
 }
 
 func acceptedInputSequence(raw string) instructionSequence {

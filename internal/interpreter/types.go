@@ -5,6 +5,7 @@ import (
 
 	"github.com/roomscript/coderoom/internal/agent"
 	"github.com/roomscript/coderoom/internal/participant"
+	"github.com/roomscript/coderoom/internal/promptlang"
 	roomstate "github.com/roomscript/coderoom/internal/room"
 	"github.com/roomscript/coderoom/internal/shell"
 )
@@ -94,14 +95,17 @@ type StateChanged struct{ Snapshot Snapshot }
 
 // OperationFailed reports an asynchronous interpreter operation failure.
 type OperationFailed struct {
+	Raw       string
+	Statement promptlang.ParsedStatement
 	Operation string
 	Err       error
 }
 
 // InputAccepted reports prompt-language input accepted for execution.
 type InputAccepted struct {
-	Raw     string
-	Routing []string
+	Statement promptlang.ParsedStatement
+	Raw       string
+	Routing   []string
 }
 
 // StagedInputDispatched reports the delivered routing for a staged input.
@@ -130,8 +134,10 @@ type InputRejected struct {
 
 // UnknownCommand reports valid input with no interpreter handler.
 type UnknownCommand struct {
-	Raw  string
-	Name string
+	Err       error
+	Statement promptlang.ParsedStatement
+	Raw       string
+	Name      string
 }
 
 // RosterListed reports the participant roster requested by /who. Front ends
@@ -156,10 +162,12 @@ type ExitRequested struct{}
 
 // ShellCompleted reports the structured result of a local shell command.
 type ShellCompleted struct {
-	Command string
-	Cwd     string
-	Result  shell.Result
-	Output  string
+	Raw       string
+	Statement promptlang.ParsedStatement
+	Command   string
+	Cwd       string
+	Result    shell.Result
+	Output    string
 }
 
 // LoopStatus reports a user-visible bounded-loop lifecycle transition.
@@ -167,10 +175,14 @@ type LoopStatus struct{ Message string }
 
 // SubmissionSucceeded reports that recognized input executed or scheduled
 // successfully. Asynchronous work started by the command may still be active.
-type SubmissionSucceeded struct{ Raw string }
+type SubmissionSucceeded struct {
+	Raw       string
+	Statement promptlang.ParsedStatement
+}
 
 // SubmissionFailed reports the terminal failure of recognized input.
 type SubmissionFailed struct {
+	Statement promptlang.ParsedStatement
 	Raw       string
 	Operation string
 	Code      ErrorCode

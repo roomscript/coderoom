@@ -68,7 +68,7 @@ func (w *stageWorkflow) failHandoffSource() instructionSequence {
 	sequence := instructionSequence{requestSnapshotInstruction{}}
 	if !state.submissionPending {
 		return append(sequence, publishEventInstruction{event: OperationFailed{
-			Operation: "handoff source", Err: errNoHandoffSource,
+			Raw: state.raw, Operation: "handoff source", Err: errNoHandoffSource,
 		}})
 	}
 	return append(sequence, publishEventInstruction{event: SubmissionFailed{

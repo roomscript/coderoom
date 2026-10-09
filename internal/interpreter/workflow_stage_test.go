@@ -518,7 +518,7 @@ func TestSubmitContract_stageOwnsPendingSnapshotAndPreParseGate(t *testing.T) {
 
 	mustSubmit(t, interp.Submit("/definitely-invalid argument"))
 	rejected := receiveSubmitEvent[InputRejected](t, events)
-	if rejected.Code != ErrorStagePending || rejected.Err != ErrStagePending {
+	if rejected.Code != ErrorStagePending || !errors.Is(rejected.Err, ErrStagePending) {
 		t.Fatalf("rejection = %#v", rejected)
 	}
 	assertNoSubmitExecution(t, sess.executed)

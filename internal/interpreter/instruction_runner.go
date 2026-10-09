@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/roomscript/coderoom/internal/participant"
+	"github.com/roomscript/coderoom/internal/promptlang"
 	"github.com/roomscript/coderoom/internal/room"
 	"github.com/roomscript/coderoom/internal/session"
 )
@@ -31,7 +32,7 @@ func instructionItems(instructions instructionSequence) []runnerItem {
 type instructionExecutorPort interface {
 	publish(Event)
 	startWorkflowShell(startShellInstruction)
-	startShell(string, string, string)
+	startShell(string, string, string, promptlang.ParsedStatement)
 	executeSessionRequest(sessionRequest) error
 	executeCommand(session.Command) error
 	createParticipantSendPlan(string) (session.ParticipantSendPlan, []string)
@@ -151,7 +152,7 @@ func (r *instructionRunner) applyPreparationInstruction(value instruction) ([]ru
 	switch value := value.(type) {
 	case readRosterInstruction:
 		return []runnerItem{preparationItem{result: rosterResult{
-			raw: value.raw, participants: r.executor.roster(),
+			raw: value.raw, statement: value.statement, participants: r.executor.roster(),
 		}}}, true
 	case prepareSendInstruction:
 		plan, targets := r.executor.createParticipantSendPlan(value.alias)
@@ -184,7 +185,7 @@ func (r *instructionRunner) applyLifecycleInstruction(value instruction) ([]runn
 		r.executor.startWorkflowShell(value)
 		return nil, true
 	case startUserShellInstruction:
-		r.executor.startShell(value.raw, value.command, value.program)
+		r.executor.startShell(value.raw, value.command, value.program, value.statement)
 		return nil, true
 	case requestCloseInstruction:
 		r.executor.requestClose()

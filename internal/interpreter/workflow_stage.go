@@ -6,6 +6,7 @@ import (
 	"slices"
 
 	"github.com/roomscript/coderoom/internal/participant"
+	"github.com/roomscript/coderoom/internal/promptlang"
 	"github.com/roomscript/coderoom/internal/room"
 )
 
@@ -16,6 +17,7 @@ var errUnsupportedStageAction = errors.New("unsupported staged action")
 var errNoHandoffSource = errors.New("handoff source has no completed room-visible output")
 
 type stageState struct {
+	source     promptlang.ParsedStatement
 	generation uint64
 	raw        string
 	pending    workflowRef

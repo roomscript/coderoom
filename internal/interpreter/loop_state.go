@@ -16,6 +16,7 @@ const (
 )
 
 type loopState struct {
+	source                 promptlang.ParsedStatement
 	generation             uint64
 	raw                    string
 	statement              promptlang.Loop
@@ -35,7 +36,7 @@ func (state *loopState) participantRequest(prompt string) createPlanAndExecutePa
 }
 
 func (state *loopState) conditionRequest() shellRequest {
-	return shellRequest{command: "/" + state.statement.Condition.Value, program: state.body.Program.Value}
+	return shellRequest{raw: state.raw, statement: state.source, command: "/" + state.statement.Condition.Value, program: state.body.Program.Value}
 }
 
 func (state *loopState) participantTurnStarted(routing session.RoutingResult) bool {

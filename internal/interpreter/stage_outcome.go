@@ -27,7 +27,7 @@ func (state *stageState) deliveryOutcome(outcome sessionOutcome) instructionSequ
 	if outcome.err != nil {
 		if !state.submissionPending {
 			return instructionSequence{publishEventInstruction{event: OperationFailed{
-				Operation: "staged dispatch", Err: outcome.err,
+				Raw: state.raw, Operation: "staged dispatch", Err: outcome.err,
 			}}}
 		}
 		return instructionSequence{publishEventInstruction{event: SubmissionFailed{

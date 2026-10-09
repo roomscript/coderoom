@@ -1,6 +1,7 @@
 package interpreter
 
 import (
+	"github.com/roomscript/coderoom/internal/promptlang"
 	"github.com/roomscript/coderoom/internal/room"
 	"github.com/roomscript/coderoom/internal/session"
 )
@@ -28,12 +29,16 @@ type executeCommandInstruction struct {
 }
 
 type startUserShellInstruction struct {
-	raw     string
-	command string
-	program string
+	statement promptlang.ParsedStatement
+	raw       string
+	command   string
+	program   string
 }
 
-type readRosterInstruction struct{ raw string }
+type readRosterInstruction struct {
+	raw       string
+	statement promptlang.ParsedStatement
+}
 type prepareSendInstruction struct {
 	target workflowRef
 	alias  string

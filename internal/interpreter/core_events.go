@@ -37,14 +37,23 @@ func (m *interpreterModel) ApplySessionEvent(event session.Event) (instructionSe
 		return nil, false
 	}
 	m.room.ApplyEvent(event)
-	actions := m.workflows.loop.handleSessionEvent(event)
-	actions.append(m.workflows.stage.handleSessionEvent(event))
+	loopSource, stageSource := m.workflows.loop.statement(), m.workflows.stage.statement()
+	actions := withSubmissionSource(m.workflows.loop.handleSessionEvent(event), loopSource)
+	actions.append(withSubmissionSource(m.workflows.stage.handleSessionEvent(event), stageSource))
 	return actions, true
 }
 
 // ApplyPreparation applies synchronous planning and inspection facts. No work
 // is suspended while these reads run; workflows may retain the prepared plan.
 func (m *interpreterModel) ApplyPreparation(result preparationResult) instructionSequence {
+	if roster, ok := result.(rosterResult); ok {
+		return rosterResultSequence(roster)
+	}
+	source := m.workflows.stage.statement()
+	return withSubmissionSource(m.applyPreparation(result), source)
+}
+
+func (m *interpreterModel) applyPreparation(result preparationResult) instructionSequence {
 	switch result := result.(type) {
 	case sendPlanResult:
 		return m.workflows.stage.prepareSend(result)
@@ -54,8 +63,6 @@ func (m *interpreterModel) ApplyPreparation(result preparationResult) instructio
 		return m.workflows.stage.handleParticipantState(result)
 	case handoffSourceResult:
 		return m.workflows.stage.handleHandoffSource(result)
-	case rosterResult:
-		return rosterResultSequence(result)
 	}
 	return nil
 }
@@ -68,7 +75,7 @@ func (m *interpreterModel) ApplyOutcome(outcome executionOutcome) instructionSeq
 		return m.applySessionOutcome(outcome)
 	case shellOutcome:
 		if outcome.target.kind == workflowLoop {
-			return m.workflows.loop.resumeOnConditionResult(outcome)
+			return withSubmissionSource(m.workflows.loop.resumeOnConditionResult(outcome), outcome.request.statement)
 		}
 	case submissionOutcome:
 		return submissionResultSequence(outcome)
@@ -79,9 +86,11 @@ func (m *interpreterModel) ApplyOutcome(outcome executionOutcome) instructionSeq
 func (m *interpreterModel) applySessionOutcome(result sessionOutcome) instructionSequence {
 	switch result.target.kind {
 	case workflowLoop:
-		return m.workflows.loop.finishParticipantDelivery(result)
+		source := m.workflows.loop.statement()
+		return withSubmissionSource(m.workflows.loop.finishParticipantDelivery(result), source)
 	case workflowStage:
-		return m.workflows.stage.applySessionOutcome(result)
+		source := m.workflows.stage.statement()
+		return withSubmissionSource(m.workflows.stage.applySessionOutcome(result), source)
 	default:
 		return nil
 	}
@@ -89,7 +98,7 @@ func (m *interpreterModel) applySessionOutcome(result sessionOutcome) instructio
 
 // Shell operations are resumption points after asynchronous execution returns.
 func (op shellCompletedOperation) apply(e *interpreterExecutor) {
-	e.runner.Run(e.model.ApplyShellResult(op.command, e.cwd, op.result))
+	e.runner.Run(e.model.ApplyShellResult(op.raw, op.command, e.cwd, op.result, op.statement))
 }
 
 func (op workflowShellCompletedOperation) apply(e *interpreterExecutor) {
