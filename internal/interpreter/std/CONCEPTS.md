@@ -1,54 +1,49 @@
 # Command concepts
 
 Working agreement for [#61](https://github.com/roomscript/coderoom/issues/61).
-Keep this document roughly one page; implementation details belong in code or
+Keep this document roughly one page; details belong in code or
 [design docs](../../../docs/design/pkg-interpreter-composition.md).
-`/who` exercises the prototype through its legacy completion path. Registration
-and dispatch remain unchanged; this is a temporary bridge.
+`/who` uses a temporary bridge; registration and dispatch remain unchanged.
 
 ## Command and invocation
 
-A **command** is stateless and owns its name, help metadata and preparation
-behavior. `Prepare(Context)` creates an independent **invocation**, which holds
-state for one use of the command.
+A **command** is stateless and owns its name, help metadata and preparation.
+`Prepare(Context)` creates an independent **invocation** for one use.
 
 ```text
 Prepare(context) -> invocation
-Init()           -> initialize, no output
-Next()           -> records and completion status
+Go(complete)    -> launch error, or accepted work
+complete(result) -> final records and execution error
 ```
 
-[`runtime.CommandRunner`](../runtime/command_runner.go) calls `Init` once, then
-`Next` until `Done`, collecting records in order, including the final step.
-It returns records without appending them. A step with no records and `Done: false`
-returns an error; waiting and resumption are not supported yet.
+`Go` returns control after initiating work. Completion may happen immediately
+(`/who`) or later. Launch acceptance and work completion are different milestones.
+There is no `Init`, `Next`, polling, or generic fact/expectation contract.
 
-## Capabilities and output
+## Capabilities and records
 
-**Context** supplies only the capabilities commands need, through narrow
-interfaces. `ParticipantReader` supplies participant information without session
-execution access. Commands receive no raw mutable interpreter model.
+**Context** supplies narrow capabilities. `ParticipantReader` exposes participant
+information without session execution access. Commands receive no raw model.
+Future execution capabilities must use executor-owned workers and lifetime.
 
-**Records** use the existing canonical `room.Record` contract. Commands construct
-records; the coordinator appends them to the transcript. The UI renders their
-existing kinds without command-specific result handling.
+**Completion** contains existing `room.Record` values and an error. Commands
+construct records and transfer ownership when calling `complete`; they must not
+mutate those records afterward. The callback only enqueues. The interpreter
+appends records and publishes outcomes in order on its serialized path.
 
-The coordinator owns serialized execution, input acceptance, transcript changes,
-submission outcomes, ordered publication and lifetime. Invocations do not perform
-I/O or publish events in `Init` or `Next`.
+The executor binds callbacks to invocation identities, consumes each completion
+once, and ignores duplicate results or results from failed launches. Shutdown
+drains retained completions, then fails unfinished invocations with `ErrClosed`
+and rejects late callbacks.
 
-## Current proof and open questions
+## Current proof and next step
 
-Shared contracts live in [`runtime/command.go`](../runtime/command.go); `std`
-depends on them, while the runner does not depend on command implementations.
-`/who` captures participant values during preparation. `Init` initializes its
-state; the first `Next` returns a system record and completes. The legacy
-completion bridge appends it before publishing submission completion. The notice preserves
-the existing `/who` display: sorted aliases as
-`[agents] ada, tim`, or `[no agents]` when empty.
+Contracts and `CommandRunner.Go` live in `runtime`; commands live in `std`.
+`/who` prepares its original sorted alias notice and completes immediately.
+Its queued completion appends the system record before submission success.
+The UI receives transcript deltas, with no `/who` result branch.
 
-Its notice arrives through transcript deltas, with no `/who` presentation branch
-in the UI. Generic module registration is deferred until we prove suspension.
-Argument binding, waiting, execution requests, cancellation, later errors and
-shutdown for pending invocations remain undecided. Add contracts when a concrete
-command needs them; no generic fact or expectation framework yet.
+Next, introduce `/shell` through its existing execution seam. It acknowledges
+submission after launch, before work finishes; preserve that distinction and
+its current structured event until deliberately retired. Execution capabilities,
+per-invocation cancellation and generic registration remain to be proved.

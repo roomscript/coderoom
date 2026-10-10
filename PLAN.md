@@ -75,8 +75,10 @@ the current package until a real consumer demonstrates a useful boundary.
   are exercised only through the legacy participant-result completion. Original
   registration, dispatch and participant-read instructions remain. The bridge
   returns the original notice as a canonical record, with exactly-once/order tests.
-  Generic module wiring was withdrawn: prove suspended addressed-send behavior
-  before settling the driver API and completing this migration.
+  Generic module wiring remains deferred. The callback prototype now replaces
+  `Init`/`Next` with `Go(complete)`, using queued, correlated completions. Prove
+  asynchronous `/shell` via its existing execution seam before settling capabilities
+  and completing generic registration.
 - [ ] 2a. Addressed-send preparation and direct delivery: introduce prepared plans,
   frozen required/optional recipients and correlated delivery outcomes as the
   module needs them. Prove direct delivery and partial results with a narrow fake

@@ -16,7 +16,7 @@ type participantReader struct {
 
 func (r participantReader) Participants() []participant.View { return r.views }
 
-func TestWhoCommand_Next(t *testing.T) {
+func TestWhoCommand_Go(t *testing.T) {
 	tests := []struct {
 		name  string
 		views []participant.View
@@ -48,18 +48,18 @@ func TestWhoCommand_Next(t *testing.T) {
 			if len(tt.views) > 0 {
 				tt.views[0].Alias = "changed after preparation"
 			}
-			invocation.Init()
-			step := invocation.Next()
-			if !step.Done || len(step.Records) != 1 {
-				t.Fatalf("step = %#v, want one final record", step)
+			var results []runtime.Completion
+			err = invocation.Go(func(completion runtime.Completion) { results = append(results, completion) })
+			if err != nil {
+				t.Fatal(err)
 			}
-			record := step.Records[0]
+			if len(results) != 1 || results[0].Err != nil || len(results[0].Records) != 1 {
+				t.Fatalf("completions = %#v, want one system record", results)
+			}
+			record := results[0].Records[0]
 			want := room.Record{Kind: room.KindSystem, Text: tt.text}
 			if record.Kind != want.Kind || record.Text != want.Text {
 				t.Fatalf("record = %#v, want %#v", record, want)
-			}
-			if next := invocation.Next(); !next.Done || len(next.Records) != 0 {
-				t.Fatalf("next = %#v, want completion without repeated records", next)
 			}
 		})
 	}
@@ -86,10 +86,13 @@ func TestWhoCommand_PrepareCreatesIndependentInvocations(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	first.Init()
-	second.Init()
-	firstRecord := first.Next().Records[0]
-	secondRecord := second.Next().Records[0]
+	var firstRecord, secondRecord room.Record
+	if err := first.Go(func(c runtime.Completion) { firstRecord = c.Records[0] }); err != nil {
+		t.Fatal(err)
+	}
+	if err := second.Go(func(c runtime.Completion) { secondRecord = c.Records[0] }); err != nil {
+		t.Fatal(err)
+	}
 	if firstRecord.Text != "[agents] ada" || secondRecord.Text != "[agents] tim" {
 		t.Fatal("preparations did not retain independent participant listings")
 	}

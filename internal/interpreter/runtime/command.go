@@ -1,4 +1,4 @@
-// Package runtime defines command contracts and a synchronous runner.
+// Package runtime defines command contracts and a callback runner.
 // The interpreter drives the runner on its serialized execution path.
 package runtime
 
@@ -26,16 +26,17 @@ type Command interface {
 	Prepare(Context) (Invocation, error)
 }
 
-// Invocation is driven exclusively by the coordinator: Init once, then Next
-// until Done. Neither method performs I/O or publishes events.
+// Invocation initiates work and reports completion through the supplied callback.
+// Go returns launch failure; nil means completion will be reported separately.
+// Implementations may complete immediately. The callback transfers ownership of
+// its records to the caller; they must not be mutated afterward.
 type Invocation interface {
-	Init()
-	Next() Step
+	Go(complete func(Completion)) error
 }
 
-// Step contains transcript records from Next. Done means the invocation has
-// completed; records returned with Done still need to be appended by the caller.
-type Step struct {
+// Completion contains final transcript records and the work's outcome.
+// The interpreter owns enqueueing, ordered publication and duplicate handling.
+type Completion struct {
 	Records []room.Record
-	Done    bool
+	Err     error
 }

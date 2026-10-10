@@ -15,19 +15,12 @@ type participantViews []participant.View
 
 func (views participantViews) Participants() []participant.View { return views }
 
-// participantsResultSequence is the experimental /who bridge. Legacy dispatch
-// and participant reads stay intact while we prove the new invocation lifecycle.
-// Generic module dispatch waits until asynchronous execution is designed.
+// participantsResultSequence keeps the experimental /who seam at legacy
+// participant completion; its callback returns through the executor queue.
 func participantsResultSequence(result participantsResult) instructionSequence {
-	records, err := (runtime.CommandRunner{}).Run(std.WhoCommand{}, runtime.Context{
-		Participants: participantViews(result.participants),
-	})
-	sequence := make(instructionSequence, 0, len(records)+2)
-	for _, record := range records {
-		sequence = append(sequence, appendRecordInstruction{record: record})
-	}
-	sequence.append(submissionResultSequence(submissionOutcome{
-		raw: result.raw, operation: "who", statement: result.statement, err: err,
-	}))
-	return sequence
+	return instructionSequence{goInvocationInstruction{
+		command: std.WhoCommand{},
+		context: runtime.Context{Participants: participantViews(result.participants)},
+		outcome: submissionOutcome{raw: result.raw, operation: "who", statement: result.statement},
+	}}
 }

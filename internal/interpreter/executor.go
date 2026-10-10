@@ -62,8 +62,13 @@ type interpreterExecutor struct {
 	closeOnce  sync.Once
 	enqueueMu  sync.Mutex
 	closed     bool
+	// Protected by enqueueMu; completion intake outlives submission admission.
+	shutdownCompletions         []invocationCompletedOperation
+	invocationCompletionsClosed bool
 
-	sessionDown bool
+	sessionDown        bool
+	nextInvocationID   uint64
+	pendingInvocations map[uint64]submissionOutcome
 }
 
 func newInterpreterExecutor(
@@ -264,6 +269,8 @@ func (shutdownOperation) apply(e *interpreterExecutor) {
 	e.shutdownSession()
 	e.cancel()
 	e.shellWG.Wait()
+	e.drainInvocationCompletions()
+	e.failPendingInvocations()
 	e.operations.Close()
 	e.refreshSnapshot()
 	e.model.Close()

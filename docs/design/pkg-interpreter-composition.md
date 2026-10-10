@@ -1,7 +1,7 @@
 # Interpreter composition: discussion draft
 
 Status: incremental experiment. `/who` calls the new runner through its legacy
-completion path; module registration and asynchronous execution remain proposals.
+completion path; module registration and shell execution capabilities remain proposals.
 
 This follows [#55](https://github.com/roomscript/coderoom/issues/55) and considers
 [#39](https://github.com/roomscript/coderoom/issues/39). The existing contracts in
@@ -138,15 +138,23 @@ directories are candidates, not requirements to create in one change.
 ## Experimental /who bridge
 
 `internal/interpreter/std.WhoCommand` supplies its name, help metadata and
-`Prepare` behavior. Shared contracts and the synchronous `CommandRunner` live in
+`Prepare` behavior. Shared contracts and the callback `CommandRunner` live in
 `internal/interpreter/runtime`. Command registration remains in the legacy catalog.
 
 The original `/who` dispatch and participant-read instruction are unchanged.
 Where participant results previously produced a `ParticipantsListed` event,
-`participantsResultSequence` now calls the new runner with those already-read
-values. The invocation receives no model or live Session. `Init` returns no
-values; the first `Next` returns a system record and completes. The bridge
-appends returned records, then uses the existing submission completion sequence.
+`participantsResultSequence` now returns a launch instruction carrying those
+already-read values. The executor calls `CommandRunner.Go`; preparation gives
+an invocation no model or live Session. `Invocation.Go(complete)` reports launch
+failure by return value and final records/errors through a callback. `/who`
+completes immediately, but its callback only enqueues an operation. The operation
+appends records and reports submission completion on the serialized path.
+
+The executor assigns monotonically increasing invocation IDs and consumes each
+completion once. Failed launches invalidate queued callbacks. Shutdown drains
+completions retained while accepted operations finish, then settles unfinished
+submissions with `ErrClosed`; late callbacks cannot mutate closed state.
+Commands transfer ownership of completion records and do not publish events.
 
 The sorted alias notice is unchanged, but arrives through canonical transcript
 deltas without command-specific UI presentation. `ParticipantsListed` remains
@@ -154,9 +162,11 @@ available for source compatibility. Tests cover record order and exactly-once
 publication.
 
 This is a temporary seam for testing assumptions, not generic module dispatch.
-The runner cannot retain pending invocations; an empty unfinished step returns
-an error rather than polling. Prove a suspended addressed send before choosing
-the final runner API or registering further modules.
+The callback contract replaces `Init`/`Next`. Prototype tests cover immediate
+and delayed completion, duplicate callbacks, launch failure, and shutdown. Next,
+prove `/shell` with an injected execution capability, preserving executor worker
+ownership and submission success after launch rather than execution completion.
+Generic registration remains deferred.
 
 ## Relationship to #39
 
@@ -167,8 +177,8 @@ registration remain separate; this work introduces no new syntax.
 
 ## Incremental proof and review decisions
 
-1. Review the `/who` bridge and prove suspended execution before generalizing
-   module registration or command dispatch.
+1. Review the callback `/who` bridge and prove asynchronous `/shell` execution
+   before generalizing module registration or command dispatch.
 2. Prove addressed-send preparation and direct delivery, then staged delivery in
    a separate checkpoint, using the same fake adapter and preserving behavior.
 3. Migrate broadcast, then handoff, extending contracts only as each needs them.

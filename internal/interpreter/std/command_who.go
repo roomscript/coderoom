@@ -45,18 +45,10 @@ func (WhoCommand) Prepare(ctx runtime.Context) (runtime.Invocation, error) {
 
 type whoInvocation struct {
 	record room.Record
-	done   bool
 }
 
-func (i *whoInvocation) Init() {
-	i.done = false
-}
-
-// /who produces its system notice on the first Next and then completes.
-func (i *whoInvocation) Next() runtime.Step {
-	if i.done {
-		return runtime.Step{Done: true}
-	}
-	i.done = true
-	return runtime.Step{Records: []room.Record{i.record}, Done: true}
+// Go completes immediately; the supplied callback enqueues its system notice.
+func (i *whoInvocation) Go(complete func(runtime.Completion)) error {
+	complete(runtime.Completion{Records: []room.Record{i.record}})
+	return nil
 }

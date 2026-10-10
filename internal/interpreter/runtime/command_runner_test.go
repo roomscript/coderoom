@@ -14,105 +14,84 @@ import (
 type command struct {
 	invocation *invocation
 	err        error
-	prepares   int
 }
 
-func (*command) Name() string        { return "test" }
-func (*command) Usage() string       { return "/test" }
-func (*command) Description() string { return "test command" }
-func (c *command) Prepare(runtime.Context) (runtime.Invocation, error) {
-	c.prepares++
-	return c.invocation, c.err
-}
+func (*command) Name() string                                          { return "test" }
+func (*command) Usage() string                                         { return "/test" }
+func (*command) Description() string                                   { return "test command" }
+func (c *command) Prepare(runtime.Context) (runtime.Invocation, error) { return c.invocation, c.err }
 
 type invocation struct {
-	steps []runtime.Step
-	inits int
-	nexts int
+	complete func(runtime.Completion)
+	err      error
+	launches int
 }
 
-func (i *invocation) Init() { i.inits++ }
-func (i *invocation) Next() runtime.Step {
-	if i.inits != 1 {
-		panic("Next called without exactly one Init")
+func (i *invocation) Go(complete func(runtime.Completion)) error {
+	i.launches++
+	i.complete = complete
+	return i.err
+}
+
+func TestCommandRunner_GoReturnsBeforeCompletion(t *testing.T) {
+	i := &invocation{}
+	results := make(chan runtime.Completion, 1)
+	err := (runtime.CommandRunner{}).Go(&command{invocation: i}, runtime.Context{}, func(c runtime.Completion) { results <- c })
+	if err != nil {
+		t.Fatal(err)
 	}
-	step := i.steps[i.nexts]
-	i.nexts++
-	return step
+	select {
+	case <-results:
+		t.Fatal("completion arrived before work finished")
+	default:
+	}
+	want := runtime.Completion{Records: []room.Record{{Kind: room.KindSystem, Text: "finished"}}}
+	i.complete(want)
+	if got := <-results; !reflect.DeepEqual(got, want) {
+		t.Fatalf("completion = %#v, want %#v", got, want)
+	}
+	if i.launches != 1 {
+		t.Fatalf("launches = %d, want 1", i.launches)
+	}
 }
 
-func TestCommandRunner_Run(t *testing.T) {
-	first := room.Record{Kind: room.KindSystem, Text: "first"}
-	last := room.Record{Kind: room.KindSystem, Text: "last"}
+func TestCommandRunner_GoFailures(t *testing.T) {
+	failure := errors.New("failed")
 	tests := []struct {
-		name    string
-		steps   []runtime.Step
-		want    []room.Record
-		wantErr bool
+		name       string
+		prepareErr error
+		launchErr  error
+		launches   int
 	}{
-		{name: "empty completion", steps: []runtime.Step{{Done: true}}},
-		{
-			name:  "final record",
-			steps: []runtime.Step{{Records: []room.Record{last}, Done: true}},
-			want:  []room.Record{last},
-		},
-		{
-			name: "ordered record across steps",
-			steps: []runtime.Step{
-				{Records: []room.Record{first}},
-				{Records: []room.Record{last}, Done: true},
-			},
-			want: []room.Record{first, last},
-		},
-		{name: "pending without polling", steps: []runtime.Step{{}}, wantErr: true},
-		{
-			name:  "pending retains prior record",
-			steps: []runtime.Step{{Records: []room.Record{first}}, {}},
-			want:  []room.Record{first}, wantErr: true,
-		},
+		{name: "preparation", prepareErr: failure},
+		{name: "launch", launchErr: failure, launches: 1},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			i := &invocation{steps: tt.steps}
-			c := &command{invocation: i}
-			got, err := (runtime.CommandRunner{}).Run(c, runtime.Context{})
-			if (err != nil) != tt.wantErr {
-				t.Fatalf("Run error = %v, want error %v", err, tt.wantErr)
+			i := &invocation{err: tt.launchErr}
+			err := (runtime.CommandRunner{}).Go(&command{invocation: i, err: tt.prepareErr}, runtime.Context{}, func(runtime.Completion) { t.Fatal("unexpected completion") })
+			if !errors.Is(err, failure) {
+				t.Fatalf("error = %v, want wrapped failure", err)
 			}
-			if !reflect.DeepEqual(got, tt.want) {
-				t.Fatalf("records = %#v, want %#v", got, tt.want)
-			}
-			if c.prepares != 1 || i.inits != 1 || i.nexts != len(tt.steps) {
-				t.Fatalf("prepare/init/next counts = %d/%d/%d", c.prepares, i.inits, i.nexts)
+			if i.launches != tt.launches {
+				t.Fatalf("launches = %d, want %d", i.launches, tt.launches)
 			}
 		})
 	}
 }
 
-func TestCommandRunner_PreparationFailureDoesNotInitialize(t *testing.T) {
-	i := &invocation{}
-	c := &command{invocation: i, err: errors.New("preparation failed")}
-	records, err := (runtime.CommandRunner{}).Run(c, runtime.Context{})
-	if err == nil || len(records) != 0 || i.inits != 0 || i.nexts != 0 {
-		t.Fatal("preparation failure did not stop before initialization")
-	}
-}
-
 type participantReader struct{}
 
-func (participantReader) Participants() []participant.View {
-	return []participant.View{{Alias: "ada", Role: "builder", Status: participant.StatusIdle}}
-}
+func (participantReader) Participants() []participant.View { return []participant.View{{Alias: "ada"}} }
 
-func TestCommandRunner_Who(t *testing.T) {
-	records, err := (runtime.CommandRunner{}).Run(std.WhoCommand{}, runtime.Context{
-		Participants: participantReader{},
-	})
+func TestCommandRunner_WhoCompletesImmediately(t *testing.T) {
+	var results []runtime.Completion
+	err := (runtime.CommandRunner{}).Go(std.WhoCommand{}, runtime.Context{Participants: participantReader{}}, func(c runtime.Completion) { results = append(results, c) })
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []room.Record{{Kind: room.KindSystem, Text: "[agents] ada"}}
-	if !reflect.DeepEqual(records, want) {
-		t.Fatalf("records = %#v, want %#v", records, want)
+	want := []runtime.Completion{{Records: []room.Record{{Kind: room.KindSystem, Text: "[agents] ada"}}}}
+	if !reflect.DeepEqual(results, want) {
+		t.Fatalf("completions = %#v, want %#v", results, want)
 	}
 }

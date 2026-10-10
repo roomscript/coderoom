@@ -31,6 +31,7 @@ func instructionItems(instructions instructionSequence) []runnerItem {
 
 type instructionExecutorPort interface {
 	publish(Event)
+	goInvocation(goInvocationInstruction) instructionSequence
 	startWorkflowShell(startShellInstruction)
 	startShell(string, string, string, promptlang.ParsedStatement)
 	executeSessionRequest(sessionRequest) error
@@ -137,6 +138,8 @@ func (r *instructionRunner) applyStateInstruction(value instruction) (bool, bool
 
 func (r *instructionRunner) applyExecutionInstruction(value instruction) ([]runnerItem, bool, bool) {
 	switch value := value.(type) {
+	case goInvocationInstruction:
+		return instructionItems(r.executor.goInvocation(value)), false, true
 	case executeCommandInstruction:
 		items, snapshot := r.executeCommand(value)
 		return items, snapshot, true

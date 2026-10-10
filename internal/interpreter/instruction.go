@@ -1,6 +1,7 @@
 package interpreter
 
 import (
+	"github.com/roomscript/coderoom/internal/interpreter/runtime"
 	"github.com/roomscript/coderoom/internal/promptlang"
 	"github.com/roomscript/coderoom/internal/room"
 	"github.com/roomscript/coderoom/internal/session"
@@ -35,6 +36,12 @@ type startUserShellInstruction struct {
 	program   string
 }
 
+type goInvocationInstruction struct {
+	command runtime.Command
+	context runtime.Context
+	outcome submissionOutcome
+}
+
 type readParticipantsInstruction struct {
 	raw       string
 	statement promptlang.ParsedStatement
@@ -61,6 +68,7 @@ func (executeSessionInstruction) instruction()       {}
 func (startShellInstruction) instruction()           {}
 func (executeCommandInstruction) instruction()       {}
 func (startUserShellInstruction) instruction()       {}
+func (goInvocationInstruction) instruction()         {}
 func (readParticipantsInstruction) instruction()     {}
 func (prepareSendInstruction) instruction()          {}
 func (planBroadcastInstruction) instruction()        {}

@@ -52,6 +52,45 @@ func TestSubmitContract_whoPublishesCanonicalNoticeOnce(t *testing.T) {
 	}
 }
 
+func TestSubmitContract_whoCompletesBeforeShutdown(t *testing.T) {
+	for _, blocked := range []bool{false, true} {
+		name := "immediate close"
+		if blocked {
+			name = "accepted submission executes during shutdown"
+		}
+		t.Run(name, func(t *testing.T) {
+			sess := newSubmitContractSession()
+			sess.participants = []participant.View{{Alias: "ada"}}
+			events := make(chan Event, 32)
+			interp := New(context.Background(), sess, t.TempDir(), WithObserver(transcriptTestObserver{events: events}))
+			t.Cleanup(interp.Close)
+			receiveSubmitEvent[StateChanged](t, events)
+			blocker := blockingSubmitContractOperation{entered: make(chan struct{}), release: make(chan struct{})}
+			if blocked {
+				if !interp.executor.enqueue(blocker) {
+					t.Fatal("could not enqueue blocker")
+				}
+				<-blocker.entered
+			}
+			mustSubmit(t, interp.Submit("/who"))
+			if blocked {
+				// Begin Close before releasing the accepted submission, deterministically.
+				interp.executor.requestClose()
+				close(blocker.release)
+			}
+			interp.Close()
+			receiveSubmitEvent[InputAccepted](t, events)
+			assertWhoTranscript(t, events, "[agents] ada")
+			receiveSubmitEvent[StateChanged](t, events)
+			receiveSubmitEvent[SubmissionSucceeded](t, events)
+			if got := interp.Snapshot().Room.Records; len(got) != 2 || got[1].Text != "[agents] ada" {
+				t.Fatalf("final records = %#v, want input and agent listing", got)
+			}
+			assertNoSubmitEvent(t, events)
+		})
+	}
+}
+
 // assertWhoTranscript checks the transport order without the semantic helper,
 // which intentionally skips transcript deltas.
 func assertWhoTranscript(t *testing.T, events <-chan Event, notice string) {

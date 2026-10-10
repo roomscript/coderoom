@@ -422,13 +422,19 @@ data and introduce no callback from the model to the executor.
 
 The `/who` completion is an experimental bridge: `participantsResultSequence`
 passes already-read participant values to `std.WhoCommand` through
-`runtime.CommandRunner`, then appends its records and reports submission
-completion. Legacy catalog dispatch and participant-read instructions are unchanged.
+a `goInvocationInstruction`. The executor calls `runtime.CommandRunner.Go` with
+an enqueue-only callback. A correlated completion operation appends records and
+reports submission completion; duplicate and failed-launch completions are ignored.
+Shutdown drains retained completions before settling unfinished invocations
+with `ErrClosed`. Legacy catalog dispatch
+and participant-read instructions are unchanged.
 The notice uses canonical transcript deltas instead of `ParticipantsListed`;
 the event type remains available for source compatibility. Generic module
 dispatch is deferred until asynchronous invocation behavior is proved.
 
-There are no `any` payloads, callbacks, or workflow-specific runner hooks.
+Legacy workflow results contain no `any` payloads or callbacks. Command invocation
+callbacks exist only at the executor boundary and enqueue completion operations;
+they do not independently execute workflow transitions or publish events.
 
 ## Instruction sequences and snapshots
 
