@@ -5,6 +5,7 @@ package runtime
 import (
 	"github.com/roomscript/coderoom/internal/participant"
 	"github.com/roomscript/coderoom/internal/room"
+	"github.com/roomscript/coderoom/internal/shell"
 )
 
 // ParticipantReader is a read capability, not a session execution handle.
@@ -12,10 +13,16 @@ type ParticipantReader interface {
 	Participants() []participant.View
 }
 
+// ShellLauncher owns asynchronous execution, cancellation and worker lifetime.
+type ShellLauncher interface {
+	Cwd() string
+	Go(program string, complete func(shell.Result)) error
+}
+
 // Context supplies capabilities during preparation on the serialized coordinator.
-// This proof includes only the capability required by /who.
 type Context struct {
 	Participants ParticipantReader
+	Shell        ShellLauncher
 }
 
 // Command is stateless; Prepare creates independent state for one invocation.

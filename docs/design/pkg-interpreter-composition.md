@@ -163,10 +163,17 @@ publication.
 
 This is a temporary seam for testing assumptions, not generic module dispatch.
 The callback contract replaces `Init`/`Next`. Prototype tests cover immediate
-and delayed completion, duplicate callbacks, launch failure, and shutdown. Next,
-prove `/shell` with an injected execution capability, preserving executor worker
-ownership and submission success after launch rather than execution completion.
-Generic registration remains deferred.
+and delayed completion, duplicate callbacks, launch failure, and shutdown.
+
+`std.ShellCommand` now uses the existing user-shell execution seam, including
+resolved named invocations. `ShellLauncher` supplies the working directory and
+asynchronous execution; the executor owns cancellation and joins workers on close.
+The command constructs the original command record. A temporary adapter retains
+the raw shell result for the existing `ShellCompleted` event and source diagnostics.
+Submission succeeds after launch; completion publishes the record, event, and
+snapshot in that order. Results generated during shutdown are retained and applied
+after workers finish, including cancelled shell records. Loop shell execution and
+definition resolution remain unchanged. Generic registration remains deferred.
 
 ## Relationship to #39
 

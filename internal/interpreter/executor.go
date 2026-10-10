@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/roomscript/coderoom/internal/agent"
+	"github.com/roomscript/coderoom/internal/interpreter/runtime"
 	"github.com/roomscript/coderoom/internal/participant"
 	"github.com/roomscript/coderoom/internal/promptlang"
 	"github.com/roomscript/coderoom/internal/queue"
@@ -31,7 +32,7 @@ type executorModelPort interface {
 	instructionModelPort
 	CheckInputAllowed(string) instructionSequence
 	PrepareRequest(string, promptlang.ParsedStatement) instructionSequence
-	ApplyShellResult(string, string, string, shell.Result, promptlang.ParsedStatement) instructionSequence
+	ApplyShellResult(string, string, string, shell.Result, runtime.Completion, promptlang.ParsedStatement) instructionSequence
 	TakeStageForEdit() (instructionSequence, string, bool)
 	DiscardStage() (instructionSequence, bool)
 	InterruptAndDispatchStage() (instructionSequence, bool)
@@ -63,8 +64,8 @@ type interpreterExecutor struct {
 	enqueueMu  sync.Mutex
 	closed     bool
 	// Protected by enqueueMu; completion intake outlives submission admission.
-	shutdownCompletions         []invocationCompletedOperation
-	invocationCompletionsClosed bool
+	shutdownCompletions []operation
+	completionsClosed   bool
 
 	sessionDown        bool
 	nextInvocationID   uint64
@@ -269,7 +270,7 @@ func (shutdownOperation) apply(e *interpreterExecutor) {
 	e.shutdownSession()
 	e.cancel()
 	e.shellWG.Wait()
-	e.drainInvocationCompletions()
+	e.drainCompletions()
 	e.failPendingInvocations()
 	e.operations.Close()
 	e.refreshSnapshot()

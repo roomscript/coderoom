@@ -22,7 +22,7 @@ func (e *interpreterExecutor) goInvocation(value goInvocationInstruction) instru
 	}
 	e.pendingInvocations[id] = value.outcome
 	err := (runtime.CommandRunner{}).Go(value.command, value.context, func(completion runtime.Completion) {
-		e.enqueueInvocationCompletion(invocationCompletedOperation{id: id, completion: completion})
+		e.enqueueCompletion(invocationCompletedOperation{id: id, completion: completion})
 	})
 	if err != nil {
 		delete(e.pendingInvocations, id)
@@ -50,10 +50,10 @@ func (op invocationCompletedOperation) apply(e *interpreterExecutor) {
 
 // Completion intake stays open while shutdown drains accepted operations. Results
 // generated after submission admission closes are retained for the shutdown path.
-func (e *interpreterExecutor) enqueueInvocationCompletion(op invocationCompletedOperation) {
+func (e *interpreterExecutor) enqueueCompletion(op operation) {
 	e.enqueueMu.Lock()
 	defer e.enqueueMu.Unlock()
-	if e.invocationCompletionsClosed {
+	if e.completionsClosed {
 		return
 	}
 	if e.closed {
@@ -65,9 +65,9 @@ func (e *interpreterExecutor) enqueueInvocationCompletion(op invocationCompleted
 
 // Called on the serialized path after accepted operations and owned workers
 // finish. Close intake atomically before applying retained results.
-func (e *interpreterExecutor) drainInvocationCompletions() {
+func (e *interpreterExecutor) drainCompletions() {
 	e.enqueueMu.Lock()
-	e.invocationCompletionsClosed = true
+	e.completionsClosed = true
 	completions := e.shutdownCompletions
 	e.shutdownCompletions = nil
 	e.enqueueMu.Unlock()

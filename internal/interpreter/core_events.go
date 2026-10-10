@@ -98,7 +98,7 @@ func (m *interpreterModel) applySessionOutcome(result sessionOutcome) instructio
 
 // Shell operations are resumption points after asynchronous execution returns.
 func (op shellCompletedOperation) apply(e *interpreterExecutor) {
-	e.runner.Run(e.model.ApplyShellResult(op.raw, op.command, e.cwd, op.result, op.statement))
+	e.runner.Run(e.model.ApplyShellResult(op.raw, op.command, e.cwd, op.result, op.completion, op.statement))
 }
 
 func (op workflowShellCompletedOperation) apply(e *interpreterExecutor) {

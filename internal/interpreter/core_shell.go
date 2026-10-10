@@ -1,7 +1,8 @@
 package interpreter
 
 import (
-	"github.com/roomscript/coderoom/internal/agent"
+	"github.com/roomscript/coderoom/internal/interpreter/runtime"
+	"github.com/roomscript/coderoom/internal/interpreter/std"
 	"github.com/roomscript/coderoom/internal/promptlang"
 	"github.com/roomscript/coderoom/internal/room"
 	"github.com/roomscript/coderoom/internal/shell"
@@ -55,24 +56,33 @@ func prepareShellExecution(raw, command, program string) instructionSequence {
 // startShell launches work and returns control. Submission success means the
 // launch was accepted; a later shellCompletedOperation reports execution results.
 func (e *interpreterExecutor) startShell(raw, command, program string, statement promptlang.ParsedStatement) {
-	e.launchUserShell(raw, command, program, statement)
+	launcher := &userShellLauncher{executor: e}
+	err := (runtime.CommandRunner{}).Go(std.ShellCommand{Command: program, DisplayCommand: command}, runtime.Context{Shell: launcher}, func(completion runtime.Completion) {
+		e.enqueueCompletion(shellCompletedOperation{
+			raw: raw, statement: statement, command: command,
+			result: launcher.result, completion: completion,
+		})
+	})
+	if err != nil {
+		e.runner.Run(submissionResultSequence(submissionOutcome{raw: raw, statement: statement, operation: "shell", err: err}))
+		return
+	}
 	e.publish(SubmissionSucceeded{Raw: raw, Statement: statement})
 }
 
 // ApplyShellResult resumes observation after asynchronous work completes: record
 // the command outcome, publish its structured result, then publish updated state.
-func (m *interpreterModel) ApplyShellResult(raw, command, cwd string, result shell.Result, statement promptlang.ParsedStatement) instructionSequence {
+func (m *interpreterModel) ApplyShellResult(raw, command, cwd string, result shell.Result, completion runtime.Completion, statement promptlang.ParsedStatement) instructionSequence {
 	output := formatShellResult(result)
-	return withSubmissionSource(instructionSequence{
-		appendRecordInstruction{record: room.NewAgentRecord(shellRecordAlias, agent.Message{
-			Mode: agent.ModeSingle,
-			Content: agent.Command{
-				Command: command, Cwd: cwd, Output: output, ExitCode: result.ExitCode,
-			},
-		})},
+	sequence := make(instructionSequence, 0, len(completion.Records)+2)
+	for _, record := range completion.Records {
+		sequence = append(sequence, appendRecordInstruction{record: record})
+	}
+	sequence = append(sequence,
 		publishEventInstruction{event: ShellCompleted{
 			Raw: raw, Command: command, Cwd: cwd, Result: result, Output: output,
 		}},
 		publishSnapshotInstruction{},
-	}, statement)
+	)
+	return withSubmissionSource(sequence, statement)
 }

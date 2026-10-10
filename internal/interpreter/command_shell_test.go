@@ -205,6 +205,12 @@ func TestInterpreter_closeCancelsAndWaitsForShell(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("Close did not wait for shell runner")
 	}
+	completed := receiveSubmitEvent[ShellCompleted](t, events)
+	if completed.Result.Status != shell.StatusCancelled {
+		t.Fatalf("completion = %#v, want cancellation", completed)
+	}
+	changed := receiveSubmitEvent[StateChanged](t, events)
+	assertShellCompletionRecord(t, changed, completed)
 }
 
 func newShellTestInterpreter(t *testing.T, runner ShellRunner) (*Interpreter, chan Event) {

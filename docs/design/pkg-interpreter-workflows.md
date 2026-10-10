@@ -430,7 +430,15 @@ with `ErrClosed`. Legacy catalog dispatch
 and participant-read instructions are unchanged.
 The notice uses canonical transcript deltas instead of `ParticipantsListed`;
 the event type remains available for source compatibility. Generic module
-dispatch is deferred until asynchronous invocation behavior is proved.
+dispatch remains deferred.
+
+User-shell launch now calls `std.ShellCommand` through `CommandRunner.Go`.
+An executor-owned `ShellLauncher` starts the worker using the interpreter lifetime.
+The command returns the canonical command record; a temporary bridge retains the
+raw result for `ShellCompleted` and source diagnostics. Launch still reports
+submission success immediately, while completion publishes the record, event and
+snapshot. Shutdown cancels and joins workers, then applies retained completions.
+Loop shell execution and command definition resolution retain their existing path.
 
 Legacy workflow results contain no `any` payloads or callbacks. Command invocation
 callbacks exist only at the executor boundary and enqueue completion operations;
