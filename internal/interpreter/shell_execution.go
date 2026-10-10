@@ -1,8 +1,10 @@
 package interpreter
 
 import (
+	"github.com/roomscript/coderoom/internal/agent"
 	"github.com/roomscript/coderoom/internal/interpreter/runtime"
 	"github.com/roomscript/coderoom/internal/promptlang"
+	"github.com/roomscript/coderoom/internal/room"
 	"github.com/roomscript/coderoom/internal/shell"
 )
 
@@ -18,6 +20,23 @@ type shellCompletedOperation struct {
 
 func (e *interpreterExecutor) setShellRunner(runner ShellRunner) {
 	e.runShell = runner
+}
+
+// Defined commands retain their interpreter execution path until migrated.
+func (e *interpreterExecutor) launchDefinedShell(raw, command, program string, statement promptlang.ParsedStatement) {
+	e.shellWG.Add(1)
+	go func() {
+		defer e.shellWG.Done()
+		result := e.runShell.Run(e.lifetime, e.cwd, program)
+		record := room.NewAgentRecord(shellRecordAlias, agent.Message{
+			Mode:    agent.ModeSingle,
+			Content: agent.Command{Command: command, Cwd: e.cwd, Output: formatShellResult(result), ExitCode: result.ExitCode},
+		})
+		e.enqueueCompletion(shellCompletedOperation{
+			raw: raw, command: command, statement: statement, result: result,
+			completion: runtime.Completion{Records: []room.Record{record}, Err: result.Err},
+		})
+	}()
 }
 
 // The adapter retains the legacy event's result before the command completes.

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/roomscript/coderoom/internal/interpreter/runtime"
+	"github.com/roomscript/coderoom/internal/promptlang"
 	"github.com/roomscript/coderoom/internal/room"
 )
 
@@ -25,8 +26,14 @@ func (WhoCommand) Usage() string { return "/who" }
 // Description supplies the command's help description.
 func (WhoCommand) Description() string { return "list agents" }
 
+// Statement identifies the accepted parsed statement.
+func (WhoCommand) Statement() promptlang.Statement { return promptlang.Who{} }
+
 // Prepare captures the current participant listing for one invocation.
-func (WhoCommand) Prepare(ctx runtime.Context) (runtime.Invocation, error) {
+func (WhoCommand) Prepare(parsed promptlang.ParsedStatement, ctx runtime.Context) (runtime.Invocation, error) {
+	if _, ok := parsed.Value.(promptlang.Who); !ok {
+		return nil, errors.New("who requires a who statement")
+	}
 	if ctx.Participants == nil {
 		return nil, errors.New("who requires participant reads")
 	}

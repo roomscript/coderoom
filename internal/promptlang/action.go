@@ -56,14 +56,14 @@ type Shell struct {
 	Program Located[string]
 }
 
-// CommandDefinition associates a command name with an unevaluated shell expression.
-type CommandDefinition struct {
+// UserDefinition associates a command name with an unevaluated shell expression.
+type UserDefinition struct {
 	Name Located[string]
 	Body Located[Shell]
 }
 
-// CommandInvocation calls a user-defined command by name.
-type CommandInvocation struct {
+// UserCommand calls a user-defined command by name.
+type UserCommand struct {
 	Name Located[string]
 }
 
@@ -103,19 +103,19 @@ func (e UnknownCommandError) Error() string {
 	return fmt.Sprintf("unknown command: %s", e.Cmd)
 }
 
-func (Invite) isStatement()            {}
-func (Remove) isStatement()            {}
-func (Cancel) isStatement()            {}
-func (Handoff) isStatement()           {}
-func (Send) isStatement()              {}
-func (Broadcast) isStatement()         {}
-func (PolicyEnable) isStatement()      {}
-func (Shell) isStatement()             {}
-func (CommandDefinition) isStatement() {}
-func (CommandInvocation) isStatement() {}
-func (Loop) isStatement()              {}
-func (Who) isStatement()               {}
-func (Help) isStatement()              {}
-func (Quit) isStatement()              {}
-func (DebugView) isStatement()         {}
-func (DebugRows) isStatement()         {}
+func (Invite) isStatement()         {}
+func (Remove) isStatement()         {}
+func (Cancel) isStatement()         {}
+func (Handoff) isStatement()        {}
+func (Send) isStatement()           {}
+func (Broadcast) isStatement()      {}
+func (PolicyEnable) isStatement()   {}
+func (Shell) isStatement()          {}
+func (UserDefinition) isStatement() {}
+func (UserCommand) isStatement()    {}
+func (Loop) isStatement()           {}
+func (Who) isStatement()            {}
+func (Help) isStatement()           {}
+func (Quit) isStatement()           {}
+func (DebugView) isStatement()      {}
+func (DebugRows) isStatement()      {}

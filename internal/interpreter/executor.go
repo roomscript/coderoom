@@ -23,7 +23,7 @@ type resolveCommandResult struct {
 	err  error
 }
 type resolveCommandOperation struct {
-	invocation promptlang.CommandInvocation
+	invocation promptlang.UserCommand
 	result     chan resolveCommandResult
 }
 type shutdownOperation struct{}
@@ -38,7 +38,7 @@ type executorModelPort interface {
 	InterruptAndDispatchStage() (instructionSequence, bool)
 	ResolveApprovalChoice(int64, ApprovalChoice) (agent.ApprovalOption, error)
 	ClearApproval(int64) bool
-	ResolveCommand(promptlang.CommandInvocation) (promptlang.Shell, error)
+	ResolveCommand(promptlang.UserCommand) (promptlang.Shell, error)
 	Snapshot() modelSnapshot
 	Close()
 }
@@ -109,7 +109,7 @@ func (e *interpreterExecutor) start() {
 }
 
 func (e *interpreterExecutor) resolveCommand(
-	invocation promptlang.CommandInvocation,
+	invocation promptlang.UserCommand,
 ) (promptlang.Shell, error) {
 	result := make(chan resolveCommandResult, 1)
 	if !e.enqueue(resolveCommandOperation{invocation: invocation, result: result}) {

@@ -7,7 +7,7 @@ import (
 	"github.com/roomscript/coderoom/internal/promptlang"
 )
 
-func TestNativeCommandDefinitions_coverParserBuiltins(t *testing.T) {
+func TestNativeUserDefinitions_coverParserBuiltins(t *testing.T) {
 	// Query syntax independently of the execution catalog so a recognized form
 	// cannot silently lack a runtime handler.
 	names := map[string]bool{}
@@ -36,7 +36,7 @@ func TestNativeCommandDefinitions_coverParserBuiltins(t *testing.T) {
 	}
 }
 
-func TestNativeCommandDefinitions_helpRoutesToNativeHandlers(t *testing.T) {
+func TestNativeUserDefinitions_helpRoutesToNativeHandlers(t *testing.T) {
 	replacements := strings.NewReplacer("<alias>", "ada", "<from>", "ada", "<to>", "turing", "<program>", "true", "<name>", "check", "<prompt>", "review", "<turns>", "1", "<text>", "hello")
 	for _, definition := range nativeCommandDefinitions {
 		for _, entry := range definition.help {
@@ -78,7 +78,7 @@ func assertNativeHelpDispatch(t *testing.T, raw string, statement promptlang.Sta
 	t.Helper()
 	model := newInterpreterModel()
 	t.Cleanup(model.Close)
-	if err := model.commands.Define(promptlang.CommandDefinition{Name: located("check"), Body: located(promptlang.Shell{Program: located("true")})}); err != nil {
+	if err := model.commands.Define(promptlang.UserDefinition{Name: located("check"), Body: located(promptlang.Shell{Program: located("true")})}); err != nil {
 		t.Fatal(err)
 	}
 	sequence, handled := model.prepareCommand(raw, statement)
@@ -94,7 +94,7 @@ func assertNativeHelpDispatch(t *testing.T, raw string, statement promptlang.Sta
 	}
 }
 
-func TestNativeCommandDefinitions_debugCommandsRequestPresentation(t *testing.T) {
+func TestNativeUserDefinitions_debugCommandsRequestPresentation(t *testing.T) {
 	for _, raw := range []string{"/debugview", "/debugrows"} {
 		t.Run(raw, func(t *testing.T) {
 			statement, err := promptlang.Parse(raw)
@@ -117,7 +117,7 @@ func TestNativeCommandDefinitions_debugCommandsRequestPresentation(t *testing.T)
 	}
 }
 
-func TestNativeCommandDefinitions_requireNativeHelpAndHandlers(t *testing.T) {
+func TestNativeUserDefinitions_requireNativeHelpAndHandlers(t *testing.T) {
 	for _, definition := range nativeCommandDefinitions {
 		if definition.name == "debugview" || definition.name == "debugrows" {
 			continue
@@ -131,7 +131,7 @@ func TestNativeCommandDefinitions_requireNativeHelpAndHandlers(t *testing.T) {
 	}
 }
 
-func TestNativeCommandDefinitions_coverMessagesAndInvocation(t *testing.T) {
+func TestNativeUserDefinitions_coverMessagesAndInvocation(t *testing.T) {
 	tests := []struct {
 		name      string
 		statement promptlang.Statement
@@ -140,7 +140,7 @@ func TestNativeCommandDefinitions_coverMessagesAndInvocation(t *testing.T) {
 	}{
 		{name: "direct send", statement: promptlang.Send{}, usage: "@<alias> <text>", message: true},
 		{name: "broadcast", statement: promptlang.Broadcast{}, usage: "<text>", message: true},
-		{name: "defined command", statement: promptlang.CommandInvocation{}, usage: "/<name>"},
+		{name: "defined command", statement: promptlang.UserCommand{}, usage: "/<name>"},
 	}
 	listing := helpListing()
 	for _, tt := range tests {

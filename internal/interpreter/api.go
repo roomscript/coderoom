@@ -14,7 +14,7 @@ type Interpreter struct {
 
 // ResolveCommand returns a room-scoped command body. It returns ErrClosed if
 // shutdown prevents acceptance.
-func (i *Interpreter) ResolveCommand(invocation promptlang.CommandInvocation) (promptlang.Shell, error) {
+func (i *Interpreter) ResolveCommand(invocation promptlang.UserCommand) (promptlang.Shell, error) {
 	return i.executor.resolveCommand(invocation)
 }
 

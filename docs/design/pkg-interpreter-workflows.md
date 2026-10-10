@@ -438,7 +438,10 @@ The command returns the canonical command record; a temporary bridge retains the
 raw result for `ShellCompleted` and source diagnostics. Launch still reports
 submission success immediately, while completion publishes the record, event and
 snapshot. Shutdown cancels and joins workers, then applies retained completions.
-Loop shell execution and command definition resolution retain their existing path.
+Preparation receives only the original shell statement and derives display text
+there. User commands and definitions are represented by `promptlang.UserCommand`
+and `promptlang.UserDefinition`, with execution and storage still owned by the
+legacy interpreter. Loop shell execution retains its existing path.
 
 Legacy workflow results contain no `any` payloads or callbacks. Command invocation
 callbacks exist only at the executor boundary and enqueue completion operations;

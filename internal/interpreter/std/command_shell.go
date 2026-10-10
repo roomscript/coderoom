@@ -7,15 +7,13 @@ import (
 
 	"github.com/roomscript/coderoom/internal/agent"
 	"github.com/roomscript/coderoom/internal/interpreter/runtime"
+	"github.com/roomscript/coderoom/internal/promptlang"
 	"github.com/roomscript/coderoom/internal/room"
 	"github.com/roomscript/coderoom/internal/shell"
 )
 
-// ShellCommand holds the resolved input; invocation state belongs to Prepare.
-type ShellCommand struct {
-	Command        string
-	DisplayCommand string
-}
+// ShellCommand is stateless; Prepare captures arguments for each invocation.
+type ShellCommand struct{}
 
 var _ runtime.Command = ShellCommand{}
 
@@ -28,16 +26,19 @@ func (ShellCommand) Usage() string { return "/shell <program>" }
 // Description supplies the command's help description.
 func (ShellCommand) Description() string { return "execute a shell program" }
 
-// Prepare captures resolved input and the execution capability for one use.
-func (c ShellCommand) Prepare(ctx runtime.Context) (runtime.Invocation, error) {
+// Statement identifies the accepted parsed statement.
+func (ShellCommand) Statement() promptlang.Statement { return promptlang.Shell{} }
+
+// Prepare captures shell input and execution capabilities for one use.
+func (ShellCommand) Prepare(parsed promptlang.ParsedStatement, ctx runtime.Context) (runtime.Invocation, error) {
+	statement, ok := parsed.Value.(promptlang.Shell)
+	if !ok {
+		return nil, errors.New("shell requires a shell statement")
+	}
 	if ctx.Shell == nil {
 		return nil, errors.New("programmes require shell execution")
 	}
-	displayCommand := c.DisplayCommand
-	if displayCommand == "" {
-		displayCommand = c.Command
-	}
-	return &shellInvocation{launcher: ctx.Shell, command: c.Command, displayCommand: displayCommand, cwd: ctx.Shell.Cwd()}, nil
+	return &shellInvocation{launcher: ctx.Shell, command: statement.Program.Value, displayCommand: statement.Program.Value, cwd: ctx.Shell.Cwd()}, nil
 }
 
 type shellInvocation struct {

@@ -8,10 +8,11 @@ Keep this document roughly one page; details belong in code or
 ## Command and invocation
 
 A **command** is stateless and owns its name, help metadata and preparation.
-`Prepare(Context)` creates an independent **invocation** for one use.
+`Statement()` identifies its accepted AST type using a representative value.
+`Prepare(ParsedStatement, Context)` validates input and creates an **invocation**.
 
 ```text
-Prepare(context) -> invocation
+Prepare(statement, context) -> invocation
 Go(complete)    -> launch error, or accepted work
 complete(result) -> final records and execution error
 ```
@@ -24,7 +25,8 @@ There is no `Init`, `Next`, polling, or generic fact/expectation contract.
 
 **Context** supplies narrow capabilities. `ParticipantReader` exposes participant
 information without session execution access. `ShellLauncher` starts shell work
-using executor-owned workers and lifetime. Commands receive no raw model.
+using executor-owned workers and lifetime. Shell display text comes from its
+statement. Commands receive no raw model; user commands remain on the legacy path.
 
 **Completion** contains existing `room.Record` values and an error. Commands
 construct records and transfer ownership when calling `complete`; they must not
@@ -46,4 +48,6 @@ The UI receives transcript deltas, with no `/who` result branch.
 `/shell` uses its existing execution seam. It acknowledges submission after
 launch, then returns its command record on completion. The bridge retains the
 structured shell event; loop execution and definitions remain in the interpreter.
-Per-invocation cancellation and generic registration remain to be proved.
+`runtime.Registry.Register(command)` indexes the type returned by `Statement()`.
+`Lookup(parsed)` selects the command; metadata comes from the command itself.
+The registry remains standalone; interpreter wiring is the next checkpoint.

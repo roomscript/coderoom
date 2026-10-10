@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/roomscript/coderoom/internal/interpreter/runtime"
+	"github.com/roomscript/coderoom/internal/promptlang"
 	"github.com/roomscript/coderoom/internal/room"
 )
 
@@ -16,10 +17,11 @@ type callbackTestCommand struct {
 	release   chan struct{}
 }
 
-func (*callbackTestCommand) Name() string        { return "test" }
-func (*callbackTestCommand) Usage() string       { return "/test" }
-func (*callbackTestCommand) Description() string { return "callback test" }
-func (c *callbackTestCommand) Prepare(runtime.Context) (runtime.Invocation, error) {
+func (*callbackTestCommand) Name() string                    { return "test" }
+func (*callbackTestCommand) Usage() string                   { return "/test" }
+func (*callbackTestCommand) Description() string             { return "callback test" }
+func (*callbackTestCommand) Statement() promptlang.Statement { return promptlang.Who{} }
+func (c *callbackTestCommand) Prepare(promptlang.ParsedStatement, runtime.Context) (runtime.Invocation, error) {
 	return c, nil
 }
 

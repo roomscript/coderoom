@@ -26,7 +26,7 @@ func (w *loopWorkflow) start(
 		}})
 		return sequence
 	}
-	body, err := commands.Resolve(promptlang.CommandInvocation{Name: statement.Condition})
+	body, err := commands.Resolve(promptlang.UserCommand{Name: statement.Condition})
 	if err != nil {
 		sequence = append(sequence, publishEventInstruction{event: SubmissionFailed{
 			Raw: raw, Operation: "loop condition /" + statement.Condition.Value,

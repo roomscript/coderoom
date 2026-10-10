@@ -4,6 +4,7 @@ package runtime
 
 import (
 	"github.com/roomscript/coderoom/internal/participant"
+	"github.com/roomscript/coderoom/internal/promptlang"
 	"github.com/roomscript/coderoom/internal/room"
 	"github.com/roomscript/coderoom/internal/shell"
 )
@@ -30,7 +31,9 @@ type Command interface {
 	Name() string
 	Usage() string
 	Description() string
-	Prepare(Context) (Invocation, error)
+	// Statement identifies the accepted AST type; its value is not default input.
+	Statement() promptlang.Statement
+	Prepare(promptlang.ParsedStatement, Context) (Invocation, error)
 }
 
 // Invocation initiates work and reports completion through the supplied callback.

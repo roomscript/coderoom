@@ -140,7 +140,7 @@ func parseDefinition(_, rest sourceCursor) (Statement, error) {
 	if command.text() != "/shell" || program.text() == "" {
 		return nil, body.argumentDiagnostic("usage: /def <name> /shell <program>")
 	}
-	return CommandDefinition{
+	return UserDefinition{
 		Name: name.locatedText(),
 		Body: Located[Shell]{Value: Shell{Program: program.locatedText()}, Span: body.span()},
 	}, nil
@@ -156,7 +156,7 @@ func parseInvocation(_ sourceCursor, command, rest sourceCursor) (Statement, err
 		}
 		return nil, &Diagnostic{Code: DiagnosticUnknownCommand, Span: site.span(), Message: cause.Error(), Cause: cause}
 	}
-	return CommandInvocation{Name: name.locatedText()}, nil
+	return UserCommand{Name: name.locatedText()}, nil
 }
 
 func parseSend(input sourceCursor) (Statement, error) {

@@ -4,16 +4,16 @@ import "fmt"
 
 // Registry stores command definitions for one running room.
 type Registry struct {
-	definitions map[string]CommandDefinition
+	definitions map[string]UserDefinition
 }
 
 // NewRegistry creates an empty command registry.
 func NewRegistry() *Registry {
-	return &Registry{definitions: make(map[string]CommandDefinition)}
+	return &Registry{definitions: make(map[string]UserDefinition)}
 }
 
 // Define stores a command definition without evaluating its body.
-func (r *Registry) Define(definition CommandDefinition) error {
+func (r *Registry) Define(definition UserDefinition) error {
 	if !isIdentifier(definition.Name.Value) {
 		return diagnosticForError(DiagnosticInvalidIdentifier, definition.Name.Span, InvalidCommandNameError{Name: definition.Name.Value})
 	}
@@ -24,14 +24,14 @@ func (r *Registry) Define(definition CommandDefinition) error {
 		return diagnosticForError(DiagnosticCommandExists, definition.Name.Span, CommandAlreadyDefinedError{Name: definition.Name.Value})
 	}
 	if r.definitions == nil {
-		r.definitions = make(map[string]CommandDefinition)
+		r.definitions = make(map[string]UserDefinition)
 	}
 	r.definitions[definition.Name.Value] = definition
 	return nil
 }
 
 // Resolve returns the unevaluated shell body for a command invocation.
-func (r *Registry) Resolve(invocation CommandInvocation) (Located[Shell], error) {
+func (r *Registry) Resolve(invocation UserCommand) (Located[Shell], error) {
 	definition, exists := r.definitions[invocation.Name.Value]
 	if !exists {
 		return Located[Shell]{}, diagnosticForError(DiagnosticUndefinedCommand, invocation.Name.Span, UndefinedCommandError{Name: invocation.Name.Value})

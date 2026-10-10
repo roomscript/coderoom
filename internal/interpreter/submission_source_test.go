@@ -62,7 +62,7 @@ func TestSubmissionSource_undefinedCommandRetainsRegistryDiagnostic(t *testing.T
 	raw := "  /missing  "
 	mustSubmit(t, interp.Submit(raw))
 	unknown := receiveSubmitEvent[UnknownCommand](t, events)
-	statement, ok := unknown.Statement.Value.(promptlang.CommandInvocation)
+	statement, ok := unknown.Statement.Value.(promptlang.UserCommand)
 	if !ok || unknown.Raw != raw || statement.Name.Value != "missing" {
 		t.Fatalf("unknown = %#v", unknown)
 	}
@@ -171,7 +171,7 @@ func TestSubmissionSource_staleLoopShellReportsItsOwnSource(t *testing.T) {
 func TestSubmissionSource_rejectedLoopPreservesActiveSource(t *testing.T) {
 	model := newInterpreterModel()
 	t.Cleanup(model.Close)
-	definition := parseSourceStatement(t, "/def tests /shell true").Value.(promptlang.CommandDefinition)
+	definition := parseSourceStatement(t, "/def tests /shell true").Value.(promptlang.UserDefinition)
 	if err := model.commands.Define(definition); err != nil {
 		t.Fatal(err)
 	}

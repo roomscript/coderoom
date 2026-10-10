@@ -137,6 +137,17 @@ directories are candidates, not requirements to create in one change.
 
 ## Experimental /who bridge
 
+A standalone `runtime.Registry` registers `Command` implementations directly.
+`Command.Statement()` returns a representative AST value identifying the accepted
+type, not default arguments. Lookup indexes the concrete type of the parsed value.
+The command owns metadata and validates arguments in `Prepare(ParsedStatement,
+Context)`; there is no separate builder or adapter. Registration rejects duplicate
+names and statement types and preserves order for help. The registry remains
+unwired. The shell bridge preserves the parsed shell statement through preparation.
+`std.ShellCommand` accepts only `promptlang.Shell`. `promptlang.UserCommand` and
+`promptlang.UserDefinition` identify named invocations and definitions; both retain
+their legacy interpreter execution path until separate modules are introduced.
+
 `internal/interpreter/std.WhoCommand` supplies its name, help metadata and
 `Prepare` behavior. Shared contracts and the callback `CommandRunner` live in
 `internal/interpreter/runtime`. Command registration remains in the legacy catalog.
@@ -165,15 +176,15 @@ This is a temporary seam for testing assumptions, not generic module dispatch.
 The callback contract replaces `Init`/`Next`. Prototype tests cover immediate
 and delayed completion, duplicate callbacks, launch failure, and shutdown.
 
-`std.ShellCommand` now uses the existing user-shell execution seam, including
-resolved named invocations. `ShellLauncher` supplies the working directory and
+`std.ShellCommand` now uses the existing direct-shell execution seam.
+`ShellLauncher` supplies the working directory and
 asynchronous execution; the executor owns cancellation and joins workers on close.
 The command constructs the original command record. A temporary adapter retains
 the raw shell result for the existing `ShellCompleted` event and source diagnostics.
 Submission succeeds after launch; completion publishes the record, event, and
 snapshot in that order. Results generated during shutdown are retained and applied
 after workers finish, including cancelled shell records. Loop shell execution and
-definition resolution remain unchanged. Generic registration remains deferred.
+definition storage remain unchanged. Generic registration remains deferred.
 
 ## Relationship to #39
 

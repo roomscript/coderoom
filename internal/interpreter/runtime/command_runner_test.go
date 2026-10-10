@@ -8,6 +8,7 @@ import (
 	"github.com/roomscript/coderoom/internal/interpreter/runtime"
 	"github.com/roomscript/coderoom/internal/interpreter/std"
 	"github.com/roomscript/coderoom/internal/participant"
+	"github.com/roomscript/coderoom/internal/promptlang"
 	"github.com/roomscript/coderoom/internal/room"
 )
 
@@ -16,10 +17,13 @@ type command struct {
 	err        error
 }
 
-func (*command) Name() string                                          { return "test" }
-func (*command) Usage() string                                         { return "/test" }
-func (*command) Description() string                                   { return "test command" }
-func (c *command) Prepare(runtime.Context) (runtime.Invocation, error) { return c.invocation, c.err }
+func (*command) Statement() promptlang.Statement { return promptlang.Who{} }
+func (*command) Name() string                    { return "test" }
+func (*command) Usage() string                   { return "/test" }
+func (*command) Description() string             { return "test command" }
+func (c *command) Prepare(promptlang.ParsedStatement, runtime.Context) (runtime.Invocation, error) {
+	return c.invocation, c.err
+}
 
 type invocation struct {
 	complete func(runtime.Completion)
@@ -36,7 +40,7 @@ func (i *invocation) Go(complete func(runtime.Completion)) error {
 func TestCommandRunner_GoReturnsBeforeCompletion(t *testing.T) {
 	i := &invocation{}
 	results := make(chan runtime.Completion, 1)
-	err := (runtime.CommandRunner{}).Go(&command{invocation: i}, runtime.Context{}, func(c runtime.Completion) { results <- c })
+	err := (runtime.CommandRunner{}).Go(&command{invocation: i}, promptlang.ParsedStatement{Value: promptlang.Who{}}, runtime.Context{}, func(c runtime.Completion) { results <- c })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +73,7 @@ func TestCommandRunner_GoFailures(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			i := &invocation{err: tt.launchErr}
-			err := (runtime.CommandRunner{}).Go(&command{invocation: i, err: tt.prepareErr}, runtime.Context{}, func(runtime.Completion) { t.Fatal("unexpected completion") })
+			err := (runtime.CommandRunner{}).Go(&command{invocation: i, err: tt.prepareErr}, promptlang.ParsedStatement{Value: promptlang.Who{}}, runtime.Context{}, func(runtime.Completion) { t.Fatal("unexpected completion") })
 			if !errors.Is(err, failure) {
 				t.Fatalf("error = %v, want wrapped failure", err)
 			}
@@ -86,7 +90,7 @@ func (participantReader) Participants() []participant.View { return []participan
 
 func TestCommandRunner_WhoCompletesImmediately(t *testing.T) {
 	var results []runtime.Completion
-	err := (runtime.CommandRunner{}).Go(std.WhoCommand{}, runtime.Context{Participants: participantReader{}}, func(c runtime.Completion) { results = append(results, c) })
+	err := (runtime.CommandRunner{}).Go(std.WhoCommand{}, promptlang.ParsedStatement{Value: promptlang.Who{}}, runtime.Context{Participants: participantReader{}}, func(c runtime.Completion) { results = append(results, c) })
 	if err != nil {
 		t.Fatal(err)
 	}

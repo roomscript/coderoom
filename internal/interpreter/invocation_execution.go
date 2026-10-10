@@ -21,7 +21,7 @@ func (e *interpreterExecutor) goInvocation(value goInvocationInstruction) instru
 		e.pendingInvocations = make(map[uint64]submissionOutcome)
 	}
 	e.pendingInvocations[id] = value.outcome
-	err := (runtime.CommandRunner{}).Go(value.command, value.context, func(completion runtime.Completion) {
+	err := (runtime.CommandRunner{}).Go(value.command, value.outcome.statement, value.context, func(completion runtime.Completion) {
 		e.enqueueCompletion(invocationCompletedOperation{id: id, completion: completion})
 	})
 	if err != nil {

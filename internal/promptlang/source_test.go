@@ -116,12 +116,12 @@ func TestRegistry_retainsDefinitionSource(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	definition := statement.Value.(promptlang.CommandDefinition)
+	definition := statement.Value.(promptlang.UserDefinition)
 	registry := promptlang.NewRegistry()
 	if err := registry.Define(definition); err != nil {
 		t.Fatal(err)
 	}
-	body, err := registry.Resolve(promptlang.CommandInvocation{Name: located("tests")})
+	body, err := registry.Resolve(promptlang.UserCommand{Name: located("tests")})
 	if err != nil || body != definition.Body {
 		t.Fatalf("body = %#v, error = %v; want %#v", body, err, definition.Body)
 	}

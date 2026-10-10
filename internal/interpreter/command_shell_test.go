@@ -125,7 +125,7 @@ func TestSubmitContract_definesAndInvokesShellCommand(t *testing.T) {
 	}
 }
 
-func TestSubmitContract_duplicateCommandDefinitionFails(t *testing.T) {
+func TestSubmitContract_duplicateUserDefinitionFails(t *testing.T) {
 	interp, events := newShellTestInterpreter(t, &fakeShellRunner{})
 
 	mustSubmit(t, interp.Submit("/def tests /shell true"))
@@ -142,7 +142,7 @@ func TestSubmitContract_duplicateCommandDefinitionFails(t *testing.T) {
 	assertNoSubmitEvent(t, events)
 }
 
-func TestSubmitContract_reservedCommandDefinitionFails(t *testing.T) {
+func TestSubmitContract_reservedUserDefinitionFails(t *testing.T) {
 	interp, events := newShellTestInterpreter(t, &fakeShellRunner{})
 
 	mustSubmit(t, interp.Submit("/def help /shell true"))

@@ -39,7 +39,7 @@ func TestWhoCommand_Go(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			invocation, err := (std.WhoCommand{}).Prepare(runtime.Context{
+			invocation, err := (std.WhoCommand{}).Prepare(promptlang.ParsedStatement{Value: promptlang.Who{}}, runtime.Context{
 				Participants: participantReader{views: tt.views},
 			})
 			if err != nil {
@@ -66,7 +66,7 @@ func TestWhoCommand_Go(t *testing.T) {
 }
 
 func TestWhoCommand_PrepareRequiresParticipantCapability(t *testing.T) {
-	invocation, err := (std.WhoCommand{}).Prepare(runtime.Context{})
+	invocation, err := (std.WhoCommand{}).Prepare(promptlang.ParsedStatement{Value: promptlang.Who{}}, runtime.Context{})
 	if err == nil || invocation != nil {
 		t.Fatal("expected preparation failure without participant capability")
 	}
@@ -74,13 +74,13 @@ func TestWhoCommand_PrepareRequiresParticipantCapability(t *testing.T) {
 
 func TestWhoCommand_PrepareCreatesIndependentInvocations(t *testing.T) {
 	command := std.WhoCommand{}
-	first, err := command.Prepare(runtime.Context{Participants: participantReader{
+	first, err := command.Prepare(promptlang.ParsedStatement{Value: promptlang.Who{}}, runtime.Context{Participants: participantReader{
 		views: []participant.View{{Alias: "ada"}},
 	}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := command.Prepare(runtime.Context{Participants: participantReader{
+	second, err := command.Prepare(promptlang.ParsedStatement{Value: promptlang.Who{}}, runtime.Context{Participants: participantReader{
 		views: []participant.View{{Alias: "tim"}},
 	}})
 	if err != nil {

@@ -82,7 +82,7 @@ func (m *interpreterModel) ReadHandoffSource(alias string) (session.HandoffSourc
 	return m.room.LatestHandoffSource(alias)
 }
 
-func (m *interpreterModel) ResolveCommand(invocation promptlang.CommandInvocation) (promptlang.Shell, error) {
+func (m *interpreterModel) ResolveCommand(invocation promptlang.UserCommand) (promptlang.Shell, error) {
 	body, err := m.commands.Resolve(invocation)
 	if err != nil {
 		return promptlang.Shell{}, fmt.Errorf("resolve command: %w", err)

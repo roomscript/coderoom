@@ -41,7 +41,7 @@ func TestHandleInterpreterEvent_rendersShellCompletion(t *testing.T) {
 	}
 }
 
-func TestHandleInterpreterEvent_rendersCommandDefinitionSuccess(t *testing.T) {
+func TestHandleInterpreterEvent_rendersUserDefinitionSuccess(t *testing.T) {
 	m := makeReadyModel(t)
 	m = presentTestRecord(m, roomstate.Record{Kind: roomstate.KindSystem, Text: "[defined] /tests"})
 	m, _ = m.handleInterpreterEvent(interpreter.SubmissionSucceeded{

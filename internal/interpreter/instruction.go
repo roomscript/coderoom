@@ -30,10 +30,10 @@ type executeCommandInstruction struct {
 }
 
 type startUserShellInstruction struct {
+	program   string
 	statement promptlang.ParsedStatement
 	raw       string
 	command   string
-	program   string
 }
 
 type goInvocationInstruction struct {

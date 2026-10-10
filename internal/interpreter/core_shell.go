@@ -16,7 +16,7 @@ func (*interpreterModel) prepareShell(raw string, statement promptlang.Shell) in
 
 func (m *interpreterModel) defineShellCommand(
 	raw string,
-	definition promptlang.CommandDefinition,
+	definition promptlang.UserDefinition,
 ) instructionSequence {
 	sequence := acceptedInputSequence(raw)
 	if err := m.commands.Define(definition); err != nil {
@@ -36,7 +36,7 @@ func (m *interpreterModel) defineShellCommand(
 
 func (m *interpreterModel) prepareShellCommand(
 	raw string,
-	invocation promptlang.CommandInvocation,
+	invocation promptlang.UserCommand,
 ) instructionSequence {
 	body, err := m.commands.Resolve(invocation)
 	if err != nil {
@@ -56,8 +56,14 @@ func prepareShellExecution(raw, command, program string) instructionSequence {
 // startShell launches work and returns control. Submission success means the
 // launch was accepted; a later shellCompletedOperation reports execution results.
 func (e *interpreterExecutor) startShell(raw, command, program string, statement promptlang.ParsedStatement) {
+	if _, direct := statement.Value.(promptlang.Shell); !direct {
+		e.launchDefinedShell(raw, command, program, statement)
+		e.publish(SubmissionSucceeded{Raw: raw, Statement: statement})
+		return
+	}
 	launcher := &userShellLauncher{executor: e}
-	err := (runtime.CommandRunner{}).Go(std.ShellCommand{Command: program, DisplayCommand: command}, runtime.Context{Shell: launcher}, func(completion runtime.Completion) {
+	ctx := runtime.Context{Shell: launcher}
+	err := (runtime.CommandRunner{}).Go(std.ShellCommand{}, statement, ctx, func(completion runtime.Completion) {
 		e.enqueueCompletion(shellCompletedOperation{
 			raw: raw, statement: statement, command: command,
 			result: launcher.result, completion: completion,

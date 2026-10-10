@@ -34,7 +34,7 @@ func submissionErrorCode(err error) ErrorCode {
 }
 
 func commandName(statement promptlang.Statement) string {
-	invocation, ok := statement.(promptlang.CommandInvocation)
+	invocation, ok := statement.(promptlang.UserCommand)
 	if !ok {
 		return ""
 	}

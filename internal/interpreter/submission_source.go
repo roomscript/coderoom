@@ -100,9 +100,9 @@ func executionErrorSpan(statement promptlang.ParsedStatement) promptlang.Span {
 
 func commandReferenceErrorSpan(statement promptlang.ParsedStatement) (promptlang.Span, bool) {
 	switch value := statement.Value.(type) {
-	case promptlang.CommandDefinition:
+	case promptlang.UserDefinition:
 		return value.Name.Span, true
-	case promptlang.CommandInvocation:
+	case promptlang.UserCommand:
 		return value.Name.Span, true
 	default:
 		return promptlang.Span{}, false

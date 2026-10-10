@@ -42,7 +42,7 @@ func TestInterpreterModel_SubmitDecidesUnknownCommand(t *testing.T) {
 
 	sequence := model.PrepareRequest(
 		"/missing",
-		promptlang.ParsedStatement{Value: promptlang.CommandInvocation{Name: located("missing")}},
+		promptlang.ParsedStatement{Value: promptlang.UserCommand{Name: located("missing")}},
 	)
 	if len(sequence) != 1 {
 		t.Fatalf("instructions = %d, want 1", len(sequence))

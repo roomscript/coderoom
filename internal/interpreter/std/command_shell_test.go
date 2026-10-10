@@ -7,6 +7,7 @@ import (
 	"github.com/roomscript/coderoom/internal/agent"
 	"github.com/roomscript/coderoom/internal/interpreter/runtime"
 	"github.com/roomscript/coderoom/internal/interpreter/std"
+	"github.com/roomscript/coderoom/internal/promptlang"
 	"github.com/roomscript/coderoom/internal/room"
 	"github.com/roomscript/coderoom/internal/shell"
 )
@@ -42,7 +43,7 @@ func TestShellCommand_DelayedCompletion(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			launcher := &shellLauncher{cwd: "/workspace"}
-			invocation, err := (std.ShellCommand{Command: "echo hello", DisplayCommand: "/greet"}).Prepare(runtime.Context{Shell: launcher})
+			invocation, err := (std.ShellCommand{}).Prepare(shellStatement("echo hello"), runtime.Context{Shell: launcher})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -61,12 +62,12 @@ func TestShellCommand_DelayedCompletion(t *testing.T) {
 			}
 			launcher.complete(tt.result)
 			completion := <-results
-			assertShellRecord(t, completion, tt.result, tt.output)
+			assertShellRecord(t, completion, tt.result, "echo hello", tt.output)
 		})
 	}
 }
 
-func assertShellRecord(t *testing.T, completion runtime.Completion, result shell.Result, output string) {
+func assertShellRecord(t *testing.T, completion runtime.Completion, result shell.Result, displayCommand, output string) {
 	t.Helper()
 	if !errors.Is(completion.Err, result.Err) || len(completion.Records) != 1 {
 		t.Fatalf("completion = %#v", completion)
@@ -76,15 +77,30 @@ func assertShellRecord(t *testing.T, completion runtime.Completion, result shell
 	if record.Kind != room.KindCommand || record.Alias != "shell" || !ok {
 		t.Fatalf("record = %#v", record)
 	}
-	if command.Command != "/greet" || command.Cwd != "/workspace" || command.Output != output || command.ExitCode != result.ExitCode {
+	if command.Command != displayCommand || command.Cwd != "/workspace" || command.Output != output || command.ExitCode != result.ExitCode {
 		t.Fatalf("command = %#v", command)
 	}
+}
+
+func TestShellCommand_DirectInputSuppliesDisplayCommand(t *testing.T) {
+	launcher := &shellLauncher{cwd: "/workspace"}
+	invocation, err := (std.ShellCommand{}).Prepare(shellStatement("echo hello"), runtime.Context{Shell: launcher})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var completion runtime.Completion
+	if err := invocation.Go(func(result runtime.Completion) { completion = result }); err != nil {
+		t.Fatal(err)
+	}
+	result := shell.Result{Status: shell.StatusSuccess}
+	launcher.complete(result)
+	assertShellRecord(t, completion, result, "echo hello", "status: success")
 }
 
 func TestShellCommand_LaunchFailure(t *testing.T) {
 	failure := errors.New("launch failure")
 	launcher := &shellLauncher{err: failure}
-	err := (runtime.CommandRunner{}).Go(std.ShellCommand{Command: "true"}, runtime.Context{Shell: launcher}, func(runtime.Completion) {
+	err := (runtime.CommandRunner{}).Go(std.ShellCommand{}, shellStatement("true"), runtime.Context{Shell: launcher}, func(runtime.Completion) {
 		t.Fatal("launch failure must not report execution completion")
 	})
 	if !errors.Is(err, failure) {
@@ -93,8 +109,12 @@ func TestShellCommand_LaunchFailure(t *testing.T) {
 }
 
 func TestShellCommand_RequiresExecutionCapability(t *testing.T) {
-	invocation, err := (std.ShellCommand{}).Prepare(runtime.Context{})
+	invocation, err := (std.ShellCommand{}).Prepare(shellStatement("true"), runtime.Context{})
 	if err == nil || invocation != nil {
 		t.Fatal("expected preparation failure without shell execution")
 	}
+}
+
+func shellStatement(command string) promptlang.ParsedStatement {
+	return promptlang.ParsedStatement{Value: promptlang.Shell{Program: promptlang.Located[string]{Value: command}}}
 }
