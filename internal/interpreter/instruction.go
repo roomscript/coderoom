@@ -42,10 +42,6 @@ type goInvocationInstruction struct {
 	outcome submissionOutcome
 }
 
-type readParticipantsInstruction struct {
-	raw       string
-	statement promptlang.ParsedStatement
-}
 type prepareSendInstruction struct {
 	target workflowRef
 	alias  string
@@ -69,7 +65,6 @@ func (startShellInstruction) instruction()           {}
 func (executeCommandInstruction) instruction()       {}
 func (startUserShellInstruction) instruction()       {}
 func (goInvocationInstruction) instruction()         {}
-func (readParticipantsInstruction) instruction()     {}
 func (prepareSendInstruction) instruction()          {}
 func (planBroadcastInstruction) instruction()        {}
 func (readParticipantStateInstruction) instruction() {}

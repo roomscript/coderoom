@@ -71,15 +71,14 @@ continue through a temporary legacy-handler bridge until migrated. Keep code in
 the current package until a real consumer demonstrates a useful boundary.
 
 - [x] 0. Read #61 and the current implementation; create this temporary plan.
-- [ ] 1. Migrate `/who`: prototype `std.WhoCommand` and `runtime.CommandRunner`
-  are exercised only through the legacy participant-result completion. Original
-  registration, dispatch and participant-read instructions remain. The bridge
-  returns the original notice as a canonical record, with exactly-once/order tests.
-  Generic module wiring remains deferred. The callback prototype now replaces
-  `Init`/`Next` with `Go(complete)`, using queued, correlated completions.
-  Asynchronous `/shell` now uses its existing execution seam with an executor-owned
-  launch capability, preserving launch success and structured completion. Definitions
-  and loop execution remain on the legacy path. Review before generic registration.
+- [x] 1. Migrate `/who`: `std.WhoCommand` is registered in the interpreter-owned
+  runtime registry. Shared dispatch selects by parsed statement type, supplies
+  detached participant reads and launches `Go(complete)`. Legacy participant-read
+  instructions and result routing are removed. Help uses registered metadata in
+  its original position. Tests cover ordering, source, exactly-once completion,
+  shutdown and another registered command without a specific handler.
+  `/shell` retains its existing execution bridge; register it separately next.
+  User commands, definitions and loop execution remain on the legacy path.
 - [ ] 2a. Addressed-send preparation and direct delivery: introduce prepared plans,
   frozen required/optional recipients and correlated delivery outcomes as the
   module needs them. Prove direct delivery and partial results with a narrow fake

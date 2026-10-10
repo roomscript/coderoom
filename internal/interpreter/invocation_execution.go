@@ -5,7 +5,13 @@ import (
 	"slices"
 
 	"github.com/roomscript/coderoom/internal/interpreter/runtime"
+	"github.com/roomscript/coderoom/internal/participant"
 )
+
+// participantViews supplies detached reads without live session access.
+type participantViews []participant.View
+
+func (views participantViews) Participants() []participant.View { return views }
 
 type invocationCompletedOperation struct {
 	id         uint64
@@ -21,6 +27,9 @@ func (e *interpreterExecutor) goInvocation(value goInvocationInstruction) instru
 		e.pendingInvocations = make(map[uint64]submissionOutcome)
 	}
 	e.pendingInvocations[id] = value.outcome
+	if value.context.Participants == nil {
+		value.context.Participants = participantViews(e.participants())
+	}
 	err := (runtime.CommandRunner{}).Go(value.command, value.outcome.statement, value.context, func(completion runtime.Completion) {
 		e.enqueueCompletion(invocationCompletedOperation{id: id, completion: completion})
 	})

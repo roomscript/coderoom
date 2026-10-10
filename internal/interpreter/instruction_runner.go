@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/roomscript/coderoom/internal/participant"
 	"github.com/roomscript/coderoom/internal/promptlang"
 	"github.com/roomscript/coderoom/internal/room"
 	"github.com/roomscript/coderoom/internal/session"
@@ -39,7 +38,6 @@ type instructionExecutorPort interface {
 	createParticipantSendPlan(string) (session.ParticipantSendPlan, []string)
 	planBroadcast() []string
 	participantState() []participantState
-	participants() []participant.View
 	takeSessionEvents() []session.Event
 	refreshSnapshot() Snapshot
 	requestClose()
@@ -153,10 +151,6 @@ func (r *instructionRunner) applyExecutionInstruction(value instruction) ([]runn
 // Preparation reads return facts immediately; they never introduce a wait.
 func (r *instructionRunner) applyPreparationInstruction(value instruction) ([]runnerItem, bool) {
 	switch value := value.(type) {
-	case readParticipantsInstruction:
-		return []runnerItem{preparationItem{result: participantsResult{
-			raw: value.raw, statement: value.statement, participants: r.executor.participants(),
-		}}}, true
 	case prepareSendInstruction:
 		plan, targets := r.executor.createParticipantSendPlan(value.alias)
 		return []runnerItem{preparationItem{result: sendPlanResult{

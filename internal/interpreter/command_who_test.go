@@ -95,6 +95,11 @@ func TestSubmitContract_whoCompletesBeforeShutdown(t *testing.T) {
 // which intentionally skips transcript deltas.
 func assertWhoTranscript(t *testing.T, events <-chan Event, notice string) {
 	t.Helper()
+	assertCommandTranscript(t, events, "/who", notice)
+}
+
+func assertCommandTranscript(t *testing.T, events <-chan Event, input, notice string) {
+	t.Helper()
 	var records []room.Record
 	var version uint64
 	for len(records) < 2 {
@@ -114,7 +119,7 @@ func assertWhoTranscript(t *testing.T, events <-chan Event, notice string) {
 			records = append(records, update.Record)
 		}
 	}
-	want := []room.Record{{Kind: room.KindUserInput, Text: "/who"}, {Kind: room.KindSystem, Text: notice}}
+	want := []room.Record{{Kind: room.KindUserInput, Text: input}, {Kind: room.KindSystem, Text: notice}}
 	if !reflect.DeepEqual(records, want) {
 		t.Fatalf("records = %#v, want %#v", records, want)
 	}

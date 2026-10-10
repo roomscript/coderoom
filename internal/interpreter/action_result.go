@@ -1,7 +1,6 @@
 package interpreter
 
 import (
-	"github.com/roomscript/coderoom/internal/participant"
 	"github.com/roomscript/coderoom/internal/promptlang"
 	"github.com/roomscript/coderoom/internal/session"
 	"github.com/roomscript/coderoom/internal/shell"
@@ -33,12 +32,6 @@ type submissionOutcome struct {
 	err       error
 }
 
-type participantsResult struct {
-	statement    promptlang.ParsedStatement
-	raw          string
-	participants []participant.View
-}
-
 type sendPlanResult struct {
 	participants []participantState
 	target       workflowRef
@@ -65,7 +58,6 @@ type handoffSourceResult struct {
 func (sessionOutcome) executionOutcome()          {}
 func (shellOutcome) executionOutcome()            {}
 func (submissionOutcome) executionOutcome()       {}
-func (participantsResult) preparationResult()     {}
 func (sendPlanResult) preparationResult()         {}
 func (broadcastPlanResult) preparationResult()    {}
 func (participantStateResult) preparationResult() {}

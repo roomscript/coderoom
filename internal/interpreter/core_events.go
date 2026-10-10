@@ -46,9 +46,6 @@ func (m *interpreterModel) ApplySessionEvent(event session.Event) (instructionSe
 // ApplyPreparation applies synchronous planning and inspection facts. No work
 // is suspended while these reads run; workflows may retain the prepared plan.
 func (m *interpreterModel) ApplyPreparation(result preparationResult) instructionSequence {
-	if participants, ok := result.(participantsResult); ok {
-		return participantsResultSequence(participants)
-	}
 	source := m.workflows.stage.statement()
 	return withSubmissionSource(m.applyPreparation(result), source)
 }

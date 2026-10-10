@@ -3,7 +3,7 @@
 Working agreement for [#61](https://github.com/roomscript/coderoom/issues/61).
 Keep this document roughly one page; details belong in code or
 [design docs](../../../docs/design/pkg-interpreter-composition.md).
-`/who` and `/shell` use temporary bridges; registration remains unchanged.
+`/who` uses registry dispatch; `/shell` retains its temporary execution bridge.
 
 ## Command and invocation
 
@@ -50,4 +50,4 @@ launch, then returns its command record on completion. The bridge retains the
 structured shell event; loop execution and definitions remain in the interpreter.
 `runtime.Registry.Register(command)` indexes the type returned by `Statement()`.
 `Lookup(parsed)` selects the command; metadata comes from the command itself.
-The registry remains standalone; interpreter wiring is the next checkpoint.
+`/who` is registered; migrate `/shell` registration in a separate checkpoint.

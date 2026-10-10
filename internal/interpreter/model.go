@@ -3,6 +3,7 @@ package interpreter
 import (
 	"fmt"
 
+	"github.com/roomscript/coderoom/internal/interpreter/runtime"
 	"github.com/roomscript/coderoom/internal/promptlang"
 	"github.com/roomscript/coderoom/internal/room"
 	"github.com/roomscript/coderoom/internal/session"
@@ -15,6 +16,7 @@ type interpreterModel struct {
 	transcriptChanges []TranscriptChanged
 	room              *room.Room
 	commands          *promptlang.Registry
+	modules           *runtime.Registry
 	workflows         workflowCollection
 	approval          *Approval
 }
@@ -40,12 +42,17 @@ func (m *interpreterModel) InterruptAndDispatchStage() (instructionSequence, boo
 }
 
 func newInterpreterModel() *interpreterModel {
-	model := &interpreterModel{commands: promptlang.NewRegistry()}
+	model := &interpreterModel{commands: promptlang.NewRegistry(), modules: newModuleRegistry()}
 	model.room = room.New(room.WithObserver(transcriptObserver{model: model}))
 	return model
 }
 
 func (m *interpreterModel) prepareCommand(raw string, statement promptlang.Statement) (instructionSequence, bool) {
+	if command, ok := m.modules.Lookup(promptlang.ParsedStatement{Value: statement}); ok {
+		return append(acceptedInputSequence(raw), goInvocationInstruction{
+			command: command, outcome: submissionOutcome{raw: raw, operation: command.Name()},
+		}), true
+	}
 	for _, definition := range nativeCommandDefinitions {
 		if definition.matches(statement) && definition.submit != nil {
 			return definition.submit(m, raw, statement), true
@@ -100,4 +107,17 @@ func (m *interpreterModel) Snapshot() modelSnapshot {
 
 func (m *interpreterModel) Close() {
 	m.room.Close()
+}
+
+func newModuleRegistry() *runtime.Registry {
+	registry := runtime.NewRegistry()
+	for _, definition := range nativeCommandDefinitions {
+		if definition.module == nil {
+			continue
+		}
+		if err := registry.Register(definition.module); err != nil {
+			panic(err)
+		}
+	}
+	return registry
 }

@@ -39,7 +39,11 @@ func TestNativeUserDefinitions_coverParserBuiltins(t *testing.T) {
 func TestNativeUserDefinitions_helpRoutesToNativeHandlers(t *testing.T) {
 	replacements := strings.NewReplacer("<alias>", "ada", "<from>", "ada", "<to>", "turing", "<program>", "true", "<name>", "check", "<prompt>", "review", "<turns>", "1", "<text>", "hello")
 	for _, definition := range nativeCommandDefinitions {
-		for _, entry := range definition.help {
+		entries := definition.help
+		if definition.module != nil {
+			entries = []HelpEntry{{Usage: definition.module.Usage(), Description: definition.module.Description()}}
+		}
+		for _, entry := range entries {
 			t.Run(entry.Usage, func(t *testing.T) {
 				raw := replacements.Replace(entry.Usage)
 				statement := assertHelpExampleDefinition(t, definition, entry, raw)
@@ -122,10 +126,10 @@ func TestNativeUserDefinitions_requireNativeHelpAndHandlers(t *testing.T) {
 		if definition.name == "debugview" || definition.name == "debugrows" {
 			continue
 		}
-		if definition.submit == nil {
+		if definition.submit == nil && definition.module == nil {
 			t.Errorf("native definition %q has no handler", definition.name)
 		}
-		if len(definition.help) == 0 {
+		if len(definition.help) == 0 && definition.module == nil {
 			t.Errorf("native definition %q has no help", definition.name)
 		}
 	}

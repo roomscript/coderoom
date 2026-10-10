@@ -1,10 +1,17 @@
 package interpreter
 
-import "github.com/roomscript/coderoom/internal/promptlang"
+import (
+	"reflect"
+
+	"github.com/roomscript/coderoom/internal/interpreter/runtime"
+	"github.com/roomscript/coderoom/internal/interpreter/std"
+	"github.com/roomscript/coderoom/internal/promptlang"
+)
 
 // nativeCommandDefinition binds statement dispatch to its help metadata.
 // Debug statements dispatch presentation requests without native help.
 type nativeCommandDefinition struct {
+	module  runtime.Command
 	name    string
 	message bool
 	help    []HelpEntry
@@ -40,7 +47,7 @@ func init() {
 		defineNativeCommand("def", (*interpreterModel).defineShellCommand, HelpEntry{Usage: "/def <name> /shell <program>", Description: "define a shell-backed command"}),
 		defineNativeCommand("", (*interpreterModel).prepareShellCommand, HelpEntry{Usage: "/<name>", Description: "invoke a defined command"}),
 		defineNativeCommand("loop", submitLoop, HelpEntry{Usage: "/loop @<alias> <prompt> /until /<name> /max <turns>", Description: "run a bounded participant loop"}),
-		defineNativeCommand("who", submitWho, HelpEntry{Usage: "/who", Description: "list agents"}),
+		defineModuleCommand(std.WhoCommand{}),
 		defineNativeCommand("help", submitHelp, HelpEntry{Usage: "/help", Description: "show this message"}),
 		defineNativeCommand("quit", submitQuit, HelpEntry{Usage: "/quit", Description: "exit"}),
 		defineNativeCommand("debugview", submitDebugView),
@@ -64,12 +71,19 @@ func submitLoop(m *interpreterModel, raw string, statement promptlang.Loop) inst
 	return m.workflows.loop.start(raw, statement, m.commands)
 }
 
-func submitWho(m *interpreterModel, raw string, _ promptlang.Who) instructionSequence {
-	return m.submitWho(raw)
-}
 func submitHelp(m *interpreterModel, raw string, _ promptlang.Help) instructionSequence {
 	return m.submitHelp(raw)
 }
 func submitQuit(m *interpreterModel, raw string, _ promptlang.Quit) instructionSequence {
 	return m.submitQuit(raw)
+}
+
+// defineModuleCommand keeps the catalog's ordering while execution uses the registry.
+func defineModuleCommand(command runtime.Command) nativeCommandDefinition {
+	return nativeCommandDefinition{
+		name: command.Name(), module: command,
+		matches: func(statement promptlang.Statement) bool {
+			return reflect.TypeOf(statement) == reflect.TypeOf(command.Statement())
+		},
+	}
 }

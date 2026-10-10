@@ -14,7 +14,7 @@ This follows [#55](https://github.com/roomscript/coderoom/issues/55) and conside
 |---|---|---|
 | Syntax and typed statements | `internal/promptlang/{parse,action}.go` | Completed #39 boundary with source spans and categorized diagnostics |
 | User command definitions | `promptlang.Registry`, owned by `interpreterModel` | Move runtime name resolution and reservation policy out of the syntax package |
-| Native command dispatch and help | `command_definitions.go` | Legacy handlers remain; `/who` completion bridges to a standalone module |
+| Native command dispatch and help | `command_definitions.go`, `runtime.Registry` | `/who` uses registry dispatch; other handlers retain their legacy path |
 | Mutable application state | `model.go`, transcript and approval files | Keep one canonical projection and shared application services |
 | Stage planning and waits | `stageWorkflow`, `core_send/broadcast/handoff.go`, stage support files | Separate command-specific planning from reusable readiness and interruption policy |
 | Loop orchestration | `loopWorkflow`, `core_loop.go` | Depend on participant delivery and shell capabilities rather than session protocol |
@@ -135,31 +135,26 @@ injects implementations. The coordinator runs effects against adapters. Keep
 runtime small; it must not become the old monolith under a new name. These
 directories are candidates, not requirements to create in one change.
 
-## Experimental /who bridge
+## Registered /who command
 
-A standalone `runtime.Registry` registers `Command` implementations directly.
+An interpreter-owned `runtime.Registry` registers `Command` implementations directly.
 `Command.Statement()` returns a representative AST value identifying the accepted
 type, not default arguments. Lookup indexes the concrete type of the parsed value.
 The command owns metadata and validates arguments in `Prepare(ParsedStatement,
 Context)`; there is no separate builder or adapter. Registration rejects duplicate
-names and statement types and preserves order for help. The registry remains
-unwired. The shell bridge preserves the parsed shell statement through preparation.
+names and statement types and preserves order for help. The interpreter owns a registry populated explicitly from module catalog entries.
+The shell bridge preserves the parsed shell statement through preparation.
 `std.ShellCommand` accepts only `promptlang.Shell`. `promptlang.UserCommand` and
 `promptlang.UserDefinition` identify named invocations and definitions; both retain
 their legacy interpreter execution path until separate modules are introduced.
 
-`internal/interpreter/std.WhoCommand` supplies its name, help metadata and
-`Prepare` behavior. Shared contracts and the callback `CommandRunner` live in
-`internal/interpreter/runtime`. Command registration remains in the legacy catalog.
-
-The original `/who` dispatch and participant-read instruction are unchanged.
-Where participant results previously produced a `ParticipantsListed` event,
-`participantsResultSequence` now returns a launch instruction carrying those
-already-read values. The executor calls `CommandRunner.Go`; preparation gives
-an invocation no model or live Session. `Invocation.Go(complete)` reports launch
-failure by return value and final records/errors through a callback. `/who`
-completes immediately, but its callback only enqueues an operation. The operation
-appends records and reports submission completion on the serialized path.
+`std.WhoCommand` is registered in that registry. The catalog retains a module
+entry to preserve help ordering, with metadata read from the registered command
+and no legacy handler. Shared dispatch selects the command by parsed statement
+type and emits a `goInvocationInstruction`; its outcome carries original source
+metadata. The executor supplies detached participant values and calls
+`CommandRunner.Go`. The former participant-read instruction and result branch
+are removed. Completion appends records before reporting submission success.
 
 The executor assigns monotonically increasing invocation IDs and consumes each
 completion once. Failed launches invalidate queued callbacks. Shutdown drains

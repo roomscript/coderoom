@@ -319,7 +319,6 @@ type startUserShellInstruction struct {
     program string
 }
 
-type readParticipantsInstruction struct { raw string }
 type prepareSendInstruction struct {
     target workflowRef
     alias  string
@@ -360,8 +359,8 @@ The executor instructions preserve native command behavior:
   gateway has been removed.
 - `startUserShellInstruction` preserves ordinary user shell execution, which
   has different submission timing from a workflow-correlated shell request.
-- `readParticipantsInstruction` keeps session-owned participant inspection outside
-  the model and returns detached preparation facts.
+- `goInvocationInstruction` launches registered commands; the executor supplies
+  detached participant inspection outside the model before preparation.
 - `requestCloseInstruction` stops accepting operations, while
   `shutdownSessionInstruction` shuts down the session and projects its final
   causal events. Their separation preserves `/quit` ordering.
@@ -407,30 +406,22 @@ type submissionOutcome struct {
     err       error
 }
 
-type participantsResult struct {
-    raw          string
-    participants []participant.View
-}
 ```
 
 Correlated shared-send planning and participant-state completions provide
 frozen routing and readiness inputs to the implemented stage workflow.
 
-`submissionOutcome` and `participantsResult` are native command completions
-routed through the same model-owned decision boundary. They contain detached
-data and introduce no callback from the model to the executor.
-
-The `/who` completion is an experimental bridge: `participantsResultSequence`
-passes already-read participant values to `std.WhoCommand` through
-a `goInvocationInstruction`. The executor calls `runtime.CommandRunner.Go` with
-an enqueue-only callback. A correlated completion operation appends records and
-reports submission completion; duplicate and failed-launch completions are ignored.
-Shutdown drains retained completions before settling unfinished invocations
-with `ErrClosed`. Legacy catalog dispatch
-and participant-read instructions are unchanged.
+`submissionOutcome` retains legacy execution results. Registered commands use
+an interpreter-owned `runtime.Registry`; currently `/who` is registered there.
+The shared dispatch path emits `goInvocationInstruction` with the original source,
+then the executor supplies a detached participant-read capability and launches
+`CommandRunner.Go`. A correlated completion operation appends records and reports
+submission completion; duplicate and failed-launch completions are ignored.
+The legacy participant-read instruction and result branch are removed. Help uses
+the registered command metadata while preserving catalog ordering. Shutdown drains
+retained completions before settling unfinished invocations with `ErrClosed`.
 The notice uses canonical transcript deltas instead of `ParticipantsListed`;
-the event type remains available for source compatibility. Generic module
-dispatch remains deferred.
+the event type remains available for source compatibility.
 
 User-shell launch now calls `std.ShellCommand` through `CommandRunner.Go`.
 An executor-owned `ShellLauncher` starts the worker using the interpreter lifetime.
