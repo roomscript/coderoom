@@ -74,6 +74,7 @@ func TestSubmit_WhoUsesNativeInterpreterHandler(t *testing.T) {
 	m := makeReadyModel(t)
 
 	m = submitThroughInterpreter(t, m, "/who")
+	m = consumeInterpreterStateChange(t, m)
 
 	if got := countUserInputRecords(m, "/who"); got != 1 {
 		t.Fatalf("user input records = %d, want 1", got)
@@ -204,6 +205,7 @@ func TestSubmit_InviteCompletesBeforeFollowingWho(t *testing.T) {
 		t.Fatalf("participant = %#v, %v; want ada starting", p, ok)
 	}
 	m = submitThroughInterpreter(t, m, "/who")
+	m = consumeInterpreterStateChange(t, m)
 
 	if !hasRecord(m, record.KindSystem, "[agents] ada") {
 		t.Fatalf("expected /who to observe ada; records: %v", m.room.HistoryRecords())

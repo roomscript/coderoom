@@ -135,7 +135,7 @@ injects implementations. The coordinator runs effects against adapters. Keep
 runtime small; it must not become the old monolith under a new name. These
 directories are candidates, not requirements to create in one change.
 
-## Registered /who command
+## Registered command launch and completion
 
 An interpreter-owned `runtime.Registry` registers `Command` implementations directly.
 `Command.Statement()` returns a representative AST value identifying the accepted
@@ -143,23 +143,25 @@ type, not default arguments. Lookup indexes the concrete type of the parsed valu
 The command owns metadata and validates arguments in `Prepare(ParsedStatement,
 Context)`; there is no separate builder or adapter. Registration rejects duplicate
 names and statement types and preserves order for help. The interpreter owns a registry populated explicitly from module catalog entries.
-The shell bridge preserves the parsed shell statement through preparation.
+Registry dispatch preserves the parsed statement through preparation.
 `std.ShellCommand` accepts only `promptlang.Shell`. `promptlang.UserCommand` and
 `promptlang.UserDefinition` identify named invocations and definitions; both retain
 their legacy interpreter execution path until separate modules are introduced.
 
-`std.WhoCommand` is registered in that registry. The catalog retains a module
+`std.WhoCommand` and `std.ShellCommand` are registered in that registry. The catalog retains a module
 entry to preserve help ordering, with metadata read from the registered command
 and no legacy handler. Shared dispatch selects the command by parsed statement
 type and emits a `goInvocationInstruction`; its outcome carries original source
 metadata. The executor supplies detached participant values and calls
 `CommandRunner.Go`. The former participant-read instruction and result branch
-are removed. Completion appends records before reporting submission success.
+are removed. Both commands report submission success when `Go` returns nil, before
+queued completion records are published. Preparation or launch errors instead
+report submission failure. Completion reports execution errors separately.
 
 The executor assigns monotonically increasing invocation IDs and consumes each
 completion once. Failed launches invalidate queued callbacks. Shutdown drains
 completions retained while accepted operations finish, then settles unfinished
-submissions with `ErrClosed`; late callbacks cannot mutate closed state.
+execution with `ErrClosed`; late callbacks cannot mutate closed state.
 Commands transfer ownership of completion records and do not publish events.
 
 The sorted alias notice is unchanged, but arrives through canonical transcript
@@ -167,19 +169,21 @@ deltas without command-specific UI presentation. `ParticipantsListed` remains
 available for source compatibility. Tests cover record order and exactly-once
 publication.
 
-This is a temporary seam for testing assumptions, not generic module dispatch.
+Registry dispatch now drives both commands through the same invocation path.
 The callback contract replaces `Init`/`Next`. Prototype tests cover immediate
 and delayed completion, duplicate callbacks, launch failure, and shutdown.
 
-`std.ShellCommand` now uses the existing direct-shell execution seam.
+`std.ShellCommand` uses the shared registry launch and completion path.
 `ShellLauncher` supplies the working directory and
 asynchronous execution; the executor owns cancellation and joins workers on close.
-The command constructs the original command record. A temporary adapter retains
+The command constructs the original command record. The executor capability retains
 the raw shell result for the existing `ShellCompleted` event and source diagnostics.
 Submission succeeds after launch; completion publishes the record, event, and
 snapshot in that order. Results generated during shutdown are retained and applied
 after workers finish, including cancelled shell records. Loop shell execution and
-definition storage remain unchanged. Generic registration remains deferred.
+definition storage remain unchanged. Completion errors use `OperationFailed`
+except shell results, whose existing `ShellCompleted` carries the execution error.
+No completion emits another submission outcome.
 
 ## Relationship to #39
 

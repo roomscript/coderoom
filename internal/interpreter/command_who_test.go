@@ -34,12 +34,12 @@ func TestSubmitContract_whoPublishesCanonicalNoticeOnce(t *testing.T) {
 			if _, ok := accepted.Statement.Value.(promptlang.Who); !ok {
 				t.Fatalf("accepted statement = %T, want Who", accepted.Statement.Value)
 			}
+			succeeded := assertCommandLaunch(t, events, "/who")
 			assertWhoTranscript(t, events, tt.notice)
 			state := receiveSubmitEvent[StateChanged](t, events)
 			if len(state.Snapshot.Room.Records) != 2 {
 				t.Fatalf("snapshot records = %#v, want two", state.Snapshot.Room.Records)
 			}
-			succeeded := receiveSubmitEvent[SubmissionSucceeded](t, events)
 			if succeeded.Raw != "/who" {
 				t.Fatalf("completion raw = %q", succeeded.Raw)
 			}
@@ -80,9 +80,9 @@ func TestSubmitContract_whoCompletesBeforeShutdown(t *testing.T) {
 			}
 			interp.Close()
 			receiveSubmitEvent[InputAccepted](t, events)
+			assertCommandLaunch(t, events, "/who")
 			assertWhoTranscript(t, events, "[agents] ada")
 			receiveSubmitEvent[StateChanged](t, events)
-			receiveSubmitEvent[SubmissionSucceeded](t, events)
 			if got := interp.Snapshot().Room.Records; len(got) != 2 || got[1].Text != "[agents] ada" {
 				t.Fatalf("final records = %#v, want input and agent listing", got)
 			}
@@ -91,36 +91,35 @@ func TestSubmitContract_whoCompletesBeforeShutdown(t *testing.T) {
 	}
 }
 
-// assertWhoTranscript checks the transport order without the semantic helper,
-// which intentionally skips transcript deltas.
-func assertWhoTranscript(t *testing.T, events <-chan Event, notice string) {
+// assertCommandLaunch checks the input delta and acknowledgement before output.
+func assertCommandLaunch(t *testing.T, events <-chan Event, input string) SubmissionSucceeded {
 	t.Helper()
-	assertCommandTranscript(t, events, "/who", notice)
+	event := receiveTranscriptTestEvent(t, events)
+	change, ok := event.(TranscriptChanged)
+	if !ok {
+		t.Fatalf("event = %T, want input transcript delta", event)
+	}
+	updates := change.Delta.RecordUpdates
+	if len(updates) != 1 || updates[0].Index != 0 || !reflect.DeepEqual(updates[0].Record, room.Record{Kind: room.KindUserInput, Text: input}) {
+		t.Fatalf("input updates = %#v", updates)
+	}
+	return receiveSubmitEvent[SubmissionSucceeded](t, events)
 }
 
-func assertCommandTranscript(t *testing.T, events <-chan Event, input, notice string) {
+func assertWhoTranscript(t *testing.T, events <-chan Event, notice string) {
 	t.Helper()
-	var records []room.Record
-	var version uint64
-	for len(records) < 2 {
-		event := receiveTranscriptTestEvent(t, events)
-		change, ok := event.(TranscriptChanged)
-		if !ok {
-			t.Fatalf("event = %T, want TranscriptChanged", event)
-		}
-		if change.Delta.Version <= version {
-			t.Fatal("transcript versions did not advance")
-		}
-		version = change.Delta.Version
-		for _, update := range change.Delta.RecordUpdates {
-			if update.Index != len(records) {
-				t.Fatalf("record index = %d, want %d", update.Index, len(records))
-			}
-			records = append(records, update.Record)
-		}
+	assertCommandTranscript(t, events, notice)
+}
+
+func assertCommandTranscript(t *testing.T, events <-chan Event, notice string) {
+	t.Helper()
+	event := receiveTranscriptTestEvent(t, events)
+	change, ok := event.(TranscriptChanged)
+	if !ok {
+		t.Fatalf("event = %T, want output transcript delta", event)
 	}
-	want := []room.Record{{Kind: room.KindUserInput, Text: input}, {Kind: room.KindSystem, Text: notice}}
-	if !reflect.DeepEqual(records, want) {
-		t.Fatalf("records = %#v, want %#v", records, want)
+	updates := change.Delta.RecordUpdates
+	if len(updates) != 1 || updates[0].Index != 1 || change.Delta.Version < 2 || !reflect.DeepEqual(updates[0].Record, room.Record{Kind: room.KindSystem, Text: notice}) {
+		t.Fatalf("output delta = %#v", change.Delta)
 	}
 }

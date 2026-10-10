@@ -43,18 +43,21 @@ func (e *interpreterExecutor) launchDefinedShell(raw, command, program string, s
 // Both writes and callback reads happen on the same owned worker.
 type userShellLauncher struct {
 	executor *interpreterExecutor
-	result   shell.Result
+	result   *shell.Result
+	program  string
 }
 
 func (l *userShellLauncher) Cwd() string { return l.executor.cwd }
 
 func (l *userShellLauncher) Go(program string, complete func(shell.Result)) error {
 	e := l.executor
+	l.program = program
 	e.shellWG.Add(1)
 	go func() {
 		defer e.shellWG.Done()
-		l.result = e.runShell.Run(e.lifetime, e.cwd, program)
-		complete(l.result)
+		result := e.runShell.Run(e.lifetime, e.cwd, program)
+		l.result = &result
+		complete(result)
 	}()
 	return nil
 }
@@ -81,4 +84,16 @@ type workflowShellCompletedOperation struct {
 	target  workflowRef
 	request shellRequest
 	result  shell.Result
+}
+
+// completionEvent preserves the shell compatibility event without command routing.
+// Called by the command callback after the owned worker has set its result.
+func (l *userShellLauncher) completionEvent(outcome submissionOutcome) Event {
+	if l.result == nil {
+		return nil
+	}
+	return eventWithSubmissionSource(ShellCompleted{
+		Raw: outcome.raw, Command: l.program, Cwd: l.executor.cwd,
+		Result: *l.result, Output: formatShellResult(*l.result),
+	}, outcome.statement)
 }

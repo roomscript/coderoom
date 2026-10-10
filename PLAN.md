@@ -77,8 +77,21 @@ the current package until a real consumer demonstrates a useful boundary.
   instructions and result routing are removed. Help uses registered metadata in
   its original position. Tests cover ordering, source, exactly-once completion,
   shutdown and another registered command without a specific handler.
-  `/shell` retains its existing execution bridge; register it separately next.
+  `/shell` is now registered through the same path. All registered commands
+  acknowledge successful launch before queued records; completions report execution
+  outcomes without a second submission result. Shell compatibility events remain.
   User commands, definitions and loop execution remain on the legacy path.
+- [ ] 1a. Extract the reusable command coordinator into `runtime`: move invocation
+  identity, launch acknowledgement, exactly-once completion handling, failed-launch
+  invalidation and unfinished-invocation settlement out of the interpreter.
+  The interpreter supplies its serialized queue, execution capabilities, lifetime
+  and publication. Canonical transcript mutation, application events and worker
+  cancellation/joining remain interpreter-owned. Keep shell execution capabilities
+  focused on execution; adapt `ShellCompleted` at the publication boundary.
+  Prove immediate and delayed completion, launch/execution failures, duplicate and
+  late callbacks, and shutdown draining with narrow fake host ports. Run existing
+  `/who` and `/shell` tests to preserve acknowledgement and record ordering.
+  Review this extraction separately before migrating delivery commands.
 - [ ] 2a. Addressed-send preparation and direct delivery: introduce prepared plans,
   frozen required/optional recipients and correlated delivery outcomes as the
   module needs them. Prove direct delivery and partial results with a narrow fake

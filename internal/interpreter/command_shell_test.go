@@ -239,8 +239,8 @@ func TestSubmitContract_shellWaitAllowsAnotherRequest(t *testing.T) {
 
 	mustSubmit(t, interp.Submit("/who"))
 	receiveSubmitEvent[InputAccepted](t, events)
-	receiveSubmitEvent[StateChanged](t, events)
 	receiveSubmitEvent[SubmissionSucceeded](t, events)
+	receiveSubmitEvent[StateChanged](t, events)
 	assertNoSubmitEvent(t, events)
 
 	release()

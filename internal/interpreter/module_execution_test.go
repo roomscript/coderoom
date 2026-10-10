@@ -40,9 +40,9 @@ func TestRegisteredCommand_UsesSharedDispatchAndHelp(t *testing.T) {
 		t.Fatal("could not enqueue input")
 	}
 	receiveSubmitEvent[InputAccepted](t, events)
-	assertCommandTranscript(t, events, "/help", "registered output")
+	succeeded := assertCommandLaunch(t, events, "/help")
+	assertCommandTranscript(t, events, "registered output")
 	receiveSubmitEvent[StateChanged](t, events)
-	succeeded := receiveSubmitEvent[SubmissionSucceeded](t, events)
 	if _, ok := succeeded.Statement.Value.(promptlang.Help); !ok {
 		t.Fatalf("source = %#v", succeeded.Statement)
 	}

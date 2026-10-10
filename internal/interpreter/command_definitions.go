@@ -43,7 +43,7 @@ func init() {
 		defineNativeCommand("remove", (*interpreterModel).submitRemove, HelpEntry{Usage: "/remove <alias>", Description: "remove an agent"}),
 		defineNativeCommand("cancel", (*interpreterModel).submitCancel, HelpEntry{Usage: "/cancel <alias>", Description: "interrupt an agent's current turn"}),
 		defineNativeCommand("handoff", submitStage[promptlang.Handoff], HelpEntry{Usage: "/handoff <from> <to>", Description: "transfer latest output between agents"}),
-		defineNativeCommand("shell", (*interpreterModel).prepareShell, HelpEntry{Usage: "/shell <program>", Description: "execute a shell program"}),
+		defineModuleCommand(std.ShellCommand{}),
 		defineNativeCommand("def", (*interpreterModel).defineShellCommand, HelpEntry{Usage: "/def <name> /shell <program>", Description: "define a shell-backed command"}),
 		defineNativeCommand("", (*interpreterModel).prepareShellCommand, HelpEntry{Usage: "/<name>", Description: "invoke a defined command"}),
 		defineNativeCommand("loop", submitLoop, HelpEntry{Usage: "/loop @<alias> <prompt> /until /<name> /max <turns>", Description: "run a bounded participant loop"}),

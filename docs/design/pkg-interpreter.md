@@ -399,14 +399,20 @@ projected.
 | Enqueue refused after shutdown begins | No events; the method returns `ErrClosed` |
 | Stage pending or syntax/argument rejection | `InputRejected` |
 | Valid statement with no native handler | `UnknownCommand` |
-| Recognized command executes or schedules successfully | `InputAccepted` → zero or more domain/`StateChanged` events → `SubmissionSucceeded` |
-| Recognized command execution fails | `InputAccepted` → zero or more causal domain/`StateChanged` events → `SubmissionFailed` |
+| Legacy command executes or schedules successfully | `InputAccepted` → zero or more domain/`StateChanged` events → `SubmissionSucceeded` |
+| Legacy command execution fails | `InputAccepted` → zero or more causal domain/`StateChanged` events → `SubmissionFailed` |
+| Registered command launches successfully (`/who`, `/shell`) | `InputAccepted` → input transcript delta → `SubmissionSucceeded` → completion records and execution outcome → `StateChanged` |
 
 These combinations are mutually exclusive: `UnknownCommand` never follows
 `InputAccepted`, and neither rejection nor unknown routing is followed by a
 generic completion event. Submission success means execution or scheduling
 succeeded; it does not mean asynchronous work started by the command has
-finished. For example, `/invite` may publish `SubmissionSucceeded` while its
+finished. Registered commands acknowledge when `Go` returns nil, including
+immediate `/who` completion; their callbacks enqueue results behind that
+acknowledgement. Preparation or launch failures report `SubmissionFailed`.
+Completion does not emit another submission result: execution failures use
+`OperationFailed`, or the existing `ShellCompleted` shell result. For example,
+`/invite` may publish `SubmissionSucceeded` while its
 participant is still `Starting`, before `AgentReady`.
 
 Shutdown flushes every terminal outcome from successfully enqueued submissions

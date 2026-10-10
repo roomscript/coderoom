@@ -85,5 +85,5 @@ func submitWhoInteractive(t *testing.T, m Model) Model {
 	if !m.submissionPending {
 		return m
 	}
-	return processInterpreterSubmission(t, m)
+	return consumeInterpreterStateChange(t, processInterpreterSubmission(t, m))
 }

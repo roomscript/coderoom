@@ -16,6 +16,7 @@ func (views participantViews) Participants() []participant.View { return views }
 type invocationCompletedOperation struct {
 	id         uint64
 	completion runtime.Completion
+	event      Event
 }
 
 // goInvocation runs on the serialized path. The callback may run anywhere, but
@@ -30,8 +31,12 @@ func (e *interpreterExecutor) goInvocation(value goInvocationInstruction) instru
 	if value.context.Participants == nil {
 		value.context.Participants = participantViews(e.participants())
 	}
+	launcher := &userShellLauncher{executor: e}
+	if value.context.Shell == nil {
+		value.context.Shell = launcher
+	}
 	err := (runtime.CommandRunner{}).Go(value.command, value.outcome.statement, value.context, func(completion runtime.Completion) {
-		e.enqueueCompletion(invocationCompletedOperation{id: id, completion: completion})
+		e.enqueueCompletion(invocationCompletedOperation{id: id, completion: completion, event: launcher.completionEvent(value.outcome)})
 	})
 	if err != nil {
 		delete(e.pendingInvocations, id)
@@ -39,7 +44,7 @@ func (e *interpreterExecutor) goInvocation(value goInvocationInstruction) instru
 		outcome.err = err
 		return submissionResultSequence(outcome)
 	}
-	return nil
+	return withSubmissionSource(instructionSequence{publishEventInstruction{event: SubmissionSucceeded{Raw: value.outcome.raw}}}, value.outcome.statement)
 }
 
 func (op invocationCompletedOperation) apply(e *interpreterExecutor) {
@@ -48,13 +53,21 @@ func (op invocationCompletedOperation) apply(e *interpreterExecutor) {
 		return
 	}
 	delete(e.pendingInvocations, op.id)
-	sequence := make(instructionSequence, 0, len(op.completion.Records)+2)
-	for _, record := range op.completion.Records {
+	e.runner.Run(invocationCompletionSequence(outcome, op.completion, op.event))
+}
+
+func invocationCompletionSequence(outcome submissionOutcome, completion runtime.Completion, event Event) instructionSequence {
+	sequence := make(instructionSequence, 0, len(completion.Records)+2)
+	for _, record := range completion.Records {
 		sequence = append(sequence, appendRecordInstruction{record: record})
 	}
-	outcome.err = op.completion.Err
-	sequence.append(submissionResultSequence(outcome))
-	e.runner.Run(sequence)
+	if event != nil {
+		sequence = append(sequence, publishEventInstruction{event: event})
+	} else if completion.Err != nil {
+		sequence = append(sequence, publishEventInstruction{event: OperationFailed{Raw: outcome.raw, Operation: outcome.operation, Err: completion.Err}})
+	}
+	sequence = append(sequence, publishSnapshotInstruction{})
+	return withSubmissionSource(sequence, outcome.statement)
 }
 
 // Completion intake stays open while shutdown drains accepted operations. Results
@@ -91,7 +104,6 @@ func (e *interpreterExecutor) failPendingInvocations() {
 	for _, id := range slices.Sorted(maps.Keys(e.pendingInvocations)) {
 		outcome := e.pendingInvocations[id]
 		delete(e.pendingInvocations, id)
-		outcome.err = ErrClosed
-		e.runner.Run(submissionResultSequence(outcome))
+		e.runner.Run(invocationCompletionSequence(outcome, runtime.Completion{Err: ErrClosed}, nil))
 	}
 }

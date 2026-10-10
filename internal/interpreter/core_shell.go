@@ -2,7 +2,6 @@ package interpreter
 
 import (
 	"github.com/roomscript/coderoom/internal/interpreter/runtime"
-	"github.com/roomscript/coderoom/internal/interpreter/std"
 	"github.com/roomscript/coderoom/internal/promptlang"
 	"github.com/roomscript/coderoom/internal/room"
 	"github.com/roomscript/coderoom/internal/shell"
@@ -10,10 +9,6 @@ import (
 
 // Shell requests resolve a program, accept input, then launch asynchronous work.
 // Command definitions only update the registry; invocation resolves before acceptance.
-func (*interpreterModel) prepareShell(raw string, statement promptlang.Shell) instructionSequence {
-	return prepareShellExecution(raw, statement.Program.Value, statement.Program.Value)
-}
-
 func (m *interpreterModel) defineShellCommand(
 	raw string,
 	definition promptlang.UserDefinition,
@@ -53,26 +48,10 @@ func prepareShellExecution(raw, command, program string) instructionSequence {
 	})
 }
 
-// startShell launches work and returns control. Submission success means the
+// startShell retains legacy named-command execution. Submission success means the
 // launch was accepted; a later shellCompletedOperation reports execution results.
 func (e *interpreterExecutor) startShell(raw, command, program string, statement promptlang.ParsedStatement) {
-	if _, direct := statement.Value.(promptlang.Shell); !direct {
-		e.launchDefinedShell(raw, command, program, statement)
-		e.publish(SubmissionSucceeded{Raw: raw, Statement: statement})
-		return
-	}
-	launcher := &userShellLauncher{executor: e}
-	ctx := runtime.Context{Shell: launcher}
-	err := (runtime.CommandRunner{}).Go(std.ShellCommand{}, statement, ctx, func(completion runtime.Completion) {
-		e.enqueueCompletion(shellCompletedOperation{
-			raw: raw, statement: statement, command: command,
-			result: launcher.result, completion: completion,
-		})
-	})
-	if err != nil {
-		e.runner.Run(submissionResultSequence(submissionOutcome{raw: raw, statement: statement, operation: "shell", err: err}))
-		return
-	}
+	e.launchDefinedShell(raw, command, program, statement)
 	e.publish(SubmissionSucceeded{Raw: raw, Statement: statement})
 }
 

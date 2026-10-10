@@ -412,20 +412,22 @@ Correlated shared-send planning and participant-state completions provide
 frozen routing and readiness inputs to the implemented stage workflow.
 
 `submissionOutcome` retains legacy execution results. Registered commands use
-an interpreter-owned `runtime.Registry`; currently `/who` is registered there.
+an interpreter-owned `runtime.Registry`; currently `/who` and `/shell` are registered there.
 The shared dispatch path emits `goInvocationInstruction` with the original source,
-then the executor supplies a detached participant-read capability and launches
-`CommandRunner.Go`. A correlated completion operation appends records and reports
-submission completion; duplicate and failed-launch completions are ignored.
+then the executor supplies detached participant reads and owned shell execution.
+`CommandRunner.Go` returning nil reports submission success; preparation or launch
+errors report submission failure. A correlated completion operation appends records
+and publishes execution outcomes and updated state, without another submission
+outcome. Duplicate and failed-launch completions are ignored.
 The legacy participant-read instruction and result branch are removed. Help uses
 the registered command metadata while preserving catalog ordering. Shutdown drains
-retained completions before settling unfinished invocations with `ErrClosed`.
+retained completions before reporting unfinished execution with `ErrClosed`.
 The notice uses canonical transcript deltas instead of `ParticipantsListed`;
 the event type remains available for source compatibility.
 
-User-shell launch now calls `std.ShellCommand` through `CommandRunner.Go`.
+Registered shell launch calls `std.ShellCommand` through the shared command path.
 An executor-owned `ShellLauncher` starts the worker using the interpreter lifetime.
-The command returns the canonical command record; a temporary bridge retains the
+The command returns the canonical command record; the execution capability retains the
 raw result for `ShellCompleted` and source diagnostics. Launch still reports
 submission success immediately, while completion publishes the record, event and
 snapshot. Shutdown cancels and joins workers, then applies retained completions.

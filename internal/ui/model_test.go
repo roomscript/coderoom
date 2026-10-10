@@ -282,6 +282,7 @@ func TestBroadcast_noAgentsPreservesDraft(t *testing.T) {
 func TestWho_noAgents(t *testing.T) {
 	m := makeReadyModel(t)
 	m = submitThroughInterpreter(t, m, "/who")
+	m = consumeInterpreterStateChange(t, m)
 	if !hasRecord(m, record.KindSystem, "[no agents]") {
 		t.Errorf("expected [no agents] system record; records: %v", m.room.HistoryRecords())
 	}

@@ -72,8 +72,8 @@ func TestInvocationCompletion_isQueuedUntilLaunchReturns(t *testing.T) {
 	receiveSubmitEvent[InputAccepted](t, events)
 	assertNoSubmitEvent(t, events)
 	close(c.release)
-	receiveSubmitEvent[StateChanged](t, events)
 	receiveSubmitEvent[SubmissionSucceeded](t, events)
+	receiveSubmitEvent[StateChanged](t, events)
 	if records := interp.Snapshot().Room.Records; len(records) != 2 || records[1].Text != "finished" {
 		t.Fatalf("records = %#v, want input and completion", records)
 	}
@@ -85,18 +85,16 @@ func TestInvocationCompletion_delayedAndDuplicate(t *testing.T) {
 	enqueueCallbackTest(t, interp, c)
 	complete := <-c.callbacks
 	receiveSubmitEvent[InputAccepted](t, events)
+	receiveSubmitEvent[SubmissionSucceeded](t, events)
 	// A pending invocation does not block another submission.
 	mustSubmit(t, interp.Submit("/who"))
 	receiveSubmitEvent[InputAccepted](t, events)
-	receiveSubmitEvent[StateChanged](t, events)
 	receiveSubmitEvent[SubmissionSucceeded](t, events)
+	receiveSubmitEvent[StateChanged](t, events)
 	completion := runtime.Completion{Records: []room.Record{{Kind: room.KindSystem, Text: "finished"}}}
 	complete(completion)
 	complete(completion)
 	receiveSubmitEvent[StateChanged](t, events)
-	if result := receiveSubmitEvent[SubmissionSucceeded](t, events); result.Raw != "/test" {
-		t.Fatalf("completion raw = %q, want /test", result.Raw)
-	}
 	if records := interp.Snapshot().Room.Records; len(records) != 4 || records[3].Text != "finished" {
 		t.Fatalf("records = %#v, want one delayed completion", records)
 	}
@@ -126,15 +124,36 @@ func TestInvocationCompletion_shutdownSettlesPendingAndRejectsLateCallback(t *te
 	enqueueCallbackTest(t, interp, c)
 	complete := <-c.callbacks
 	receiveSubmitEvent[InputAccepted](t, events)
+	receiveSubmitEvent[SubmissionSucceeded](t, events)
 	interp.Close()
+	failed := receiveSubmitEvent[OperationFailed](t, events)
 	receiveSubmitEvent[StateChanged](t, events)
-	failed := receiveSubmitEvent[SubmissionFailed](t, events)
 	if !errors.Is(failed.Err, ErrClosed) {
 		t.Fatalf("completion error = %v, want ErrClosed", failed.Err)
 	}
 	complete(runtime.Completion{Records: []room.Record{{Kind: room.KindSystem, Text: "late"}}})
 	if records := interp.Snapshot().Room.Records; len(records) != 1 {
 		t.Fatalf("records = %#v, want only input", records)
+	}
+	assertNoSubmitEvent(t, events)
+}
+
+func TestInvocationCompletion_failureDoesNotFailAcceptedSubmission(t *testing.T) {
+	interp, _, events := newSubmitContractInterpreter(t)
+	c := &callbackTestCommand{callbacks: make(chan func(runtime.Completion), 1)}
+	enqueueCallbackTest(t, interp, c)
+	complete := <-c.callbacks
+	receiveSubmitEvent[InputAccepted](t, events)
+	receiveSubmitEvent[SubmissionSucceeded](t, events)
+	cause := errors.New("execution failed")
+	complete(runtime.Completion{Records: []room.Record{{Kind: room.KindSystem, Text: "partial output"}}, Err: cause})
+	failed := receiveSubmitEvent[OperationFailed](t, events)
+	if failed.Raw != "/test" || !errors.Is(failed.Err, cause) {
+		t.Fatalf("failure = %#v", failed)
+	}
+	changed := receiveSubmitEvent[StateChanged](t, events)
+	if records := changed.Snapshot.Room.Records; len(records) != 2 || records[1].Text != "partial output" {
+		t.Fatalf("records = %#v", records)
 	}
 	assertNoSubmitEvent(t, events)
 }

@@ -3,7 +3,7 @@
 Working agreement for [#61](https://github.com/roomscript/coderoom/issues/61).
 Keep this document roughly one page; details belong in code or
 [design docs](../../../docs/design/pkg-interpreter-composition.md).
-`/who` uses registry dispatch; `/shell` retains its temporary execution bridge.
+`/who` and `/shell` use the same registry dispatch and launch workflow.
 
 ## Command and invocation
 
@@ -18,7 +18,8 @@ complete(result) -> final records and execution error
 ```
 
 `Go` returns control after initiating work. Completion may happen immediately
-(`/who`) or later. Launch acceptance and work completion are different milestones.
+(`/who`) or later. A nil launch error publishes submission success before any
+completion records; preparation or launch errors fail the submission.
 There is no `Init`, `Next`, polling, or generic fact/expectation contract.
 
 ## Capabilities and records
@@ -33,7 +34,7 @@ construct records and transfer ownership when calling `complete`; they must not
 mutate those records afterward. The callback only enqueues. The interpreter
 appends records and publishes outcomes in order on its serialized path.
 
-For `/who`, the executor binds callbacks to invocation identities, consumes each completion
+The executor binds callbacks to invocation identities, consumes each completion
 once, and ignores duplicate results or results from failed launches. Shutdown
 drains retained completions, then fails unfinished invocations with `ErrClosed`
 and rejects late callbacks.
@@ -42,12 +43,12 @@ and rejects late callbacks.
 
 Contracts and `CommandRunner.Go` live in `runtime`; commands live in `std`.
 `/who` prepares its original sorted alias notice and completes immediately.
-Its queued completion appends the system record before submission success.
+Its queued completion appends the system record after launch acknowledgement.
 The UI receives transcript deltas, with no `/who` result branch.
 
-`/shell` uses its existing execution seam. It acknowledges submission after
-launch, then returns its command record on completion. The bridge retains the
-structured shell event; loop execution and definitions remain in the interpreter.
+`/shell` uses the same path and returns its command record on completion. The
+shell capability retains `ShellCompleted` for compatibility. Execution failures
+are separate from submission success; user commands and loops remain legacy.
 `runtime.Registry.Register(command)` indexes the type returned by `Statement()`.
 `Lookup(parsed)` selects the command; metadata comes from the command itself.
-`/who` is registered; migrate `/shell` registration in a separate checkpoint.
+Both commands are registered; user commands and definitions are future checkpoints.
