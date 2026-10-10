@@ -140,8 +140,9 @@ type UnknownCommand struct {
 	Name      string
 }
 
-// ParticipantsListed reports the participants requested by /who. Front ends
-// decide how to format the participant values for presentation.
+// ParticipantsListed is retained for source compatibility.
+//
+// Deprecated: /who now returns its notice through canonical transcript records.
 type ParticipantsListed struct{ Participants []participant.View }
 
 // HelpEntry describes one prompt-language form without prescribing how a

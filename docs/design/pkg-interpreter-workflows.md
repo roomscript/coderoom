@@ -420,6 +420,14 @@ frozen routing and readiness inputs to the implemented stage workflow.
 routed through the same model-owned decision boundary. They contain detached
 data and introduce no callback from the model to the executor.
 
+The `/who` completion is an experimental bridge: `participantsResultSequence`
+passes already-read participant values to `std.WhoCommand` through
+`runtime.CommandRunner`, then appends its records and reports submission
+completion. Legacy catalog dispatch and participant-read instructions are unchanged.
+The notice uses canonical transcript deltas instead of `ParticipantsListed`;
+the event type remains available for source compatibility. Generic module
+dispatch is deferred until asynchronous invocation behavior is proved.
+
 There are no `any` payloads, callbacks, or workflow-specific runner hooks.
 
 ## Instruction sequences and snapshots

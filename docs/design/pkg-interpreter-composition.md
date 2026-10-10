@@ -1,6 +1,7 @@
 # Interpreter composition: discussion draft
 
-Status: proposal for review; no runtime behavior or package boundaries have changed.
+Status: incremental experiment. `/who` calls the new runner through its legacy
+completion path; module registration and asynchronous execution remain proposals.
 
 This follows [#55](https://github.com/roomscript/coderoom/issues/55) and considers
 [#39](https://github.com/roomscript/coderoom/issues/39). The existing contracts in
@@ -11,9 +12,9 @@ This follows [#55](https://github.com/roomscript/coderoom/issues/55) and conside
 
 | Responsibility | Current implementation | Composition opportunity |
 |---|---|---|
-| Syntax and typed statements | `internal/promptlang/{parse,action}.go` | Independent AST/parser boundary; source spans and categorized diagnostics are missing |
+| Syntax and typed statements | `internal/promptlang/{parse,action}.go` | Completed #39 boundary with source spans and categorized diagnostics |
 | User command definitions | `promptlang.Registry`, owned by `interpreterModel` | Move runtime name resolution and reservation policy out of the syntax package |
-| Native command dispatch and help | `command_definitions.go` | Register cohesive command modules without handing each the whole model |
+| Native command dispatch and help | `command_definitions.go` | Legacy handlers remain; `/who` completion bridges to a standalone module |
 | Mutable application state | `model.go`, transcript and approval files | Keep one canonical projection and shared application services |
 | Stage planning and waits | `stageWorkflow`, `core_send/broadcast/handoff.go`, stage support files | Separate command-specific planning from reusable readiness and interruption policy |
 | Loop orchestration | `loopWorkflow`, `core_loop.go` | Depend on participant delivery and shell capabilities rather than session protocol |
@@ -23,7 +24,7 @@ This follows [#55](https://github.com/roomscript/coderoom/issues/55) and conside
 
 The package is already composed along the decision/effect boundary: workflows
 return instructions and one runner executes them. Its remaining coupling is
-explicit: the command catalog receives `*interpreterModel`, the model names each
+explicit: legacy catalog handlers receive `*interpreterModel`, the model names each
 workflow, result routing switches on workflow kinds, and workflow plans and
 outcomes expose session types.
 
@@ -134,32 +135,48 @@ injects implementations. The coordinator runs effects against adapters. Keep
 runtime small; it must not become the old monolith under a new name. These
 directories are candidates, not requirements to create in one change.
 
+## Experimental /who bridge
+
+`internal/interpreter/std.WhoCommand` supplies its name, help metadata and
+`Prepare` behavior. Shared contracts and the synchronous `CommandRunner` live in
+`internal/interpreter/runtime`. Command registration remains in the legacy catalog.
+
+The original `/who` dispatch and participant-read instruction are unchanged.
+Where participant results previously produced a `ParticipantsListed` event,
+`participantsResultSequence` now calls the new runner with those already-read
+values. The invocation receives no model or live Session. `Init` returns no
+values; the first `Next` returns a system record and completes. The bridge
+appends returned records, then uses the existing submission completion sequence.
+
+The sorted alias notice is unchanged, but arrives through canonical transcript
+deltas without command-specific UI presentation. `ParticipantsListed` remains
+available for source compatibility. Tests cover record order and exactly-once
+publication.
+
+This is a temporary seam for testing assumptions, not generic module dispatch.
+The runner cannot retain pending invocations; an empty unfinished step returns
+an error rather than polling. Prove a suspended addressed send before choosing
+the final runner API or registering further modules.
+
 ## Relationship to #39
 
-Implement #39 first as a focused syntax and diagnostics change. Typed statements
-already exist, but parsing uses command switches, nodes have no source spans,
-errors are mostly unclassified, and `internal/ui/update.go` reparses input for
-debug handling, stage detection and outcome presentation. Those paths need an
-explicit replacement to meet the issue's no-independent-UI-parser criterion.
-
-Keep raw input and source spans through execution. Separate syntax validation
-from room-scoped command lookup and reserved-name policy. #39 does not need to
-settle the runtime composition, and runtime experiments can initially use
-existing statements. Parser extensibility does not necessarily mean dynamic
-grammar registration; grammar and runtime command registration are separate.
+#39 is complete: typed AST nodes carry source spans and categorized diagnostics,
+and the UI consumes parsed submission metadata instead of independently parsing
+input. Keep those contracts through this migration. Grammar and runtime command
+registration remain separate; this work introduces no new syntax.
 
 ## Incremental proof and review decisions
 
-1. Complete #39 while preserving submission and diagnostic behavior where the
-   issue does not explicitly change it.
-2. Prove one addressed-send path using a delivery port: direct delivery without
-   staging, then the same prepared plan through staging. Keep code in the current
-   package until the boundary is useful without exporting plumbing.
-3. Separate command-specific plans from shared staging mechanics; verify
-   broadcast departures and handoff source waits before extraction.
-4. Inject staged delivery and shell capabilities into the loop. Remove central
-   workflow routing switches only after correlated ownership is demonstrated.
-5. Extract cohesive packages and construct the catalog from installed modules.
+1. Review the `/who` bridge and prove suspended execution before generalizing
+   module registration or command dispatch.
+2. Prove addressed-send preparation and direct delivery, then staged delivery in
+   a separate checkpoint, using the same fake adapter and preserving behavior.
+3. Migrate broadcast, then handoff, extending contracts only as each needs them.
+4. Migrate shell and definitions, then loop with its existing delivery behavior.
+5. Settle loop staging policy before adding staged loop sends. Migrate correlated
+   ownership and lifecycle subscriptions alongside their command consumers.
+
+Extract cohesive packages only where their contracts have demonstrated value.
 
 Loop-generated sends will use staging. This deliberately changes their current
 immediate plan-and-dispatch behavior: a turn waits for its frozen recipients to

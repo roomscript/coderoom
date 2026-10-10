@@ -3,7 +3,6 @@ package interpreter
 import (
 	"fmt"
 
-	"github.com/roomscript/coderoom/internal/participant"
 	"github.com/roomscript/coderoom/internal/promptlang"
 	"github.com/roomscript/coderoom/internal/room"
 	"github.com/roomscript/coderoom/internal/session"
@@ -73,16 +72,6 @@ func submissionResultSequence(outcome submissionOutcome) instructionSequence {
 	}
 	sequence = append(sequence, publishEventInstruction{event: SubmissionSucceeded{Raw: outcome.raw}})
 	return withSubmissionSource(sequence, outcome.statement)
-}
-
-func participantsResultSequence(outcome participantsResult) instructionSequence {
-	return withSubmissionSource(instructionSequence{
-		publishSnapshotInstruction{},
-		publishEventInstruction{event: ParticipantsListed{
-			Participants: append([]participant.View(nil), outcome.participants...),
-		}},
-		publishEventInstruction{event: SubmissionSucceeded{Raw: outcome.raw}},
-	}, outcome.statement)
 }
 
 func (m *interpreterModel) AppendRecord(record room.Record) {

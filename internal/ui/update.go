@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"slices"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -204,8 +203,6 @@ func (m Model) handleInterpreterPresentationEvent(event interpreter.Event) (Mode
 	case interpreter.StateChanged:
 		next, cmd := m.presentInterpreterSnapshot(event.Snapshot)
 		return next, cmd, true
-	case interpreter.ParticipantsListed:
-		return m.renderParticipants(event.Participants), nil, true
 	case interpreter.HelpListed:
 		return m.renderHelp(event), nil, true
 	case interpreter.ExitRequested:
@@ -244,20 +241,6 @@ func (m Model) handleInterpreterTranscriptEvent(event interpreter.Event) (Model,
 	default:
 		return m, false
 	}
-}
-
-func (m Model) renderParticipants(participants []participant.View) Model {
-	if len(participants) == 0 {
-		m.room = m.room.AppendSystem("[no agents]")
-		return m
-	}
-	aliases := make([]string, len(participants))
-	for index, view := range participants {
-		aliases[index] = view.Alias
-	}
-	slices.Sort(aliases)
-	m.room = m.room.AppendSystem("[agents] " + strings.Join(aliases, ", "))
-	return m
 }
 
 func formatInputRejection(err error) string {

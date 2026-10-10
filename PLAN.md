@@ -71,11 +71,12 @@ continue through a temporary legacy-handler bridge until migrated. Keep code in
 the current package until a real consumer demonstrates a useful boundary.
 
 - [x] 0. Read #61 and the current implementation; create this temporary plan.
-- [ ] 1. Migrate `/who`: prove command registration and help metadata from the
-  same catalog, narrow participant reads, and returned effects without passing
-  the whole model. Preserve output and submission behavior. Test the module with
-  a narrow fake and retain facade-level coverage. Refresh the composition doc
-  for #39 and document this first proven boundary alongside the code.
+- [ ] 1. Migrate `/who`: prototype `std.WhoCommand` and `runtime.CommandRunner`
+  are exercised only through the legacy participant-result completion. Original
+  registration, dispatch and participant-read instructions remain. The bridge
+  returns the original notice as a canonical record, with exactly-once/order tests.
+  Generic module wiring was withdrawn: prove suspended addressed-send behavior
+  before settling the driver API and completing this migration.
 - [ ] 2a. Addressed-send preparation and direct delivery: introduce prepared plans,
   frozen required/optional recipients and correlated delivery outcomes as the
   module needs them. Prove direct delivery and partial results with a narrow fake
