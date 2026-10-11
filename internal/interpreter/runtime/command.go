@@ -75,6 +75,12 @@ type Invocation interface {
 type Staging struct {
 	WaitFor  []string
 	ToInform []string
+	// DiscardInform removes an unavailable notice recipient from the command's
+	// retained delivery plan. The host calls it on its serialized path before Go,
+	// while removing that alias from its own waits. Nil means no update is needed.
+	// Departures are sticky: rejoining cannot restore a discarded recipient.
+	// An unavailable WaitFor alias fails staging; it never reaches this callback.
+	DiscardInform func(alias string)
 }
 
 // CommandResult contains final transcript records and the work's outcome.

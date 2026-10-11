@@ -25,7 +25,9 @@ There is no `Init`, `Next`, polling, or generic fact/expectation contract.
 **Staging** holds frozen `WaitFor` and `ToInform` aliases, or nil for no waiting.
 Both groups gate idle, startup-ready readiness; `ToInform` also receives notices.
 The command identifies its delivery targets; `WaitFor` does not imply delivery.
-Departure handling remains command policy. This draft is unwired; `/who` and `/shell` return nil.
+The host fails staging if a `WaitFor` alias departs. For a departed `ToInform`
+alias it stops waiting and calls `DiscardInform`, which updates the delivery plan.
+Departures stay sticky. Staging is unwired; `/who` and `/shell` return nil.
 
 ## Capabilities and records
 

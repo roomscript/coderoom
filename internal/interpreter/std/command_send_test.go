@@ -352,3 +352,71 @@ func TestSendCommand_CloseSuppressesQueuedEvents(t *testing.T) {
 		})
 	}
 }
+
+func TestSendCommand_StagingDiscardInformUpdatesPlan(t *testing.T) {
+	for _, tt := range []struct {
+		name     string
+		departed []string
+		targets  []string
+	}{
+		{name: "no departures", targets: []string{"ada", "tim"}},
+		{name: "notice departed", departed: []string{"tim"}, targets: []string{"ada"}},
+		{name: "repeated departure", departed: []string{"tim", "tim"}, targets: []string{"ada"}},
+		{name: "unrelated alias", departed: []string{"ben"}, targets: []string{"ada", "tim"}},
+		{name: "cannot discard primary", departed: []string{"ada"}, targets: []string{"ada", "tim"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			delivery := &sendDelivery{notices: true}
+			invocation := prepareSendInvocation(t, delivery, "@ada work")
+			defer invocation.Close()
+			staging := invocation.Staging()
+			for _, alias := range tt.departed {
+				staging.DiscardInform(alias)
+			}
+			if delivery.launches != 0 {
+				t.Fatal("discard delivered work")
+			}
+			if err := invocation.Go(func(runtime.CommandResult) { t.Fatal("unexpected inline completion") }); err != nil {
+				t.Fatal(err)
+			}
+			assertDiscardedNoticePlan(t, delivery, tt.targets)
+			if !slices.Equal(staging.ToInform, []string{"tim"}) {
+				t.Fatal("callback mutated frozen readiness description")
+			}
+		})
+	}
+}
+
+func assertDiscardedNoticePlan(t *testing.T, delivery *sendDelivery, targets []string) {
+	t.Helper()
+	if !slices.Equal(delivery.command.Plan.Targets(), targets) {
+		t.Fatalf("delivery targets = %v, want %v", delivery.command.Plan.Targets(), targets)
+	}
+	if len(delivery.plans) != 1 || !slices.Equal(delivery.plans[0].Targets(), []string{"ada", "tim"}) {
+		t.Fatal("discard changed the original plan or caused reselection")
+	}
+}
+
+func TestSendCommand_DiscardInformAfterLaunchOrCloseIsIgnored(t *testing.T) {
+	for _, launch := range []bool{false, true} {
+		t.Run(map[bool]string{false: "closed", true: "launched"}[launch], func(t *testing.T) {
+			delivery := &sendDelivery{notices: true}
+			invocation := prepareSendInvocation(t, delivery, "@ada work")
+			defer invocation.Close()
+			if launch {
+				if err := invocation.Go(func(runtime.CommandResult) {}); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				invocation.Close()
+			}
+			invocation.Staging().DiscardInform("tim")
+			if launch {
+				assertDiscardedNoticePlan(t, delivery, []string{"ada", "tim"})
+			}
+			if !launch && (delivery.handler != nil || delivery.launches != 0) {
+				t.Fatal("closed invocation started work")
+			}
+		})
+	}
+}

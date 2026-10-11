@@ -52,7 +52,7 @@ func (SendCommand) Prepare(parsed promptlang.ParsedStatement, ctx runtime.Contex
 	if len(targets) == 0 {
 		return nil, errors.New("send requires a valid participant send plan")
 	}
-	return &sendInvocation{
+	invocation := &sendInvocation{
 		session: ctx.Session,
 		staging: &runtime.Staging{WaitFor: targets[:1], ToInform: targets[1:]},
 		command: session.SendToParticipantCommand{
@@ -60,7 +60,9 @@ func (SendCommand) Prepare(parsed promptlang.ParsedStatement, ctx runtime.Contex
 			Notice: fmt.Sprintf("@%s: %s", statement.Alias.Value, statement.Text.Value),
 		},
 		raw: parsed.Raw,
-	}, nil
+	}
+	invocation.staging.DiscardInform = invocation.discardInform
+	return invocation, nil
 }
 
 // Validation preserves preparation-time rejection of missing or crashed targets.
@@ -88,6 +90,14 @@ type sendInvocation struct {
 }
 
 func (i *sendInvocation) Staging() *runtime.Staging { return i.staging }
+
+// discardInform updates delivery while the host updates its staging waits.
+func (i *sendInvocation) discardInform(alias string) {
+	if i.closed || i.unsubscribe != nil {
+		return
+	}
+	i.command.Plan = i.command.Plan.DiscardUnavailableNoticeRecipients([]string{alias})
+}
 
 // Go registers its continuation before admitting delivery. The host queues
 // events, so even immediate delivery cannot resume this invocation inside Go.

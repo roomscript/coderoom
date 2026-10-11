@@ -142,8 +142,15 @@ directories are candidates, not requirements to create in one change.
 one policy-aware `ParticipantSendPlan`. The invocation retains that plan;
 `Staging` derives `WaitFor` (the primary) and `ToInform` (the notices) from its
 `Targets()`. Staging does not select delivery recipients. `Context.Session`
-supplies invocation-scoped `SessionExecution`; `Go` submits the native
-`session.SendToParticipantCommand` with the retained plan.
+supplies invocation-scoped `SessionExecution`; `Go(complete)` submits the native
+`session.SendToParticipantCommand` with its retained plan. `Staging.DiscardInform`
+lets the host tell the invocation about a departed notice recipient before Go.
+Send uses `DiscardUnavailableNoticeRecipients` to update the plan. The host drops
+that alias from its waits and retains sticky departures, including same-alias
+replacements. An unavailable `WaitFor` alias fails staging and closes the
+invocation instead. Callbacks run on the host's serialized path before launch;
+the invocation ignores them after launch or close. Staging readiness and
+departure tracking remain unwired.
 The invocation constructs the
 original input record from `ParsedStatement.Raw` only if delivery reaches someone;
 partial delivery preserves both routing metadata and the execution error.

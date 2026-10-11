@@ -103,7 +103,10 @@ the current package until a real consumer demonstrates a useful boundary.
   adapter. Preserve submission milestones and keep existing staged sends working
   through the bridge. Review this boundary before wiring staging.
 - [ ] 2b. Addressed-send staged delivery: route the prepared plan through staging
-  and prove direct/staged delivery against the same fake adapter from 2a. Preserve
+  and prove direct/staged delivery against the same fake adapter from 2a. The
+  `Staging.DiscardInform(alias)` draft lets send filter its retained Session plan
+  before launch; primary departures fail staging. Tracking and readiness remain
+  unwired. Preserve
   user admission, startup readiness, atomic edit/discard/interrupt, cancellation
   retry, partial delivery and submission milestones. Review separately from 2a;
   do not combine both sub-checkpoints into one implementation pass.
