@@ -96,6 +96,11 @@ func (s *Session) CreateParticipantSendPlan(primaryAlias string) ParticipantSend
 	return plan
 }
 
+// PrimaryParticipant returns the frozen primary participant alias.
+func (p ParticipantSendPlan) PrimaryParticipant() string {
+	return p.primaryAlias
+}
+
 // Targets returns a copy of the aliases frozen into the plan, with the
 // primary participant first.
 func (p ParticipantSendPlan) Targets() []string {

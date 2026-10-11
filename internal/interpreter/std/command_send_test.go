@@ -79,7 +79,7 @@ func (d *sendDelivery) Execute(command session.Command) error {
 	d.command = request
 	d.order = append(d.order, "execute")
 	d.launches++
-	d.alias = request.Plan.Targets()[0]
+	d.alias = request.Plan.PrimaryParticipant()
 	d.message, d.notice = request.Message, request.Notice
 	if d.duringExecute != nil {
 		d.emit(*d.duringExecute)
@@ -96,7 +96,11 @@ func (d *sendDelivery) emit(outcome sendOutcome) {
 		{outcome.Delivered, session.DeliveryDelivered}, {outcome.Failed, session.DeliveryFailed}, {outcome.Unsent, session.DeliveryNotAttempted},
 	} {
 		for _, alias := range group.aliases {
-			result.Recipients = append(result.Recipients, session.RecipientResult{Alias: alias, Status: group.status})
+			role := session.RecipientNotice
+			if alias == d.alias {
+				role = session.RecipientPrimary
+			}
+			result.Recipients = append(result.Recipients, session.RecipientResult{Alias: alias, Role: role, Status: group.status})
 		}
 	}
 	d.queue = append(d.queue, session.RoutingCompleted{Result: result})
@@ -183,8 +187,11 @@ func TestSendCommand_StagingDescribesSessionPlan(t *testing.T) {
 		t.Run(map[bool]string{false: "notices disabled", true: "notices enabled"}[notices], func(t *testing.T) {
 			delivery := &sendDelivery{notices: notices}
 			invocation := prepareSendInvocation(t, delivery, "@ada work")
-			targets := delivery.plans[0].Targets()
-			if !slices.Equal(invocation.Staging().WaitFor, targets[:1]) || !slices.Equal(invocation.Staging().ToInform, targets[1:]) {
+			var noticesWant []string
+			if notices {
+				noticesWant = []string{"tim"}
+			}
+			if !slices.Equal(invocation.Staging().WaitFor, []string{delivery.plans[0].PrimaryParticipant()}) || !slices.Equal(invocation.Staging().ToInform, noticesWant) {
 				t.Fatal("staging differs from session-selected recipients")
 			}
 		})
@@ -329,6 +336,57 @@ func TestSendCommand_ContinuationIsRequestScoped(t *testing.T) {
 		t.Fatal("same-alias result reached wrong invocation")
 	}
 	a.Close()
+}
+
+func TestSendCommand_IgnoresOtherPrimaryRouting(t *testing.T) {
+	for _, tt := range []struct {
+		name       string
+		recipients []session.RecipientResult
+	}{
+		{
+			name: "different primary",
+			recipients: []session.RecipientResult{
+				{Alias: "tim", Role: session.RecipientPrimary, Status: session.DeliveryDelivered},
+			},
+		},
+		{
+			name: "our alias is only a notice recipient",
+			recipients: []session.RecipientResult{
+				{Alias: "tim", Role: session.RecipientPrimary, Status: session.DeliveryDelivered},
+				{Alias: "ada", Role: session.RecipientNotice, Status: session.DeliveryDelivered},
+			},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			delivery := &sendDelivery{}
+			invocation := prepareSendInvocation(t, delivery, "@ada work")
+			defer invocation.Close()
+			var completions []runtime.CommandResult
+			if err := invocation.Go(func(result runtime.CommandResult) {
+				completions = append(completions, result)
+			}); err != nil {
+				t.Fatal(err)
+			}
+			delivery.queue = append(delivery.queue, session.RoutingCompleted{Result: session.RoutingResult{
+				Kind: session.RoutingParticipantSend, Recipients: tt.recipients,
+			}})
+			delivery.drain()
+			if len(completions) != 0 || delivery.handler == nil {
+				t.Fatal("another primary's routing result completed or closed our invocation")
+			}
+			delivery.queue = append(delivery.queue, session.RoutingCompleted{Result: session.RoutingResult{
+				Kind: session.RoutingParticipantSend,
+				Recipients: []session.RecipientResult{
+					{Alias: "ada", Role: session.RecipientPrimary, Status: session.DeliveryDelivered},
+				},
+			}})
+			delivery.drain()
+			if len(completions) != 1 || delivery.handler != nil {
+				t.Fatal("our primary's routing result did not complete and release the invocation")
+			}
+			assertSendResult(t, completions[0], sendOutcome{Delivered: []string{"ada"}}, "@ada work", 1)
+		})
+	}
 }
 
 func TestSendCommand_CloseSuppressesQueuedEvents(t *testing.T) {

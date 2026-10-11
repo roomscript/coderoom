@@ -3,6 +3,7 @@ package std
 import (
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/roomscript/coderoom/internal/interpreter/runtime"
 	"github.com/roomscript/coderoom/internal/participant"
@@ -52,9 +53,11 @@ func (SendCommand) Prepare(parsed promptlang.ParsedStatement, ctx runtime.Contex
 	if len(targets) == 0 {
 		return nil, errors.New("send requires a valid participant send plan")
 	}
+	primary := plan.PrimaryParticipant()
+	notices := slices.DeleteFunc(targets, func(alias string) bool { return alias == primary })
 	invocation := &sendInvocation{
 		session: ctx.Session,
-		staging: &runtime.Staging{WaitFor: targets[:1], ToInform: targets[1:]},
+		staging: &runtime.Staging{WaitFor: []string{primary}, ToInform: notices},
 		command: session.SendToParticipantCommand{
 			Plan: plan, Message: statement.Text.Value,
 			Notice: fmt.Sprintf("@%s: %s", statement.Alias.Value, statement.Text.Value),
@@ -121,6 +124,12 @@ func (i *sendInvocation) handleSessionEvent(event session.Event, complete func(r
 	}
 	routed, ok := event.(session.RoutingCompleted)
 	if !ok || routed.Result.Kind != session.RoutingParticipantSend {
+		return
+	}
+	primaryAlias := i.command.Plan.PrimaryParticipant()
+	if !slices.ContainsFunc(routed.Result.Recipients, func(recipient session.RecipientResult) bool {
+		return recipient.Role == session.RecipientPrimary && recipient.Alias == primaryAlias
+	}) {
 		return
 	}
 	i.Close()

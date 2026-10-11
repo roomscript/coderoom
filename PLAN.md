@@ -8,6 +8,35 @@ what we learned. Do not implement the entire list in one pass. Leave commits to
 the human. Move settled decisions into the design docs and remove this file when
 the issue is complete.
 
+## Resume here
+
+Current checkpoint: the send and staging prototypes are **unwired**. `/who` and
+`/shell` are registered; production addressed send still uses its legacy path.
+Read `internal/interpreter/std/CONCEPTS.md` for the short concept agreement, then
+`runtime/command.go`, `std/command_send.go` and their tests (under
+`internal/interpreter/`). Inspect the worktree before editing; leave staging and
+commits to the human.
+
+- Keep `Invocation.Go(complete)` unchanged. The agreed departure API is
+  **`Staging.DiscardInform(alias)`**, not a departure argument to `Go`.
+- Session selects recipients once in `ParticipantSendPlan`. Staging derives
+  readiness aliases from it. Its callback removes departed notices from the
+  retained plan; it does not mutate the frozen readiness description.
+- Next: draft a small staging helper API for review before implementation or
+  wiring. The host supplies readiness snapshots and departures after projecting
+  events. Ready work starts once; otherwise retain it. Required departures fail
+  and close; optional departures drop waits and call `DiscardInform`. Keep
+  departures sticky across same-alias rejoin; discard prevents later execution.
+- `SessionExecution` is request-scoped: subscribe before native command admission,
+  queue correlated events, never invoke handlers inline. Its production adapter
+  is absent. Raw `Session.Execute` is synchronous and cannot supply that contract.
+- `InvocationLifecycle` is also unwired and currently rejects staging with
+  `ErrStagingUnsupported`. Revisit runner/lifecycle responsibilities only after
+  proving staging; keep interpreter ownership of publication and shutdown.
+
+Last validation: `go test ./internal/interpreter/...` and `make lint` passed for
+the callback draft. This does not validate a production staging adapter.
+
 ## Scope assessment
 
 The goal, invariants, acceptance criteria and non-goals are clear. The principal
@@ -116,8 +145,8 @@ the current package until a real consumer demonstrates a useful boundary.
 - [ ] 4. Migrate handoff: add detached canonical source reads to the command
   context. Preserve required departures, source selection and active-source
   completion waits. Do not duplicate the transcript or create another observer.
-- [ ] 5. Migrate shell and command definitions, in separate diffs as appropriate:
-  prove injected shell execution and command resolution, including definitions
+- [ ] 5. Migrate user command definitions (`/shell` is already migrated):
+  prove command resolution, including definitions
   and named invocation. Preserve asynchronous launch, result publication,
   cancellation and stale-result behavior. These become the capabilities loop uses.
 - [ ] 6. Migrate loop with its current delivery behavior: inject delivery,
@@ -157,8 +186,10 @@ needs them, rather than as separate interpreter-wide prerequisite steps:
 - The coordinator projects complete causal event bursts before derived effects or
   execution outcomes advance workflows. The legacy bridge must preserve this
   ordering for unmigrated handlers too.
-- Modules return decisions/effects. Narrow context ports cannot independently
-  execute Session or mutate/observe the canonical room. Acceptance and terminal
+- Modules prepare invocations and return records through completion callbacks.
+  Session execution goes through the host's serialized admission capability;
+  modules cannot independently execute raw Session or mutate/observe the
+  canonical room. Acceptance and terminal
   submission reporting stay at the outer submission boundary.
 
 ## Guardrails and validation
