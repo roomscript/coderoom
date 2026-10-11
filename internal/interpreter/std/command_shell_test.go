@@ -48,8 +48,8 @@ func TestShellCommand_DelayedCompletion(t *testing.T) {
 				t.Fatal(err)
 			}
 			launcher.cwd = "/changed"
-			results := make(chan runtime.Completion, 2)
-			if err := invocation.Go(func(c runtime.Completion) { results <- c }); err != nil {
+			results := make(chan runtime.CommandResult, 2)
+			if err := invocation.Go(func(c runtime.CommandResult) { results <- c }); err != nil {
 				t.Fatal(err)
 			}
 			if launcher.program != "echo hello" {
@@ -67,7 +67,7 @@ func TestShellCommand_DelayedCompletion(t *testing.T) {
 	}
 }
 
-func assertShellRecord(t *testing.T, completion runtime.Completion, result shell.Result, displayCommand, output string) {
+func assertShellRecord(t *testing.T, completion runtime.CommandResult, result shell.Result, displayCommand, output string) {
 	t.Helper()
 	if !errors.Is(completion.Err, result.Err) || len(completion.Records) != 1 {
 		t.Fatalf("completion = %#v", completion)
@@ -88,8 +88,8 @@ func TestShellCommand_DirectInputSuppliesDisplayCommand(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var completion runtime.Completion
-	if err := invocation.Go(func(result runtime.Completion) { completion = result }); err != nil {
+	var completion runtime.CommandResult
+	if err := invocation.Go(func(result runtime.CommandResult) { completion = result }); err != nil {
 		t.Fatal(err)
 	}
 	result := shell.Result{Status: shell.StatusSuccess}
@@ -100,7 +100,7 @@ func TestShellCommand_DirectInputSuppliesDisplayCommand(t *testing.T) {
 func TestShellCommand_LaunchFailure(t *testing.T) {
 	failure := errors.New("launch failure")
 	launcher := &shellLauncher{err: failure}
-	err := (runtime.CommandRunner{}).Go(std.ShellCommand{}, shellStatement("true"), runtime.Context{Shell: launcher}, func(runtime.Completion) {
+	err := (runtime.CommandRunner{}).Go(std.ShellCommand{}, shellStatement("true"), runtime.Context{Shell: launcher}, func(runtime.CommandResult) {
 		t.Fatal("launch failure must not report execution completion")
 	})
 	if !errors.Is(err, failure) {

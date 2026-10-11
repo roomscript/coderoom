@@ -43,7 +43,7 @@ type Command interface {
 type Invocation interface {
 	// Staging describes readiness needs before Go; nil means no waiting is needed.
 	Staging() *Staging
-	Go(complete func(Completion)) error
+	Go(complete func(CommandResult)) error
 }
 
 // Staging describes the frozen participants an invocation needs ready before Go.
@@ -55,9 +55,9 @@ type Staging struct {
 	Aliases []string
 }
 
-// Completion contains final transcript records and the work's outcome.
+// CommandResult contains final transcript records and the work's outcome.
 // The interpreter owns enqueueing, ordered publication and duplicate handling.
-type Completion struct {
+type CommandResult struct {
 	Records []room.Record
 	Err     error
 }

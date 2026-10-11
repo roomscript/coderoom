@@ -57,7 +57,7 @@ func (e *interpreterExecutor) startShell(raw, command, program string, statement
 
 // ApplyShellResult resumes observation after asynchronous work completes: record
 // the command outcome, publish its structured result, then publish updated state.
-func (m *interpreterModel) ApplyShellResult(raw, command, cwd string, result shell.Result, completion runtime.Completion, statement promptlang.ParsedStatement) instructionSequence {
+func (m *interpreterModel) ApplyShellResult(raw, command, cwd string, result shell.Result, completion runtime.CommandResult, statement promptlang.ParsedStatement) instructionSequence {
 	output := formatShellResult(result)
 	sequence := make(instructionSequence, 0, len(completion.Records)+2)
 	for _, record := range completion.Records {

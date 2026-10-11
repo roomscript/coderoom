@@ -34,7 +34,7 @@ information without session execution access. `ShellLauncher` starts shell work
 using executor-owned workers and lifetime. Shell display text comes from its
 statement. Commands receive no raw model; user commands remain on the legacy path.
 
-**Completion** contains existing `room.Record` values and an error. Commands
+**CommandResult** contains existing `room.Record` values and an error. Commands
 construct records and transfer ownership when calling `complete`; they must not
 mutate those records afterward. The callback only enqueues. The interpreter
 appends records and publishes outcomes in order on its serialized path.
@@ -46,7 +46,9 @@ and rejects late callbacks.
 
 ## Current proof and next step
 
-Contracts and `CommandRunner.Go` live in `runtime`; commands live in `std`.
+Contracts and `CommandRunner` live in `runtime`; commands live in `std`.
+The unwired `InvocationLifecycle` composes a prepared invocation with
+`Start`/`Complete`/`Close`; the interpreter still uses the stateless `Go` bridge.
 `/who` prepares its original sorted alias notice and completes immediately.
 Its queued completion appends the system record after launch acknowledgement.
 The UI receives transcript deltas, with no `/who` result branch.

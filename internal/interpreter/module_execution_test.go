@@ -18,9 +18,9 @@ func (registeredTestCommand) Statement() promptlang.Statement { return promptlan
 
 func TestRegisteredCommand_UsesSharedDispatchAndHelp(t *testing.T) {
 	model := newInterpreterModel()
-	completion := runtime.Completion{Records: []room.Record{{Kind: room.KindSystem, Text: "registered output"}}}
+	completion := runtime.CommandResult{Records: []room.Record{{Kind: room.KindSystem, Text: "registered output"}}}
 	command := registeredTestCommand{&callbackTestCommand{
-		callbacks: make(chan func(runtime.Completion), 1), immediate: &completion,
+		callbacks: make(chan func(runtime.CommandResult), 1), immediate: &completion,
 	}}
 	if err := model.modules.Register(command); err != nil {
 		t.Fatal(err)

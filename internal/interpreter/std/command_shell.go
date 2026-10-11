@@ -50,13 +50,13 @@ type shellInvocation struct {
 
 func (*shellInvocation) Staging() *runtime.Staging { return nil }
 
-func (i *shellInvocation) Go(complete func(runtime.Completion)) error {
+func (i *shellInvocation) Go(complete func(runtime.CommandResult)) error {
 	err := i.launcher.Go(i.command, func(result shell.Result) {
 		record := room.NewAgentRecord("shell", agent.Message{
 			Mode:    agent.ModeSingle,
 			Content: agent.Command{Command: i.displayCommand, Cwd: i.cwd, Output: FormatShellResult(result), ExitCode: result.ExitCode},
 		})
-		complete(runtime.Completion{Records: []room.Record{record}, Err: result.Err})
+		complete(runtime.CommandResult{Records: []room.Record{record}, Err: result.Err})
 	})
 	if err != nil {
 		return fmt.Errorf("launch shell: %w", err)

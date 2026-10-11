@@ -48,8 +48,8 @@ func TestWhoCommand_Go(t *testing.T) {
 			if len(tt.views) > 0 {
 				tt.views[0].Alias = "changed after preparation"
 			}
-			var results []runtime.Completion
-			err = invocation.Go(func(completion runtime.Completion) { results = append(results, completion) })
+			var results []runtime.CommandResult
+			err = invocation.Go(func(completion runtime.CommandResult) { results = append(results, completion) })
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -87,10 +87,10 @@ func TestWhoCommand_PrepareCreatesIndependentInvocations(t *testing.T) {
 		t.Fatal(err)
 	}
 	var firstRecord, secondRecord room.Record
-	if err := first.Go(func(c runtime.Completion) { firstRecord = c.Records[0] }); err != nil {
+	if err := first.Go(func(c runtime.CommandResult) { firstRecord = c.Records[0] }); err != nil {
 		t.Fatal(err)
 	}
-	if err := second.Go(func(c runtime.Completion) { secondRecord = c.Records[0] }); err != nil {
+	if err := second.Go(func(c runtime.CommandResult) { secondRecord = c.Records[0] }); err != nil {
 		t.Fatal(err)
 	}
 	if firstRecord.Text != "[agents] ada" || secondRecord.Text != "[agents] tim" {

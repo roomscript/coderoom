@@ -137,6 +137,15 @@ directories are candidates, not requirements to create in one change.
 
 ## Registered command launch and completion
 
+An unwired `InvocationLifecycle` prototype wraps one prepared invocation through
+composition. The host calls `Command.Prepare`, retains the lifecycle and calls
+`Start` with a queue-only callback bound to that lifecycle. Later, `Complete`
+consumes the queued result once; the host publishes it. After cancelling/joining
+workers and draining completions, `Close(reason)` settles unfinished work.
+The prototype rejects staging requirements until waiting is implemented. Tests
+demonstrate host code for `/who` and `/shell`. The interpreter still uses the
+stateless `CommandRunner.Go` bridge; production lifecycle ownership is unchanged.
+
 `Invocation.Staging() *Staging` is an unwired readiness contract draft. It returns
 frozen participant aliases or nil; `/who` and `/shell` return nil. Future staging
 will wait for idle, startup-ready participants and track sticky departures before

@@ -15,7 +15,7 @@ func (views participantViews) Participants() []participant.View { return views }
 
 type invocationCompletedOperation struct {
 	id         uint64
-	completion runtime.Completion
+	completion runtime.CommandResult
 	event      Event
 }
 
@@ -35,7 +35,7 @@ func (e *interpreterExecutor) goInvocation(value goInvocationInstruction) instru
 	if value.context.Shell == nil {
 		value.context.Shell = launcher
 	}
-	err := (runtime.CommandRunner{}).Go(value.command, value.outcome.statement, value.context, func(completion runtime.Completion) {
+	err := (runtime.CommandRunner{}).Go(value.command, value.outcome.statement, value.context, func(completion runtime.CommandResult) {
 		e.enqueueCompletion(invocationCompletedOperation{id: id, completion: completion, event: launcher.completionEvent(value.outcome)})
 	})
 	if err != nil {
@@ -56,7 +56,7 @@ func (op invocationCompletedOperation) apply(e *interpreterExecutor) {
 	e.runner.Run(invocationCompletionSequence(outcome, op.completion, op.event))
 }
 
-func invocationCompletionSequence(outcome submissionOutcome, completion runtime.Completion, event Event) instructionSequence {
+func invocationCompletionSequence(outcome submissionOutcome, completion runtime.CommandResult, event Event) instructionSequence {
 	sequence := make(instructionSequence, 0, len(completion.Records)+2)
 	for _, record := range completion.Records {
 		sequence = append(sequence, appendRecordInstruction{record: record})
@@ -104,6 +104,6 @@ func (e *interpreterExecutor) failPendingInvocations() {
 	for _, id := range slices.Sorted(maps.Keys(e.pendingInvocations)) {
 		outcome := e.pendingInvocations[id]
 		delete(e.pendingInvocations, id)
-		e.runner.Run(invocationCompletionSequence(outcome, runtime.Completion{Err: ErrClosed}, nil))
+		e.runner.Run(invocationCompletionSequence(outcome, runtime.CommandResult{Err: ErrClosed}, nil))
 	}
 }

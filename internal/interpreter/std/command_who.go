@@ -57,7 +57,7 @@ type whoInvocation struct {
 func (*whoInvocation) Staging() *runtime.Staging { return nil }
 
 // Go completes immediately; the supplied callback enqueues its system notice.
-func (i *whoInvocation) Go(complete func(runtime.Completion)) error {
-	complete(runtime.Completion{Records: []room.Record{i.record}})
+func (i *whoInvocation) Go(complete func(runtime.CommandResult)) error {
+	complete(runtime.CommandResult{Records: []room.Record{i.record}})
 	return nil
 }

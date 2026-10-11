@@ -26,23 +26,28 @@ func (c *command) Prepare(promptlang.ParsedStatement, runtime.Context) (runtime.
 }
 
 type invocation struct {
-	complete func(runtime.Completion)
-	err      error
-	launches int
+	complete  func(runtime.CommandResult)
+	err       error
+	launches  int
+	staging   *runtime.Staging
+	immediate bool
 }
 
-func (*invocation) Staging() *runtime.Staging { return nil }
+func (i *invocation) Staging() *runtime.Staging { return i.staging }
 
-func (i *invocation) Go(complete func(runtime.Completion)) error {
+func (i *invocation) Go(complete func(runtime.CommandResult)) error {
 	i.launches++
 	i.complete = complete
+	if i.immediate {
+		complete(runtime.CommandResult{})
+	}
 	return i.err
 }
 
 func TestCommandRunner_GoReturnsBeforeCompletion(t *testing.T) {
 	i := &invocation{}
-	results := make(chan runtime.Completion, 1)
-	err := (runtime.CommandRunner{}).Go(&command{invocation: i}, promptlang.ParsedStatement{Value: promptlang.Who{}}, runtime.Context{}, func(c runtime.Completion) { results <- c })
+	results := make(chan runtime.CommandResult, 1)
+	err := (runtime.CommandRunner{}).Go(&command{invocation: i}, promptlang.ParsedStatement{Value: promptlang.Who{}}, runtime.Context{}, func(c runtime.CommandResult) { results <- c })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +56,7 @@ func TestCommandRunner_GoReturnsBeforeCompletion(t *testing.T) {
 		t.Fatal("completion arrived before work finished")
 	default:
 	}
-	want := runtime.Completion{Records: []room.Record{{Kind: room.KindSystem, Text: "finished"}}}
+	want := runtime.CommandResult{Records: []room.Record{{Kind: room.KindSystem, Text: "finished"}}}
 	i.complete(want)
 	if got := <-results; !reflect.DeepEqual(got, want) {
 		t.Fatalf("completion = %#v, want %#v", got, want)
@@ -75,7 +80,7 @@ func TestCommandRunner_GoFailures(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			i := &invocation{err: tt.launchErr}
-			err := (runtime.CommandRunner{}).Go(&command{invocation: i, err: tt.prepareErr}, promptlang.ParsedStatement{Value: promptlang.Who{}}, runtime.Context{}, func(runtime.Completion) { t.Fatal("unexpected completion") })
+			err := (runtime.CommandRunner{}).Go(&command{invocation: i, err: tt.prepareErr}, promptlang.ParsedStatement{Value: promptlang.Who{}}, runtime.Context{}, func(runtime.CommandResult) { t.Fatal("unexpected completion") })
 			if !errors.Is(err, failure) {
 				t.Fatalf("error = %v, want wrapped failure", err)
 			}
@@ -91,12 +96,12 @@ type participantReader struct{}
 func (participantReader) Participants() []participant.View { return []participant.View{{Alias: "ada"}} }
 
 func TestCommandRunner_WhoCompletesImmediately(t *testing.T) {
-	var results []runtime.Completion
-	err := (runtime.CommandRunner{}).Go(std.WhoCommand{}, promptlang.ParsedStatement{Value: promptlang.Who{}}, runtime.Context{Participants: participantReader{}}, func(c runtime.Completion) { results = append(results, c) })
+	var results []runtime.CommandResult
+	err := (runtime.CommandRunner{}).Go(std.WhoCommand{}, promptlang.ParsedStatement{Value: promptlang.Who{}}, runtime.Context{Participants: participantReader{}}, func(c runtime.CommandResult) { results = append(results, c) })
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []runtime.Completion{{Records: []room.Record{{Kind: room.KindSystem, Text: "[agents] ada"}}}}
+	want := []runtime.CommandResult{{Records: []room.Record{{Kind: room.KindSystem, Text: "[agents] ada"}}}}
 	if !reflect.DeepEqual(results, want) {
 		t.Fatalf("completions = %#v, want %#v", results, want)
 	}

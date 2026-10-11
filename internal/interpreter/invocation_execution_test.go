@@ -10,9 +10,9 @@ import (
 )
 
 type callbackTestCommand struct {
-	callbacks chan func(runtime.Completion)
+	callbacks chan func(runtime.CommandResult)
 	launchErr error
-	immediate *runtime.Completion
+	immediate *runtime.CommandResult
 	entered   chan struct{}
 	release   chan struct{}
 }
@@ -27,7 +27,7 @@ func (c *callbackTestCommand) Prepare(promptlang.ParsedStatement, runtime.Contex
 
 func (*callbackTestCommand) Staging() *runtime.Staging { return nil }
 
-func (c *callbackTestCommand) Go(complete func(runtime.Completion)) error {
+func (c *callbackTestCommand) Go(complete func(runtime.CommandResult)) error {
 	c.callbacks <- complete
 	if c.immediate != nil {
 		complete(*c.immediate)
@@ -57,9 +57,9 @@ func enqueueCallbackTest(t *testing.T, interp *Interpreter, c *callbackTestComma
 
 func TestInvocationCompletion_isQueuedUntilLaunchReturns(t *testing.T) {
 	interp, _, events := newSubmitContractInterpreter(t)
-	completion := runtime.Completion{Records: []room.Record{{Kind: room.KindSystem, Text: "finished"}}}
+	completion := runtime.CommandResult{Records: []room.Record{{Kind: room.KindSystem, Text: "finished"}}}
 	c := &callbackTestCommand{
-		callbacks: make(chan func(runtime.Completion), 1), immediate: &completion,
+		callbacks: make(chan func(runtime.CommandResult), 1), immediate: &completion,
 		entered: make(chan struct{}), release: make(chan struct{}),
 	}
 	t.Cleanup(func() {
@@ -83,7 +83,7 @@ func TestInvocationCompletion_isQueuedUntilLaunchReturns(t *testing.T) {
 
 func TestInvocationCompletion_delayedAndDuplicate(t *testing.T) {
 	interp, _, events := newSubmitContractInterpreter(t)
-	c := &callbackTestCommand{callbacks: make(chan func(runtime.Completion), 1)}
+	c := &callbackTestCommand{callbacks: make(chan func(runtime.CommandResult), 1)}
 	enqueueCallbackTest(t, interp, c)
 	complete := <-c.callbacks
 	receiveSubmitEvent[InputAccepted](t, events)
@@ -93,7 +93,7 @@ func TestInvocationCompletion_delayedAndDuplicate(t *testing.T) {
 	receiveSubmitEvent[InputAccepted](t, events)
 	receiveSubmitEvent[SubmissionSucceeded](t, events)
 	receiveSubmitEvent[StateChanged](t, events)
-	completion := runtime.Completion{Records: []room.Record{{Kind: room.KindSystem, Text: "finished"}}}
+	completion := runtime.CommandResult{Records: []room.Record{{Kind: room.KindSystem, Text: "finished"}}}
 	complete(completion)
 	complete(completion)
 	receiveSubmitEvent[StateChanged](t, events)
@@ -105,9 +105,9 @@ func TestInvocationCompletion_delayedAndDuplicate(t *testing.T) {
 
 func TestInvocationCompletion_launchFailureIgnoresQueuedCallback(t *testing.T) {
 	interp, _, events := newSubmitContractInterpreter(t)
-	completion := runtime.Completion{Records: []room.Record{{Kind: room.KindSystem, Text: "discard"}}}
+	completion := runtime.CommandResult{Records: []room.Record{{Kind: room.KindSystem, Text: "discard"}}}
 	c := &callbackTestCommand{
-		callbacks: make(chan func(runtime.Completion), 1), immediate: &completion,
+		callbacks: make(chan func(runtime.CommandResult), 1), immediate: &completion,
 		launchErr: errors.New("launch failed"),
 	}
 	enqueueCallbackTest(t, interp, c)
@@ -122,7 +122,7 @@ func TestInvocationCompletion_launchFailureIgnoresQueuedCallback(t *testing.T) {
 
 func TestInvocationCompletion_shutdownSettlesPendingAndRejectsLateCallback(t *testing.T) {
 	interp, _, events := newSubmitContractInterpreter(t)
-	c := &callbackTestCommand{callbacks: make(chan func(runtime.Completion), 1)}
+	c := &callbackTestCommand{callbacks: make(chan func(runtime.CommandResult), 1)}
 	enqueueCallbackTest(t, interp, c)
 	complete := <-c.callbacks
 	receiveSubmitEvent[InputAccepted](t, events)
@@ -133,7 +133,7 @@ func TestInvocationCompletion_shutdownSettlesPendingAndRejectsLateCallback(t *te
 	if !errors.Is(failed.Err, ErrClosed) {
 		t.Fatalf("completion error = %v, want ErrClosed", failed.Err)
 	}
-	complete(runtime.Completion{Records: []room.Record{{Kind: room.KindSystem, Text: "late"}}})
+	complete(runtime.CommandResult{Records: []room.Record{{Kind: room.KindSystem, Text: "late"}}})
 	if records := interp.Snapshot().Room.Records; len(records) != 1 {
 		t.Fatalf("records = %#v, want only input", records)
 	}
@@ -142,13 +142,13 @@ func TestInvocationCompletion_shutdownSettlesPendingAndRejectsLateCallback(t *te
 
 func TestInvocationCompletion_failureDoesNotFailAcceptedSubmission(t *testing.T) {
 	interp, _, events := newSubmitContractInterpreter(t)
-	c := &callbackTestCommand{callbacks: make(chan func(runtime.Completion), 1)}
+	c := &callbackTestCommand{callbacks: make(chan func(runtime.CommandResult), 1)}
 	enqueueCallbackTest(t, interp, c)
 	complete := <-c.callbacks
 	receiveSubmitEvent[InputAccepted](t, events)
 	receiveSubmitEvent[SubmissionSucceeded](t, events)
 	cause := errors.New("execution failed")
-	complete(runtime.Completion{Records: []room.Record{{Kind: room.KindSystem, Text: "partial output"}}, Err: cause})
+	complete(runtime.CommandResult{Records: []room.Record{{Kind: room.KindSystem, Text: "partial output"}}, Err: cause})
 	failed := receiveSubmitEvent[OperationFailed](t, events)
 	if failed.Raw != "/test" || !errors.Is(failed.Err, cause) {
 		t.Fatalf("failure = %#v", failed)

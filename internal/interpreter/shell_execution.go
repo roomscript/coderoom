@@ -15,7 +15,7 @@ type shellCompletedOperation struct {
 	statement  promptlang.ParsedStatement
 	command    string
 	result     shell.Result
-	completion runtime.Completion
+	completion runtime.CommandResult
 }
 
 func (e *interpreterExecutor) setShellRunner(runner ShellRunner) {
@@ -34,7 +34,7 @@ func (e *interpreterExecutor) launchDefinedShell(raw, command, program string, s
 		})
 		e.enqueueCompletion(shellCompletedOperation{
 			raw: raw, command: command, statement: statement, result: result,
-			completion: runtime.Completion{Records: []room.Record{record}, Err: result.Err},
+			completion: runtime.CommandResult{Records: []room.Record{record}, Err: result.Err},
 		})
 	}()
 }

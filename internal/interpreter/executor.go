@@ -32,7 +32,7 @@ type executorModelPort interface {
 	instructionModelPort
 	CheckInputAllowed(string) instructionSequence
 	PrepareRequest(string, promptlang.ParsedStatement) instructionSequence
-	ApplyShellResult(string, string, string, shell.Result, runtime.Completion, promptlang.ParsedStatement) instructionSequence
+	ApplyShellResult(string, string, string, shell.Result, runtime.CommandResult, promptlang.ParsedStatement) instructionSequence
 	TakeStageForEdit() (instructionSequence, string, bool)
 	DiscardStage() (instructionSequence, bool)
 	InterruptAndDispatchStage() (instructionSequence, bool)
