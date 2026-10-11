@@ -47,7 +47,7 @@ func (i *invocation) Go(complete func(runtime.CommandResult)) error {
 func TestCommandRunner_GoReturnsBeforeCompletion(t *testing.T) {
 	i := &invocation{}
 	results := make(chan runtime.CommandResult, 1)
-	err := (runtime.CommandRunner{}).Go(&command{invocation: i}, promptlang.ParsedStatement{Value: promptlang.Who{}}, runtime.Context{}, func(c runtime.CommandResult) { results <- c })
+	err := (runtime.CommandRunner{}).Go(&command{invocation: i}, promptlang.ParsedStatement{Located: promptlang.Located[promptlang.Statement]{Value: promptlang.Who{}}}, runtime.Context{}, func(c runtime.CommandResult) { results <- c })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +80,7 @@ func TestCommandRunner_GoFailures(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			i := &invocation{err: tt.launchErr}
-			err := (runtime.CommandRunner{}).Go(&command{invocation: i, err: tt.prepareErr}, promptlang.ParsedStatement{Value: promptlang.Who{}}, runtime.Context{}, func(runtime.CommandResult) { t.Fatal("unexpected completion") })
+			err := (runtime.CommandRunner{}).Go(&command{invocation: i, err: tt.prepareErr}, promptlang.ParsedStatement{Located: promptlang.Located[promptlang.Statement]{Value: promptlang.Who{}}}, runtime.Context{}, func(runtime.CommandResult) { t.Fatal("unexpected completion") })
 			if !errors.Is(err, failure) {
 				t.Fatalf("error = %v, want wrapped failure", err)
 			}
@@ -97,7 +97,7 @@ func (participantReader) Participants() []participant.View { return []participan
 
 func TestCommandRunner_WhoCompletesImmediately(t *testing.T) {
 	var results []runtime.CommandResult
-	err := (runtime.CommandRunner{}).Go(std.WhoCommand{}, promptlang.ParsedStatement{Value: promptlang.Who{}}, runtime.Context{Participants: participantReader{}}, func(c runtime.CommandResult) { results = append(results, c) })
+	err := (runtime.CommandRunner{}).Go(std.WhoCommand{}, promptlang.ParsedStatement{Located: promptlang.Located[promptlang.Statement]{Value: promptlang.Who{}}}, runtime.Context{Participants: participantReader{}}, func(c runtime.CommandResult) { results = append(results, c) })
 	if err != nil {
 		t.Fatal(err)
 	}

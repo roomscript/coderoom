@@ -48,7 +48,7 @@ func newInterpreterModel() *interpreterModel {
 }
 
 func (m *interpreterModel) prepareCommand(raw string, statement promptlang.Statement) (instructionSequence, bool) {
-	if command, ok := m.modules.Lookup(promptlang.ParsedStatement{Value: statement}); ok {
+	if command, ok := m.modules.Lookup(promptlang.ParsedStatement{Located: promptlang.Located[promptlang.Statement]{Value: statement}}); ok {
 		return append(acceptedInputSequence(raw), goInvocationInstruction{
 			command: command, outcome: submissionOutcome{raw: raw, operation: command.Name()},
 		}), true

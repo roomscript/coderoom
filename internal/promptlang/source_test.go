@@ -37,7 +37,10 @@ func TestParse_sourceRanges(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			got := statementSpans(reflect.ValueOf(statement))
+			if statement.Raw != tt.raw {
+				t.Fatalf("raw = %q, want exact source %q", statement.Raw, tt.raw)
+			}
+			got := statementSpans(reflect.ValueOf(statement.Located))
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Fatalf("spans = %#v, want %#v", got, tt.want)
 			}

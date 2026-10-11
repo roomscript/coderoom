@@ -116,5 +116,5 @@ func TestShellCommand_RequiresExecutionCapability(t *testing.T) {
 }
 
 func shellStatement(command string) promptlang.ParsedStatement {
-	return promptlang.ParsedStatement{Value: promptlang.Shell{Program: promptlang.Located[string]{Value: command}}}
+	return promptlang.ParsedStatement{Located: promptlang.Located[promptlang.Statement]{Value: promptlang.Shell{Program: promptlang.Located[string]{Value: command}}}}
 }

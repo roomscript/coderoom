@@ -14,8 +14,12 @@ type Located[T any] struct {
 	Span  Span
 }
 
-// ParsedStatement pairs statement content with its range in the original input.
-type ParsedStatement = Located[Statement]
+// ParsedStatement retains the located AST and exact, untrimmed source input.
+// Runtime-created statements may omit Raw when no source text is available.
+type ParsedStatement struct {
+	Located[Statement]
+	Raw string
+}
 
 // DiagnosticCode identifies a diagnostic independently of its display text.
 type DiagnosticCode string

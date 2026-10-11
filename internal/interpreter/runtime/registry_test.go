@@ -95,7 +95,7 @@ func TestRegistry_EntriesPreserveOrderAndAreDetached(t *testing.T) {
 		t.Fatalf("entries = %#v, want registration order", entries)
 	}
 	entries[0] = std.ShellCommand{}
-	command, ok := registry.Lookup(promptlang.ParsedStatement{Value: promptlang.Who{}})
+	command, ok := registry.Lookup(promptlang.ParsedStatement{Located: promptlang.Located[promptlang.Statement]{Value: promptlang.Who{}}})
 	if !ok || command.Name() != "who" || registry.Entries()[0].Name() != "who" {
 		t.Fatal("changing returned entries mutated the registry")
 	}

@@ -685,8 +685,10 @@ handlers. Scanning is contextual: prompt and shell payloads remain opaque,
 including embedded command markers, quotes and newlines. The existing single-send
 loop recognizes its control clause from the end of the input.
 
-`Parse` returns `ParsedStatement`, an alias for `Located[Statement]`. Its `Value`
-contains command content and its `Span` covers the whole statement. Spans are
+`Parse` returns `ParsedStatement`, which embeds `Located[Statement]`. Its promoted
+`Value` contains command content and its `Span` covers the whole statement.
+`Raw` preserves the exact, untrimmed submission, including whitespace and newlines.
+Runtime-created statements may omit `Raw` when no original source exists. Spans are
 half-open UTF-8 byte offsets into the original, untrimmed submission. Named
 arguments use `Located[T]` to keep each value and its span together: aliases,
 definition and invocation names, prompt and shell text, policy names and loop

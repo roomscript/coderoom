@@ -25,7 +25,10 @@ func Parse(line string) (ParsedStatement, error) {
 	if err != nil {
 		return ParsedStatement{}, err
 	}
-	return ParsedStatement{Value: statement, Span: input.span()}, nil
+	return ParsedStatement{
+		Located: Located[Statement]{Value: statement, Span: input.span()},
+		Raw:     line,
+	}, nil
 }
 
 func parseStatement(input sourceCursor) (Statement, error) {

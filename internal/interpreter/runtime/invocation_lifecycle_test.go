@@ -88,7 +88,7 @@ func (h *prototypeInterpreter) close(reason error) {
 
 func TestInvocationLifecycle_InterpreterWhoFlow(t *testing.T) {
 	host := newPrototypeInterpreter()
-	err := host.submit(std.WhoCommand{}, promptlang.ParsedStatement{Value: promptlang.Who{}}, runtime.Context{Participants: participantReader{}})
+	err := host.submit(std.WhoCommand{}, promptlang.ParsedStatement{Located: promptlang.Located[promptlang.Statement]{Value: promptlang.Who{}}}, runtime.Context{Participants: participantReader{}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +123,7 @@ func (l *prototypeShellLauncher) Go(_ string, complete func(shell.Result)) error
 func TestInvocationLifecycle_InterpreterShellFlow(t *testing.T) {
 	host := newPrototypeInterpreter()
 	launcher := &prototypeShellLauncher{}
-	statement := promptlang.ParsedStatement{Value: promptlang.Shell{Program: promptlang.Located[string]{Value: "echo hello"}}}
+	statement := promptlang.ParsedStatement{Located: promptlang.Located[promptlang.Statement]{Value: promptlang.Shell{Program: promptlang.Located[string]{Value: "echo hello"}}}}
 	if err := host.submit(std.ShellCommand{}, statement, runtime.Context{Shell: launcher}); err != nil {
 		t.Fatal(err)
 	}

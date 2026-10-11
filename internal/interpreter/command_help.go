@@ -22,7 +22,7 @@ func moduleHelpListing(registry *runtime.Registry) HelpListed {
 	listed := map[string]bool{}
 	for _, definition := range nativeCommandDefinitions {
 		if definition.module != nil {
-			command, ok := registry.Lookup(promptlang.ParsedStatement{Value: definition.module.Statement()})
+			command, ok := registry.Lookup(promptlang.ParsedStatement{Located: promptlang.Located[promptlang.Statement]{Value: definition.module.Statement()}})
 			if ok {
 				listing.Commands = append(listing.Commands, HelpEntry{Usage: command.Usage(), Description: command.Description()})
 				listed[command.Name()] = true
