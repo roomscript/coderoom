@@ -61,3 +61,5 @@ func (i *whoInvocation) Go(complete func(runtime.CommandResult)) error {
 	complete(runtime.CommandResult{Records: []room.Record{i.record}})
 	return nil
 }
+
+func (*whoInvocation) Close() {}

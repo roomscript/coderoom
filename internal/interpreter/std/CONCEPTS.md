@@ -22,17 +22,19 @@ complete(result) -> final records and execution error
 completion records; preparation or launch errors fail the submission.
 There is no `Init`, `Next`, polling, or generic fact/expectation contract.
 
-**Staging** is an invocation's readiness description: `Staging()` returns frozen
-aliases, or nil for no waiting. The host waits for idle, startup-ready participants
-and tracks departures; delivery roles stay with the invocation. This draft is
-unwired; `/who` and `/shell` return nil.
+**Staging** holds frozen `WaitFor` and `ToInform` aliases, or nil for no waiting.
+Both groups gate idle, startup-ready readiness; `ToInform` also receives notices.
+The command identifies its delivery targets; `WaitFor` does not imply delivery.
+Departure handling remains command policy. This draft is unwired; `/who` and `/shell` return nil.
 
 ## Capabilities and records
 
 **Context** supplies narrow capabilities. `ParticipantReader` exposes participant
 information without session execution access. `ShellLauncher` starts shell work
 using executor-owned workers and lifetime. Shell display text comes from its
-statement. Commands receive no raw model; user commands remain on the legacy path.
+statement. Unwired sends subscribe through an invocation-scoped session handle,
+then call `Execute`; the host queues correlated events, never invoking inline.
+`Close` releases subscriptions. Commands receive no raw model.
 
 **CommandResult** contains existing `room.Record` values and an error. Commands
 construct records and transfer ownership when calling `complete`; they must not
@@ -58,4 +60,7 @@ shell capability retains `ShellCompleted` for compatibility. Execution failures
 are separate from submission success; user commands and loops remain legacy.
 `runtime.Registry.Register(command)` indexes the type returned by `Statement()`.
 `Lookup(parsed)` selects the command; metadata comes from the command itself.
-Both commands are registered; user commands and definitions are future checkpoints.
+Both commands are registered. Unwired `SendCommand` retains Session's send plan,
+derives staging from it and submits the native session command with that plan.
+It returns the original input record with actual routing.
+The session admission adapter and lifecycle staging remain unwired.

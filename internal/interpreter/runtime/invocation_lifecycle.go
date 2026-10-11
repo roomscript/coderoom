@@ -49,6 +49,7 @@ func (l *InvocationLifecycle) Start(enqueueCompletion func(CommandResult)) error
 	l.state = invocationRunning
 	if err := l.invocation.Go(enqueueCompletion); err != nil {
 		l.state = invocationFinished
+		l.invocation.Close()
 		return fmt.Errorf("start invocation: %w", err)
 	}
 	return nil
@@ -62,6 +63,7 @@ func (l *InvocationLifecycle) Complete(completion CommandResult) (CommandResult,
 		return CommandResult{}, false
 	}
 	l.state = invocationFinished
+	l.invocation.Close()
 	return completion, true
 }
 
@@ -73,5 +75,6 @@ func (l *InvocationLifecycle) Close(reason error) (CommandResult, bool) {
 		return CommandResult{}, false
 	}
 	l.state = invocationFinished
+	l.invocation.Close()
 	return CommandResult{Err: reason}, true
 }

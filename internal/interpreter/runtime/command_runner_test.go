@@ -29,6 +29,7 @@ type invocation struct {
 	complete  func(runtime.CommandResult)
 	err       error
 	launches  int
+	closes    int
 	staging   *runtime.Staging
 	immediate bool
 }
@@ -106,3 +107,5 @@ func TestCommandRunner_WhoCompletesImmediately(t *testing.T) {
 		t.Fatalf("completions = %#v, want %#v", results, want)
 	}
 }
+
+func (i *invocation) Close() { i.closes++ }

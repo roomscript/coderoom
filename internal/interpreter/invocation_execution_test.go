@@ -25,6 +25,8 @@ func (c *callbackTestCommand) Prepare(promptlang.ParsedStatement, runtime.Contex
 	return c, nil
 }
 
+func (*callbackTestCommand) Close() {}
+
 func (*callbackTestCommand) Staging() *runtime.Staging { return nil }
 
 func (c *callbackTestCommand) Go(complete func(runtime.CommandResult)) error {

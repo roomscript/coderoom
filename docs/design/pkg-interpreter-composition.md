@@ -67,7 +67,7 @@ inspection, frozen send planning, delivery, cancellation, lifecycle commands and
 approval responses. It neither retains pending work nor emits user submission
 milestones. Session remains the final readiness, policy and delivery authority.
 
-Staging decorates planned delivery. It retains a frozen plan, tracks readiness
+Staging retains frozen `WaitFor` and `ToInform` aliases, tracks readiness
 and source-completion requirements, coordinates interruption retries and emits a
 dispatch effect when the plan can proceed. Draft edit/discard and the current
 single-stage admission rule are application policy exposed through the facade.
@@ -95,9 +95,9 @@ the transcript or give commands independent execution and observation paths.
 
 ## Contracts to establish before extraction
 
-- Distinguish a parsed statement, a prepared delivery plan and a dispatch effect.
-  Decorators operate on prepared plans, preserving frozen required/optional
-  recipients and source-selection rules.
+- Distinguish a parsed statement, a prepared invocation and a dispatch effect.
+  Session freezes send recipients in `ParticipantSendPlan`; staging derives its
+  readiness description from that plan. Commands preserve source-selection rules.
 - Distinguish acceptance, queued submission success, delivery acceptance and
   participant completion. An `Execute(node) error` contract is insufficient.
 - Assign each retained workflow an owner and generation/request identity.
@@ -136,6 +136,21 @@ runtime small; it must not become the old monolith under a new name. These
 directories are candidates, not requirements to create in one change.
 
 ## Registered command launch and completion
+
+`std.SendCommand` is an unwired preparation/direct-delivery prototype.
+`SendCommand.Prepare` validates the primary participant and asks Session to create
+one policy-aware `ParticipantSendPlan`. The invocation retains that plan;
+`Staging` derives `WaitFor` (the primary) and `ToInform` (the notices) from its
+`Targets()`. Staging does not select delivery recipients. `Context.Session`
+supplies invocation-scoped `SessionExecution`; `Go` submits the native
+`session.SendToParticipantCommand` with the retained plan.
+The invocation constructs the
+original input record from `ParsedStatement.Raw` only if delivery reaches someone;
+partial delivery preserves both routing metadata and the execution error.
+The capability revalidates availability at delivery and owns causal session-event
+handling. No session adapter is implemented yet. Lifecycle staging still rejects
+this invocation; readiness, optional departures and publication ordering remain
+the next proof before registration or interpreter wiring.
 
 An unwired `InvocationLifecycle` prototype wraps one prepared invocation through
 composition. The host calls `Command.Prepare`, retains the lifecycle and calls
@@ -236,3 +251,20 @@ Validation should reuse the existing causal ordering, stale completion,
 startup readiness, partial delivery, cancellation retry and atomic stage tests.
 Add capability tests proving direct and staged delivery against the same fake
 adapter, and loop tests against fake delivery/shell ports without a fake Session.
+
+### Session continuation prototype
+
+Addressed send registers a continuation through `Context.Session.Subscribe`
+before `Execute(session.Command)`. Each host handle belongs to one invocation request;
+event type and participant alias are not sufficient correlation. The host queues
+handlers on its serialized path, including events emitted during execution.
+`Execute` is asynchronous admission: delivery outcomes arrive through existing
+`session.RoutingCompleted` values. There is no polling or per-command waiter.
+
+The native session command carries the original frozen `ParticipantSendPlan`.
+The host adapter must serialize actual session calls without reselecting recipients.
+This adapter is not implemented or wired; raw `session.Session.Execute` does not
+provide this admission contract. Tests use separate scoped handles and explicit
+queue draining. `Invocation.Close` releases subscriptions on completion, failed
+admission, or discard; lifecycle terminal paths call it once. Worker lifetime
+and public event ordering still belong to the interpreter.

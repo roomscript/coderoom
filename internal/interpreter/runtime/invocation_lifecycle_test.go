@@ -165,7 +165,7 @@ func TestInvocationLifecycle_FailedLaunchAndUnsupportedStaging(t *testing.T) {
 		wantErr    error
 	}{
 		{name: "callback before failed launch", invocation: &invocation{err: failure, immediate: true}, wantErr: failure},
-		{name: "unsupported staging", invocation: &invocation{staging: &runtime.Staging{Aliases: []string{"ada"}}}, wantErr: runtime.ErrStagingUnsupported},
+		{name: "unsupported staging", invocation: &invocation{staging: &runtime.Staging{WaitFor: []string{"ada"}}}, wantErr: runtime.ErrStagingUnsupported},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			host := newPrototypeInterpreter()
@@ -202,5 +202,32 @@ func TestInvocationLifecycle_StartOnceAndClose(t *testing.T) {
 	}
 	if _, ok := lifecycle.Close(reason); ok {
 		t.Fatal("shutdown repeated outcome")
+	}
+}
+
+func TestInvocationLifecycle_ReleasesInvocation(t *testing.T) {
+	failure := errors.New("failed")
+	for _, mode := range []string{"completion", "launch failure", "close prepared", "close running"} {
+		t.Run(mode, func(t *testing.T) {
+			i := &invocation{}
+			l := runtime.NewInvocationLifecycle(i)
+			if mode == "launch failure" {
+				i.err = failure
+			}
+			if mode != "close prepared" {
+				err := l.Start(func(runtime.CommandResult) {})
+				if (err != nil) != (mode == "launch failure") {
+					t.Fatalf("start: %v", err)
+				}
+			}
+			if mode == "completion" {
+				l.Complete(runtime.CommandResult{})
+			}
+			l.Close(failure)
+			l.Close(failure)
+			if i.closes != 1 {
+				t.Fatalf("cleanup calls = %d, want 1", i.closes)
+			}
+		})
 	}
 }

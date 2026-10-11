@@ -78,3 +78,5 @@ func FormatShellResult(result shell.Result) string {
 	}
 	return strings.Join(sections, "\n")
 }
+
+func (*shellInvocation) Close() {}

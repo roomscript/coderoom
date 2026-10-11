@@ -86,12 +86,20 @@ the current package until a real consumer demonstrates a useful boundary.
   shutdown settlement in the interpreter. `runtime.CommandRunner` continues to
   call `Prepare` and `Go`; coordinator extraction is not the next checkpoint.
 - [ ] 2a. Addressed-send preparation and direct delivery:
+  Standalone `std.SendCommand` retains Session's frozen `ParticipantSendPlan`,
+  deriving `Staging.WaitFor` and `ToInform` from it for readiness. It submits the
+  native session command with that same plan and drafts
+  original input records and partial delivery through queued, request-scoped
+  session continuations, registered before asynchronous admission. Invocation
+  cleanup releases subscriptions on completion, failure or discard. It is
+  not registered; the real session adapter and lifecycle staging remain unwired.
   Start with the standalone `Invocation.Staging() *Staging` draft: frozen aliases
   or nil, with existing commands returning nil. The draft is not execution wiring.
   Every send should use one staging path, immediately releasing ready work or
   retaining it until ready. Preserve sticky departures and frozen recipients.
-  Introduce prepared plans, frozen required/optional recipients and correlated delivery outcomes as the
-  module needs them. Prove direct delivery and partial results with a narrow fake
+  Retain Session's send plan as the delivery authority, derive staging readiness
+  from its aliases, and correlate delivery outcomes as the module needs them.
+  Prove direct delivery and partial results with a narrow fake
   adapter. Preserve submission milestones and keep existing staged sends working
   through the bridge. Review this boundary before wiring staging.
 - [ ] 2b. Addressed-send staged delivery: route the prepared plan through staging

@@ -6,6 +6,7 @@ import (
 	"github.com/roomscript/coderoom/internal/participant"
 	"github.com/roomscript/coderoom/internal/promptlang"
 	"github.com/roomscript/coderoom/internal/room"
+	"github.com/roomscript/coderoom/internal/session"
 	"github.com/roomscript/coderoom/internal/shell"
 )
 
@@ -20,10 +21,26 @@ type ShellLauncher interface {
 	Go(program string, complete func(shell.Result)) error
 }
 
+// SessionExecution is a host capability scoped to one invocation, not raw Session.
+// CreateParticipantSendPlan delegates recipient selection to Session.
+// Subscribe registers before Execute. The host queues request-correlated events
+// on its serialized path, never invoking the handler inline. Unsubscribe also
+// suppresses events already queued for this subscription.
+// Execute admits work without waiting for delivery; admission failures return an
+// error, while delivery outcomes arrive as session.RoutingCompleted events.
+// The host owns the serialized session execution lane and worker lifetime.
+// This prototype has no production adapter yet.
+type SessionExecution interface {
+	Subscribe(handle func(session.Event)) (unsubscribe func())
+	CreateParticipantSendPlan(alias string) session.ParticipantSendPlan
+	Execute(command session.Command) error
+}
+
 // Context supplies capabilities during preparation on the serialized coordinator.
 type Context struct {
 	Participants ParticipantReader
 	Shell        ShellLauncher
+	Session      SessionExecution
 }
 
 // Command is stateless; Prepare creates independent state for one invocation.
@@ -44,15 +61,20 @@ type Invocation interface {
 	// Staging describes readiness needs before Go; nil means no waiting is needed.
 	Staging() *Staging
 	Go(complete func(CommandResult)) error
+	// Close releases invocation-owned subscriptions; it is idempotent and runs
+	// on the host serialized path. Worker cancellation remains the host's job.
+	Close()
 }
 
 // Staging describes the frozen participants an invocation needs ready before Go.
 // All listed aliases use the shared readiness rule: idle and startup-ready.
 // The invocation owns this description; callers must treat it as read-only.
-// The host owns waiting and sticky departure tracking. Delivery roles and
-// outcomes remain invocation concerns. This draft is not wired into execution.
+// WaitFor gates execution; ToInform describes frozen contextual notice recipients, which
+// also gate readiness. WaitFor does not imply delivery. Departure handling is
+// command policy; the host tracks sticky departures. This draft is unwired.
 type Staging struct {
-	Aliases []string
+	WaitFor  []string
+	ToInform []string
 }
 
 // CommandResult contains final transcript records and the work's outcome.

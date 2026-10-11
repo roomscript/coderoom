@@ -8,6 +8,11 @@ cosmetic feedback.
 If requirements or intent are unclear, identify the ambiguity precisely and ask
 for clarification before drawing conclusions.
 
+For changes involving state, planning, or lifecycle, trace the existing owner
+across layers. Identify duplicated decisions or competing sources of truth,
+even when tests pass. A temporary migration path must have an explicit boundary
+and removal condition.
+
 ## Prefer CLI tools
 
 Prefer available local CLI tools over equivalent MCP tools or other integrations.
