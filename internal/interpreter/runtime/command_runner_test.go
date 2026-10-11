@@ -31,6 +31,8 @@ type invocation struct {
 	launches int
 }
 
+func (*invocation) Staging() *runtime.Staging { return nil }
+
 func (i *invocation) Go(complete func(runtime.Completion)) error {
 	i.launches++
 	i.complete = complete

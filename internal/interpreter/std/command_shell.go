@@ -48,6 +48,8 @@ type shellInvocation struct {
 	cwd            string
 }
 
+func (*shellInvocation) Staging() *runtime.Staging { return nil }
+
 func (i *shellInvocation) Go(complete func(runtime.Completion)) error {
 	err := i.launcher.Go(i.command, func(result shell.Result) {
 		record := room.NewAgentRecord("shell", agent.Message{

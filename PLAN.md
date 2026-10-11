@@ -81,22 +81,19 @@ the current package until a real consumer demonstrates a useful boundary.
   acknowledge successful launch before queued records; completions report execution
   outcomes without a second submission result. Shell compatibility events remain.
   User commands, definitions and loop execution remain on the legacy path.
-- [ ] 1a. Extract the reusable command coordinator into `runtime`: move invocation
-  identity, launch acknowledgement, exactly-once completion handling, failed-launch
-  invalidation and unfinished-invocation settlement out of the interpreter.
-  The interpreter supplies its serialized queue, execution capabilities, lifetime
-  and publication. Canonical transcript mutation, application events and worker
-  cancellation/joining remain interpreter-owned. Keep shell execution capabilities
-  focused on execution; adapt `ShellCompleted` at the publication boundary.
-  Prove immediate and delayed completion, launch/execution failures, duplicate and
-  late callbacks, and shutdown draining with narrow fake host ports. Run existing
-  `/who` and `/shell` tests to preserve acknowledgement and record ordering.
-  Review this extraction separately before migrating delivery commands.
-- [ ] 2a. Addressed-send preparation and direct delivery: introduce prepared plans,
-  frozen required/optional recipients and correlated delivery outcomes as the
+- [ ] 1a. Deferred: revisit runner responsibilities after send and staging are
+  clearer. Keep invocation identity, acknowledgement, completion tracking and
+  shutdown settlement in the interpreter. `runtime.CommandRunner` continues to
+  call `Prepare` and `Go`; coordinator extraction is not the next checkpoint.
+- [ ] 2a. Addressed-send preparation and direct delivery:
+  Start with the standalone `Invocation.Staging() *Staging` draft: frozen aliases
+  or nil, with existing commands returning nil. The draft is not execution wiring.
+  Every send should use one staging path, immediately releasing ready work or
+  retaining it until ready. Preserve sticky departures and frozen recipients.
+  Introduce prepared plans, frozen required/optional recipients and correlated delivery outcomes as the
   module needs them. Prove direct delivery and partial results with a narrow fake
   adapter. Preserve submission milestones and keep existing staged sends working
-  through the bridge. Review this boundary before shaping the staging interface.
+  through the bridge. Review this boundary before wiring staging.
 - [ ] 2b. Addressed-send staged delivery: route the prepared plan through staging
   and prove direct/staged delivery against the same fake adapter from 2a. Preserve
   user admission, startup readiness, atomic edit/discard/interrupt, cancellation

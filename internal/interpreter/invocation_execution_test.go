@@ -25,6 +25,8 @@ func (c *callbackTestCommand) Prepare(promptlang.ParsedStatement, runtime.Contex
 	return c, nil
 }
 
+func (*callbackTestCommand) Staging() *runtime.Staging { return nil }
+
 func (c *callbackTestCommand) Go(complete func(runtime.Completion)) error {
 	c.callbacks <- complete
 	if c.immediate != nil {

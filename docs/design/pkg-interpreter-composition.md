@@ -137,6 +137,12 @@ directories are candidates, not requirements to create in one change.
 
 ## Registered command launch and completion
 
+`Invocation.Staging() *Staging` is an unwired readiness contract draft. It returns
+frozen participant aliases or nil; `/who` and `/shell` return nil. Future staging
+will wait for idle, startup-ready participants and track sticky departures before
+calling `Go`. Invocation tracking remains in the interpreter; runner responsibility
+changes are deferred until send and staging clarify the boundary.
+
 An interpreter-owned `runtime.Registry` registers `Command` implementations directly.
 `Command.Statement()` returns a representative AST value identifying the accepted
 type, not default arguments. Lookup indexes the concrete type of the parsed value.

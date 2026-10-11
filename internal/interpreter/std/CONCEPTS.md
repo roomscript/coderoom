@@ -22,6 +22,11 @@ complete(result) -> final records and execution error
 completion records; preparation or launch errors fail the submission.
 There is no `Init`, `Next`, polling, or generic fact/expectation contract.
 
+**Staging** is an invocation's readiness description: `Staging()` returns frozen
+aliases, or nil for no waiting. The host waits for idle, startup-ready participants
+and tracks departures; delivery roles stay with the invocation. This draft is
+unwired; `/who` and `/shell` return nil.
+
 ## Capabilities and records
 
 **Context** supplies narrow capabilities. `ParticipantReader` exposes participant

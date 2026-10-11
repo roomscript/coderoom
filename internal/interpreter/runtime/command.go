@@ -41,7 +41,18 @@ type Command interface {
 // Implementations may complete immediately. The callback transfers ownership of
 // its records to the caller; they must not be mutated afterward.
 type Invocation interface {
+	// Staging describes readiness needs before Go; nil means no waiting is needed.
+	Staging() *Staging
 	Go(complete func(Completion)) error
+}
+
+// Staging describes the frozen participants an invocation needs ready before Go.
+// All listed aliases use the shared readiness rule: idle and startup-ready.
+// The invocation owns this description; callers must treat it as read-only.
+// The host owns waiting and sticky departure tracking. Delivery roles and
+// outcomes remain invocation concerns. This draft is not wired into execution.
+type Staging struct {
+	Aliases []string
 }
 
 // Completion contains final transcript records and the work's outcome.
