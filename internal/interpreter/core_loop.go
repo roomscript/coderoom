@@ -40,10 +40,11 @@ func (w *loopWorkflow) start(
 		raw:               raw,
 		statement:         statement,
 		body:              body.Value,
-		phase:             loopDispatchingParticipant,
+		phase:             loopPlanningParticipant,
 		submissionPending: true,
 	}
-	sequence = append(sequence, w.startParticipantTurn(statement.Prompt.Value))
+	w.active.pending = w.nextRef(w.active.generation)
+	sequence = append(sequence, resolveParticipantInstruction{target: w.active.pending, name: statement.Participant.Value})
 	return sequence
 }
 
@@ -65,6 +66,16 @@ func (w *loopWorkflow) handleSessionEvent(event session.Event) instructionSequen
 		w.active.retainDispatchTerminalEvent(event)
 		return nil
 	}
+	switch event := event.(type) {
+	case session.AgentStopped:
+		if event.Alias == w.active.primary {
+			return w.finish("[loop] stopped: participant @" + event.Alias.Name + " stopped")
+		}
+	case session.AgentCrashed:
+		if event.Alias == w.active.primary {
+			return w.finish("[loop] stopped: participant @" + event.Alias.Name + " crashed")
+		}
+	}
 	if w.active.phase != loopWaitingForParticipant {
 		return nil
 	}
@@ -72,23 +83,11 @@ func (w *loopWorkflow) handleSessionEvent(event session.Event) instructionSequen
 }
 
 func (w *loopWorkflow) resumeOnParticipantEvent(event session.Event) instructionSequence {
-	alias := w.active.statement.Participant.Value
-	switch event := event.(type) {
-	case session.ParticipantStatusChanged:
-		if event.Alias != alias || event.To != participant.StatusIdle {
-			return nil
-		}
-		return instructionSequence{w.startConditionEvaluation()}
-	case session.AgentStopped:
-		if event.Alias == alias {
-			return w.finish("[loop] stopped: participant @" + alias + " stopped")
-		}
-	case session.AgentCrashed:
-		if event.Alias == alias {
-			return w.finish("[loop] stopped: participant @" + alias + " crashed")
-		}
+	status, ok := event.(session.ParticipantStatusChanged)
+	if !ok || status.Alias != w.active.primary || status.To != participant.StatusIdle {
+		return nil
 	}
-	return nil
+	return instructionSequence{w.startConditionEvaluation()}
 }
 
 // finishParticipantDelivery consumes the synchronous command result after its
@@ -169,4 +168,12 @@ func (w *loopWorkflow) advanceAfterCondition(result shell.Result) instructionSeq
 		return instructionSequence{w.startParticipantTurn(formatLoopPrompt(state.statement, result))}
 	}
 	return nil
+}
+
+func (w *loopWorkflow) prepareParticipant(result participantAliasResult) instructionSequence {
+	if !w.matches(result.target, loopPlanningParticipant) {
+		return nil
+	}
+	w.active.primary = result.alias
+	return instructionSequence{w.startParticipantTurn(w.active.statement.Prompt.Value)}
 }

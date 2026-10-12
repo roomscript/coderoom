@@ -5,6 +5,7 @@ package ui
 import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/roomscript/coderoom/internal/interpreter"
+	"github.com/roomscript/coderoom/internal/participant"
 	"github.com/roomscript/coderoom/internal/queue"
 	"github.com/roomscript/coderoom/internal/ui/palette"
 	"github.com/roomscript/coderoom/internal/ui/room"
@@ -56,7 +57,7 @@ type Model struct {
 	room             room.Model
 	toolbox          toolbox.Model
 	debug            bool
-	colors           map[string]string
+	colors           map[participant.Alias]string
 	cwd              string
 	lastSize         tea.WindowSizeMsg
 
@@ -75,9 +76,17 @@ type Model struct {
 // New creates a presenter consuming the observer installed during interpreter construction.
 // The caller owns interpreter shutdown; Close stops the UI event queue.
 func New(interp *interpreter.Interpreter, observer *Observer, cwd string, opts ...Option) Model {
-	colors := make(map[string]string)
-	colorByAlias := func(alias string) string { return colors[alias] }
-	roomModel := room.NewPresenter(colorByAlias, palette.ColorDeparted)
+	colors := make(map[participant.Alias]string)
+	colorByAlias := func(alias participant.Alias) string { return colors[alias] }
+	colorByName := func(name string) string {
+		for alias, color := range colors {
+			if alias.Name == name {
+				return color
+			}
+		}
+		return ""
+	}
+	roomModel := room.NewPresenter(colorByAlias, colorByName, palette.ColorDeparted)
 
 	m := Model{
 		interpreter:      interp,

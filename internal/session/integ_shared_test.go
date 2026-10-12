@@ -125,7 +125,7 @@ func newSessionWithCodexAgents(t *testing.T, aliases ...string) (*session.Sessio
 	t.Cleanup(s.Shutdown)
 	t.Cleanup(func() {
 		for _, alias := range aliases {
-			_ = s.Execute(session.RemoveCommand{Alias: alias})
+			_ = s.Execute(session.RemoveCommand{Alias: resolvedAlias(s, alias)})
 		}
 	})
 	for _, alias := range aliases {
@@ -148,7 +148,7 @@ func waitForFirstStreamOutput(t *testing.T, b *eventBuf, alias string, timeout t
 	t.Helper()
 	b.waitFor(t, timeout, func(ev session.Event) bool {
 		msg, ok := ev.(session.AgentMessage)
-		if !ok || msg.Alias != alias {
+		if !ok || msg.Alias.Name != alias {
 			return false
 		}
 		if _, ok := msg.Msg.Content.(agent.Output); ok && msg.Msg.Mode == agent.ModeFlush {
@@ -165,7 +165,7 @@ func waitForFirstOutputFlush(t *testing.T, b *eventBuf, alias string, timeout ti
 	t.Helper()
 	b.waitFor(t, timeout, func(ev session.Event) bool {
 		msg, ok := ev.(session.AgentMessage)
-		if !ok || msg.Alias != alias {
+		if !ok || msg.Alias.Name != alias {
 			return false
 		}
 		if _, ok := msg.Msg.Content.(agent.Output); ok && msg.Msg.Mode == agent.ModeFlush {
@@ -178,7 +178,7 @@ func waitForFirstOutputFlush(t *testing.T, b *eventBuf, alias string, timeout ti
 func waitForFirstStreamOutputThenCancel(t *testing.T, b *eventBuf, s *session.Session, alias string, timeout time.Duration) {
 	t.Helper()
 	waitForFirstStreamOutput(t, b, alias, timeout)
-	if err := s.Execute(session.CancelCommand{Alias: alias}); err != nil {
+	if err := s.Execute(session.CancelCommand{Alias: resolvedAlias(s, alias)}); err != nil {
 		t.Fatalf("cancel: %v", err)
 	}
 }

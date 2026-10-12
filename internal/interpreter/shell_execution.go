@@ -3,6 +3,7 @@ package interpreter
 import (
 	"github.com/roomscript/coderoom/internal/agent"
 	"github.com/roomscript/coderoom/internal/interpreter/runtime"
+	"github.com/roomscript/coderoom/internal/participant"
 	"github.com/roomscript/coderoom/internal/promptlang"
 	"github.com/roomscript/coderoom/internal/room"
 	"github.com/roomscript/coderoom/internal/shell"
@@ -28,7 +29,7 @@ func (e *interpreterExecutor) launchDefinedShell(raw, command, program string, s
 	go func() {
 		defer e.shellWG.Done()
 		result := e.runShell.Run(e.lifetime, e.cwd, program)
-		record := room.NewAgentRecord(shellRecordAlias, agent.Message{
+		record := room.NewAgentRecord(participant.Alias{Name: shellRecordAlias}, agent.Message{
 			Mode:    agent.ModeSingle,
 			Content: agent.Command{Command: command, Cwd: e.cwd, Output: formatShellResult(result), ExitCode: result.ExitCode},
 		})

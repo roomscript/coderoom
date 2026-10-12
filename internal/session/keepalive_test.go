@@ -142,7 +142,7 @@ func TestSession_keepaliveStopsWhenParentContextIsCancelled(t *testing.T) {
 	cancel()
 	time.Sleep(120 * time.Millisecond)
 
-	p, ok := s.readParticipantRuntime("ada")
+	p, ok := s.readParticipantRuntime(resolvedAda(s))
 	if !ok {
 		t.Fatal("expected participant ada")
 	}
@@ -202,13 +202,13 @@ func TestSession_sweepKeepaliveSkipsPreparingParticipant(t *testing.T) {
 
 	waitForStatusEvent(t, events, participant.StatusIdle)
 
-	if err := s.prepareParticipantForWork(keepaliveTestAlias); err != nil {
+	if err := s.prepareParticipantForWork(resolvedAda(s)); err != nil {
 		t.Fatalf("prepareParticipantForWork: %v", err)
 	}
 
 	s.sweepKeepalive()
 
-	p, ok := s.Participant(keepaliveTestAlias)
+	p, ok := s.ParticipantByName(keepaliveTestAlias)
 	if !ok {
 		t.Fatalf("expected participant %s", keepaliveTestAlias)
 	}
@@ -229,13 +229,13 @@ func TestSession_sweepKeepaliveSkipsMissingRuntime(t *testing.T) {
 	mustInviteKeepaliveTestParticipant(t, s)
 	waitForStatusEvent(t, events, participant.StatusIdle)
 
-	p, ok := s.Participant(keepaliveTestAlias)
+	p, ok := s.ParticipantByName(keepaliveTestAlias)
 	if !ok {
 		t.Fatalf("expected participant %s", keepaliveTestAlias)
 	}
 	ka := requireKeepaliveTestAgent(t, s)
 
-	s.cancelAgentContext(keepaliveTestAlias)
+	s.cancelAgentContext(resolvedAda(s))
 	s.now = func() time.Time { return p.Since.Add(time.Hour) }
 	s.sweepKeepalive()
 
@@ -277,7 +277,7 @@ func mustInviteKeepaliveTestParticipant(t *testing.T, s *Session) {
 
 func requireKeepaliveTestAgent(t *testing.T, s *Session) *keepaliveTestAgent {
 	t.Helper()
-	p, ok := s.readParticipantRuntime(keepaliveTestAlias)
+	p, ok := s.readParticipantRuntime(resolvedAda(s))
 	if !ok {
 		t.Fatalf("expected participant %s", keepaliveTestAlias)
 	}
@@ -290,7 +290,7 @@ func requireKeepaliveTestAgent(t *testing.T, s *Session) *keepaliveTestAgent {
 
 func requireParticipantStatus(t *testing.T, s *Session, want participant.Status) {
 	t.Helper()
-	p, ok := s.Participant(keepaliveTestAlias)
+	p, ok := s.ParticipantByName(keepaliveTestAlias)
 	if !ok {
 		t.Fatalf("expected participant %s", keepaliveTestAlias)
 	}
@@ -306,7 +306,7 @@ func waitForStatusEvent(t *testing.T, events <-chan Event, to participant.Status
 		select {
 		case ev := <-events:
 			status, ok := ev.(ParticipantStatusChanged)
-			if ok && status.Alias == keepaliveTestAlias && status.To == to {
+			if ok && status.Alias.Name == keepaliveTestAlias && status.To == to {
 				return
 			}
 		case <-deadline:

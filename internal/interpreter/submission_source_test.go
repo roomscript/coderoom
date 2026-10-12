@@ -82,14 +82,14 @@ func TestSubmissionSource_stageFailureRetainsSourceAfterQueuedSuccess(t *testing
 	sequence := model.PrepareRequest(raw, statement)
 	planning := sequence[0].(prepareSendInstruction)
 	sequence = model.ApplyPreparation(sendPlanResult{
-		target: planning.target, targets: []string{"ada"},
-		participants: []participantState{{alias: "ada", status: participant.StatusWorking}},
+		target: planning.target, plan: testSendPlan([]string{"ada"}),
+		participants: []participantState{{alias: testAlias("ada"), status: participant.StatusWorking}},
 	})
 	queued := sourceEvent[SubmissionSucceeded](t, sequence)
 	if !reflect.DeepEqual(queued.Statement, statement) {
 		t.Fatal("queued success lost parsed statement")
 	}
-	sequence, _ = model.ApplySessionEvent(session.ParticipantStatusChanged{Alias: "ada", To: participant.StatusIdle})
+	sequence, _ = model.ApplySessionEvent(session.ParticipantStatusChanged{Alias: testAlias("ada"), To: participant.StatusIdle})
 	dispatch := sequence[0].(executeSessionInstruction)
 	sequence = model.ApplyOutcome(sessionOutcome{target: dispatch.target, err: errors.New("delivery failed")})
 	failed := sourceEvent[OperationFailed](t, sequence)
@@ -105,16 +105,17 @@ func TestSubmissionSource_deferredHandoffFailureRetainsInput(t *testing.T) {
 	raw := "  /handoff ada turing  "
 	statement := parseSourceStatement(t, raw)
 	sequence := model.PrepareRequest(raw, statement)
-	planning := sequence[0].(readParticipantStateInstruction)
-	sequence = model.ApplyPreparation(participantStateResult{
-		target: planning.target, readinessRequirements: []participantState{
-			{alias: "ada", status: participant.StatusKeepalive},
-			{alias: "turing", status: participant.StatusIdle},
+	planning := sequence[0].(prepareHandoffInstruction)
+	sequence = model.ApplyPreparation(handoffPlanResult{
+		from: testAlias("ada"), to: testAlias("turing"),
+		target: planning.target, participants: []participantState{
+			{alias: testAlias("ada"), status: participant.StatusKeepalive},
+			{alias: testAlias("turing"), status: participant.StatusIdle},
 		},
 	})
 	sourceEvent[SubmissionSucceeded](t, sequence)
 	sequence, _ = model.ApplySessionEvent(session.ParticipantStatusChanged{
-		Alias: "ada", From: participant.StatusKeepalive, To: participant.StatusIdle,
+		Alias: testAlias("ada"), From: participant.StatusKeepalive, To: participant.StatusIdle,
 	})
 	read := sequence[0].(readHandoffSourceInstruction)
 	sequence = model.ApplyPreparation(handoffSourceResult{target: read.target, ok: false})
@@ -193,7 +194,7 @@ func TestSubmissionSource_rejectedLoopPreservesActiveSource(t *testing.T) {
 
 func TestSubmissionSource_debugDispatchPreservesPendingStage(t *testing.T) {
 	interp, sess, events := newSubmitContractInterpreter(t)
-	sess.participants = []participant.View{{Alias: "ada", Status: participant.StatusWorking, StartupReady: true}}
+	sess.participants = []participant.View{{Alias: testAlias("ada"), Status: participant.StatusWorking, StartupReady: true}}
 	mustSubmit(t, interp.Submit("@ada hello"))
 	receiveSubmitEvent[InputAccepted](t, events)
 	receiveSubmitEvent[SubmissionSucceeded](t, events)

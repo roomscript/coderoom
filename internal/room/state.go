@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/roomscript/coderoom/internal/agent"
+	"github.com/roomscript/coderoom/internal/participant"
 	"github.com/roomscript/coderoom/internal/queue"
 	"github.com/roomscript/coderoom/internal/session"
 )
@@ -30,7 +31,7 @@ const (
 // must act only after a specific room input has been applied.
 type UpdateTrigger struct {
 	Kind     UpdateTriggerKind
-	Alias    string
+	Alias    participant.Alias
 	StreamID agent.StreamID
 	TurnID   uint64
 }
@@ -81,7 +82,7 @@ const (
 // OpenStream describes one record that is still accumulating streamed
 // content.
 type OpenStream struct {
-	Alias     string
+	Alias     participant.Alias
 	RecordIdx int
 	StreamID  agent.StreamID
 	Kind      OpenStreamKind
@@ -90,15 +91,15 @@ type OpenStream struct {
 // Room holds the canonical chat-visible state for one room, projected from
 // session events and local, non-session appends.
 type Room struct {
-	mu                 sync.RWMutex
-	id                 ID
-	version            uint64
-	members            map[string]struct{}
-	departed           map[string]bool
-	records            []Record
-	streaming          map[agent.StreamID]OpenStream
-	latestHandoffByRef map[string]int
-	dirty              map[uint64][]int
-	observer           Observer
-	queue              *queue.Queue[session.Event]
+	mu                   sync.RWMutex
+	id                   ID
+	version              uint64
+	members              map[participant.Alias]struct{}
+	departed             map[participant.Alias]bool
+	records              []Record
+	streaming            map[participant.Alias]map[agent.StreamID]OpenStream
+	latestHandoffByAlias map[participant.Alias]int
+	dirty                map[uint64][]int
+	observer             Observer
+	queue                *queue.Queue[session.Event]
 }

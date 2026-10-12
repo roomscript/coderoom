@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/roomscript/coderoom/internal/agent"
+	"github.com/roomscript/coderoom/internal/participant"
 )
 
 // Kind identifies the source and semantic type of a room record.
@@ -22,8 +23,10 @@ const (
 
 // Record is the canonical chat-visible unit owned by the room package.
 type Record struct {
-	Kind  Kind
-	Alias string
+	Kind Kind
+	// Alias retains the originating participant identity. Local records may
+	// use a zero ID with a display name, or the zero alias for system/user input.
+	Alias participant.Alias
 	// Routing contains only recipients that accepted delivery.
 	Routing       []string
 	FailedRouting []string
@@ -34,7 +37,7 @@ type Record struct {
 }
 
 // NewAgentRecord constructs a canonical record backed by an agent message.
-func NewAgentRecord(alias string, msg agent.Message) Record {
+func NewAgentRecord(alias participant.Alias, msg agent.Message) Record {
 	msgCopy := msg
 	return Record{
 		Kind:  kindForAgentMessage(msg),

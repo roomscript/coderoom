@@ -35,11 +35,11 @@ type startupListenerObserver struct {
 }
 
 func (o startupListenerObserver) OnEvent(event session.Event) {
-	if status, ok := event.(session.ParticipantStatusChanged); ok && status.Alias == "ben" {
+	if status, ok := event.(session.ParticipantStatusChanged); ok && status.Alias.Name == "ben" {
 		o.gate.OnEvent(event)
 	}
 	if started, ok := event.(session.AgentReady); ok {
-		o.started <- started.Alias
+		o.started <- started.Alias.Name
 	}
 }
 

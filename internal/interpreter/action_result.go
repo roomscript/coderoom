@@ -1,6 +1,7 @@
 package interpreter
 
 import (
+	"github.com/roomscript/coderoom/internal/participant"
 	"github.com/roomscript/coderoom/internal/promptlang"
 	"github.com/roomscript/coderoom/internal/session"
 	"github.com/roomscript/coderoom/internal/shell"
@@ -36,12 +37,11 @@ type sendPlanResult struct {
 	participants []participantState
 	target       workflowRef
 	plan         session.ParticipantSendPlan
-	targets      []string
 }
 
 type broadcastPlanResult struct {
 	target  workflowRef
-	targets []string
+	targets []participant.Alias
 }
 
 type participantStateResult struct {
@@ -54,6 +54,21 @@ type handoffSourceResult struct {
 	source session.HandoffSource
 	ok     bool
 }
+
+type participantAliasResult struct {
+	target workflowRef
+	alias  participant.Alias
+}
+
+type handoffPlanResult struct {
+	target       workflowRef
+	from         participant.Alias
+	to           participant.Alias
+	participants []participantState
+}
+
+func (participantAliasResult) preparationResult() {}
+func (handoffPlanResult) preparationResult()      {}
 
 func (sessionOutcome) executionOutcome()          {}
 func (shellOutcome) executionOutcome()            {}

@@ -30,6 +30,23 @@ type ViewRecord struct {
 Canonical text and metadata live in `room.Record`. Wrapping and styling are
 applied at render time, not stored.
 
+A participant record retains its full `participant.Alias`, including instance
+identity. The renderer passes that value to `RenderContext.ColorForAlias` and
+uses only `.Name` in headers. Color policy can therefore distinguish historical
+records from a replacement using the same name. Routing footers carry derived
+display names; their colors use the separate `ColorForName` callback. Rendering
+does not resolve those names into participant instances.
+
+The history presenter keys departed participants and open streams by full alias;
+stream IDs are scoped within each participant. Snapshot replacement and delta
+application preserve those owners, and departure changes invalidate render
+caches without marking a same-name replacement departed. Streaming and departure
+queries accept resolved aliases. History receives separate instance and routing
+name color callbacks and supplies both to viewport and transcript rendering.
+The room component forwards both callbacks and accepts resolved aliases for its
+streaming and departure queries. Its transcript projection remaps record indices
+around local UI notices while preserving record, stream, and departure owners.
+
 ---
 
 ## Visual layout

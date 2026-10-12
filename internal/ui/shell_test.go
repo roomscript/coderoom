@@ -28,7 +28,7 @@ func TestHandleInterpreterEvent_rendersShellCompletion(t *testing.T) {
 		Output: "status: failure\nstdout:\nstandard output\nstderr:\nstandard error\nerror:\nrunner failure",
 	}
 
-	m = presentTestRecord(m, roomstate.NewAgentRecord("shell", agent.Message{Mode: agent.ModeSingle, Content: agent.Command{Command: event.Command, Cwd: event.Cwd, Output: event.Output, ExitCode: event.Result.ExitCode}}))
+	m = presentTestRecord(m, roomstate.NewAgentRecord(testAlias("shell"), agent.Message{Mode: agent.ModeSingle, Content: agent.Command{Command: event.Command, Cwd: event.Cwd, Output: event.Output, ExitCode: event.Result.ExitCode}}))
 	m, _ = m.handleInterpreterEvent(event)
 	command := shellCommandRecord(t, m)
 	if command.Command != event.Command || command.Cwd != event.Cwd || command.ExitCode != event.Result.ExitCode {
@@ -64,7 +64,7 @@ func TestHandleInterpreterEvent_shellDispatchReleasesSubmissionGate(t *testing.T
 		t.Fatal("shell dispatch rendered a result before completion")
 	}
 
-	m = presentTestRecord(m, roomstate.NewAgentRecord("shell", agent.Message{Mode: agent.ModeSingle, Content: agent.Command{Command: "long-running", Cwd: ".", Output: "status: success"}}))
+	m = presentTestRecord(m, roomstate.NewAgentRecord(testAlias("shell"), agent.Message{Mode: agent.ModeSingle, Content: agent.Command{Command: "long-running", Cwd: ".", Output: "status: success"}}))
 	m, _ = m.handleInterpreterEvent(interpreter.ShellCompleted{
 		Command: "long-running",
 		Cwd:     ".",
@@ -120,7 +120,7 @@ func shellCommandRecord(t *testing.T, m Model) agent.Command {
 		if rec.Kind != record.KindCommand {
 			continue
 		}
-		if rec.Alias != shellRecordAlias {
+		if rec.Alias.Name != shellRecordAlias {
 			t.Errorf("command alias = %q, want %q", rec.Alias, shellRecordAlias)
 		}
 		if rec.Msg == nil {

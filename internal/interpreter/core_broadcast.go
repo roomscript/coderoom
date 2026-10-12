@@ -54,7 +54,6 @@ func (w *stageWorkflow) startBroadcastDispatch() executeSessionInstruction {
 	state.phase = stageDispatching
 	state.pending = w.nextRef()
 	request := state.broadcastDeliveryRequest()
-	state.dispatchRouting = slices.Clone(request.aliases)
 	return executeSessionInstruction{
 		target: state.pending, request: request,
 		recordsOnSuccess: []room.Record{{Kind: room.KindUserInput, Text: state.raw}},

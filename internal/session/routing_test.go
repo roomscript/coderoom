@@ -48,7 +48,7 @@ func TestRoutingCompleted_reportsActualOutcomes(t *testing.T) {
 }
 
 func participantRoutingCommand(s *session.Session) session.Command {
-	return session.SendToParticipantCommand{Plan: s.CreateParticipantSendPlan("ada"), Message: "work", Notice: "context"}
+	return session.SendToParticipantCommand{Plan: s.CreateParticipantSendPlan(resolvedAlias(s, "ada")), Message: "work", Notice: "context"}
 }
 
 // A synchronous probe confirms Broadcast no longer announces delivery before
@@ -61,7 +61,7 @@ type routingProbe struct {
 func (p *routingProbe) OnEvent(event session.Event) {
 	if event, ok := event.(session.RoutingCompleted); ok {
 		if p.mutate {
-			event.Result.Recipients[0].Alias = "mutated"
+			event.Result.Recipients[0].Alias.Name = "mutated"
 		}
 		p.results = append(p.results, event.Result)
 	}
@@ -80,10 +80,10 @@ func TestRoutingCompleted_followsAdapterAcceptanceAndDetachesObservers(t *testin
 	s := newSession(t, session.WithObserver(first), session.WithObserver(second), session.WithObserver(ready), mappedFactory(map[string]agent.Agent{"ada": adapter}))
 	invite(t, s, "ada")
 	mustReceive[session.AgentReady](t, ready.ch)
-	if err := s.Execute(session.BroadcastCommand{Aliases: []string{"ada"}, Text: "work"}); err != nil {
+	if err := s.Execute(session.BroadcastCommand{Aliases: resolvedAliases(s, "ada"), Text: "work"}); err != nil {
 		t.Fatal(err)
 	}
-	if len(second.results) != 1 || second.results[0].Recipients[0].Alias != "ada" {
+	if len(second.results) != 1 || second.results[0].Recipients[0].Alias.Name != "ada" {
 		t.Fatalf("second observer = %#v", second.results)
 	}
 }
@@ -168,15 +168,15 @@ func routingOutcomeCases(failure error) []routingOutcomeCase {
 	}
 }
 
-func broadcastRoutingCommand(*session.Session) session.Command {
-	return session.BroadcastCommand{Aliases: []string{"ada", "turing"}, Text: "work"}
+func broadcastRoutingCommand(s *session.Session) session.Command {
+	return session.BroadcastCommand{Aliases: resolvedAliases(s, "ada", "turing"), Text: "work"}
 }
-func outsideRoomRoutingCommand(*session.Session) session.Command {
-	return session.SendToParticipantOutsideRoomCommand{Alias: "ada", Text: "unrecorded"}
+func outsideRoomRoutingCommand(s *session.Session) session.Command {
+	return session.SendToParticipantOutsideRoomCommand{Alias: resolvedAlias(s, "ada"), Text: "unrecorded"}
 }
-func handoffRoutingCommand(*session.Session) session.Command {
-	return session.HandoffCommand{FromAlias: "ada", ToAlias: "turing", Source: session.HandoffSource{Text: "context"}}
+func handoffRoutingCommand(s *session.Session) session.Command {
+	return session.HandoffCommand{FromAlias: resolvedAlias(s, "ada"), ToAlias: resolvedAlias(s, "turing"), Source: session.HandoffSource{Text: "context"}}
 }
-func rejectedHandoffRoutingCommand(*session.Session) session.Command {
-	return session.HandoffCommand{FromAlias: "ada", ToAlias: "turing"}
+func rejectedHandoffRoutingCommand(s *session.Session) session.Command {
+	return session.HandoffCommand{FromAlias: resolvedAlias(s, "ada"), ToAlias: resolvedAlias(s, "turing")}
 }

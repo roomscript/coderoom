@@ -6,6 +6,7 @@ import (
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/roomscript/coderoom/internal/participant"
 	rec "github.com/roomscript/coderoom/internal/ui/room/history/record"
 )
 
@@ -36,8 +37,8 @@ func (m Model) RebuildColors() Model {
 }
 
 // IsReasoningStreaming reports whether alias has an open reasoning stream.
-func (m Model) IsReasoningStreaming(alias string) bool {
-	for _, slot := range m.streaming {
+func (m Model) IsReasoningStreaming(alias participant.Alias) bool {
+	for _, slot := range m.streaming[alias] {
 		r := m.records[slot.recordIdx].record
 		if r.Alias != alias || r.Msg == nil {
 			continue

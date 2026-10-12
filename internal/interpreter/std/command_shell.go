@@ -7,6 +7,7 @@ import (
 
 	"github.com/roomscript/coderoom/internal/agent"
 	"github.com/roomscript/coderoom/internal/interpreter/runtime"
+	"github.com/roomscript/coderoom/internal/participant"
 	"github.com/roomscript/coderoom/internal/promptlang"
 	"github.com/roomscript/coderoom/internal/room"
 	"github.com/roomscript/coderoom/internal/shell"
@@ -52,7 +53,7 @@ func (*shellInvocation) Staging() *runtime.Staging { return nil }
 
 func (i *shellInvocation) Go(complete func(runtime.CommandResult)) error {
 	err := i.launcher.Go(i.command, func(result shell.Result) {
-		record := room.NewAgentRecord("shell", agent.Message{
+		record := room.NewAgentRecord(participant.Alias{Name: "shell"}, agent.Message{
 			Mode:    agent.ModeSingle,
 			Content: agent.Command{Command: i.displayCommand, Cwd: i.cwd, Output: FormatShellResult(result), ExitCode: result.ExitCode},
 		})

@@ -7,6 +7,7 @@ import (
 	"github.com/roomscript/coderoom/internal/agent"
 	"github.com/roomscript/coderoom/internal/interpreter/runtime"
 	"github.com/roomscript/coderoom/internal/interpreter/std"
+	"github.com/roomscript/coderoom/internal/participant"
 	"github.com/roomscript/coderoom/internal/promptlang"
 	"github.com/roomscript/coderoom/internal/room"
 	"github.com/roomscript/coderoom/internal/shell"
@@ -74,7 +75,7 @@ func assertShellRecord(t *testing.T, completion runtime.CommandResult, result sh
 	}
 	record := completion.Records[0]
 	command, ok := record.Msg.Content.(agent.Command)
-	if record.Kind != room.KindCommand || record.Alias != "shell" || !ok {
+	if record.Kind != room.KindCommand || record.Alias != (participant.Alias{Name: "shell"}) || !ok {
 		t.Fatalf("record = %#v", record)
 	}
 	if command.Command != displayCommand || command.Cwd != "/workspace" || command.Output != output || command.ExitCode != result.ExitCode {

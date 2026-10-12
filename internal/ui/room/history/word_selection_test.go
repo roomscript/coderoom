@@ -29,7 +29,7 @@ func TestWordSelectionBoundaries(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			m := New(nil, "")
+			m := New(nil, nil, "")
 			for _, line := range tt.lines {
 				m.lines = append(m.lines, historyLine{raw: line, plain: line})
 			}

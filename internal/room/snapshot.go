@@ -1,17 +1,21 @@
 package room
 
 import (
+	"bytes"
+	"cmp"
 	"slices"
+	"strings"
 
 	"github.com/roomscript/coderoom/internal/agent"
+	"github.com/roomscript/coderoom/internal/participant"
 )
 
 // Snapshot is a detached, point-in-time copy of a room's full state.
 type Snapshot struct {
 	RoomID      ID
 	Version     uint64
-	Members     []string
-	Departed    map[string]bool
+	Members     []participant.Alias
+	Departed    map[participant.Alias]bool
 	Records     []Record
 	OpenStreams []OpenStream
 }
@@ -32,17 +36,22 @@ func (r *Room) Snapshot() Snapshot {
 	}
 }
 
-func clonedMembers(members map[string]struct{}) []string {
-	out := make([]string, 0, len(members))
+func clonedMembers(members map[participant.Alias]struct{}) []participant.Alias {
+	out := make([]participant.Alias, 0, len(members))
 	for alias := range members {
 		out = append(out, alias)
 	}
-	slices.Sort(out)
+	slices.SortFunc(out, func(a, b participant.Alias) int {
+		if a.Name != b.Name {
+			return strings.Compare(a.Name, b.Name)
+		}
+		return bytes.Compare(a.ID[:], b.ID[:])
+	})
 	return out
 }
 
-func clonedDeparted(departed map[string]bool) map[string]bool {
-	out := make(map[string]bool, len(departed))
+func clonedDeparted(departed map[participant.Alias]bool) map[participant.Alias]bool {
+	out := make(map[participant.Alias]bool, len(departed))
 	for alias, isDeparted := range departed {
 		out[alias] = isDeparted
 	}
@@ -57,16 +66,18 @@ func clonedRecords(records []Record) []Record {
 	return out
 }
 
-func clonedOpenStreams(streaming map[agent.StreamID]OpenStream) []OpenStream {
-	streamIDs := make([]agent.StreamID, 0, len(streaming))
-	for streamID := range streaming {
-		streamIDs = append(streamIDs, streamID)
+func clonedOpenStreams(streaming map[participant.Alias]map[agent.StreamID]OpenStream) []OpenStream {
+	streams := make([]OpenStream, 0)
+	for _, owned := range streaming {
+		for _, stream := range owned {
+			streams = append(streams, stream)
+		}
 	}
-	slices.Sort(streamIDs)
-
-	openStreams := make([]OpenStream, 0, len(streamIDs))
-	for _, streamID := range streamIDs {
-		openStreams = append(openStreams, streaming[streamID])
-	}
-	return openStreams
+	slices.SortFunc(streams, func(a, b OpenStream) int {
+		if a.StreamID != b.StreamID {
+			return strings.Compare(string(a.StreamID), string(b.StreamID))
+		}
+		return cmp.Compare(a.RecordIdx, b.RecordIdx)
+	})
+	return streams
 }

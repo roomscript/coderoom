@@ -59,7 +59,7 @@ func TestDefaultClipboardWriter_fallsBackToOSC52(t *testing.T) {
 }
 
 func TestNew_setsSystemClipboardRead(t *testing.T) {
-	m := NewPresenter(nil, "")
+	m := NewPresenter(nil, nil, "")
 	if m.clipboardRead == nil {
 		t.Fatal("expected clipboardRead to be initialized")
 	}

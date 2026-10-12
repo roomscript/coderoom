@@ -8,19 +8,21 @@ import (
 	"time"
 
 	"github.com/roomscript/coderoom/internal/agent"
+	"github.com/roomscript/coderoom/internal/participant"
 )
 
 func TestApprovalHub_RequestEmitsEventAndBlocksUntilResolved(t *testing.T) {
 	events := make(chan Event, 1)
 	h := newApprovalHub(func(e Event) { events <- e })
-	l := h.Listener("alice")
+	alias := participant.New("alice", "", participant.InitiativeManual).Alias
+	l := h.Listener(alias)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
 	done := startApprovalDecision(ctx, t, l, "approve?")
 	ev := mustApprovalEvent(ctx, t, events)
-	assertApprovalRequestEvent(t, ev, "alice", "approve?")
+	assertApprovalRequestEvent(t, ev, alias, "approve?")
 
 	if !h.resolve(ev.ID, agent.OptionAccept) {
 		t.Fatal("expected resolve to succeed")
@@ -32,7 +34,8 @@ func TestApprovalHub_RequestEmitsEventAndBlocksUntilResolved(t *testing.T) {
 func TestApprovalHub_QueuesRequestsFIFO(t *testing.T) {
 	events := make(chan Event, 4)
 	h := newApprovalHub(func(e Event) { events <- e })
-	listener := h.Listener("alice")
+	alias := participant.New("alice", "", participant.InitiativeManual).Alias
+	listener := h.Listener(alias)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -69,7 +72,8 @@ func TestApprovalHub_QueuesRequestsFIFO(t *testing.T) {
 func TestApprovalHub_CancelActiveRequestPublishesClearedEvent(t *testing.T) {
 	events := make(chan Event, 2)
 	h := newApprovalHub(func(e Event) { events <- e })
-	listener := h.Listener("alice")
+	alias := participant.New("alice", "", participant.InitiativeManual).Alias
+	listener := h.Listener(alias)
 	waitCtx, waitCancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer waitCancel()
 
@@ -97,7 +101,7 @@ func TestApprovalHub_CancelActiveRequestPublishesClearedEvent(t *testing.T) {
 	}
 
 	cleared := mustApprovalClearedEvent(waitCtx, t, events)
-	if cleared.ID != ev.ID {
+	if cleared.ID != ev.ID || cleared.Alias != ev.Alias {
 		t.Fatalf("cleared approval id = %d, want %d", cleared.ID, ev.ID)
 	}
 }
@@ -105,7 +109,8 @@ func TestApprovalHub_CancelActiveRequestPublishesClearedEvent(t *testing.T) {
 func TestApprovalHub_CancelActiveRequestPublishesNextQueuedApproval(t *testing.T) {
 	events := make(chan Event, 4)
 	h := newApprovalHub(func(e Event) { events <- e })
-	listener := h.Listener("alice")
+	alias := participant.New("alice", "", participant.InitiativeManual).Alias
+	listener := h.Listener(alias)
 
 	firstCtx, cancelFirst := context.WithCancel(context.Background())
 	defer cancelFirst()
@@ -120,7 +125,7 @@ func TestApprovalHub_CancelActiveRequestPublishesNextQueuedApproval(t *testing.T
 	cancelFirst()
 
 	second := mustApprovalEvent(secondCtx, t, events)
-	assertApprovalRequestEvent(t, second, "alice", "second?")
+	assertApprovalRequestEvent(t, second, alias, "second?")
 	if second.ID == first.ID {
 		t.Fatal("expected queued approval to have a different approval id")
 	}
@@ -137,7 +142,8 @@ func TestApprovalHub_ConcurrentRequestsPublishIncreasingApprovalIDs(t *testing.T
 
 	events := make(chan Event, total)
 	h := newApprovalHub(func(e Event) { events <- e })
-	listener := h.Listener("alice")
+	alias := participant.New("alice", "", participant.InitiativeManual).Alias
+	listener := h.Listener(alias)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -202,7 +208,7 @@ func approvalRequest(ask string) agent.ApprovalRequest {
 	}
 }
 
-func assertApprovalRequestEvent(t *testing.T, ev ApprovalRequested, wantAlias, wantAsk string) {
+func assertApprovalRequestEvent(t *testing.T, ev ApprovalRequested, wantAlias participant.Alias, wantAsk string) {
 	t.Helper()
 	if ev.Alias != wantAlias {
 		t.Fatalf("event alias = %q, want %q", ev.Alias, wantAlias)

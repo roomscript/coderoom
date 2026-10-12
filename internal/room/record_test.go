@@ -7,6 +7,7 @@ import (
 )
 
 func TestNewAgentRecordSetsKindAndText(t *testing.T) {
+	ada := newTestAlias("ada")
 	tests := []struct {
 		name string
 		msg  agent.Message
@@ -43,9 +44,9 @@ func TestNewAgentRecordSetsKindAndText(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			record := NewAgentRecord("ada", tt.msg)
-			if record.Kind != tt.kind {
-				t.Fatalf("expected kind %v, got %v", tt.kind, record.Kind)
+			record := NewAgentRecord(ada, tt.msg)
+			if record.Alias != ada || record.Kind != tt.kind {
+				t.Fatalf("expected alias %+v and kind %v, got %#v", ada, tt.kind, record)
 			}
 			if record.Text != tt.text {
 				t.Fatalf("expected text %q, got %q", tt.text, record.Text)
@@ -58,7 +59,8 @@ func TestNewAgentRecordSetsKindAndText(t *testing.T) {
 }
 
 func TestRecordAccumulateUpdatesTextAndMessage(t *testing.T) {
-	record := NewAgentRecord("ada", agent.Message{
+	ada := newTestAlias("ada")
+	record := NewAgentRecord(ada, agent.Message{
 		StreamID: "cmd1",
 		Mode:     agent.ModeStream,
 		Content:  agent.Command{Command: "echo hi", Output: "h"},

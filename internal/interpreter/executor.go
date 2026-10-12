@@ -2,7 +2,6 @@ package interpreter
 
 import (
 	"context"
-	"slices"
 	"sync"
 
 	"github.com/roomscript/coderoom/internal/agent"
@@ -227,19 +226,25 @@ func (e *interpreterExecutor) participants() []participant.View {
 	return append([]participant.View(nil), e.session.Participants()...)
 }
 
-func (e *interpreterExecutor) createParticipantSendPlan(alias string) (session.ParticipantSendPlan, []string) {
-	plan := e.session.CreateParticipantSendPlan(alias)
-	return plan, plan.Targets()
+func (e *interpreterExecutor) createParticipantSendPlan(name string) session.ParticipantSendPlan {
+	return e.session.CreateParticipantSendPlan(e.participantByName(name))
 }
 
-func (e *interpreterExecutor) planBroadcast() []string {
-	var targets []string
+func (e *interpreterExecutor) participantByName(name string) participant.Alias {
+	if view, ok := e.session.ParticipantByName(name); ok {
+		return view.Alias
+	}
+	return participant.Alias{Name: name}
+}
+
+func (e *interpreterExecutor) planBroadcast() []participant.Alias {
+	var targets []participant.Alias
 	for _, value := range e.session.Participants() {
 		if value.Status != participant.StatusCrashed {
 			targets = append(targets, value.Alias)
 		}
 	}
-	slices.Sort(targets)
+	sortParticipantAliases(targets)
 	return targets
 }
 

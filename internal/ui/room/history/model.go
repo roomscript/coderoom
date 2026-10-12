@@ -5,6 +5,7 @@ import (
 
 	"charm.land/bubbles/v2/viewport"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/roomscript/coderoom/internal/participant"
 	roomstate "github.com/roomscript/coderoom/internal/room"
 	rec "github.com/roomscript/coderoom/internal/ui/room/history/record"
 )
@@ -51,13 +52,14 @@ type Model struct {
 	viewport      viewport.Model
 	records       []viewRecord
 	lines         []historyLine
-	streaming     map[string]streamSlot // streamID → open record slot
-	departed      map[string]bool
+	streaming     map[participant.Alias]map[string]streamSlot
+	departed      map[participant.Alias]bool
 	debugRowNums  bool
 	viewportReady bool
 	cursor        Cursor
 	selection     Selection
-	colorByAlias  func(string) string
+	colorByAlias  func(participant.Alias) string
+	colorByName   func(string) string
 	departedColor string
 	colorVersion  uint64
 }
@@ -72,14 +74,16 @@ type ScrollStats struct {
 }
 
 // New returns an uninitialised Model; call SetSize before first use.
-// colorByAlias resolves an active agent alias to its colour; it may be nil.
+// colorByAlias resolves a participant instance to its colour; it may be nil.
+// colorByName colors display-only routing names; it may be nil.
 // departedColor is applied to records belonging to agents that have left.
-func New(colorByAlias func(string) string, departedColor string) Model {
+func New(colorByAlias func(participant.Alias) string, colorByName func(string) string, departedColor string) Model {
 	return Model{
 		records:       []viewRecord{},
-		streaming:     make(map[string]streamSlot),
-		departed:      make(map[string]bool),
+		streaming:     make(map[participant.Alias]map[string]streamSlot),
+		departed:      make(map[participant.Alias]bool),
 		colorByAlias:  colorByAlias,
+		colorByName:   colorByName,
 		departedColor: departedColor,
 	}
 }
@@ -135,7 +139,7 @@ func splitHistoryLines(content string) []historyLine {
 }
 
 // resolveColor returns the display colour for alias, accounting for departed state.
-func (m Model) resolveColor(alias string) string {
+func (m Model) resolveColor(alias participant.Alias) string {
 	if m.departed[alias] {
 		return m.departedColor
 	}
@@ -153,6 +157,7 @@ func (m Model) viewportRenderContext() rec.RenderContext {
 			ColorVersion: m.colorVersion,
 		},
 		ColorForAlias: m.resolveColor,
+		ColorForName:  m.colorByName,
 	}
 }
 
@@ -169,18 +174,13 @@ func (m Model) Records() []rec.Record {
 }
 
 // IsStreaming reports whether alias currently has any open stream.
-func (m Model) IsStreaming(alias string) bool {
-	for _, slot := range m.streaming {
-		if m.records[slot.recordIdx].record.Alias == alias {
-			return true
-		}
-	}
-	return false
+func (m Model) IsStreaming(alias participant.Alias) bool {
+	return len(m.streaming[alias]) != 0
 }
 
 // StreamingIdx returns the record index for the open output stream of alias.
-func (m Model) StreamingIdx(alias string) (int, bool) {
-	for _, slot := range m.streaming {
+func (m Model) StreamingIdx(alias participant.Alias) (int, bool) {
+	for _, slot := range m.streaming[alias] {
 		r := m.records[slot.recordIdx].record
 		if r.Alias != alias || r.Msg == nil {
 			continue
@@ -193,7 +193,7 @@ func (m Model) StreamingIdx(alias string) (int, bool) {
 }
 
 // IsDeparted reports whether alias has left or crashed.
-func (m Model) IsDeparted(alias string) bool { return m.departed[alias] }
+func (m Model) IsDeparted(alias participant.Alias) bool { return m.departed[alias] }
 
 // Height returns the current viewport height.
 func (m Model) Height() int { return m.viewport.Height() }
@@ -217,15 +217,12 @@ func (m Model) ReplaceSnapshot(snapshot roomstate.Snapshot) Model {
 		m.records[i] = viewRecord{record: r}
 	}
 
-	m.departed = make(map[string]bool, len(snapshot.Departed))
+	m.departed = make(map[participant.Alias]bool, len(snapshot.Departed))
 	for alias, isDeparted := range snapshot.Departed {
 		m.departed[alias] = isDeparted
 	}
 
-	m.streaming = make(map[string]streamSlot, len(snapshot.OpenStreams))
-	for _, stream := range snapshot.OpenStreams {
-		m.streaming[string(stream.StreamID)] = streamSlot{recordIdx: stream.RecordIdx}
-	}
+	m.streaming = createStreamSlots(snapshot.OpenStreams)
 
 	return m.syncViewport(false)
 }
@@ -246,7 +243,7 @@ func (m Model) ApplyRoomDelta(delta roomstate.Delta) Model {
 	}
 
 	departedChanged := !sameDeparted(m.departed, delta.Meta.Departed)
-	m.departed = make(map[string]bool, len(delta.Meta.Departed))
+	m.departed = make(map[participant.Alias]bool, len(delta.Meta.Departed))
 	for alias, isDeparted := range delta.Meta.Departed {
 		m.departed[alias] = isDeparted
 	}
@@ -254,22 +251,30 @@ func (m Model) ApplyRoomDelta(delta roomstate.Delta) Model {
 		m.colorVersion++
 	}
 
-	m.streaming = make(map[string]streamSlot, len(delta.Meta.OpenStreams))
-	for _, stream := range delta.Meta.OpenStreams {
-		m.streaming[string(stream.StreamID)] = streamSlot{recordIdx: stream.RecordIdx}
-	}
+	m.streaming = createStreamSlots(delta.Meta.OpenStreams)
 
 	return m.syncViewport(false)
 }
 
-func sameDeparted(left, right map[string]bool) bool {
+func sameDeparted(left, right map[participant.Alias]bool) bool {
 	if len(left) != len(right) {
 		return false
 	}
 	for alias, isDeparted := range left {
-		if right[alias] != isDeparted {
+		if value, ok := right[alias]; !ok || value != isDeparted {
 			return false
 		}
 	}
 	return true
+}
+
+func createStreamSlots(streams []roomstate.OpenStream) map[participant.Alias]map[string]streamSlot {
+	slots := make(map[participant.Alias]map[string]streamSlot)
+	for _, stream := range streams {
+		if slots[stream.Alias] == nil {
+			slots[stream.Alias] = make(map[string]streamSlot)
+		}
+		slots[stream.Alias][string(stream.StreamID)] = streamSlot{recordIdx: stream.RecordIdx}
+	}
+	return slots
 }

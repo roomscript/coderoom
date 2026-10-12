@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/roomscript/coderoom/internal/agent"
+	"github.com/roomscript/coderoom/internal/participant"
 	"github.com/roomscript/coderoom/internal/promptlang"
 	"github.com/roomscript/coderoom/internal/room"
 	"github.com/roomscript/coderoom/internal/shell"
@@ -13,7 +14,7 @@ import (
 func shellObservationSequence(outcome shellOutcome) instructionSequence {
 	output := formatLoopConditionResult(outcome.result)
 	return withSubmissionSource(instructionSequence{
-		appendRecordInstruction{record: room.NewAgentRecord(shellRecordAlias, agent.Message{
+		appendRecordInstruction{record: room.NewAgentRecord(participant.Alias{Name: shellRecordAlias}, agent.Message{
 			Mode: agent.ModeSingle,
 			Content: agent.Command{
 				Command: outcome.request.command, Cwd: outcome.cwd,

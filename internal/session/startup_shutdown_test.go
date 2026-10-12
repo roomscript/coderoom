@@ -54,11 +54,11 @@ func TestStartup_shutdownRejectsLateAttachment(t *testing.T) {
 			if err := s.addParticipant(p); err != nil {
 				t.Fatal(err)
 			}
-			s.CreateAgentRuntime("ada")
+			s.CreateAgentRuntime(resolvedAda(s))
 			a := &shutdownStartupAgent{
 				Client: echo.New(), startGate: make(chan struct{}), stopped: make(chan struct{}),
 			}
-			startInvitedAgent("ada", a, s)
+			startInvitedAgent(resolvedAda(s), a, s)
 			tc.shutdown(s)
 			close(a.startGate)
 			select {
@@ -73,7 +73,7 @@ func TestStartup_shutdownRejectsLateAttachment(t *testing.T) {
 			if got := s.snapshotAgentsToStop(); len(got) != 0 {
 				t.Fatalf("late startup left %d bound agents", len(got))
 			}
-			view, ok := s.Participant("ada")
+			view, ok := s.ParticipantByName("ada")
 			if !ok || view.Status != participant.StatusStarting || view.StartupReady {
 				t.Fatalf("failed attachment changed participant: %#v, %v", view, ok)
 			}

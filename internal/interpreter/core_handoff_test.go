@@ -13,16 +13,17 @@ func TestStageWorkflow_handoffPreparationIsConsumedOnce(t *testing.T) {
 		t.Run(string(status), func(t *testing.T) {
 			stage := stageWorkflow{}
 			stage.start("/handoff ada ben", promptlang.Handoff{FromAlias: located("ada"), ToAlias: located("ben")})
-			facts := participantStateResult{
+			facts := handoffPlanResult{
+				from: testAlias("ada"), to: testAlias("ben"),
 				target: stage.active.pending,
-				readinessRequirements: []participantState{
-					{alias: "ada", status: status}, {alias: "ben", status: participant.StatusIdle},
+				participants: []participantState{
+					{alias: testAlias("ada"), status: status}, {alias: testAlias("ben"), status: participant.StatusIdle},
 				},
 			}
-			stage.handleParticipantState(facts)
+			stage.prepareHandoff(facts)
 			before := *stage.active
 			snapshot := stage.snapshot()
-			if actions := stage.handleParticipantState(facts); len(actions) != 0 {
+			if actions := stage.prepareHandoff(facts); len(actions) != 0 {
 				t.Fatalf("repeated preparation returned actions: %#v", actions)
 			}
 			if !reflect.DeepEqual(*stage.active, before) || !reflect.DeepEqual(stage.snapshot(), snapshot) {

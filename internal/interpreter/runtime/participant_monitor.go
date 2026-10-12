@@ -3,6 +3,7 @@ package runtime
 import (
 	"sync"
 
+	"github.com/roomscript/coderoom/internal/participant"
 	"github.com/roomscript/coderoom/internal/session"
 )
 
@@ -16,7 +17,7 @@ type participantMonitor struct {
 	wake        chan struct{}
 	done        chan struct{}
 	updates     participantUpdates
-	includes    func(string) bool
+	includes    func(participant.Alias) bool
 	unsubscribe func()
 }
 
@@ -26,7 +27,7 @@ func newParticipantMonitor() *participantMonitor {
 	}
 }
 
-func (m *participantMonitor) initialize(ctx Context, includes func(string) bool) {
+func (m *participantMonitor) initialize(ctx Context, includes func(participant.Alias) bool) {
 	m.includes = includes
 	m.updates.start()
 	m.unsubscribe = ctx.Session.Subscribe(m.handleEvent)
@@ -34,11 +35,11 @@ func (m *participantMonitor) initialize(ctx Context, includes func(string) bool)
 }
 
 func (m *participantMonitor) handleEvent(event session.Event) {
-	alias := parseParticipantAlias(event)
-	if alias == "" || !m.includes(alias) {
+	alias, ok := parseParticipantAlias(event)
+	if !ok || !m.includes(alias) {
 		return
 	}
-	m.updates.collect(alias, event)
+	m.updates.collect(event)
 	m.notifyStateChanged()
 }
 
@@ -106,17 +107,17 @@ func (m *participantMonitor) wait() {
 	}
 }
 
-func parseParticipantAlias(event session.Event) string {
+func parseParticipantAlias(event session.Event) (participant.Alias, bool) {
 	switch event := event.(type) {
 	case session.ParticipantStatusChanged:
-		return event.Alias
+		return event.Alias, true
 	case session.AgentReady:
-		return event.Alias
+		return event.Alias, true
 	case session.AgentStopped:
-		return event.Alias
+		return event.Alias, true
 	case session.AgentCrashed:
-		return event.Alias
+		return event.Alias, true
 	default:
-		return ""
+		return participant.Alias{}, false
 	}
 }

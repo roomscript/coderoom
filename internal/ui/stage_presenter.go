@@ -18,8 +18,8 @@ func (m Model) presentInterpreterStage(snapshot interpreter.Snapshot) Model {
 	}
 	m.interpreterStagePresented = true
 	m.preserveStageDraft = false
-	colorByAlias := snapshotParticipantColor(snapshot.Participants)
-	m.room = m.room.SetComposerStaged(stage.Raw, renderInterpreterStageStatus(stage, colorByAlias))
+	colorByName := snapshotParticipantNameColor(snapshot.Participants)
+	m.room = m.room.SetComposerStaged(stage.Raw, renderInterpreterStageStatus(stage, colorByName))
 	return m
 }
 
@@ -36,17 +36,17 @@ func (m Model) clearInterpreterStage() Model {
 	return m
 }
 
-func snapshotParticipantColor(participants []participant.View) func(string) string {
+func snapshotParticipantNameColor(participants []participant.View) func(string) string {
 	colors := make(map[string]string, len(participants))
 	for _, view := range participants {
-		colors[view.Alias] = view.Color
+		colors[view.Alias.Name] = view.Color
 	}
 	return func(alias string) string { return colors[alias] }
 }
 
 func renderInterpreterStageStatus(
 	stage *interpreter.StagedSubmission,
-	colorByAlias func(string) string,
+	colorByName func(string) string,
 ) string {
 	lead := "Message on-hold."
 	tail := "Press Esc to edit."
@@ -61,7 +61,7 @@ func renderInterpreterStageStatus(
 	if len(stage.NotReadyAliases) > 0 {
 		aliases := make([]string, len(stage.NotReadyAliases))
 		for index, alias := range stage.NotReadyAliases {
-			color := colorByAlias(alias)
+			color := colorByName(alias)
 			if color == "" {
 				aliases[index] = alias
 				continue

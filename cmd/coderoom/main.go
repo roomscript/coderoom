@@ -84,10 +84,12 @@ func agentFactory(cwd, agentLog string) (cleanup func(), factory session.AgentFa
 			if backend == session.AgentBackendEcho {
 				return echo.New()
 			}
+			// Session registers the invited participant before invoking this factory.
+			view, _ := s.ParticipantByName(cfg.Alias)
 			return codex.New(
 				cwd,
-				codex.WithContext(s.CreateAgentContext(cfg.Alias)),
-				codex.WithApprovalListener(s.ApprovalListener(cfg.Alias)),
+				codex.WithContext(s.CreateAgentContext(view.Alias)),
+				codex.WithApprovalListener(s.ApprovalListener(view.Alias)),
 				codex.WithSystemPrompt(cfg.Prompt),
 			)
 		}, nil
@@ -105,11 +107,13 @@ func agentFactory(cwd, agentLog string) (cleanup func(), factory session.AgentFa
 			if backend == session.AgentBackendEcho {
 				return echo.New()
 			}
+			// Capture identity before the adapter starts asynchronous work.
+			view, _ := s.ParticipantByName(cfg.Alias)
 			return codex.New(
 				cwd,
-				codex.WithContext(s.CreateAgentContext(cfg.Alias)),
+				codex.WithContext(s.CreateAgentContext(view.Alias)),
 				codex.WithObserver(codex.NewLogObserver(f, cfg.Alias)),
-				codex.WithApprovalListener(s.ApprovalListener(cfg.Alias)),
+				codex.WithApprovalListener(s.ApprovalListener(view.Alias)),
 				codex.WithSystemPrompt(cfg.Prompt),
 			)
 		}, nil

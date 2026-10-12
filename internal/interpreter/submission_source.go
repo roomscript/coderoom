@@ -17,6 +17,9 @@ func withSubmissionSource(sequence instructionSequence, statement promptlang.Par
 		case publishEventInstruction:
 			item.event = eventWithSubmissionSource(item.event, statement)
 			sequence[index] = item
+		case executeParticipantCommandInstruction:
+			item.outcome.statement = statement
+			sequence[index] = item
 		case executeCommandInstruction:
 			item.outcome.statement = statement
 			sequence[index] = item

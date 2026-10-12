@@ -4,6 +4,6 @@ import "testing"
 
 func newTestModel(t *testing.T) Model {
 	t.Helper()
-	m := NewPresenter(nil, "")
+	m := NewPresenter(nil, nil, "")
 	return m
 }

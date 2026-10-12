@@ -3,6 +3,7 @@ package interpreter
 import (
 	"fmt"
 
+	"github.com/roomscript/coderoom/internal/participant"
 	"github.com/roomscript/coderoom/internal/room"
 )
 
@@ -42,7 +43,7 @@ func (w *stageWorkflow) interruptAndDispatch() (instructionSequence, bool) {
 		return nil, false
 	}
 	state.interruption.requested = true
-	state.interruption.pending = make(map[workflowRef]string, len(aliases))
+	state.interruption.pending = make(map[workflowRef]participant.Alias, len(aliases))
 	sequence := make(instructionSequence, 0, len(aliases)+1)
 	for _, alias := range aliases {
 		ref := w.nextRef()
@@ -50,7 +51,7 @@ func (w *stageWorkflow) interruptAndDispatch() (instructionSequence, bool) {
 		sequence = append(sequence, executeSessionInstruction{
 			target: ref, request: cancelRequest{alias: alias},
 			recordsOnSuccess: []room.Record{{
-				Kind: room.KindSystem, Text: fmt.Sprintf("[→ %s] interrupt requested", alias),
+				Kind: room.KindSystem, Text: fmt.Sprintf("[→ %s] interrupt requested", alias.Name),
 			}},
 		})
 	}

@@ -4,6 +4,7 @@ import (
 	"slices"
 
 	"github.com/roomscript/coderoom/internal/agent"
+	"github.com/roomscript/coderoom/internal/participant"
 	"github.com/roomscript/coderoom/internal/queue"
 	"github.com/roomscript/coderoom/internal/session"
 )
@@ -12,13 +13,13 @@ import (
 // already running.
 func New(opts ...Option) *Room {
 	r := &Room{
-		id:                 SharedRoomID,
-		members:            make(map[string]struct{}),
-		departed:           make(map[string]bool),
-		streaming:          make(map[agent.StreamID]OpenStream),
-		latestHandoffByRef: make(map[string]int),
-		dirty:              make(map[uint64][]int),
-		queue:              queue.New[session.Event](),
+		id:                   SharedRoomID,
+		members:              make(map[participant.Alias]struct{}),
+		departed:             make(map[participant.Alias]bool),
+		streaming:            make(map[participant.Alias]map[agent.StreamID]OpenStream),
+		latestHandoffByAlias: make(map[participant.Alias]int),
+		dirty:                make(map[uint64][]int),
+		queue:                queue.New[session.Event](),
 	}
 	for _, opt := range opts {
 		opt(r)
@@ -65,7 +66,7 @@ func (r *Room) AppendUserInputRecord(text string, routing []string) {
 }
 
 // AppendLogRecord appends a local diagnostic log line from alias.
-func (r *Room) AppendLogRecord(alias, text string) {
+func (r *Room) AppendLogRecord(alias participant.Alias, text string) {
 	r.AppendRecord(Record{Kind: KindLog, Alias: alias, Text: text})
 }
 

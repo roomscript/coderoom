@@ -14,11 +14,11 @@ import (
 func TestTranscriptProjection_updatesCanonicalStreamAroundPresentationNotices(t *testing.T) {
 	m := makeReadyModel(t)
 	m.room = m.room.AppendSystem("startup tip")
-	stream := roomstate.NewAgentRecord("ada", agent.Message{StreamID: "output", Mode: agent.ModeStream, Content: agent.Output{Text: "hello"}})
-	delta := roomstate.Delta{Version: 1, RecordUpdates: []roomstate.IndexedRecord{{Index: 0, Record: stream}}, Meta: roomstate.DeltaMeta{OpenStreams: []roomstate.OpenStream{{StreamID: "output", RecordIdx: 0}}}}
+	stream := roomstate.NewAgentRecord(testAlias("ada"), agent.Message{StreamID: "output", Mode: agent.ModeStream, Content: agent.Output{Text: "hello"}})
+	delta := roomstate.Delta{Version: 1, RecordUpdates: []roomstate.IndexedRecord{{Index: 0, Record: stream}}, Meta: roomstate.DeltaMeta{OpenStreams: []roomstate.OpenStream{{Alias: testAlias("ada"), StreamID: "output", RecordIdx: 0}}}}
 	m, _ = m.handleInterpreterEvent(interpreter.TranscriptChanged{Delta: delta})
 	m.room = m.room.AppendSystem("local help")
-	stream = roomstate.NewAgentRecord("ada", agent.Message{StreamID: "output", Mode: agent.ModeStream, Content: agent.Output{Text: "hello world"}})
+	stream = roomstate.NewAgentRecord(testAlias("ada"), agent.Message{StreamID: "output", Mode: agent.ModeStream, Content: agent.Output{Text: "hello world"}})
 	delta.Version = 2
 	delta.RecordUpdates[0].Record = stream
 	m, _ = m.handleInterpreterEvent(interpreter.TranscriptChanged{Delta: delta})
@@ -27,15 +27,15 @@ func TestTranscriptProjection_updatesCanonicalStreamAroundPresentationNotices(t 
 	if len(records) != 3 || records[0].Text != "startup tip" || records[1].Text != "hello world" || records[2].Text != "local help" {
 		t.Fatalf("records = %#v", records)
 	}
-	if index, ok := m.room.StreamingIdx("ada"); !ok || index != 1 {
+	if index, ok := m.room.StreamingIdx(testAlias("ada")); !ok || index != 1 {
 		t.Fatalf("stream index = %d, %v", index, ok)
 	}
 	delta.Version = 3
 	delta.Meta.OpenStreams = nil
-	delta.Meta.Departed = map[string]bool{"ada": true}
+	delta.Meta.Departed = map[participant.Alias]bool{testAlias("ada"): true}
 	delta.RecordUpdates = nil
 	m, _ = m.handleInterpreterEvent(interpreter.TranscriptChanged{Delta: delta})
-	if m.room.IsStreaming("ada") || !m.room.IsDeparted("ada") {
+	if m.room.IsStreaming(testAlias("ada")) || !m.room.IsDeparted(testAlias("ada")) {
 		t.Fatal("canonical stream/departure metadata was not presented")
 	}
 }
@@ -59,7 +59,7 @@ func TestTranscriptProjection_semanticEventsAndSnapshotsDoNotEchoRecords(t *test
 }
 
 func TestSnapshotColors_repaintsOnlyWhenMappingChanges(t *testing.T) {
-	initial := []participant.View{{Alias: "ada", Color: "#ff0000"}, {Alias: "tim", Color: "#00ff00"}}
+	initial := []participant.View{{Alias: testAlias("ada"), Color: "#ff0000"}, {Alias: testAlias("tim"), Color: "#00ff00"}}
 	tests := []struct {
 		name         string
 		participants []participant.View
@@ -67,19 +67,20 @@ func TestSnapshotColors_repaintsOnlyWhenMappingChanges(t *testing.T) {
 	}{
 		{name: "unchanged", participants: initial},
 		{name: "reordered", participants: []participant.View{initial[1], initial[0]}},
-		{name: "status only", participants: []participant.View{{Alias: "ada", Color: "#ff0000", Status: participant.StatusWorking, StartupReady: true}, initial[1]}},
-		{name: "color changes", participants: []participant.View{{Alias: "ada", Color: "#0000ff"}, initial[1]}, repaint: true},
-		{name: "alias added", participants: append(append([]participant.View(nil), initial...), participant.View{Alias: "cat", Color: "#ffffff"}), repaint: true},
+		{name: "status only", participants: []participant.View{{Alias: testAlias("ada"), Color: "#ff0000", Status: participant.StatusWorking, StartupReady: true}, initial[1]}},
+		{name: "color changes", participants: []participant.View{{Alias: testAlias("ada"), Color: "#0000ff"}, initial[1]}, repaint: true},
+		{name: "alias added", participants: append(append([]participant.View(nil), initial...), participant.View{Alias: testAlias("cat"), Color: "#ffffff"}), repaint: true},
 		{name: "alias removed", participants: initial[:1], repaint: true},
+		{name: "same-name replacement", participants: []participant.View{{Alias: participant.New("ada", "", participant.InitiativeManual).Alias, Color: "#ff0000"}, initial[1]}, repaint: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			m := makeReadyModel(t)
 			calls := 0
-			m.room = uiroom.NewPresenter(func(alias string) string { calls++; return m.colors[alias] }, "#888888")
+			m.room = uiroom.NewPresenter(func(alias participant.Alias) string { calls++; return m.colors[alias] }, nil, "#888888")
 			m = m.handleResize(tea.WindowSizeMsg{Width: 80, Height: 24})
 			m, _ = m.presentInterpreterSnapshot(interpreter.Snapshot{Participants: initial})
-			record := roomstate.NewAgentRecord("ada", agent.Message{Mode: agent.ModeSingle, Content: agent.Output{Text: "cached output"}})
+			record := roomstate.NewAgentRecord(testAlias("ada"), agent.Message{Mode: agent.ModeSingle, Content: agent.Output{Text: "cached output"}})
 			m, _ = m.handleInterpreterEvent(interpreter.TranscriptChanged{Delta: roomstate.Delta{Version: 1, RecordUpdates: []roomstate.IndexedRecord{{Index: 0, Record: record}}}})
 			calls = 0
 			m, _ = m.presentInterpreterSnapshot(interpreter.Snapshot{Participants: tt.participants})

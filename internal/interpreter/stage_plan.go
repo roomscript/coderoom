@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/roomscript/coderoom/internal/participant"
 	"github.com/roomscript/coderoom/internal/promptlang"
 	"github.com/roomscript/coderoom/internal/session"
 )
@@ -11,7 +12,7 @@ import (
 // stagePlan holds the frozen recipients and their requirements. Retaining this
 // plan preserves the original selection while readiness changes.
 type stagePlan struct {
-	routing      []string
+	routing      []participant.Alias
 	requirements stageRequirements
 	send         *sendPlan
 	broadcast    *promptlang.Broadcast
@@ -24,7 +25,7 @@ type sendPlan struct {
 	delivery session.ParticipantSendPlan
 }
 
-func (p *sendPlan) deliveryRequest(unavailable []string) executePlannedParticipantSendRequest {
+func (p *sendPlan) deliveryRequest(unavailable []participant.Alias) executePlannedParticipantSendRequest {
 	return executePlannedParticipantSendRequest{
 		plan:    p.delivery.DiscardUnavailableNoticeRecipients(unavailable),
 		message: p.action.Text.Value,
@@ -34,12 +35,12 @@ func (p *sendPlan) deliveryRequest(unavailable []string) executePlannedParticipa
 
 func (p *stagePlan) freezeSend(result sendPlanResult) {
 	p.send.delivery = result.plan
-	p.routing = slices.Clone(result.targets)
-	p.requirements = freezeStageRequirements(participantsForRouting(p.routing, result.participants), p.routing)
+	targets := p.send.delivery.Targets()
+	p.requirements = freezeStageRequirements(participantsForRouting(targets, result.participants), targets)
 }
 
-func participantsForRouting(routing []string, participants []participantState) []participantState {
-	byAlias := make(map[string]participantState, len(participants))
+func participantsForRouting(routing []participant.Alias, participants []participantState) []participantState {
+	byAlias := make(map[participant.Alias]participantState, len(participants))
 	for _, value := range participants {
 		byAlias[value.alias] = value
 	}
@@ -60,11 +61,10 @@ func (p *stagePlan) broadcastDeliveryRequest() broadcastRequest {
 	return broadcastRequest{aliases: activeAliases(p.routing, p.requirements.unavailable), text: p.broadcast.Text.Value}
 }
 
-func (p *stagePlan) freezeHandoffRequirements(routing []string, participants []participantState) {
-	p.routing = slices.Clone(routing)
+func (p *stagePlan) freezeHandoffRequirements(routing []participant.Alias, participants []participantState) {
 	participants = slices.DeleteFunc(slices.Clone(participants), func(value participantState) bool {
-		explicit := slices.Contains(p.routing, value.alias)
+		explicit := slices.Contains(routing, value.alias)
 		return !explicit && (!value.view().IsRoutable() || value.startupPending)
 	})
-	p.requirements = freezeStageRequirements(participants, p.routing)
+	p.requirements = freezeStageRequirements(participants, routing)
 }

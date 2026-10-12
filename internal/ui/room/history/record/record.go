@@ -7,6 +7,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/roomscript/coderoom/internal/interpreter"
+	"github.com/roomscript/coderoom/internal/participant"
 	roomstate "github.com/roomscript/coderoom/internal/room"
 	"github.com/roomscript/coderoom/internal/ui/inlinefmt"
 )
@@ -42,8 +43,10 @@ const (
 // RenderContext carries caller-provided rendering policy and dependencies.
 type RenderContext struct {
 	Key RenderKey
-	// ColorForAlias returns a lipgloss color string for an active alias, or "".
-	ColorForAlias func(alias string) string
+	// ColorForAlias colors the record's originating participant instance.
+	ColorForAlias func(alias participant.Alias) string
+	// ColorForName colors display-only routing names, which carry no instance identity.
+	ColorForName func(name string) string
 }
 
 // RenderKey is the comparable subset of RenderContext that affects output.
@@ -92,21 +95,25 @@ func Render(r Record, ctx RenderContext) string {
 	}
 	colors := ctx.ColorForAlias
 	if colors == nil {
-		colors = func(string) string { return "" }
+		colors = func(participant.Alias) string { return "" }
+	}
+	nameColors := ctx.ColorForName
+	if nameColors == nil {
+		nameColors = func(string) string { return "" }
 	}
 
 	switch ctx.Key.Mode {
 	case RenderTranscript:
-		return renderTranscript(r, colors)
+		return renderTranscript(r, colors, nameColors)
 	default:
-		return renderViewport(r, width, colors)
+		return renderViewport(r, width, colors, nameColors)
 	}
 }
 
-func renderViewport(r Record, width int, colors func(string) string) string {
+func renderViewport(r Record, width int, colors func(participant.Alias) string, nameColors func(string) string) string {
 	switch r.Kind {
 	case KindUserInput:
-		return renderUserInput(r, width, colors)
+		return renderUserInput(r, width, nameColors)
 	case KindAgentOutput:
 		return renderAgentOutput(r, width, colors)
 	case KindSystem:
@@ -123,14 +130,14 @@ func renderViewport(r Record, width int, colors func(string) string) string {
 	return r.Text
 }
 
-func renderTranscript(r Record, colors func(string) string) string {
+func renderTranscript(r Record, colors func(participant.Alias) string, nameColors func(string) string) string {
 	if r.Kind == KindCommand {
 		return renderCommandTranscript(r, colors)
 	}
 	if r.Kind == KindFileChange {
 		return renderFileChangeTranscript(r, colors)
 	}
-	return renderViewport(r, 0, colors)
+	return renderViewport(r, 0, colors, nameColors)
 }
 
 func renderLogBody(body string, width int) string {
@@ -166,7 +173,7 @@ func renderUserInput(r Record, width int, colors func(string) string) string {
 	return wrapped
 }
 
-func renderAgentOutput(r Record, width int, colors func(string) string) string {
+func renderAgentOutput(r Record, width int, colors func(participant.Alias) string) string {
 	color := colors(r.Alias)
 	var header string
 	var spanStyle lipgloss.Style
@@ -176,9 +183,9 @@ func renderAgentOutput(r Record, width int, colors func(string) string) string {
 	}
 	if color != "" {
 		spanStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(color))
-		header = spanStyle.Render(bullet+r.Alias) + ":"
+		header = spanStyle.Render(bullet+r.Alias.Name) + ":"
 	} else {
-		header = bullet + r.Alias + ":"
+		header = bullet + r.Alias.Name + ":"
 	}
 	body := bodyFromRecord(r)
 	if body == "" {
@@ -192,7 +199,7 @@ func renderAgentOutput(r Record, width int, colors func(string) string) string {
 	return header + "\n\n" + wrapped
 }
 
-func renderReasoning(r Record, width int, colors func(string) string) string {
+func renderReasoning(r Record, width int, colors func(participant.Alias) string) string {
 	color := colors(r.Alias)
 	var headerStyle lipgloss.Style
 	if color != "" {
@@ -200,7 +207,7 @@ func renderReasoning(r Record, width int, colors func(string) string) string {
 	} else {
 		headerStyle = lipgloss.NewStyle().Faint(true)
 	}
-	header := headerStyle.Render(reasoningBullet + r.Alias + " (thinking)")
+	header := headerStyle.Render(reasoningBullet + r.Alias.Name + " (thinking)")
 	body := bodyFromRecord(r)
 	if body == "" {
 		return header
@@ -233,13 +240,13 @@ func commandFieldsFromRecord(r Record) (cmd string, output string, exitCode *int
 	return c.Command, c.Output, c.ExitCode
 }
 
-func renderCommand(r Record, width int, colors func(string) string) string {
+func renderCommand(r Record, width int, colors func(participant.Alias) string) string {
 	color := colors(r.Alias)
 	cmd, output, exitCode := commandFieldsFromRecord(r)
 	if cmd == "" {
 		cmd = "…"
 	}
-	header := renderParticipantHeader(r.Alias, color)
+	header := renderParticipantHeader(r.Alias.Name, color)
 
 	commandPrompt := renderCommandPrompt(color)
 	commandLine, cmdTruncated := renderCommandSummaryLine(agentBodyIndent+commandPrompt, cmd, width)
@@ -310,13 +317,13 @@ func shouldRenderCommandHint(moreLines int, cmdHasNewline bool, cmdTruncated boo
 	return moreLines > 0 || cmdHasNewline || cmdTruncated
 }
 
-func renderCommandTranscript(r Record, colors func(string) string) string {
+func renderCommandTranscript(r Record, colors func(participant.Alias) string) string {
 	color := colors(r.Alias)
 	cmd, output, exitCode := commandFieldsFromRecord(r)
 	if cmd == "" {
 		cmd = "…"
 	}
-	header := renderParticipantHeader(r.Alias, color)
+	header := renderParticipantHeader(r.Alias.Name, color)
 	commandPrompt := renderCommandPrompt(color)
 	commandLine := renderCommandLine(agentBodyIndent+commandPrompt, cmd, 0)
 

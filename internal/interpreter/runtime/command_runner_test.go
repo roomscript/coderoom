@@ -6,8 +6,6 @@ import (
 	"testing"
 
 	"github.com/roomscript/coderoom/internal/interpreter/runtime"
-	"github.com/roomscript/coderoom/internal/interpreter/std"
-	"github.com/roomscript/coderoom/internal/participant"
 	"github.com/roomscript/coderoom/internal/promptlang"
 	"github.com/roomscript/coderoom/internal/room"
 )
@@ -32,6 +30,7 @@ type invocation struct {
 	closes    int
 	staging   *runtime.Staging
 	immediate bool
+	result    runtime.CommandResult
 }
 
 func (i *invocation) Staging() *runtime.Staging { return i.staging }
@@ -40,7 +39,7 @@ func (i *invocation) Go(complete func(runtime.CommandResult)) error {
 	i.launches++
 	i.complete = complete
 	if i.immediate {
-		complete(runtime.CommandResult{})
+		complete(i.result)
 	}
 	return i.err
 }
@@ -92,19 +91,16 @@ func TestCommandRunner_GoFailures(t *testing.T) {
 	}
 }
 
-type participantReader struct{}
-
-func (participantReader) Participants() []participant.View { return []participant.View{{Alias: "ada"}} }
-
-func TestCommandRunner_WhoCompletesImmediately(t *testing.T) {
+func TestCommandRunner_CompletesImmediately(t *testing.T) {
+	want := runtime.CommandResult{Records: []room.Record{{Kind: room.KindSystem, Text: "finished"}}}
+	i := &invocation{immediate: true, result: want}
 	var results []runtime.CommandResult
-	err := (runtime.CommandRunner{}).Go(std.WhoCommand{}, promptlang.ParsedStatement{Located: promptlang.Located[promptlang.Statement]{Value: promptlang.Who{}}}, runtime.Context{Participants: participantReader{}}, func(c runtime.CommandResult) { results = append(results, c) })
+	err := (runtime.CommandRunner{}).Go(&command{invocation: i}, promptlang.ParsedStatement{}, runtime.Context{}, func(c runtime.CommandResult) { results = append(results, c) })
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []runtime.CommandResult{{Records: []room.Record{{Kind: room.KindSystem, Text: "[agents] ada"}}}}
-	if !reflect.DeepEqual(results, want) {
-		t.Fatalf("completions = %#v, want %#v", results, want)
+	if !reflect.DeepEqual(results, []runtime.CommandResult{want}) || i.launches != 1 {
+		t.Fatalf("completions = %#v, launches = %d", results, i.launches)
 	}
 }
 

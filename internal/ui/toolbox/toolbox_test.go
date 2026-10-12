@@ -13,10 +13,10 @@ func TestToolboxCells_orderByStatusThenAlias(t *testing.T) {
 	now := time.Unix(100, 0)
 
 	ps := []participant.View{
-		{Alias: "bob", Status: participant.StatusIdle, Since: now},
-		{Alias: "ada", Status: participant.StatusWorking, Since: now.Add(-5 * time.Second)},
-		{Alias: "zoe", Status: participant.StatusWorking, Since: now.Add(-7 * time.Second)},
-		{Alias: "cat", Status: participant.StatusStarting, Since: now.Add(-2 * time.Second)},
+		{Alias: participant.New("bob", "", participant.InitiativeManual).Alias, Status: participant.StatusIdle, Since: now},
+		{Alias: participant.New("ada", "", participant.InitiativeManual).Alias, Status: participant.StatusWorking, Since: now.Add(-5 * time.Second)},
+		{Alias: participant.New("zoe", "", participant.InitiativeManual).Alias, Status: participant.StatusWorking, Since: now.Add(-7 * time.Second)},
+		{Alias: participant.New("cat", "", participant.InitiativeManual).Alias, Status: participant.StatusStarting, Since: now.Add(-2 * time.Second)},
 	}
 
 	out := renderParticipantCells(cellWidth()*10, now, ps)
@@ -38,7 +38,7 @@ func TestToolboxCells_overflowShowsPlusN(t *testing.T) {
 	ps := make([]participant.View, 0, 10)
 	for i := range 10 {
 		ps = append(ps, participant.View{
-			Alias:  string(rune('a' + i)),
+			Alias:  participant.New(string(rune('a'+i)), "", participant.InitiativeManual).Alias,
 			Status: participant.StatusIdle,
 			Since:  now,
 		})
@@ -54,7 +54,7 @@ func TestToolboxGlyphs_andElapsedFormatting(t *testing.T) {
 	base := time.Unix(100, 0)
 
 	ps := []participant.View{
-		{Alias: "ada", Status: participant.StatusWorking, Since: base.Add(-10 * time.Second)},
+		{Alias: participant.New("ada", "", participant.InitiativeManual).Alias, Status: participant.StatusWorking, Since: base.Add(-10 * time.Second)},
 	}
 	out := renderParticipantCells(cellWidth()*4, base, ps)
 	if !strings.Contains(out, "⏹") && !strings.Contains(out, "◆") {
@@ -65,7 +65,7 @@ func TestToolboxGlyphs_andElapsedFormatting(t *testing.T) {
 	}
 
 	ps = append(ps, participant.View{
-		Alias:  "bob",
+		Alias:  participant.New("bob", "", participant.InitiativeManual).Alias,
 		Status: participant.StatusCrashed,
 		Since:  base.Add(-3*time.Minute - 12*time.Second),
 	})
@@ -84,23 +84,23 @@ func TestParticipantsWantsTick(t *testing.T) {
 	if New().WantsTick() {
 		t.Fatal("expected false for empty participants")
 	}
-	idleOnly, _ := New().SetParticipants([]participant.View{{Alias: "ada", Status: participant.StatusIdle, Since: now}})
+	idleOnly, _ := New().SetParticipants([]participant.View{{Alias: participant.New("ada", "", participant.InitiativeManual).Alias, Status: participant.StatusIdle, Since: now}})
 	if idleOnly.WantsTick() {
 		t.Fatal("expected false for idle-only participants")
 	}
-	working, _ := New().SetParticipants([]participant.View{{Alias: "ada", Status: participant.StatusWorking, Since: now}})
+	working, _ := New().SetParticipants([]participant.View{{Alias: participant.New("ada", "", participant.InitiativeManual).Alias, Status: participant.StatusWorking, Since: now}})
 	if !working.WantsTick() {
 		t.Fatal("expected true for working participant")
 	}
-	keepalive, _ := New().SetParticipants([]participant.View{{Alias: "ada", Status: participant.StatusKeepalive, Since: now}})
+	keepalive, _ := New().SetParticipants([]participant.View{{Alias: participant.New("ada", "", participant.InitiativeManual).Alias, Status: participant.StatusKeepalive, Since: now}})
 	if !keepalive.WantsTick() {
 		t.Fatal("expected true for keepalive participant")
 	}
-	starting, _ := New().SetParticipants([]participant.View{{Alias: "ada", Status: participant.StatusStarting, Since: now}})
+	starting, _ := New().SetParticipants([]participant.View{{Alias: participant.New("ada", "", participant.InitiativeManual).Alias, Status: participant.StatusStarting, Since: now}})
 	if !starting.WantsTick() {
 		t.Fatal("expected true for starting participant")
 	}
-	crashed, _ := New().SetParticipants([]participant.View{{Alias: "ada", Status: participant.StatusCrashed, Since: now}})
+	crashed, _ := New().SetParticipants([]participant.View{{Alias: participant.New("ada", "", participant.InitiativeManual).Alias, Status: participant.StatusCrashed, Since: now}})
 	if !crashed.WantsTick() {
 		t.Fatal("expected true for crashed participant")
 	}
@@ -110,7 +110,7 @@ func TestCell_longAliasDoesNotTruncateElapsed(t *testing.T) {
 	now := time.Unix(100, 0)
 	// Alias longer than aliasMax; elapsed must still appear in full.
 	ps := []participant.View{
-		{Alias: "verylongaliasname", Status: participant.StatusWorking, Since: now.Add(-5 * time.Second)},
+		{Alias: participant.New("verylongaliasname", "", participant.InitiativeManual).Alias, Status: participant.StatusWorking, Since: now.Add(-5 * time.Second)},
 	}
 	out := ansi.Strip(renderParticipantCells(cellWidth()*4, now, ps))
 	if !strings.Contains(out, "(5s)") {
@@ -121,7 +121,7 @@ func TestCell_longAliasDoesNotTruncateElapsed(t *testing.T) {
 func TestCell_elapsedImmediatelyAfterAlias(t *testing.T) {
 	now := time.Unix(100, 0)
 	ps := []participant.View{
-		{Alias: "ada", Status: participant.StatusWorking, Since: now.Add(-5 * time.Second)},
+		{Alias: participant.New("ada", "", participant.InitiativeManual).Alias, Status: participant.StatusWorking, Since: now.Add(-5 * time.Second)},
 	}
 	out := ansi.Strip(renderParticipantCells(cellWidth()*4, now, ps))
 	// elapsed must appear right after alias with no padding gap between them
@@ -133,10 +133,10 @@ func TestCell_elapsedImmediatelyAfterAlias(t *testing.T) {
 func TestCell_colorPreservesContent(t *testing.T) {
 	now := time.Unix(100, 0)
 	plain := []participant.View{
-		{Alias: "ada", Status: participant.StatusIdle, Since: now},
+		{Alias: participant.New("ada", "", participant.InitiativeManual).Alias, Status: participant.StatusIdle, Since: now},
 	}
 	colored := []participant.View{
-		{Alias: "ada", Status: participant.StatusIdle, Since: now, Color: "#ff0000"},
+		{Alias: participant.New("ada", "", participant.InitiativeManual).Alias, Status: participant.StatusIdle, Since: now, Color: "#ff0000"},
 	}
 	w := cellWidth() * 4
 	// Stripped content must be identical whether a color is set or not.
@@ -149,10 +149,10 @@ func TestCell_colorUnsetAddsNoExtraEscapes(t *testing.T) {
 	now := time.Unix(100, 0)
 	w := cellWidth() * 4
 	plain := renderParticipantCells(w, now, []participant.View{
-		{Alias: "ada", Status: participant.StatusIdle, Since: now},
+		{Alias: participant.New("ada", "", participant.InitiativeManual).Alias, Status: participant.StatusIdle, Since: now},
 	})
 	colored := renderParticipantCells(w, now, []participant.View{
-		{Alias: "ada", Status: participant.StatusIdle, Since: now, Color: "#ff0000"},
+		{Alias: participant.New("ada", "", participant.InitiativeManual).Alias, Status: participant.StatusIdle, Since: now, Color: "#ff0000"},
 	})
 	// Color is the only permitted difference between the two outputs.
 	// Stripping escape codes from both must yield the same string.
@@ -175,4 +175,17 @@ func indexAfter(s, sub string, after int) int {
 		return -1
 	}
 	return start + j
+}
+
+func TestToolboxCells_skipsUnnamedInstances(t *testing.T) {
+	now := time.Unix(100, 0)
+	named := participant.New("ada", "", participant.InitiativeManual).View
+	unnamed := participant.New("", "", participant.InitiativeManual).View
+	named.Status, unnamed.Status = participant.StatusIdle, participant.StatusWorking
+	width := cellWidth() * 2
+	want := renderParticipantCells(width, now, []participant.View{named})
+	got := renderParticipantCells(width, now, []participant.View{unnamed, named})
+	if got != want {
+		t.Fatalf("unnamed instance changed display: got %q, want %q", got, want)
+	}
 }

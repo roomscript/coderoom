@@ -1,6 +1,25 @@
 package session
 
-import "slices"
+import (
+	"slices"
+	"strings"
+
+	"github.com/roomscript/coderoom/internal/participant"
+)
+
+func sortAliases(aliases []participant.Alias) {
+	slices.SortFunc(aliases, func(a, b participant.Alias) int {
+		return strings.Compare(a.Name, b.Name)
+	})
+}
+
+func aliasNames(aliases []participant.Alias) []string {
+	names := make([]string, len(aliases))
+	for i, alias := range aliases {
+		names[i] = alias.Name
+	}
+	return names
+}
 
 // RoutingKind identifies the operation whose delivery attempts have finished.
 type RoutingKind string
@@ -39,7 +58,7 @@ const (
 // NotAttempted means delivery was skipped (for example, the primary send failed).
 // Err is populated for failed recipients; command-wide rejection is in Result.Err.
 type RecipientResult struct {
-	Alias  string
+	Alias  participant.Alias
 	Role   RecipientRole
 	Status DeliveryStatus
 	Err    error
@@ -60,18 +79,18 @@ func (r RoutingResult) Clone() RoutingResult {
 	return r
 }
 
-// Aliases returns recipients with the given actual outcome, in plan order.
+// Aliases derives recipient names with the given actual outcome, in plan order.
 func (r RoutingResult) Aliases(status DeliveryStatus) []string {
 	var aliases []string
 	for _, recipient := range r.Recipients {
 		if recipient.Status == status {
-			aliases = append(aliases, recipient.Alias)
+			aliases = append(aliases, recipient.Alias.Name)
 		}
 	}
 	return aliases
 }
 
-func createRoutingResult(kind RoutingKind, aliases []string, role RecipientRole) RoutingResult {
+func createRoutingResult(kind RoutingKind, aliases []participant.Alias, role RecipientRole) RoutingResult {
 	result := RoutingResult{Kind: kind}
 	for _, alias := range aliases {
 		result.Recipients = append(result.Recipients, RecipientResult{

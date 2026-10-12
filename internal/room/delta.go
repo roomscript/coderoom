@@ -1,6 +1,10 @@
 package room
 
-import "errors"
+import (
+	"errors"
+
+	"github.com/roomscript/coderoom/internal/participant"
+)
 
 // ErrResyncRequired reports that the caller's local room version cannot be
 // advanced incrementally and must be refreshed from Snapshot().
@@ -16,8 +20,8 @@ type IndexedRecord struct {
 
 // DeltaMeta is the bounded full-state metadata returned with every room delta.
 type DeltaMeta struct {
-	Members     []string
-	Departed    map[string]bool
+	Members     []participant.Alias
+	Departed    map[participant.Alias]bool
 	OpenStreams []OpenStream
 }
 

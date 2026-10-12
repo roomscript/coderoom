@@ -13,7 +13,7 @@ func TestRecordDetails_ignoreUnrelatedContent(t *testing.T) {
 		record roomstate.Record
 	}{
 		{name: "no message", record: roomstate.Record{Kind: roomstate.KindSystem}},
-		{name: "output", record: roomstate.NewAgentRecord("ada", agent.Message{Content: agent.Output{Text: "hello"}})},
+		{name: "output", record: roomstate.NewAgentRecord(testAlias("ada"), agent.Message{Content: agent.Output{Text: "hello"}})},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -29,7 +29,7 @@ func TestRecordDetails_ignoreUnrelatedContent(t *testing.T) {
 
 func TestCommandFromRecord_detachesExitCode(t *testing.T) {
 	code := 7
-	record := roomstate.NewAgentRecord("ada", agent.Message{Content: agent.Command{Command: "go test", Cwd: "/repo", Output: "failed", ExitCode: &code}})
+	record := roomstate.NewAgentRecord(testAlias("ada"), agent.Message{Content: agent.Command{Command: "go test", Cwd: "/repo", Output: "failed", ExitCode: &code}})
 	details, ok := CommandFromRecord(record)
 	if !ok || details.Command != "go test" || details.Cwd != "/repo" || details.Output != "failed" || details.ExitCode == nil || *details.ExitCode != 7 {
 		t.Fatalf("details = %#v, ok = %v", details, ok)
@@ -42,7 +42,7 @@ func TestCommandFromRecord_detachesExitCode(t *testing.T) {
 
 func TestFileChangesFromRecord_detachesChanges(t *testing.T) {
 	changes := []agent.FileChange{{Path: "main.go", Diff: "+hello", ChangeKind: "update"}}
-	record := roomstate.NewAgentRecord("ada", agent.Message{Content: agent.FileChangeSet{Status: agent.ToolStatusCompleted, Changes: changes}})
+	record := roomstate.NewAgentRecord(testAlias("ada"), agent.Message{Content: agent.FileChangeSet{Status: agent.ToolStatusCompleted, Changes: changes}})
 	details, ok := FileChangesFromRecord(record)
 	if !ok || details.Status != "completed" || len(details.Changes) != 1 || details.Changes[0] != (FileChange{Path: "main.go", Diff: "+hello", ChangeKind: "update"}) {
 		t.Fatalf("details = %#v, ok = %v", details, ok)

@@ -1,8 +1,6 @@
 package interpreter
 
 import (
-	"slices"
-
 	"github.com/roomscript/coderoom/internal/room"
 	"github.com/roomscript/coderoom/internal/session"
 )
@@ -10,19 +8,20 @@ import (
 // prepareHandoff freezes recipients and source requirements, validates the plan,
 // then accepts input. Wait for readiness and completed source output, or read the
 // source now. The source read is synchronous; retaining the plan suspends work.
-func (w *stageWorkflow) prepareHandoff(result participantStateResult) instructionSequence {
+func (w *stageWorkflow) prepareHandoff(result handoffPlanResult) instructionSequence {
 	if !w.matches(result.target) || w.active.phase != stagePlanning || w.active.handoff == nil {
 		return nil
 	}
 	state := w.active
-	state.freezeHandoffRequirements(state.handoff.routing(), result.readinessRequirements)
+	state.handoff.from, state.handoff.to = result.from, result.to
+	state.freezeHandoffRequirements(state.handoff.routing(), result.participants)
 	state.handoff.trackSourceCompletion(state.requirements.participants)
 	if w.mustDiscard() {
 		failure := unavailableStageFailure(state)
 		w.active = nil
 		return instructionSequence{publishEventInstruction{event: failure}}
 	}
-	actions := acceptedStageInputSequence(state.raw, state.routing)
+	actions := acceptedStageInputSequence(state.raw, state.targetAliases())
 	if !w.readyForHandoffSource() {
 		return append(actions, w.retainPlanUntilReady()...)
 	}
@@ -34,8 +33,7 @@ func (w *stageWorkflow) readHandoffSourceInstruction() readHandoffSourceInstruct
 	state.phase = stageReadingHandoffSource
 	ref := w.nextRef()
 	state.pending = ref
-	handoff := state.handoff.action
-	return readHandoffSourceInstruction{target: ref, alias: handoff.FromAlias.Value}
+	return readHandoffSourceInstruction{target: ref, alias: state.handoff.from}
 }
 
 func (w *stageWorkflow) handleHandoffSource(result handoffSourceResult) instructionSequence {
@@ -51,13 +49,12 @@ func (w *stageWorkflow) handleHandoffSource(result handoffSourceResult) instruct
 func (w *stageWorkflow) startHandoffDispatch(source session.HandoffSource) executeSessionInstruction {
 	state := w.active
 	state.phase = stageDispatching
-	state.dispatchRouting = activeAliases(state.routing, state.requirements.unavailable)
 	state.pending = w.nextRef()
 	return executeSessionInstruction{
 		target:  state.pending,
 		request: state.handoff.deliveryRequest(source, state.requirements.requiredReadyAliases()),
 		recordsOnSuccess: []room.Record{{
-			Kind: room.KindUserInput, Text: state.raw, Routing: slices.Clone(state.dispatchRouting),
+			Kind: room.KindUserInput, Text: state.raw,
 		}},
 	}
 }

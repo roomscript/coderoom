@@ -50,7 +50,7 @@ func cloneStagedSubmission(source *StagedSubmission) *StagedSubmission {
 }
 
 func cloneRoomSnapshot(source room.Snapshot) room.Snapshot {
-	departed := make(map[string]bool, len(source.Departed))
+	departed := make(map[participant.Alias]bool, len(source.Departed))
 	for alias, value := range source.Departed {
 		departed[alias] = value
 	}
@@ -61,7 +61,7 @@ func cloneRoomSnapshot(source room.Snapshot) room.Snapshot {
 	return room.Snapshot{
 		RoomID:      source.RoomID,
 		Version:     source.Version,
-		Members:     append([]string(nil), source.Members...),
+		Members:     append([]participant.Alias(nil), source.Members...),
 		Departed:    departed,
 		Records:     records,
 		OpenStreams: append([]room.OpenStream(nil), source.OpenStreams...),

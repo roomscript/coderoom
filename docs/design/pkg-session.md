@@ -57,19 +57,19 @@ type InviteCommand struct {
 // - Best-effort: not all agent backends support true cancellation.
 // - Does not remove history/records; it only affects ongoing execution.
 type CancelCommand struct {
-    Alias string
+    Alias participant.Alias
 }
 
 // RemoveCommand stops and removes an agent from the session (hard stop).
 type RemoveCommand struct {
-    Alias string
+    Alias participant.Alias
 }
 
 // BroadcastCommand sends a message to the shared room and to its recipients.
 // Aliases freezes staged routing. A nil value preserves the legacy behavior of
 // selecting all routable participants at execution time.
 type BroadcastCommand struct {
-    Aliases []string
+    Aliases []participant.Alias
     Text    string
 }
 
@@ -88,9 +88,9 @@ type ParticipantSendPlan struct {
     // session ownership, primary alias, and notice aliases are private
 }
 
-func (s *Session) CreateParticipantSendPlan(alias string) ParticipantSendPlan
-func (p ParticipantSendPlan) Targets() []string
-func (p ParticipantSendPlan) DiscardUnavailableNoticeRecipients(aliases []string) ParticipantSendPlan
+func (s *Session) CreateParticipantSendPlan(alias participant.Alias) ParticipantSendPlan
+func (p ParticipantSendPlan) Targets() []participant.Alias
+func (p ParticipantSendPlan) DiscardUnavailableNoticeRecipients(aliases []participant.Alias) ParticipantSendPlan
 
 type EnablePolicyCommand struct {
     Name policy.Name
@@ -100,16 +100,16 @@ type EnablePolicyCommand struct {
 // Session validates participants and readiness requirements but does not query room
 // or call back into the application layer to select content.
 type HandoffCommand struct {
-    FromAlias   string
-    ToAlias     string
-    RequiredReadyAliases []string
+    FromAlias   participant.Alias
+    ToAlias     participant.Alias
+    RequiredReadyAliases []participant.Alias
     Source      HandoffSource
 }
 
 // SendToParticipantOutsideRoomCommand omits the outgoing room record and notices.
 // Agent responses still use ordinary session events and can appear in the room.
 type SendToParticipantOutsideRoomCommand struct {
-    Alias string
+    Alias participant.Alias
     Text  string
 }
 ```
@@ -169,23 +169,23 @@ type Event interface {
     sessionEvent()
 }
 
-type AgentStarting struct{ Alias string }
-type AgentReady struct{ Alias string }
-type AgentStopped struct{ Alias string }
-type AgentCrashed struct{ Alias string }
+type AgentStarting struct{ Alias participant.Alias }
+type AgentReady struct{ Alias participant.Alias }
+type AgentStopped struct{ Alias participant.Alias }
+type AgentCrashed struct{ Alias participant.Alias }
 
 type AgentLog struct {
-    Alias string
+    Alias participant.Alias
     Text  string
 }
 
 type AgentMessage struct {
-    Alias string
+    Alias participant.Alias
     Msg   agent.Message
 }
 
 type ParticipantStatusChanged struct {
-    Alias string
+    Alias participant.Alias
     From  participant.Status
     To    participant.Status
     Since time.Time
@@ -201,32 +201,32 @@ type RoutingResult struct {
 }
 
 type RecipientResult struct {
-    Alias  string
+    Alias  participant.Alias
     Role   RecipientRole
     Status DeliveryStatus
     Err    error
 }
 
 type HandoffDelivered struct {
-    FromAlias string
-    ToAlias   string
+    FromAlias participant.Alias
+    ToAlias   participant.Alias
     Text      string
     Preview   string
 
     SourceRecordIndex int
-    RequiredReadyAliases    []string
-    IdleAliases       []string
-    NotReadyAliases       []string
+    RequiredReadyAliases    []participant.Alias
+    IdleAliases       []participant.Alias
+    NotReadyAliases       []participant.Alias
 }
 
 type ApprovalRequested struct {
-    Alias string
+    Alias participant.Alias
     ID    int64
     Req   agent.ApprovalRequest
 }
 
 type ApprovalCleared struct {
-    Alias string
+    Alias participant.Alias
     ID    int64
 }
 ```
@@ -251,11 +251,22 @@ from `session.Participants()` by the interpreter, not reconstructed by the UI.
 same `ID` plus the cleared alias so consumers can dismiss the active prompt
 without re-reading session state.
 
+Participant-owned identity is shared by commands, plans, lifecycle/status/turn
+and approval events, and runtime/context bookkeeping. Input names are resolved
+before retaining work. Invitation and configuration keep names at the input
+boundary; all selected delivery and mutation operations revalidate the full
+alias under the Session lock. Runtime state is keyed by `participant.Alias`.
+Reader, startup, and keepalive callbacks capture the originating alias before
+asynchronous work, so a delayed event retains its old owner and a delayed
+callback cannot mutate or cancel a same-name replacement. Identity equality
+does not replace Session membership checks or the send plan's Session binding.
+
 ---
 
 ## Agent lifecycle
 
-`InviteCommand` constructs the participant without presentation input and calls
+`InviteCommand` constructs the participant, which generates its UUID-backed
+`participant.Alias` before registration. Session preserves that identity and calls
 `registry.Add`, which assigns the participant's deterministic color. It then
 starts the agent. On success, it emits `AgentReady` and launches a reader
 goroutine for that agent. A participant removed later does not release its
@@ -295,7 +306,7 @@ requested (via a per-agent stop channel) to emit `AgentStopped` vs
 goroutine's context (so it will emit `AgentStopped` rather than `AgentCrashed`
 when it exits), then calls `agent.Stop`.
 
-`CancelCommand` looks up the participant and rejects it if the agent is still starting or has crashed. It calls `agent.Interrupt()`, which is best-effort — the call returns nil for all no-op cases (no active turn, or the backend does not support cancellation). The agent remains in the registry and its reader goroutine continues running.
+`CancelCommand` validates the resolved participant alias against current membership and rejects it if the agent is still starting or has crashed. It calls `agent.Interrupt()`, which is best-effort — the call returns nil for all no-op cases (no active turn, or the backend does not support cancellation). The agent remains in the registry and its reader goroutine continues running.
 
 ---
 
@@ -307,7 +318,7 @@ when it exits), then calls `agent.Stop`.
 | `SendToParticipantCommand` | Sends `Message` to the primary participant and `Notice` to frozen notice recipients; reports all outcomes in `RoutingCompleted`. Primary failure leaves notices unattempted |
 | `EnablePolicyCommand` | Idempotently enables a room-local runtime policy; unknown policies fail |
 | `SendToParticipantOutsideRoomCommand` | Sends only to the primary participant; emits a body-free `RoutingCompleted`, without an outgoing room record or notices |
-| `HandoffCommand` | Sends context to the destination; emits `HandoffDelivered` only after adapter acceptance and `RoutingCompleted` on both success and rejection |
+| `HandoffCommand` | Validates the source, destination, and required instances, then sends context to the destination; emits `HandoffDelivered` only after adapter acceptance and `RoutingCompleted` on both success and rejection |
 
 Every routing command emits exactly one `RoutingCompleted` after delivery
 attempts or rejection, before `Execute` returns. Its execution-time intended
@@ -331,16 +342,19 @@ including outside-room messages; `HandoffDelivered` separately carries the
 accepted context and source metadata for room projection. Handoff rejection is
 observable in the structured result; logs remain supplemental diagnostics.
 
-The interpreter records only confirmed accepted aliases in delivery footers,
-with failed and unattempted aliases distinguished. Session does not own the
+The interpreter records only confirmed accepted names in delivery footers,
+with failed and unattempted names distinguished. Routing recipients themselves
+retain resolved aliases; `RoutingResult.Aliases` and `DeliveredAliases` derive
+names for display and existing delivery-error reporting. Session does not own the
 final chat projection or construct outgoing message bodies.
 
 `CreateParticipantSendPlan` freezes the policy-aware audience when the user submits the
 message. Enabling `send-notices` later or making another participant routable
 does not alter an existing plan. Planning is not a reservation: participants
 may become unavailable before execution, and those delivery attempts fail
-normally. Plans are immutable to callers, valid only for their creating
-session, and execution reports all successful recipients on partial failure.
+normally. A missing or replaced required handoff participant rejects delivery;
+Session does not silently drop readiness requirements. Plans are immutable to
+callers, valid only for their creating session, and execution reports all successful recipients on partial failure.
 
 ---
 
@@ -388,8 +402,10 @@ semantics from raw session events.
 
 ## Participant queries
 
-`Participant(alias) (participant.View, bool)` and `Participants() []participant.View`
-are the public participant state queries. Both expose the same detached data;
+`ParticipantByName(name) (participant.View, bool)` resolves an input name to the
+current instance. `Participant(alias) (participant.View, bool)` validates a resolved
+alias against current Session membership. `Participants() []participant.View`
+returns all registered instances. These queries expose the same detached data;
 the list captures every registered participant under one session lock, including
 startup and crash states. Status is preserved, with StartupReady and TurnID
 explicitly available. Runtime handles and stream bookkeeping stay within Session.

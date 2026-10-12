@@ -19,14 +19,17 @@ type initialStateSession struct{ observer session.Observer }
 
 func (*initialStateSession) Execute(session.Command) error           { return nil }
 func (s *initialStateSession) AddObserver(observer session.Observer) { s.observer = observer }
-func (*initialStateSession) CreateParticipantSendPlan(string) session.ParticipantSendPlan {
+func (*initialStateSession) CreateParticipantSendPlan(participant.Alias) session.ParticipantSendPlan {
 	return session.ParticipantSendPlan{}
 }
 func (*initialStateSession) Participants() []participant.View {
-	return []participant.View{{Alias: "ada", Status: participant.StatusWorking, StartupReady: true, Color: "#123456"}}
+	return []participant.View{{Alias: testAlias("ada"), Status: participant.StatusWorking, StartupReady: true, Color: "#123456"}}
 }
-func (s *initialStateSession) Participant(alias string) (participant.View, bool) {
-	return s.Participants()[0], alias == "ada"
+func (s *initialStateSession) Participant(alias participant.Alias) (participant.View, bool) {
+	return s.Participants()[0], alias == testAlias("ada")
+}
+func (s *initialStateSession) ParticipantByName(name string) (participant.View, bool) {
+	return s.Participants()[0], name == "ada"
 }
 func (*initialStateSession) Shutdown() {}
 
@@ -36,9 +39,9 @@ func TestNew_consumesEventsQueuedBeforeUIConstruction(t *testing.T) {
 	t.Cleanup(observer.Close)
 	interp := interpreter.New(context.Background(), sess, ".", interpreter.WithObserver(observer))
 	t.Cleanup(interp.Close)
-	sess.observer.OnEvent(session.AgentReady{Alias: "ada"})
-	sess.observer.OnEvent(session.AgentMessage{Alias: "ada", Msg: agent.Message{StreamID: "output", Mode: agent.ModeStream, Content: agent.Output{Text: "existing output"}}})
-	sess.observer.OnEvent(session.ApprovalRequested{ID: 7, Alias: "ada", Req: agent.ApprovalRequest{Ask: "approve existing work?", Options: []agent.ApprovalOption{agent.OptionAccept, agent.OptionDecline}}})
+	sess.observer.OnEvent(session.AgentReady{Alias: testAlias("ada")})
+	sess.observer.OnEvent(session.AgentMessage{Alias: testAlias("ada"), Msg: agent.Message{StreamID: "output", Mode: agent.ModeStream, Content: agent.Output{Text: "existing output"}}})
+	sess.observer.OnEvent(session.ApprovalRequested{ID: 7, Alias: testAlias("ada"), Req: agent.ApprovalRequest{Ask: "approve existing work?", Options: []agent.ApprovalOption{agent.OptionAccept, agent.OptionDecline}}})
 	if err := interp.Submit("next turn"); err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +57,7 @@ func TestNew_consumesEventsQueuedBeforeUIConstruction(t *testing.T) {
 	m = consumeQueuedStartup(t, m)
 	requireInitialPresentation(t, m, initial)
 
-	sess.observer.OnEvent(session.AgentMessage{Alias: "ada", Msg: agent.Message{StreamID: "output", Mode: agent.ModeStream, Content: agent.Output{Text: " continued"}}})
+	sess.observer.OnEvent(session.AgentMessage{Alias: testAlias("ada"), Msg: agent.Message{StreamID: "output", Mode: agent.ModeStream, Content: agent.Output{Text: " continued"}}})
 	requireSubsequentStreamUpdate(t, m, interp.Snapshot())
 }
 
@@ -80,10 +83,10 @@ func requireInitialPresentation(t *testing.T, m Model, initial interpreter.Snaps
 	if !reflect.DeepEqual(m.room.HistoryRecords(), initial.Room.Records) {
 		t.Fatalf("initial records = %#v, want %#v", m.room.HistoryRecords(), initial.Room.Records)
 	}
-	if !m.room.IsStreaming("ada") {
+	if !m.room.IsStreaming(testAlias("ada")) {
 		t.Fatal("existing stream was not initialized")
 	}
-	if m.colors["ada"] != "#123456" {
+	if m.colors[testAlias("ada")] != "#123456" {
 		t.Fatal("existing participant color was not initialized")
 	}
 	if m.activeApprovalID != 7 || !strings.Contains(m.room.View(), "approve existing work?") {

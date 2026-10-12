@@ -7,12 +7,13 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/roomscript/coderoom/internal/agent"
+	"github.com/roomscript/coderoom/internal/participant"
 )
 
 func TestRenderFileChangePending(t *testing.T) {
-	colors := func(string) string { return "" }
+	colors := func(participant.Alias) string { return "" }
 
-	r := Record{Kind: KindFileChange, Alias: "agent"}
+	r := Record{Kind: KindFileChange, Alias: participant.New("agent", "", participant.InitiativeManual).Alias}
 	got := renderFileChangeStripped(t, r, colors)
 	if !strings.Contains(got, "● agent:") {
 		t.Fatalf("expected participant header, got %q", got)
@@ -23,7 +24,7 @@ func TestRenderFileChangePending(t *testing.T) {
 }
 
 func TestRenderFileChangeRendersListPreviewAndStatus(t *testing.T) {
-	colors := func(string) string { return "" }
+	colors := func(participant.Alias) string { return "" }
 
 	fc := agent.Message{
 		StreamID: "s1",
@@ -55,7 +56,7 @@ func TestRenderFileChangeRendersListPreviewAndStatus(t *testing.T) {
 }
 
 func TestRenderFileChangeDeduplicatesEntries(t *testing.T) {
-	colors := func(string) string { return "" }
+	colors := func(participant.Alias) string { return "" }
 
 	fc := agent.Message{
 		StreamID: "s1",
@@ -87,7 +88,7 @@ func TestRenderFileChangeDeduplicatesEntries(t *testing.T) {
 
 func TestRenderFileChangePencilPromptIsColorized(t *testing.T) {
 	withANSIProfile(t, func() {
-		colors := func(string) string { return "1" }
+		colors := func(participant.Alias) string { return "1" }
 		fc := agent.Message{
 			StreamID: "s1",
 			Mode:     agent.ModeStream,
@@ -107,7 +108,7 @@ func TestRenderFileChangePencilPromptIsColorized(t *testing.T) {
 
 func TestRenderFileChangeDiffIsColorized(t *testing.T) {
 	withANSIProfile(t, func() {
-		colors := func(string) string { return "" }
+		colors := func(participant.Alias) string { return "" }
 		fc := agent.Message{
 			StreamID: "s1",
 			Mode:     agent.ModeStream,
@@ -148,7 +149,7 @@ func TestRenderFileChangeDiffIsColorized(t *testing.T) {
 	})
 }
 
-func renderFileChangeStripped(t *testing.T, r Record, colors func(string) string) string {
+func renderFileChangeStripped(t *testing.T, r Record, colors func(participant.Alias) string) string {
 	t.Helper()
 	return ansi.Strip(Render(r, RenderContext{Key: RenderKey{Mode: RenderViewport, Width: 80}, ColorForAlias: colors}))
 }

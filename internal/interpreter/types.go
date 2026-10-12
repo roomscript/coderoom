@@ -51,7 +51,7 @@ type ApprovalOption struct {
 // Approval is the active application-level approval request.
 type Approval struct {
 	ID      int64
-	Alias   string
+	Alias   participant.Alias
 	Kind    ApprovalKind
 	Prompt  string
 	Options []ApprovalOption
@@ -221,7 +221,7 @@ func (SubmissionFailed) interpreterEvent()      {}
 // Observer consumes application events. Implementations should return quickly.
 type Observer interface{ OnEvent(Event) }
 
-func approvalFromAgent(id int64, alias string, request agent.ApprovalRequest) Approval {
+func approvalFromAgent(id int64, alias participant.Alias, request agent.ApprovalRequest) Approval {
 	options := make([]ApprovalOption, len(request.Options))
 	for index, option := range request.Options {
 		options[index] = ApprovalOption{ID: string(option), Label: approvalOptionLabel(option)}

@@ -33,11 +33,11 @@ func (c InviteCommand) execute(s *Session) error {
 		return err
 	}
 	s.hasInvited = true
-	s.CreateAgentRuntime(c.Alias)
+	s.CreateAgentRuntime(p.Alias)
 	a := s.agentFactory(s, cfg, backend)
-	s.notify(ParticipantStatusChanged{Alias: c.Alias, From: "", To: p.Status, Since: p.Since})
-	s.notify(AgentStarting(c))
-	startInvitedAgent(c.Alias, a, s)
+	s.notify(ParticipantStatusChanged{Alias: p.Alias, From: "", To: p.Status, Since: p.Since})
+	s.notify(AgentStarting{Alias: p.Alias})
+	startInvitedAgent(p.Alias, a, s)
 	return nil
 }
 
@@ -58,7 +58,7 @@ func (c InviteCommand) buildParticipant(s *Session, cfg roomconfig.ParticipantCo
 	return p
 }
 
-func startInvitedAgent(alias string, a agent.Agent, s *Session) {
+func startInvitedAgent(alias participant.Alias, a agent.Agent, s *Session) {
 	go func() {
 		if err := a.Start(); err != nil {
 			handleInviteStartError(alias, err, s)
@@ -75,13 +75,7 @@ func startInvitedAgent(alias string, a agent.Agent, s *Session) {
 		// see Starting → Idle rather than the internal Attached intermediate state.
 		ev, ok := s.commitStarted(alias, from)
 		if !ok {
-			// Invariant violation: clean up the stranded agents entry.
-			s.mu.Lock()
-			delete(s.agents, alias)
-			_ = s.registry.Remove(alias)
-			s.mu.Unlock()
-			s.cancelAgentContext(alias)
-			_ = a.Stop()
+			stopUnreadyParticipant(alias, a, s)
 			return
 		}
 		s.notify(ev)
@@ -95,12 +89,7 @@ func startInvitedAgent(alias string, a agent.Agent, s *Session) {
 			return nil, p.SessionReady()
 		}); err != nil {
 			s.notifyParticipantInvariant(alias, fmt.Errorf("session ready: %w", err))
-			s.mu.Lock()
-			delete(s.agents, alias)
-			_ = s.registry.Remove(alias)
-			s.mu.Unlock()
-			s.cancelAgentContext(alias)
-			_ = a.Stop()
+			stopUnreadyParticipant(alias, a, s)
 			return
 		}
 		// Start the reader before dispatching AgentReady so the agent's pipe
@@ -111,7 +100,15 @@ func startInvitedAgent(alias string, a agent.Agent, s *Session) {
 	}()
 }
 
-func handleInviteStartError(alias string, err error, s *Session) {
+func stopUnreadyParticipant(alias participant.Alias, a agent.Agent, s *Session) {
+	s.cancelAgentContext(alias)
+	s.mu.Lock()
+	s.removeParticipantLocked(alias)
+	s.mu.Unlock()
+	_ = a.Stop()
+}
+
+func handleInviteStartError(alias participant.Alias, err error, s *Session) {
 	s.cancelAgentContext(alias)
 	s.notify(AgentLog{Alias: alias, Text: fmt.Sprintf("start failed: %v", err)})
 	stateErr := s.updateParticipant(alias, func(p *participant.Participant) (Event, error) {
@@ -127,25 +124,21 @@ func handleInviteStartError(alias string, err error, s *Session) {
 
 // RemoveCommand stops and removes an agent from the session.
 type RemoveCommand struct {
-	Alias string
+	Alias participant.Alias
 }
 
 func (c RemoveCommand) execute(s *Session) error {
 	p, ok := s.detachParticipant(c.Alias)
 	switch {
-	case ok && p != nil:
+	case ok:
 		// Normal path: reader detached, stop the agent process.
 		if err := p.Agent.Stop(); err != nil {
-			return fmt.Errorf("remove agent %q: %w", c.Alias, err)
+			return fmt.Errorf("remove agent %q: %w", c.Alias.Name, err)
 		}
 		return nil
-	case ok && p == nil:
-		// Attached runtime existed but the registry was inconsistent; best-effort cleanup.
-		s.notify(AgentStopped(c))
-		return nil
-	case !ok && p != nil:
+	case p != nil:
 		// Participant exists but IsRemovable is false: still in the startup window.
-		return fmt.Errorf("participant %q is not ready", c.Alias)
+		return fmt.Errorf("participant %q is not ready", c.Alias.Name)
 	default:
 		// No attached runtime: crashed before startup completed, or unknown alias.
 		return s.evictCrashedBeforeStart(c.Alias)
@@ -155,19 +148,19 @@ func (c RemoveCommand) execute(s *Session) error {
 // CancelCommand matches /cancel alias: it requests interruption of current work.
 // Interruption is asynchronous; the participant remains in the session.
 type CancelCommand struct {
-	Alias string
+	Alias participant.Alias
 }
 
 func (c CancelCommand) execute(s *Session) error {
 	p, ok := s.lookupParticipant(c.Alias)
 	if !ok {
-		return fmt.Errorf("participant %q not found", c.Alias)
+		return fmt.Errorf("participant %q not found", c.Alias.Name)
 	}
 	if !p.IsCancellable() {
-		return fmt.Errorf("participant %q not ready", c.Alias)
+		return fmt.Errorf("participant %q not ready", c.Alias.Name)
 	}
 	if err := p.Agent.Interrupt(); err != nil {
-		return fmt.Errorf("interrupt %q: %w", c.Alias, err)
+		return fmt.Errorf("interrupt %q: %w", c.Alias.Name, err)
 	}
 	return nil
 }

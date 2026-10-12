@@ -36,7 +36,7 @@ func (w *stageWorkflow) start(raw string, statement promptlang.Statement) instru
 	if plan.broadcast != nil {
 		return instructionSequence{planBroadcastInstruction{target: ref}}
 	}
-	return instructionSequence{readParticipantStateInstruction{target: ref}}
+	return instructionSequence{prepareHandoffInstruction{target: ref, from: handoff.action.FromAlias.Value, to: handoff.action.ToAlias.Value}}
 }
 
 // retainPlanUntilReady is the suspension point. After publishing queued success,
@@ -86,9 +86,6 @@ func (w *stageWorkflow) handleParticipantState(result participantStateResult) in
 	}
 	if w.active.broadcast != nil {
 		return w.prepareBroadcast(result)
-	}
-	if w.active.handoff != nil {
-		return w.prepareHandoff(result)
 	}
 	return nil // Sends obtain readiness in their synchronous preparation result.
 }

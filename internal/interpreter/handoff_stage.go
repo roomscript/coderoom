@@ -10,13 +10,15 @@ import (
 // context. Shared participant readiness remains owned by stageRequirements.
 type handoffStage struct {
 	action                promptlang.Handoff
+	from                  participant.Alias
+	to                    participant.Alias
 	sourceNeedsCompletion bool
 	completed             *session.HandoffDelivered
 }
 
 func (h *handoffStage) captureCompletion(event session.Event) {
 	delivered, ok := event.(session.HandoffDelivered)
-	if !ok || delivered.FromAlias != h.action.FromAlias.Value || delivered.ToAlias != h.action.ToAlias.Value {
+	if !ok || delivered.FromAlias != h.from || delivered.ToAlias != h.to {
 		return
 	}
 	h.completed = &delivered
@@ -24,7 +26,7 @@ func (h *handoffStage) captureCompletion(event session.Event) {
 
 func (h *handoffStage) trackSourceCompletion(participants []participantState) {
 	for _, value := range participants {
-		if value.alias == h.action.FromAlias.Value {
+		if value.alias == h.from {
 			h.sourceNeedsCompletion = value.view().HasActiveTurn()
 			return
 		}
@@ -32,29 +34,29 @@ func (h *handoffStage) trackSourceCompletion(participants []participantState) {
 }
 
 func (h *handoffStage) updateSourceStatus(event session.ParticipantStatusChanged) {
-	if event.Alias == h.action.FromAlias.Value && (participant.View{Status: event.To}).HasActiveTurn() {
+	if event.Alias == h.from && (participant.View{Status: event.To}).HasActiveTurn() {
 		h.sourceNeedsCompletion = true
 	}
 }
 
 func (h *handoffStage) completeSourceTurn(event session.AgentMessage, expectedTurnID uint64) bool {
-	if event.Alias != h.action.FromAlias.Value || !event.TurnCompleted || event.TurnID < expectedTurnID {
+	if event.Alias != h.from || !event.TurnCompleted || event.TurnID < expectedTurnID {
 		return false
 	}
 	h.sourceNeedsCompletion = false
 	return true
 }
 
-func (h *handoffStage) routing() []string {
-	if h.action.FromAlias.Value == h.action.ToAlias.Value {
-		return []string{h.action.FromAlias.Value}
+func (h *handoffStage) routing() []participant.Alias {
+	if h.from == h.to {
+		return []participant.Alias{h.from}
 	}
-	return []string{h.action.FromAlias.Value, h.action.ToAlias.Value}
+	return []participant.Alias{h.from, h.to}
 }
 
-func (h *handoffStage) deliveryRequest(source session.HandoffSource, requiredReadyAliases []string) handoffRequest {
+func (h *handoffStage) deliveryRequest(source session.HandoffSource, requiredReadyAliases []participant.Alias) handoffRequest {
 	return handoffRequest{
-		fromAlias: h.action.FromAlias.Value, toAlias: h.action.ToAlias.Value,
+		fromAlias: h.from, toAlias: h.to,
 		requiredReadyAliases: requiredReadyAliases, source: source,
 	}
 }

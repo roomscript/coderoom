@@ -146,9 +146,10 @@ concrete `*session.Session`. The interface is declared by the interpreter:
 type SessionController interface {
     Execute(session.Command) error
     AddObserver(session.Observer)
-    CreateParticipantSendPlan(alias string) session.ParticipantSendPlan
+    CreateParticipantSendPlan(alias participant.Alias) session.ParticipantSendPlan
     Participants() []participant.View
-    Participant(alias string) (participant.View, bool)
+    Participant(alias participant.Alias) (participant.View, bool)
+    ParticipantByName(name string) (participant.View, bool)
     Shutdown()
 }
 ```
@@ -158,6 +159,12 @@ readiness, and turn identity. The interpreter selects its shared-room recipients
 using View predicates; Session supplies all registered participants in one
 locked list rather than separate APIs for participant lists, routable recipients,
 or readiness barriers.
+Names are resolved through Session at preparation or immediate command execution.
+Retained sends keep the opaque Session plan as their sole recipient selection;
+broadcasts keep one list of full aliases, and handoffs keep their resolved source
+and destination. Readiness, cancellation, and completion matching use full
+aliases, so replacement instances with the same name cannot resume old work.
+Stage and routing name lists are derived for presentation only.
 Send and broadcast planning freezes known recipients, including startup,
 preparing, and keepalive states. Crashed states remain in the planning snapshot
 for error classification but are excluded from broadcast and notice recipients.
@@ -687,6 +694,12 @@ behavior. A loop alternates between:
 2. waiting for the participant's terminal idle transition
 3. evaluating the named shell-backed condition
 4. finishing on success/cancellation or dispatching another turn on failure
+
+The loop resolves its primary participant once and retains that instance across
+iterations. Each turn creates a new Session send plan for that original primary,
+allowing notice recipients to follow current policy and membership. Departure
+of the original stops the loop, including during condition evaluation; events
+from a same-name replacement cannot resume it.
 
 The loop state machine consumes queued session events and shell completions on
 the interpreter loop. It never calls `session.Execute` from an agent reader or

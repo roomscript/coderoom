@@ -11,23 +11,32 @@ import (
 func TestParticipantViews_preserveStartupReadinessAndDetach(t *testing.T) {
 	s := New()
 	t.Cleanup(s.Shutdown)
-	registerIdleBeforeReadyParticipant(t, s)
-	before, ok := s.Participant("ada")
+	constructed := registerIdleBeforeReadyParticipant(t, s)
+	before, ok := s.ParticipantByName("ada")
 	if !ok || before.Status != participant.StatusIdle || before.StartupReady {
 		t.Fatalf("view = %#v, %v", before, ok)
 	}
+	assertViewIdentity(t, before, constructed)
 	all := s.Participants()
 	if len(all) != 1 || all[0] != before {
 		t.Fatalf("list differs from lookup: %#v", all)
 	}
-	if err := s.updateParticipant("ada", func(p *participant.Participant) (Event, error) { return nil, p.SessionReady() }); err != nil {
+	if err := s.updateParticipant(resolvedAda(s), func(p *participant.Participant) (Event, error) { return nil, p.SessionReady() }); err != nil {
 		t.Fatal(err)
 	}
-	after, _ := s.Participant("ada")
+	after, _ := s.ParticipantByName("ada")
 	if !after.StartupReady || before.StartupReady || all[0].StartupReady {
 		t.Fatal("startup readiness was missing or changed an earlier snapshot")
 	}
+	assertViewIdentity(t, after, constructed)
 	assertParticipantViewsDetached(t, s, all, after)
+}
+
+func assertViewIdentity(t *testing.T, view participant.View, want participant.Alias) {
+	t.Helper()
+	if want.ID == (participant.ID{}) || view.Alias != want {
+		t.Fatalf("view alias = %+v, want non-zero identity %+v", view.Alias, want)
+	}
 }
 
 func TestParticipantViews_includeAllStatesAndTurnIdentity(t *testing.T) {
@@ -55,7 +64,7 @@ func TestParticipantViews_includeAllStatesAndTurnIdentity(t *testing.T) {
 	}
 }
 
-func registerIdleBeforeReadyParticipant(t *testing.T, s *Session) {
+func registerIdleBeforeReadyParticipant(t *testing.T, s *Session) participant.Alias {
 	t.Helper()
 	p := participant.New("ada", "builder", participant.InitiativeManual)
 	now := time.Now()
@@ -69,17 +78,18 @@ func registerIdleBeforeReadyParticipant(t *testing.T, s *Session) {
 	if err := s.addParticipant(p); err != nil {
 		t.Fatal(err)
 	}
+	return p.Alias
 }
 
 func assertParticipantViewsDetached(t *testing.T, s *Session, all []participant.View, after participant.View) {
 	t.Helper()
-	all[0].Alias = "changed"
-	after.Alias = "changed"
-	current, ok := s.Participant("ada")
-	if !ok || current.Alias != "ada" {
+	all[0].Alias.Name = "changed"
+	after.Alias.Name = "changed"
+	current, ok := s.ParticipantByName("ada")
+	if !ok || current.Alias.Name != "ada" {
 		t.Fatal("snapshot mutation changed session")
 	}
-	if _, ok := s.Participant("unknown"); ok {
+	if _, ok := s.ParticipantByName("unknown"); ok {
 		t.Fatal("unknown alias was present")
 	}
 }

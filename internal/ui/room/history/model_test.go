@@ -5,36 +5,37 @@ import (
 	"testing"
 
 	"github.com/charmbracelet/x/ansi"
+	"github.com/roomscript/coderoom/internal/participant"
 	roomstate "github.com/roomscript/coderoom/internal/room"
 	rec "github.com/roomscript/coderoom/internal/ui/room/history/record"
 )
 
 func TestResolveColor_activeReturnsFromLookup(t *testing.T) {
-	m := New(func(alias string) string {
-		if alias == "ada" {
+	m := New(func(alias participant.Alias) string {
+		if alias == testAlias("ada") {
 			return "#ff0000"
 		}
 		return ""
-	}, "#6b7280")
-	if got := m.resolveColor("ada"); got != "#ff0000" {
+	}, nil, "#6b7280")
+	if got := m.resolveColor(testAlias("ada")); got != "#ff0000" {
 		t.Errorf("want #ff0000, got %q", got)
 	}
 }
 
 func TestResolveColor_departedReturnsConfiguredColor(t *testing.T) {
 	const grey = "#6b7280"
-	m := New(nil, grey)
-	m.departed = map[string]bool{"ada": true}
-	if got := m.resolveColor("ada"); got != grey {
+	m := New(nil, nil, grey)
+	m.departed = map[participant.Alias]bool{testAlias("ada"): true}
+	if got := m.resolveColor(testAlias("ada")); got != grey {
 		t.Errorf("want %q, got %q", grey, got)
 	}
 }
 
 func TestResolveColor_departedTakesPrecedenceOverActive(t *testing.T) {
 	const grey = "#6b7280"
-	m := New(func(string) string { return "#ff0000" }, grey)
-	m.departed = map[string]bool{"ada": true}
-	if got := m.resolveColor("ada"); got != grey {
+	m := New(func(participant.Alias) string { return "#ff0000" }, nil, grey)
+	m.departed = map[participant.Alias]bool{testAlias("ada"): true}
+	if got := m.resolveColor(testAlias("ada")); got != grey {
 		t.Errorf("want departed color %q, got %q", grey, got)
 	}
 }
@@ -66,17 +67,17 @@ func TestJoinRenderedForViewport_systemRecordsStayCompact(t *testing.T) {
 
 func TestApplyDelta_preservesUnchangedRenderCaches(t *testing.T) {
 	calls := 0
-	m := New(func(alias string) string {
+	m := New(func(alias participant.Alias) string {
 		calls++
-		if alias == "ada" {
+		if alias == testAlias("ada") {
 			return "#ff0000"
 		}
 		return "#00ff00"
-	}, "#6b7280")
+	}, nil, "#6b7280")
 	m = m.SetSize(80, 10)
 	m = m.ReplaceSnapshot(roomstate.Snapshot{Records: []rec.Record{
-		{Kind: rec.KindAgentOutput, Alias: "ada", Text: "first"},
-		{Kind: rec.KindAgentOutput, Alias: "bob", Text: "second"},
+		{Kind: rec.KindAgentOutput, Alias: testAlias("ada"), Text: "first"},
+		{Kind: rec.KindAgentOutput, Alias: testAlias("bob"), Text: "second"},
 	}})
 	if calls == 0 {
 		t.Fatal("expected initial render to resolve colors")
@@ -86,10 +87,10 @@ func TestApplyDelta_preservesUnchangedRenderCaches(t *testing.T) {
 	m.ApplyRoomDelta(roomstate.Delta{
 		RecordUpdates: []roomstate.IndexedRecord{{
 			Index:  1,
-			Record: rec.Record{Kind: rec.KindAgentOutput, Alias: "bob", Text: "updated"},
+			Record: rec.Record{Kind: rec.KindAgentOutput, Alias: testAlias("bob"), Text: "updated"},
 		}},
 		Meta: roomstate.DeltaMeta{
-			Departed:    map[string]bool{},
+			Departed:    map[participant.Alias]bool{},
 			OpenStreams: nil,
 		},
 	})
@@ -100,20 +101,20 @@ func TestApplyDelta_preservesUnchangedRenderCaches(t *testing.T) {
 
 func TestApplyDelta_departedChangeInvalidatesRenderCaches(t *testing.T) {
 	calls := 0
-	m := New(func(alias string) string {
+	m := New(func(alias participant.Alias) string {
 		calls++
-		if alias == "ada" {
+		if alias == testAlias("ada") {
 			return "#ff0000"
 		}
 		return "#00ff00"
-	}, "#6b7280")
+	}, nil, "#6b7280")
 	m = m.SetSize(80, 10)
 	m = m.ReplaceSnapshot(roomstate.Snapshot{
 		Records: []rec.Record{
-			{Kind: rec.KindAgentOutput, Alias: "ada", Text: "first"},
-			{Kind: rec.KindAgentOutput, Alias: "bob", Text: "second"},
+			{Kind: rec.KindAgentOutput, Alias: testAlias("ada"), Text: "first"},
+			{Kind: rec.KindAgentOutput, Alias: testAlias("bob"), Text: "second"},
 		},
-		Departed: map[string]bool{},
+		Departed: map[participant.Alias]bool{},
 	})
 	if calls == 0 {
 		t.Fatal("expected initial render to resolve colors")
@@ -123,7 +124,7 @@ func TestApplyDelta_departedChangeInvalidatesRenderCaches(t *testing.T) {
 	calls = 0
 	m = m.ApplyRoomDelta(roomstate.Delta{
 		Meta: roomstate.DeltaMeta{
-			Departed: map[string]bool{"ada": true},
+			Departed: map[participant.Alias]bool{testAlias("ada"): true},
 		},
 	})
 	after := m.RenderedContent()
@@ -133,7 +134,7 @@ func TestApplyDelta_departedChangeInvalidatesRenderCaches(t *testing.T) {
 	if calls != 1 {
 		t.Fatalf("expected active-color lookup for unchanged active records, got %d", calls)
 	}
-	if !m.IsDeparted("ada") {
+	if !m.IsDeparted(testAlias("ada")) {
 		t.Fatal("expected ada to be marked departed")
 	}
 	if m.colorVersion == 0 {

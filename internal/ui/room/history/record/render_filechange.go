@@ -7,6 +7,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/roomscript/coderoom/internal/interpreter"
+	"github.com/roomscript/coderoom/internal/participant"
 	"github.com/roomscript/coderoom/internal/ui/palette"
 )
 
@@ -23,9 +24,9 @@ func fileChangeFieldsFromRecord(r Record) (status string, changes []interpreter.
 
 const fileChangePreviewLines = 8
 
-func renderFileChange(r Record, width int, colors func(string) string) string {
+func renderFileChange(r Record, width int, colors func(participant.Alias) string) string {
 	color := colors(r.Alias)
-	header := renderParticipantHeader(r.Alias, color)
+	header := renderParticipantHeader(r.Alias.Name, color)
 	fileChangePrompt := renderFileChangePrompt(color)
 
 	var sb strings.Builder
@@ -120,9 +121,9 @@ func appendFileChangePatchStatus(sb *strings.Builder, r Record) {
 	sb.WriteString(logStyle.Render(fmt.Sprintf("%s%s", agentBodyIndent, status)))
 }
 
-func renderFileChangeTranscript(r Record, colors func(string) string) string {
+func renderFileChangeTranscript(r Record, colors func(participant.Alias) string) string {
 	color := colors(r.Alias)
-	header := renderParticipantHeader(r.Alias, color)
+	header := renderParticipantHeader(r.Alias.Name, color)
 	fileChangePrompt := renderFileChangePrompt(color)
 	var sb strings.Builder
 	sb.WriteString(header)

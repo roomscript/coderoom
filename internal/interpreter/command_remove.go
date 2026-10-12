@@ -2,9 +2,10 @@ package interpreter
 
 import (
 	"github.com/roomscript/coderoom/internal/promptlang"
-	"github.com/roomscript/coderoom/internal/session"
 )
 
 func (*interpreterModel) submitRemove(raw string, remove promptlang.Remove) instructionSequence {
-	return sessionSubmissionSequence(raw, "remove", session.RemoveCommand{Alias: remove.Alias.Value})
+	return append(acceptedInputSequence(raw), executeParticipantCommandInstruction{
+		name: remove.Alias.Value, remove: true, outcome: submissionOutcome{raw: raw, operation: "remove"},
+	})
 }

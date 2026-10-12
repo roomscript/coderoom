@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/roomscript/coderoom/internal/participant"
 	"github.com/roomscript/coderoom/internal/session"
 )
 
@@ -11,7 +12,7 @@ import (
 type sessionRequest interface{ sessionRequest() }
 
 type createPlanAndExecuteParticipantSendRequest struct {
-	alias   string
+	alias   participant.Alias
 	message string
 	notice  string
 }
@@ -23,16 +24,16 @@ type executePlannedParticipantSendRequest struct {
 }
 
 type broadcastRequest struct {
-	aliases []string
+	aliases []participant.Alias
 	text    string
 }
 
-type cancelRequest struct{ alias string }
+type cancelRequest struct{ alias participant.Alias }
 
 type handoffRequest struct {
-	fromAlias            string
-	toAlias              string
-	requiredReadyAliases []string
+	fromAlias            participant.Alias
+	toAlias              participant.Alias
+	requiredReadyAliases []participant.Alias
 	source               session.HandoffSource
 }
 
@@ -92,7 +93,7 @@ func (e *interpreterExecutor) executeBroadcastRequest(request broadcastRequest) 
 
 func (e *interpreterExecutor) executeCancelRequest(request cancelRequest) error {
 	if err := e.session.Execute(session.CancelCommand{Alias: request.alias}); err != nil {
-		return fmt.Errorf("cancel %q: %w", request.alias, err)
+		return fmt.Errorf("cancel %q: %w", request.alias.Name, err)
 	}
 	return nil
 }

@@ -6,11 +6,10 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/roomscript/coderoom/internal/agent"
 	"github.com/roomscript/coderoom/internal/interpreter/runtime"
-	"github.com/roomscript/coderoom/internal/interpreter/std"
+	"github.com/roomscript/coderoom/internal/participant"
 	"github.com/roomscript/coderoom/internal/promptlang"
-	"github.com/roomscript/coderoom/internal/shell"
+	"github.com/roomscript/coderoom/internal/room"
 )
 
 // prototypeInterpreter demonstrates host code without wiring the real interpreter.
@@ -86,9 +85,10 @@ func (h *prototypeInterpreter) close(reason error) {
 	}
 }
 
-func TestInvocationLifecycle_InterpreterWhoFlow(t *testing.T) {
+func TestInvocationLifecycle_InterpreterImmediateFlow(t *testing.T) {
 	host := newPrototypeInterpreter()
-	err := host.submit(std.WhoCommand{}, promptlang.ParsedStatement{Located: promptlang.Located[promptlang.Statement]{Value: promptlang.Who{}}}, runtime.Context{Participants: participantReader{}})
+	i := &invocation{immediate: true, result: runtime.CommandResult{Records: []room.Record{{Kind: room.KindSystem, Text: "finished"}}}}
+	err := host.submit(&command{invocation: i}, promptlang.ParsedStatement{}, runtime.Context{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +98,7 @@ func TestInvocationLifecycle_InterpreterWhoFlow(t *testing.T) {
 	op := <-host.queue
 	host.apply(op)
 	host.apply(op)
-	if len(host.completions) != 1 || host.completions[0].Records[0].Text != "[agents] ada" || len(host.pending) != 0 {
+	if len(host.completions) != 1 || host.completions[0].Records[0].Text != "finished" || len(host.pending) != 0 {
 		t.Fatalf("completed = %#v, pending = %d", host.completions, len(host.pending))
 	}
 	if !reflect.DeepEqual(host.publications, []string{"submission succeeded", "completion"}) {
@@ -110,50 +110,27 @@ func TestInvocationLifecycle_InterpreterWhoFlow(t *testing.T) {
 	}
 }
 
-type prototypeShellLauncher struct {
-	complete func(shell.Result)
-}
-
-func (*prototypeShellLauncher) Cwd() string { return "/workspace" }
-func (l *prototypeShellLauncher) Go(_ string, complete func(shell.Result)) error {
-	l.complete = complete
-	return nil
-}
-
-func TestInvocationLifecycle_InterpreterShellFlow(t *testing.T) {
+func TestInvocationLifecycle_InterpreterDelayedFlow(t *testing.T) {
 	host := newPrototypeInterpreter()
-	launcher := &prototypeShellLauncher{}
-	statement := promptlang.ParsedStatement{Located: promptlang.Located[promptlang.Statement]{Value: promptlang.Shell{Program: promptlang.Located[string]{Value: "echo hello"}}}}
-	if err := host.submit(std.ShellCommand{}, statement, runtime.Context{Shell: launcher}); err != nil {
+	i := &invocation{}
+	if err := host.submit(&command{invocation: i}, promptlang.ParsedStatement{}, runtime.Context{}); err != nil {
 		t.Fatal(err)
 	}
 	if len(host.queue) != 0 || len(host.pending) != 1 {
-		t.Fatal("shell did not remain pending")
+		t.Fatal("invocation did not remain pending")
 	}
-	// Complete on a worker: the callback enqueues but cannot publish or change state.
+	want := runtime.CommandResult{Records: []room.Record{{Kind: room.KindSystem, Text: "finished"}}}
+	// Worker completion can enqueue but cannot publish or change host state.
 	done := make(chan struct{})
-	go func() {
-		launcher.complete(shell.Result{Status: shell.StatusSuccess, Stdout: "hello"})
-		close(done)
-	}()
+	go func() { i.complete(want); close(done) }()
 	<-done
 	if len(host.completions) != 0 || len(host.pending) != 1 {
 		t.Fatal("worker mutated host lifecycle or publication")
 	}
 	// Accepted completion survives shutdown because the host drains before closing.
 	host.close(errors.New("closed"))
-	if len(host.completions) != 1 || host.completions[0].Err != nil {
-		t.Fatalf("shell completion = %#v", host.completions)
-	}
-	assertPrototypeShellCompletion(t, host.completions[0])
-}
-
-func assertPrototypeShellCompletion(t *testing.T, completion runtime.CommandResult) {
-	t.Helper()
-	record := completion.Records[0]
-	command, ok := record.Msg.Content.(agent.Command)
-	if !ok || command.Command != "echo hello" || command.Cwd != "/workspace" {
-		t.Fatalf("shell record = %#v", record)
+	if !reflect.DeepEqual(host.completions, []runtime.CommandResult{want}) || len(host.pending) != 0 {
+		t.Fatalf("completion = %#v, pending = %d", host.completions, len(host.pending))
 	}
 }
 
@@ -165,7 +142,7 @@ func TestInvocationLifecycle_FailedLaunchAndMissingStagingCapabilities(t *testin
 		wantErr    error
 	}{
 		{name: "callback before failed launch", invocation: &invocation{err: failure, immediate: true}, wantErr: failure},
-		{name: "missing staging capabilities", invocation: &invocation{staging: &runtime.Staging{WaitFor: []string{"ada"}}}},
+		{name: "missing staging capabilities", invocation: &invocation{staging: &runtime.Staging{WaitFor: []participant.Alias{participant.New("ada", "builder", participant.InitiativeManual).Alias}}}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			host := newPrototypeInterpreter()

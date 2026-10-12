@@ -23,7 +23,6 @@ import (
 // The fake delivers one shared session feed to all active subscriptions. Events
 // are queued until the host drains them, including events emitted by Execute.
 type sendDelivery struct {
-	alias              string
 	notices            bool
 	planner            *session.Session
 	plans              []session.ParticipantSendPlan
@@ -49,7 +48,7 @@ type sendOutcome struct {
 	Err                       error
 }
 
-func (d *sendDelivery) CreateParticipantSendPlan(alias string) session.ParticipantSendPlan {
+func (d *sendDelivery) CreateParticipantSendPlan(alias participant.Alias) session.ParticipantSendPlan {
 	plan := d.planner.CreateParticipantSendPlan(alias)
 	d.plans = append(d.plans, plan)
 	return plan
@@ -70,6 +69,13 @@ func initializeSendPlanner(t *testing.T, d *sendDelivery) {
 	for _, alias := range []string{"ada", "tim"} {
 		if err := d.planner.Execute(session.InviteCommand{Alias: alias}); err != nil {
 			t.Fatal(err)
+		}
+	}
+	if d.views == nil {
+		for _, name := range []string{"ada", "tim"} {
+			view, _ := d.planner.ParticipantByName(name)
+			view.Status, view.StartupReady = participant.StatusIdle, true
+			d.views = append(d.views, view)
 		}
 	}
 	if d.notices {
@@ -113,7 +119,6 @@ func (d *sendDelivery) Execute(command session.Command) error {
 	d.command = request
 	d.order = append(d.order, "execute")
 	d.launches++
-	d.alias = request.Plan.PrimaryParticipant()
 	d.message, d.notice = request.Message, request.Notice
 	during, err := d.duringExecute, d.err
 	d.mu.Unlock()
@@ -136,10 +141,10 @@ func (d *sendDelivery) emit(outcome sendOutcome) {
 	} {
 		for _, alias := range group.aliases {
 			role := session.RecipientNotice
-			if alias == d.alias {
+			if alias == d.command.Plan.PrimaryParticipant().Name {
 				role = session.RecipientPrimary
 			}
-			result.Recipients = append(result.Recipients, session.RecipientResult{Alias: alias, Role: role, Status: group.status})
+			result.Recipients = append(result.Recipients, session.RecipientResult{Alias: d.frozenAlias(alias), Role: role, Status: group.status})
 		}
 	}
 	d.queue = append(d.queue, session.RoutingCompleted{Result: result})
@@ -200,11 +205,48 @@ func receiveSendCompletion(t *testing.T, queue <-chan runtime.CommandResult) run
 	}
 }
 
-func sendParticipants() []participant.View {
-	return []participant.View{
-		{Alias: "ada", Status: participant.StatusIdle, StartupReady: true},
-		{Alias: "tim", Status: participant.StatusIdle, StartupReady: true},
+func newSendDelivery(t *testing.T, notices bool) *sendDelivery {
+	t.Helper()
+	d := &sendDelivery{notices: notices}
+	initializeSendPlanner(t, d)
+	return d
+}
+
+func (d *sendDelivery) ParticipantByName(name string) (participant.View, bool) {
+	for _, view := range d.views {
+		if view.Alias.Name == name {
+			return view, true
+		}
 	}
+	return participant.View{}, false
+}
+
+func (d *sendDelivery) frozenAlias(name string) participant.Alias {
+	for _, plan := range d.plans {
+		for _, alias := range plan.Targets() {
+			if alias.Name == name {
+				return alias
+			}
+		}
+	}
+	if d.planner != nil {
+		if view, ok := d.planner.ParticipantByName(name); ok {
+			return view.Alias
+		}
+	}
+	return participant.Alias{Name: name}
+}
+
+func newTestAlias(name string) participant.Alias {
+	return participant.New(name, "builder", participant.InitiativeManual).Alias
+}
+
+func aliasNames(aliases []participant.Alias) []string {
+	names := make([]string, len(aliases))
+	for i, alias := range aliases {
+		names[i] = alias.Name
+	}
+	return names
 }
 
 func parseSendStatement(t *testing.T, raw string) promptlang.ParsedStatement {
@@ -219,10 +261,7 @@ func parseSendStatement(t *testing.T, raw string) promptlang.ParsedStatement {
 func prepareSendInvocation(t *testing.T, delivery *sendDelivery, raw string) runtime.Invocation {
 	t.Helper()
 	initializeSendPlanner(t, delivery)
-	if delivery.views == nil {
-		delivery.views = sendParticipants()
-	}
-	invocation, err := (std.SendCommand{}).Prepare(parseSendStatement(t, raw), runtime.Context{Session: delivery, Participants: participantReader{views: sendParticipants()}})
+	invocation, err := (std.SendCommand{}).Prepare(parseSendStatement(t, raw), runtime.Context{Session: delivery, Participants: participantReader{views: delivery.views}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -232,7 +271,7 @@ func prepareSendInvocation(t *testing.T, delivery *sendDelivery, raw string) run
 func TestSendCommand_PrepareRetainsSessionPlan(t *testing.T) {
 	delivery := &sendDelivery{}
 	initializeSendPlanner(t, delivery)
-	ctx := runtime.Context{Session: delivery, Participants: participantReader{views: sendParticipants()}}
+	ctx := runtime.Context{Session: delivery, Participants: participantReader{views: delivery.views}}
 	first, err := (std.SendCommand{}).Prepare(parseSendStatement(t, "@ada first"), ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -247,7 +286,7 @@ func TestSendCommand_PrepareRetainsSessionPlan(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(first.Staging().ToInform) != 0 || !slices.Equal(second.Staging().ToInform, []string{"tim"}) {
+	if len(first.Staging().ToInform) != 0 || !slices.Equal(second.Staging().ToInform, []participant.Alias{delivery.frozenAlias("tim")}) {
 		t.Fatal("session policy change altered retained plan or was ignored by next preparation")
 	}
 	assertSendUsesRetainedPlan(t, first, delivery)
@@ -256,12 +295,12 @@ func TestSendCommand_PrepareRetainsSessionPlan(t *testing.T) {
 func assertSendUsesRetainedPlan(t *testing.T, invocation runtime.Invocation, delivery *sendDelivery) {
 	t.Helper()
 	// Staging is a detached readiness description, not a second delivery plan.
-	invocation.Staging().WaitFor[0] = "changed"
+	invocation.Staging().WaitFor[0].Name = "changed"
 	if err := invocation.Go(func(runtime.CommandResult) {}); err != nil {
 		t.Fatal(err)
 	}
 	defer invocation.Close()
-	if !reflect.DeepEqual(delivery.command.Plan, delivery.plans[0]) || delivery.alias != "ada" || delivery.message != "first" {
+	if !reflect.DeepEqual(delivery.command.Plan, delivery.plans[0]) || delivery.command.Plan.PrimaryParticipant().Name != "ada" || delivery.message != "first" {
 		t.Fatal("execution did not retain the original session plan and payload")
 	}
 	if len(delivery.plans) != 2 {
@@ -274,11 +313,11 @@ func TestSendCommand_StagingDescribesSessionPlan(t *testing.T) {
 		t.Run(map[bool]string{false: "notices disabled", true: "notices enabled"}[notices], func(t *testing.T) {
 			delivery := &sendDelivery{notices: notices}
 			invocation := prepareSendInvocation(t, delivery, "@ada work")
-			var noticesWant []string
+			var noticesWant []participant.Alias
 			if notices {
-				noticesWant = []string{"tim"}
+				noticesWant = []participant.Alias{delivery.frozenAlias("tim")}
 			}
-			if !slices.Equal(invocation.Staging().WaitFor, []string{delivery.plans[0].PrimaryParticipant()}) || !slices.Equal(invocation.Staging().ToInform, noticesWant) {
+			if !slices.Equal(invocation.Staging().WaitFor, []participant.Alias{delivery.plans[0].PrimaryParticipant()}) || !slices.Equal(invocation.Staging().ToInform, noticesWant) {
 				t.Fatal("staging differs from session-selected recipients")
 			}
 		})
@@ -347,7 +386,7 @@ func TestSendCommand_PrepareFailures(t *testing.T) {
 		{name: "missing source", statement: withoutSource, ctx: runtime.Context{Session: &sendDelivery{}}},
 		{name: "missing participant reads", statement: parseSendStatement(t, "@ada work"), ctx: runtime.Context{Session: &sendDelivery{}}},
 		{name: "missing primary", statement: parseSendStatement(t, "@ada work"), ctx: runtime.Context{Session: &sendDelivery{}, Participants: participantReader{}}},
-		{name: "crashed primary", statement: parseSendStatement(t, "@ada work"), ctx: runtime.Context{Session: &sendDelivery{}, Participants: participantReader{views: []participant.View{{Alias: "ada", Status: participant.StatusCrashed}}}}},
+		{name: "crashed primary", statement: parseSendStatement(t, "@ada work"), ctx: runtime.Context{Session: &sendDelivery{views: []participant.View{{Alias: newTestAlias("ada"), Status: participant.StatusCrashed}}}, Participants: participantReader{}}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			invocation, err := (std.SendCommand{}).Prepare(tt.statement, tt.ctx)
@@ -402,7 +441,7 @@ func TestSendCommand_ContinuationUsesSharedFeed(t *testing.T) {
 	if err := b.Go(func(runtime.CommandResult) { counts[1]++ }); err != nil {
 		t.Fatal(err)
 	}
-	delivery.queue = append(delivery.queue, session.AgentReady{Alias: "ada"},
+	delivery.queue = append(delivery.queue, session.AgentReady{Alias: delivery.frozenAlias("ada")},
 		session.RoutingCompleted{Result: session.RoutingResult{Kind: session.RoutingBroadcast}})
 	delivery.drain()
 	if counts != [2]int{} {
@@ -415,7 +454,7 @@ func TestSendCommand_ContinuationUsesSharedFeed(t *testing.T) {
 	}
 	delivery.queue = append(delivery.queue, session.RoutingCompleted{Result: session.RoutingResult{
 		Kind:       session.RoutingParticipantSend,
-		Recipients: []session.RecipientResult{{Alias: "ada", Role: session.RecipientPrimary, Status: session.DeliveryDelivered}},
+		Recipients: []session.RecipientResult{{Alias: delivery.frozenAlias("ada"), Role: session.RecipientPrimary, Status: session.DeliveryDelivered}},
 	}})
 	delivery.drain()
 	if counts != [2]int{1, 1} || len(delivery.handlers) != 0 {
@@ -423,25 +462,35 @@ func TestSendCommand_ContinuationUsesSharedFeed(t *testing.T) {
 	}
 }
 
-func TestSendCommand_IgnoresOtherPrimaryRouting(t *testing.T) {
-	for _, tt := range []struct {
-		name       string
-		recipients []session.RecipientResult
-	}{
+type otherPrimaryRoutingCase struct {
+	name       string
+	recipients func(*sendDelivery) []session.RecipientResult
+}
+
+func otherPrimaryRoutingCases() []otherPrimaryRoutingCase {
+	return []otherPrimaryRoutingCase{
 		{
 			name: "different primary",
-			recipients: []session.RecipientResult{
-				{Alias: "tim", Role: session.RecipientPrimary, Status: session.DeliveryDelivered},
+			recipients: func(delivery *sendDelivery) []session.RecipientResult {
+				return []session.RecipientResult{
+					{Alias: delivery.frozenAlias("tim"), Role: session.RecipientPrimary, Status: session.DeliveryDelivered},
+				}
 			},
 		},
 		{
 			name: "our alias is only a notice recipient",
-			recipients: []session.RecipientResult{
-				{Alias: "tim", Role: session.RecipientPrimary, Status: session.DeliveryDelivered},
-				{Alias: "ada", Role: session.RecipientNotice, Status: session.DeliveryDelivered},
+			recipients: func(delivery *sendDelivery) []session.RecipientResult {
+				return []session.RecipientResult{
+					{Alias: delivery.frozenAlias("tim"), Role: session.RecipientPrimary, Status: session.DeliveryDelivered},
+					{Alias: delivery.frozenAlias("ada"), Role: session.RecipientNotice, Status: session.DeliveryDelivered},
+				}
 			},
 		},
-	} {
+	}
+}
+
+func TestSendCommand_IgnoresOtherPrimaryRouting(t *testing.T) {
+	for _, tt := range otherPrimaryRoutingCases() {
 		t.Run(tt.name, func(t *testing.T) {
 			delivery := &sendDelivery{}
 			invocation := prepareSendInvocation(t, delivery, "@ada work")
@@ -453,7 +502,7 @@ func TestSendCommand_IgnoresOtherPrimaryRouting(t *testing.T) {
 				t.Fatal(err)
 			}
 			delivery.queue = append(delivery.queue, session.RoutingCompleted{Result: session.RoutingResult{
-				Kind: session.RoutingParticipantSend, Recipients: tt.recipients,
+				Kind: session.RoutingParticipantSend, Recipients: tt.recipients(delivery),
 			}})
 			delivery.drain()
 			if len(completions) != 0 || len(delivery.handlers) == 0 {
@@ -462,7 +511,7 @@ func TestSendCommand_IgnoresOtherPrimaryRouting(t *testing.T) {
 			delivery.queue = append(delivery.queue, session.RoutingCompleted{Result: session.RoutingResult{
 				Kind: session.RoutingParticipantSend,
 				Recipients: []session.RecipientResult{
-					{Alias: "ada", Role: session.RecipientPrimary, Status: session.DeliveryDelivered},
+					{Alias: delivery.frozenAlias("ada"), Role: session.RecipientPrimary, Status: session.DeliveryDelivered},
 				},
 			}})
 			delivery.drain()
@@ -514,7 +563,7 @@ func TestSendCommand_StagingDiscardInformUpdatesPlan(t *testing.T) {
 			defer invocation.Close()
 			staging := invocation.Staging()
 			for _, alias := range tt.departed {
-				staging.DiscardInform(alias)
+				staging.DiscardInform(delivery.frozenAlias(alias))
 			}
 			if delivery.launches != 0 {
 				t.Fatal("discard delivered work")
@@ -523,7 +572,7 @@ func TestSendCommand_StagingDiscardInformUpdatesPlan(t *testing.T) {
 				t.Fatal(err)
 			}
 			assertDiscardedNoticePlan(t, delivery, tt.targets)
-			if !slices.Equal(staging.ToInform, []string{"tim"}) {
+			if !slices.Equal(staging.ToInform, []participant.Alias{delivery.frozenAlias("tim")}) {
 				t.Fatal("callback mutated frozen readiness description")
 			}
 		})
@@ -532,10 +581,10 @@ func TestSendCommand_StagingDiscardInformUpdatesPlan(t *testing.T) {
 
 func assertDiscardedNoticePlan(t *testing.T, delivery *sendDelivery, targets []string) {
 	t.Helper()
-	if !slices.Equal(delivery.command.Plan.Targets(), targets) {
+	if !slices.Equal(aliasNames(delivery.command.Plan.Targets()), targets) {
 		t.Fatalf("delivery targets = %v, want %v", delivery.command.Plan.Targets(), targets)
 	}
-	if len(delivery.plans) != 1 || !slices.Equal(delivery.plans[0].Targets(), []string{"ada", "tim"}) {
+	if len(delivery.plans) != 1 || !slices.Equal(delivery.plans[0].Targets(), []participant.Alias{delivery.frozenAlias("ada"), delivery.frozenAlias("tim")}) {
 		t.Fatal("discard changed the original plan or caused reselection")
 	}
 }
@@ -553,7 +602,7 @@ func TestSendCommand_DiscardInformAfterLaunchOrCloseIsIgnored(t *testing.T) {
 			} else {
 				invocation.Close()
 			}
-			invocation.Staging().DiscardInform("tim")
+			invocation.Staging().DiscardInform(delivery.frozenAlias("tim"))
 			if launch {
 				assertDiscardedNoticePlan(t, delivery, []string{"ada", "tim"})
 			}

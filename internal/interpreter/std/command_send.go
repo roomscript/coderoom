@@ -31,17 +31,18 @@ func (SendCommand) Description() string { return "send to one agent" }
 // Statement identifies the accepted parsed statement.
 func (SendCommand) Statement() promptlang.Statement { return promptlang.Send{} }
 
-// Prepare validates the target and asks Session to select recipients once.
+// Prepare resolves the target through Session and selects recipients once.
 // The invocation retains that delivery plan; staging describes its readiness needs.
 func (SendCommand) Prepare(parsed promptlang.ParsedStatement, ctx runtime.Context) (runtime.Invocation, error) {
 	statement, err := validateSendInput(parsed, ctx)
 	if err != nil {
 		return nil, err
 	}
-	if err := validateSendTarget(statement.Alias.Value, ctx.Participants.Participants()); err != nil {
+	alias, err := resolveSendTarget(statement.Alias.Value, ctx.Session)
+	if err != nil {
 		return nil, fmt.Errorf("prepare send: %w", err)
 	}
-	plan := ctx.Session.CreateParticipantSendPlan(statement.Alias.Value)
+	plan := ctx.Session.CreateParticipantSendPlan(alias)
 	if len(plan.Targets()) == 0 {
 		return nil, errors.New("send requires a valid participant send plan")
 	}
@@ -67,17 +68,15 @@ func validateSendInput(parsed promptlang.ParsedStatement, ctx runtime.Context) (
 
 // Missing and crashed targets fail preparation. Busy and starting targets are
 // valid: the lifecycle waits for readiness, and Session checks again at delivery.
-func validateSendTarget(alias string, participants []participant.View) error {
-	for _, view := range participants {
-		if view.Alias != alias {
-			continue
-		}
-		if view.Status == participant.StatusCrashed {
-			return fmt.Errorf("participant %q is unavailable", alias)
-		}
-		return nil
+func resolveSendTarget(name string, execution runtime.SessionExecution) (participant.Alias, error) {
+	view, ok := execution.ParticipantByName(name)
+	if !ok {
+		return participant.Alias{}, fmt.Errorf("participant %q not found", name)
 	}
-	return fmt.Errorf("participant %q not found", alias)
+	if view.Status == participant.StatusCrashed {
+		return participant.Alias{}, fmt.Errorf("participant %q is unavailable", name)
+	}
+	return view.Alias, nil
 }
 
 type sendState uint8
@@ -114,20 +113,20 @@ func newSendInvocation(statement promptlang.Send, raw string, plan session.Parti
 
 func deriveSendStaging(plan session.ParticipantSendPlan) *runtime.Staging {
 	primary := plan.PrimaryParticipant()
-	notices := slices.DeleteFunc(plan.Targets(), func(alias string) bool { return alias == primary })
-	return &runtime.Staging{WaitFor: []string{primary}, ToInform: notices}
+	notices := slices.DeleteFunc(plan.Targets(), func(alias participant.Alias) bool { return alias == primary })
+	return &runtime.Staging{WaitFor: []participant.Alias{primary}, ToInform: notices}
 }
 
 func (i *sendInvocation) Staging() *runtime.Staging { return i.staging }
 
 // discardInform changes the frozen delivery plan only before execution starts.
-func (i *sendInvocation) discardInform(alias string) {
+func (i *sendInvocation) discardInform(alias participant.Alias) {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 	if i.state != sendPrepared {
 		return
 	}
-	i.command.Plan = i.command.Plan.DiscardUnavailableNoticeRecipients([]string{alias})
+	i.command.Plan = i.command.Plan.DiscardUnavailableNoticeRecipients([]participant.Alias{alias})
 }
 
 // Go subscribes before admitting delivery. Admission errors return here;
@@ -189,7 +188,7 @@ func (i *sendInvocation) acceptDelivery(result session.RoutingResult) func() {
 }
 
 // matchesDelivery is called with the invocation locked. A notice to our alias
-// does not identify our send; the result must name our primary recipient.
+// does not identify our send; the result must identify our primary instance.
 func (i *sendInvocation) matchesDelivery(result session.RoutingResult) bool {
 	if result.Kind != session.RoutingParticipantSend {
 		return false

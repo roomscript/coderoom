@@ -12,9 +12,9 @@ import (
 
 func startReadinessHandoff(workflow *stageWorkflow, sourceStatus participant.Status, bystanderStatus participant.Status) {
 	sequence := workflow.start("/handoff ada turing", promptlang.Handoff{FromAlias: located("ada"), ToAlias: located("turing")})
-	read := sequence[0].(readParticipantStateInstruction)
-	workflow.handleCompletion(participantStateResult{target: read.target, readinessRequirements: []participantState{
-		{alias: "ada", status: sourceStatus}, {alias: "turing", status: participant.StatusIdle}, {alias: "ben", status: bystanderStatus},
+	read := sequence[0].(prepareHandoffInstruction)
+	workflow.handleCompletion(handoffPlanResult{from: testAlias(workflow.active.handoff.action.FromAlias.Value), to: testAlias(workflow.active.handoff.action.ToAlias.Value), target: read.target, participants: []participantState{
+		{alias: testAlias("ada"), status: sourceStatus}, {alias: testAlias("turing"), status: participant.StatusIdle}, {alias: testAlias("ben"), status: bystanderStatus},
 	}})
 }
 
@@ -27,13 +27,13 @@ func TestStageWorkflow_handoffTemporarySourceReadsAfterReadiness(t *testing.T) {
 				if workflow.active.handoff.sourceNeedsCompletion {
 					t.Fatal("temporary state requires a user output event")
 				}
-				sequence := workflow.handleSessionEvent(session.ParticipantStatusChanged{Alias: "ada", From: status, To: participant.StatusIdle})
+				sequence := workflow.handleSessionEvent(session.ParticipantStatusChanged{Alias: testAlias("ada"), From: status, To: participant.StatusIdle})
 				if status != participant.StatusKeepalive {
 					assertNoHandoffSourceRead(t, sequence)
-					sequence = workflow.handleSessionEvent(session.AgentReady{Alias: "ada"})
+					sequence = workflow.handleSessionEvent(session.AgentReady{Alias: testAlias("ada")})
 				}
 				read, ok := sequence[0].(readHandoffSourceInstruction)
-				if !ok || read.alias != "ada" {
+				if !ok || read.alias != testAlias("ada") {
 					t.Fatalf("source read = %#v", sequence)
 				}
 				assertReadinessHandoffSourceResult(t, &workflow, read, hasOutput)
@@ -72,12 +72,12 @@ func assertReadinessHandoffSourceResult(t *testing.T, workflow *stageWorkflow, r
 func TestStageWorkflow_handoffSourceEnteringKeepaliveDoesNotRequireOutput(t *testing.T) {
 	workflow := stageWorkflow{}
 	startReadinessHandoff(&workflow, participant.StatusIdle, participant.StatusWorking)
-	workflow.handleSessionEvent(session.ParticipantStatusChanged{Alias: "ada", From: participant.StatusIdle, To: participant.StatusKeepalive})
-	workflow.handleSessionEvent(session.ParticipantStatusChanged{Alias: "ben", From: participant.StatusWorking, To: participant.StatusIdle})
+	workflow.handleSessionEvent(session.ParticipantStatusChanged{Alias: testAlias("ada"), From: participant.StatusIdle, To: participant.StatusKeepalive})
+	workflow.handleSessionEvent(session.ParticipantStatusChanged{Alias: testAlias("ben"), From: participant.StatusWorking, To: participant.StatusIdle})
 	if workflow.active.handoff.sourceNeedsCompletion {
 		t.Fatal("keepalive requires a user output event")
 	}
-	sequence := workflow.handleSessionEvent(session.ParticipantStatusChanged{Alias: "ada", From: participant.StatusKeepalive, To: participant.StatusIdle})
+	sequence := workflow.handleSessionEvent(session.ParticipantStatusChanged{Alias: testAlias("ada"), From: participant.StatusKeepalive, To: participant.StatusIdle})
 	if _, ok := sequence[0].(readHandoffSourceInstruction); !ok {
 		t.Fatalf("source read = %#v", sequence)
 	}
@@ -86,10 +86,10 @@ func TestStageWorkflow_handoffSourceEnteringKeepaliveDoesNotRequireOutput(t *tes
 func TestStageWorkflow_handoffPreparingSourceStillWaitsForOutput(t *testing.T) {
 	workflow := stageWorkflow{}
 	startReadinessHandoff(&workflow, participant.StatusPreparing, participant.StatusIdle)
-	workflow.handleSessionEvent(session.ParticipantStatusChanged{Alias: "ada", From: participant.StatusPreparing, To: participant.StatusWorking})
-	sequence := workflow.handleSessionEvent(session.ParticipantStatusChanged{Alias: "ada", From: participant.StatusWorking, To: participant.StatusIdle})
+	workflow.handleSessionEvent(session.ParticipantStatusChanged{Alias: testAlias("ada"), From: participant.StatusPreparing, To: participant.StatusWorking})
+	sequence := workflow.handleSessionEvent(session.ParticipantStatusChanged{Alias: testAlias("ada"), From: participant.StatusWorking, To: participant.StatusIdle})
 	assertNoHandoffSourceRead(t, sequence)
-	sequence = workflow.handleSessionEvent(session.AgentMessage{Alias: "ada", TurnCompleted: true})
+	sequence = workflow.handleSessionEvent(session.AgentMessage{Alias: testAlias("ada"), TurnCompleted: true})
 	if _, ok := sequence[0].(readHandoffSourceInstruction); !ok {
 		t.Fatalf("source read = %#v", sequence)
 	}

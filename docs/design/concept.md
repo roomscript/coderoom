@@ -78,6 +78,15 @@ The backend agent and the participant are distinct concepts:
 - the backend agent is the transport adapter to an external CLI
 - the participant is the stateful collaborator visible in the room
 
+A prompt names a participant by its human-readable name (for example, `ada`).
+That input name is reusable; it is not an instance identity. Each participant
+receives a globally unique UUID at construction, before Session registration.
+Its resolved alias pairs that immutable ID with the name. Startup, work,
+cancellation, and completion preserve the alias; removing and reinviting the
+same name creates a new alias. Retained work and output ownership use the
+resolved alias so they cannot transfer to a replacement with the same name.
+Turn identity remains separate from participant identity.
+
 Runtime state such as working/idle and active turn activity belongs to the
 participant. Session coordinates and mutates that state; the participant
 validates transition invariants; the UI consumes the resulting state.

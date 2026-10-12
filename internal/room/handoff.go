@@ -2,12 +2,13 @@ package room
 
 import (
 	"github.com/roomscript/coderoom/internal/agent"
+	"github.com/roomscript/coderoom/internal/participant"
 	"github.com/roomscript/coderoom/internal/session"
 )
 
 // LatestCompletedOutput returns the latest completed user-visible output text
 // for alias from canonical room state.
-func (r *Room) LatestCompletedOutput(alias string) (string, bool) {
+func (r *Room) LatestCompletedOutput(alias participant.Alias) (string, bool) {
 	source, ok := r.LatestHandoffSource(alias)
 	if !ok {
 		return "", false
@@ -17,14 +18,14 @@ func (r *Room) LatestCompletedOutput(alias string) (string, bool) {
 
 // LatestHandoffSource returns the latest completed room-visible output record
 // eligible for /handoff for alias.
-func (r *Room) LatestHandoffSource(alias string) (session.HandoffSource, bool) {
+func (r *Room) LatestHandoffSource(alias participant.Alias) (session.HandoffSource, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
 	return r.latestHandoffSourceLocked(alias)
 }
 
-func (r *Room) latestHandoffSourceLocked(alias string) (session.HandoffSource, bool) {
+func (r *Room) latestHandoffSourceLocked(alias participant.Alias) (session.HandoffSource, bool) {
 	if _, active := r.members[alias]; !active {
 		return session.HandoffSource{}, false
 	}
@@ -38,7 +39,7 @@ func (r *Room) latestHandoffSourceLocked(alias string) (session.HandoffSource, b
 	return session.HandoffSource{}, false
 }
 
-func (r *Room) handoffEligibleOutputLocked(index int, alias string) (string, bool) {
+func (r *Room) handoffEligibleOutputLocked(index int, alias participant.Alias) (string, bool) {
 	if index < 0 || index >= len(r.records) {
 		return "", false
 	}
@@ -51,7 +52,7 @@ func (r *Room) handoffEligibleOutputLocked(index int, alias string) (string, boo
 		return "", false
 	}
 	if record.Msg.Mode != agent.ModeSingle {
-		if _, open := r.streaming[record.Msg.StreamID]; open {
+		if _, open := r.streaming[alias][record.Msg.StreamID]; open {
 			return "", false
 		}
 	}
@@ -61,8 +62,8 @@ func (r *Room) handoffEligibleOutputLocked(index int, alias string) (string, boo
 	return output.Text, true
 }
 
-func (r *Room) refreshLatestHandoffSourceLocked(alias string) []int {
-	prevIdx, hadPrev := r.latestHandoffByRef[alias]
+func (r *Room) refreshLatestHandoffSourceLocked(alias participant.Alias) []int {
+	prevIdx, hadPrev := r.latestHandoffByAlias[alias]
 	if _, active := r.members[alias]; !active {
 		return r.clearLatestHandoffSourceLocked(alias, prevIdx, hadPrev)
 	}
@@ -75,8 +76,8 @@ func (r *Room) refreshLatestHandoffSourceLocked(alias string) []int {
 	return r.swapLatestHandoffSourceLocked(alias, prevIdx, hadPrev, nextIdx, ok)
 }
 
-func (r *Room) clearLatestHandoffSourceLocked(alias string, prevIdx int, hadPrev bool) []int {
-	delete(r.latestHandoffByRef, alias)
+func (r *Room) clearLatestHandoffSourceLocked(alias participant.Alias, prevIdx int, hadPrev bool) []int {
+	delete(r.latestHandoffByAlias, alias)
 	if !r.hasMarkedHandoffSourceLocked(prevIdx, hadPrev) {
 		return nil
 	}
@@ -84,7 +85,7 @@ func (r *Room) clearLatestHandoffSourceLocked(alias string, prevIdx int, hadPrev
 	return []int{prevIdx}
 }
 
-func (r *Room) swapLatestHandoffSourceLocked(alias string, prevIdx int, hadPrev bool, nextIdx int, hasNext bool) []int {
+func (r *Room) swapLatestHandoffSourceLocked(alias participant.Alias, prevIdx int, hadPrev bool, nextIdx int, hasNext bool) []int {
 	var dirty []int
 	if r.hasMarkedHandoffSourceLocked(prevIdx, hadPrev) && prevIdx != nextIdx {
 		r.records[prevIdx].HandoffSource = false
@@ -92,11 +93,11 @@ func (r *Room) swapLatestHandoffSourceLocked(alias string, prevIdx int, hadPrev 
 	}
 
 	if !hasNext {
-		delete(r.latestHandoffByRef, alias)
+		delete(r.latestHandoffByAlias, alias)
 		return dirty
 	}
 
-	r.latestHandoffByRef[alias] = nextIdx
+	r.latestHandoffByAlias[alias] = nextIdx
 	if nextIdx >= 0 && !r.records[nextIdx].HandoffSource {
 		r.records[nextIdx].HandoffSource = true
 		dirty = append(dirty, nextIdx)

@@ -13,7 +13,7 @@ func TestCancel_executesNativeHandlerOnce(t *testing.T) {
 	mustSubmit(t, interp.Submit("/cancel ada"))
 	receiveSubmitEvent[InputAccepted](t, events)
 	command := receiveSubmitCommand(t, sess.executed)
-	if command != (session.CancelCommand{Alias: "ada"}) {
+	if command != (session.CancelCommand{Alias: testAlias("ada")}) {
 		t.Fatalf("command = %#v, want cancel ada", command)
 	}
 	receiveSubmitEvent[StateChanged](t, events)

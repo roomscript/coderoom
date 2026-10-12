@@ -10,9 +10,10 @@ import (
 type SessionController interface {
 	Execute(session.Command) error
 	AddObserver(session.Observer)
-	CreateParticipantSendPlan(alias string) session.ParticipantSendPlan
+	CreateParticipantSendPlan(alias participant.Alias) session.ParticipantSendPlan
 	Participants() []participant.View
-	Participant(alias string) (participant.View, bool)
+	Participant(alias participant.Alias) (participant.View, bool)
+	ParticipantByName(name string) (participant.View, bool)
 	Shutdown()
 }
 

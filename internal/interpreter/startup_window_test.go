@@ -81,7 +81,7 @@ func TestSubmit_planningDuringIdleBeforeSessionReadyWaitsForStartup(t *testing.T
 
 func assertIdleStartupWindow(t *testing.T, sess *session.Session) {
 	t.Helper()
-	runtime, ok := sess.Participant("ben")
+	runtime, ok := sess.ParticipantByName("ben")
 	if !ok || runtime.Status != participant.StatusIdle || runtime.StartupReady {
 		t.Fatalf("runtime = %#v, %v", runtime, ok)
 	}
@@ -132,17 +132,26 @@ func assertStartupDelivery(t *testing.T, sent <-chan string, ready bool) {
 func assertSessionRejectsStartupDelivery(t *testing.T, sess *session.Session) {
 	t.Helper()
 	commands := []session.Command{
-		session.SendToParticipantOutsideRoomCommand{Alias: "ben", Text: "premature"},
-		session.SendToParticipantCommand{Plan: sess.CreateParticipantSendPlan("ben"), Message: "premature"},
-		session.BroadcastCommand{Aliases: []string{"ben"}, Text: "premature"},
+		session.SendToParticipantOutsideRoomCommand{Alias: startupParticipantAlias(t, sess, "ben"), Text: "premature"},
+		session.SendToParticipantCommand{Plan: sess.CreateParticipantSendPlan(startupParticipantAlias(t, sess, "ben")), Message: "premature"},
+		session.BroadcastCommand{Aliases: []participant.Alias{startupParticipantAlias(t, sess, "ben")}, Text: "premature"},
 	}
 	for _, command := range commands {
 		if err := sess.Execute(command); err == nil {
 			t.Fatalf("%T allowed delivery before startup", command)
 		}
 	}
-	view, _ := sess.Participant("ben")
+	view, _ := sess.ParticipantByName("ben")
 	if view.Status != participant.StatusIdle {
 		t.Fatalf("failed delivery changed status: %#v", view)
 	}
+}
+
+func startupParticipantAlias(t *testing.T, sess *session.Session, name string) participant.Alias {
+	t.Helper()
+	view, ok := sess.ParticipantByName(name)
+	if !ok {
+		t.Fatalf("missing participant %s", name)
+	}
+	return view.Alias
 }

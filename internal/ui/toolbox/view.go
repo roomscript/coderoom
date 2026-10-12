@@ -122,7 +122,7 @@ func renderParticipantCells(innerWidth int, now time.Time, ps []participant.View
 
 	entries := make([]participant.View, 0, len(ps))
 	for _, p := range ps {
-		if p.Alias == "" {
+		if p.Alias.Name == "" {
 			continue
 		}
 		entries = append(entries, p)
@@ -133,7 +133,7 @@ func renderParticipantCells(innerWidth int, now time.Time, ps []participant.View
 		if ti != tj {
 			return ti < tj
 		}
-		return entries[i].Alias < entries[j].Alias
+		return entries[i].Alias.Name < entries[j].Alias.Name
 	})
 
 	visibleSlots := n
@@ -165,7 +165,7 @@ func renderCell(p participant.View, now time.Time, width int) string {
 	// bites into the elapsed suffix.
 	reserved := ansi.StringWidth(glyph) + 1 + ansi.StringWidth(elapsed)
 	aliasAvail := min(aliasMax, max(0, width-reserved))
-	base := glyph + " " + truncateToWidth(p.Alias, aliasAvail) + elapsed
+	base := glyph + " " + truncateToWidth(p.Alias.Name, aliasAvail) + elapsed
 	if p.Color != "" {
 		colored := lipgloss.NewStyle().Foreground(lipgloss.Color(p.Color)).Render(base)
 		if pad := width - ansi.StringWidth(base); pad > 0 {

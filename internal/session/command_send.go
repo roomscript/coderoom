@@ -13,7 +13,7 @@ import (
 // BroadcastCommand sends a message to its frozen recipients. When Aliases is
 // nil, execution selects all currently routable participants for legacy callers.
 type BroadcastCommand struct {
-	Aliases []string
+	Aliases []participant.Alias
 	Text    string
 }
 
@@ -39,21 +39,21 @@ func (c BroadcastCommand) execute(s *Session) (err error) {
 	return newDeliveryError(result.Aliases(DeliveryDelivered), errors.Join(errs...))
 }
 
-func sendBroadcastRecipient(alias, text string, s *Session) error {
+func sendBroadcastRecipient(alias participant.Alias, text string, s *Session) error {
 	p, ok := s.readParticipantRuntime(alias)
 	if !ok {
-		return fmt.Errorf("broadcast to %q: %w", alias, errParticipantNotFound)
+		return fmt.Errorf("broadcast to %q: %w", alias.Name, errParticipantNotFound)
 	}
 	if err := s.prepareParticipantForWork(p.Alias); err != nil {
 		if !errors.Is(err, errParticipantNotFound) {
 			s.notifyParticipantInvariant(p.Alias, err)
 		}
-		return fmt.Errorf("broadcast to %q: %w", p.Alias, err)
+		return fmt.Errorf("broadcast to %q: %w", p.Alias.Name, err)
 	}
 	anchorID, err := p.Agent.Send(text)
 	if err != nil {
 		s.abortWork(p.Alias)
-		return fmt.Errorf("broadcast to %q: %w", p.Alias, err)
+		return fmt.Errorf("broadcast to %q: %w", p.Alias.Name, err)
 	}
 	s.beginParticipantWorking(p.Alias, anchorID)
 	return nil
@@ -74,19 +74,16 @@ type SendToParticipantCommand struct {
 // freezes recipient instances but does not reserve their availability.
 type ParticipantSendPlan struct {
 	session       *Session
-	primaryAlias  string
-	noticeAliases []string
-	participants  map[string]*participant.Participant
+	primaryAlias  participant.Alias
+	noticeAliases []participant.Alias
 }
 
 // CreateParticipantSendPlan freezes the policy-aware targets for an in-room participant send.
-func (s *Session) CreateParticipantSendPlan(primaryAlias string) ParticipantSendPlan {
+func (s *Session) CreateParticipantSendPlan(primaryAlias participant.Alias) ParticipantSendPlan {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	primary, _ := s.registry.Get(primaryAlias)
 	plan := ParticipantSendPlan{
 		session: s, primaryAlias: primaryAlias,
-		participants: map[string]*participant.Participant{primaryAlias: primary},
 	}
 	if !s.policies.Enabled(policy.SendNotices) {
 		return plan
@@ -97,46 +94,45 @@ func (s *Session) CreateParticipantSendPlan(primaryAlias string) ParticipantSend
 		}
 		if p.Alias != primaryAlias {
 			plan.noticeAliases = append(plan.noticeAliases, p.Alias)
-			plan.participants[p.Alias] = p
 		}
 	}
-	slices.Sort(plan.noticeAliases)
+	sortAliases(plan.noticeAliases)
 	return plan
 }
 
 // PrimaryParticipant returns the frozen primary participant alias.
-func (p ParticipantSendPlan) PrimaryParticipant() string {
+func (p ParticipantSendPlan) PrimaryParticipant() participant.Alias {
 	return p.primaryAlias
 }
 
 // Targets returns a copy of the aliases frozen into the plan, with the
 // primary participant first.
-func (p ParticipantSendPlan) Targets() []string {
-	if p.session == nil || p.primaryAlias == "" {
+func (p ParticipantSendPlan) Targets() []participant.Alias {
+	if p.session == nil || p.primaryAlias.ID == (participant.ID{}) {
 		return nil
 	}
-	targets := make([]string, 1, len(p.noticeAliases)+1)
+	targets := make([]participant.Alias, 1, len(p.noticeAliases)+1)
 	targets[0] = p.primaryAlias
 	return append(targets, p.noticeAliases...)
 }
 
-// DiscardUnavailableNoticeRecipients returns a copied plan without the named
+// DiscardUnavailableNoticeRecipients returns a copied plan without the selected
 // unavailable notice recipients. It cannot add recipients or remove the primary
 // participant.
-func (p ParticipantSendPlan) DiscardUnavailableNoticeRecipients(aliases []string) ParticipantSendPlan {
+func (p ParticipantSendPlan) DiscardUnavailableNoticeRecipients(aliases []participant.Alias) ParticipantSendPlan {
 	if len(aliases) == 0 || len(p.noticeAliases) == 0 {
 		return p
 	}
 	filtered := p
 	filtered.noticeAliases = slices.DeleteFunc(
 		slices.Clone(p.noticeAliases),
-		func(alias string) bool { return slices.Contains(aliases, alias) },
+		func(alias participant.Alias) bool { return slices.Contains(aliases, alias) },
 	)
 	return filtered
 }
 
 func (p ParticipantSendPlan) validate(s *Session) error {
-	if p.session == nil || p.primaryAlias == "" {
+	if p.session == nil || p.primaryAlias.ID == (participant.ID{}) {
 		return fmt.Errorf("shared send plan is invalid")
 	}
 	if p.session != s {
@@ -145,24 +141,8 @@ func (p ParticipantSendPlan) validate(s *Session) error {
 	return nil
 }
 
-// validateParticipant rejects departures even when their notifications have not
-// reached staging yet. Reusing an alias cannot transfer a retained send.
-// Execute serializes invitations/removals with these delivery checks.
-func (p ParticipantSendPlan) validateParticipant(alias string) error {
-	p.session.mu.Lock()
-	defer p.session.mu.Unlock()
-	current, ok := p.session.registry.Get(alias)
-	if !ok {
-		return fmt.Errorf("participant %q: %w", alias, errParticipantNotFound)
-	}
-	if current != p.participants[alias] {
-		return fmt.Errorf("participant %q was replaced after send preparation", alias)
-	}
-	return nil
-}
-
 func (c SendToParticipantCommand) execute(s *Session) (err error) {
-	result := createRoutingResult(RoutingParticipantSend, []string{c.Plan.primaryAlias}, RecipientPrimary)
+	result := createRoutingResult(RoutingParticipantSend, []participant.Alias{c.Plan.primaryAlias}, RecipientPrimary)
 	for _, alias := range c.Plan.noticeAliases {
 		result.Recipients = append(result.Recipients, RecipientResult{
 			Alias: alias, Role: RecipientNotice, Status: DeliveryNotAttempted,
@@ -173,10 +153,6 @@ func (c SendToParticipantCommand) execute(s *Session) (err error) {
 		return err
 	}
 	alias := c.Plan.primaryAlias
-	if err := c.Plan.validateParticipant(alias); err != nil {
-		result.record(0, err)
-		return err
-	}
 	a, err := acquireParticipantForDirectSend(alias, s)
 	if err != nil {
 		result.record(0, err)
@@ -189,10 +165,7 @@ func (c SendToParticipantCommand) execute(s *Session) (err error) {
 	result.record(0, nil)
 	var errs []error
 	for index, alias := range c.Plan.noticeAliases {
-		deliveryErr := c.Plan.validateParticipant(alias)
-		if deliveryErr == nil {
-			deliveryErr = sendNoticeRecipient(alias, c.Notice, s)
-		}
+		deliveryErr := sendNoticeRecipient(alias, c.Notice, s)
 		result.record(index+1, deliveryErr)
 		if deliveryErr != nil {
 			errs = append(errs, deliveryErr)
@@ -205,12 +178,12 @@ func (c SendToParticipantCommand) execute(s *Session) (err error) {
 // record or notices to other participants. Agent responses still use ordinary
 // session events and can appear in the room.
 type SendToParticipantOutsideRoomCommand struct {
-	Alias string
+	Alias participant.Alias
 	Text  string
 }
 
 func (c SendToParticipantOutsideRoomCommand) execute(s *Session) (err error) {
-	result := createRoutingResult(RoutingOutsideRoomSend, []string{c.Alias}, RecipientPrimary)
+	result := createRoutingResult(RoutingOutsideRoomSend, []participant.Alias{c.Alias}, RecipientPrimary)
 	defer func() { s.notifyRoutingCompleted(result, err) }()
 	a, err := acquireParticipantForDirectSend(c.Alias, s)
 	if err != nil {
@@ -225,13 +198,13 @@ func (c SendToParticipantOutsideRoomCommand) execute(s *Session) (err error) {
 // acquireParticipantForDirectSend captures the participant's agent and
 // transitions it from Idle to Preparing. Direct sends require exclusivity:
 // an already-working participant rejects the command.
-func acquireParticipantForDirectSend(alias string, s *Session) (a agent.Agent, err error) {
+func acquireParticipantForDirectSend(alias participant.Alias, s *Session) (a agent.Agent, err error) {
 	if err := s.prepareParticipantForWork(alias); err != nil {
 		return nil, formatDirectSendPrepareError(alias, err, s)
 	}
 	p, ok := s.lookupParticipant(alias)
 	if !ok || p.Agent == nil || !p.IsSendable() {
-		return nil, fmt.Errorf("participant %q not ready", alias)
+		return nil, fmt.Errorf("participant %q not ready", alias.Name)
 	}
 	return p.Agent, nil
 }
@@ -239,7 +212,7 @@ func acquireParticipantForDirectSend(alias string, s *Session) (a agent.Agent, e
 // acquireParticipantForNotice captures the participant's agent and transitions
 // it to Preparing only when currently Idle. Existing Working/Preparing turns are
 // allowed so a notice can be layered onto an active turn.
-func acquireParticipantForNotice(alias string, s *Session) (a agent.Agent, prepared bool, err error) {
+func acquireParticipantForNotice(alias participant.Alias, s *Session) (a agent.Agent, prepared bool, err error) {
 	p, err := lookupSendableParticipant(alias, s)
 	if err != nil {
 		return nil, false, err
@@ -254,44 +227,44 @@ func acquireParticipantForNotice(alias string, s *Session) (a agent.Agent, prepa
 	return a, true, nil
 }
 
-func formatDirectSendPrepareError(alias string, err error, s *Session) error {
+func formatDirectSendPrepareError(alias participant.Alias, err error, s *Session) error {
 	if errors.Is(err, errParticipantNotFound) {
-		return fmt.Errorf("participant %q not found", alias)
+		return fmt.Errorf("participant %q not found", alias.Name)
 	}
 	s.notifyParticipantInvariant(alias, err)
-	return fmt.Errorf("participant %q invalid working transition: %w", alias, err)
+	return fmt.Errorf("participant %q invalid working transition: %w", alias.Name, err)
 }
 
-func lookupSendableParticipant(alias string, s *Session) (participant.Participant, error) {
+func lookupSendableParticipant(alias participant.Alias, s *Session) (participant.Participant, error) {
 	p, ok := s.lookupParticipant(alias)
 	if !ok {
-		return participant.Participant{}, fmt.Errorf("participant %q not found", alias)
+		return participant.Participant{}, fmt.Errorf("participant %q not found", alias.Name)
 	}
 	if !p.IsSendable() || p.Agent == nil {
-		return participant.Participant{}, fmt.Errorf("participant %q not ready", alias)
+		return participant.Participant{}, fmt.Errorf("participant %q not ready", alias.Name)
 	}
 	return p.Snapshot(), nil
 }
 
-func sendPreparedDirect(alias string, a agent.Agent, text string, s *Session) error {
+func sendPreparedDirect(alias participant.Alias, a agent.Agent, text string, s *Session) error {
 	anchorID, err := a.Send(text)
 	if err != nil {
 		s.abortWork(alias)
-		return fmt.Errorf("send to %q: %w", alias, err)
+		return fmt.Errorf("send to %q: %w", alias.Name, err)
 	}
 	s.beginParticipantWorking(alias, anchorID)
 	return nil
 }
 
-func sendNoticeRecipient(alias, text string, s *Session) error {
+func sendNoticeRecipient(alias participant.Alias, text string, s *Session) error {
 	a, prepared, err := acquireParticipantForNotice(alias, s)
 	if err != nil {
-		return fmt.Errorf("notice to %q: %w", alias, err)
+		return fmt.Errorf("notice to %q: %w", alias.Name, err)
 	}
 	anchorID, err := a.SendNotice(text)
 	if err != nil {
 		s.abortWork(alias)
-		return fmt.Errorf("notice to %q: %w", alias, err)
+		return fmt.Errorf("notice to %q: %w", alias.Name, err)
 	}
 	if prepared {
 		s.beginParticipantWorking(alias, anchorID)

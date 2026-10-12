@@ -23,7 +23,6 @@ type stageState struct {
 	pending    workflowRef
 	stagePlan
 	phase             stagePhase
-	dispatchRouting   []string
 	submissionPending bool
 	interruption      stageInterruption
 	handoff           *handoffStage
@@ -49,15 +48,14 @@ func (w *stageWorkflow) pending() bool { return w.active != nil }
 func (w *stageWorkflow) mustDiscard() bool {
 	state := w.active
 	if state.send != nil {
-		return slices.Contains(state.requirements.unavailable, state.send.action.Alias.Value)
+		return slices.Contains(state.requirements.unavailable, state.send.delivery.PrimaryParticipant())
 	}
 	if state.broadcast != nil {
-		return len(activeAliases(state.routing, state.requirements.unavailable)) == 0
+		return len(activeAliases(state.targetAliases(), state.requirements.unavailable)) == 0
 	}
 	if state.handoff != nil {
-		handoff := state.handoff.action
-		return slices.Contains(state.requirements.unavailable, handoff.FromAlias.Value) ||
-			slices.Contains(state.requirements.unavailable, handoff.ToAlias.Value)
+		return slices.Contains(state.requirements.unavailable, state.handoff.from) ||
+			slices.Contains(state.requirements.unavailable, state.handoff.to)
 	}
 	return false
 }
@@ -67,17 +65,16 @@ func (w *stageWorkflow) discardUnavailableStage() instructionSequence {
 	message := "staged submission discarded: no active targets"
 	presentationMessage := "staged message discarded: no active targets"
 	if state.send != nil &&
-		len(activeAliases(state.routing, state.requirements.unavailable)) != 0 {
+		len(activeAliases(state.targetAliases(), state.requirements.unavailable)) != 0 {
 		message = fmt.Sprintf("staged submission discarded: %q is no longer available", state.send.action.Alias.Value)
 		presentationMessage = fmt.Sprintf("staged message discarded: %q is no longer available", state.send.action.Alias.Value)
 	} else if state.handoff != nil {
-		handoff := state.handoff.action
-		missing := handoff.FromAlias.Value
+		missing := state.handoff.from
 		if !slices.Contains(state.requirements.unavailable, missing) {
-			missing = handoff.ToAlias.Value
+			missing = state.handoff.to
 		}
-		message = fmt.Sprintf("staged submission discarded: %q is no longer available", missing)
-		presentationMessage = fmt.Sprintf("staged message discarded: %q is no longer available", missing)
+		message = fmt.Sprintf("staged submission discarded: %q is no longer available", missing.Name)
+		presentationMessage = fmt.Sprintf("staged message discarded: %q is no longer available", missing.Name)
 	}
 	w.active = nil
 	sequence := instructionSequence{
@@ -90,14 +87,14 @@ func (w *stageWorkflow) discardUnavailableStage() instructionSequence {
 }
 
 func (w *stageWorkflow) snapshot() *StagedSubmission {
-	if w.active == nil || len(w.active.requirements.participants) == 0 && len(w.active.routing) == 0 {
+	if w.active == nil || len(w.active.requirements.participants) == 0 && len(w.active.targetAliases()) == 0 {
 		return nil
 	}
 	return &StagedSubmission{
-		Raw: w.active.raw, Routing: slices.Clone(w.active.routing),
-		NotReadyAliases:    w.active.requirements.waitingAliases(),
-		Interruptible:      w.active.requirements.interruptibleAliases(w.active.interruption.cancelled),
-		Unavailable:        slices.Clone(w.active.requirements.unavailable),
+		Raw: w.active.raw, Routing: participantNames(w.active.targetAliases()),
+		NotReadyAliases:    participantNames(w.active.requirements.waitingAliases()),
+		Interruptible:      participantNames(w.active.requirements.interruptibleAliases(w.active.interruption.cancelled)),
+		Unavailable:        participantNames(w.active.requirements.unavailable),
 		InterruptRequested: w.active.interruption.requested,
 		Phase:              StagePhasePending,
 	}
@@ -112,14 +109,14 @@ func (w *stageWorkflow) nextRef() workflowRef {
 	return workflowRef{kind: workflowStage, generation: w.active.generation, requestID: w.nextRequestID}
 }
 
-func acceptedStageInputSequence(raw string, routing []string) instructionSequence {
+func acceptedStageInputSequence(raw string, routing []participant.Alias) instructionSequence {
 	return instructionSequence{
-		publishEventInstruction{event: InputAccepted{Raw: raw, Routing: slices.Clone(routing)}},
+		publishEventInstruction{event: InputAccepted{Raw: raw, Routing: participantNames(routing)}},
 	}
 }
 
-func activeAliases(routing, unavailable []string) []string {
-	active := make([]string, 0, len(routing))
+func activeAliases(routing, unavailable []participant.Alias) []participant.Alias {
+	active := make([]participant.Alias, 0, len(routing))
 	for _, alias := range routing {
 		if !slices.Contains(unavailable, alias) {
 			active = append(active, alias)
@@ -136,10 +133,20 @@ func unavailableStageFailure(state *stageState) SubmissionFailed {
 	failure.Code = ErrorParticipantUnavailable
 	failure.Err = fmt.Errorf("%w %q", errStageTargetUnavailable, state.send.action.Alias.Value)
 	for _, value := range state.requirements.participants {
-		if value.alias == state.send.action.Alias.Value && value.status == participant.StatusCrashed {
+		if value.alias == state.send.delivery.PrimaryParticipant() && value.status == participant.StatusCrashed {
 			failure.Err = fmt.Errorf("%w: %q", errStageTargetCrashed, state.send.action.Alias.Value)
 			return failure
 		}
 	}
 	return failure
+}
+
+func (s *stageState) targetAliases() []participant.Alias {
+	if s.send != nil {
+		return s.send.delivery.Targets()
+	}
+	if s.handoff != nil {
+		return s.handoff.routing()
+	}
+	return slices.Clone(s.routing)
 }

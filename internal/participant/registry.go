@@ -2,7 +2,7 @@ package participant
 
 import "fmt"
 
-// Registry tracks all participants in a session by alias.
+// Registry tracks current participants in a session by name.
 // It is not safe for concurrent use; the caller is responsible for synchronisation.
 type Registry struct {
 	participants map[string]*Participant
@@ -14,36 +14,39 @@ func NewRegistry() *Registry {
 	return &Registry{participants: make(map[string]*Participant)}
 }
 
-// Add registers a participant. Returns an error if p is nil, the alias is
-// empty, or the alias is already taken.
+// Add registers an already-identified participant without changing its alias.
+// Returns an error if p is nil, its ID is zero, or its name is empty or taken.
 func (r *Registry) Add(p *Participant) error {
 	if p == nil {
 		return fmt.Errorf("participant must not be nil")
 	}
-	if p.Alias == "" {
-		return fmt.Errorf("participant alias must not be empty")
+	if p.Alias.Name == "" {
+		return fmt.Errorf("participant name must not be empty")
 	}
-	if _, exists := r.participants[p.Alias]; exists {
-		return fmt.Errorf("participant %q already registered", p.Alias)
+	if p.Alias.ID == (ID{}) {
+		return fmt.Errorf("participant ID must not be zero")
+	}
+	if _, exists := r.participants[p.Alias.Name]; exists {
+		return fmt.Errorf("participant %q already registered", p.Alias.Name)
 	}
 	p.Color = r.colors.next()
-	r.participants[p.Alias] = p
+	r.participants[p.Alias.Name] = p
 	return nil
 }
 
-// Get returns the participant with the given alias.
-func (r *Registry) Get(alias string) (*Participant, bool) {
-	p, ok := r.participants[alias]
+// Get returns the current participant with the given name.
+func (r *Registry) Get(name string) (*Participant, bool) {
+	p, ok := r.participants[name]
 	return p, ok
 }
 
-// Remove removes the participant with the given alias.
-// Returns an error if the alias is not found.
-func (r *Registry) Remove(alias string) error {
-	if _, exists := r.participants[alias]; !exists {
-		return fmt.Errorf("participant %q not found", alias)
+// Remove removes the current participant with the given name.
+// Returns an error if the name is not found.
+func (r *Registry) Remove(name string) error {
+	if _, exists := r.participants[name]; !exists {
+		return fmt.Errorf("participant %q not found", name)
 	}
-	delete(r.participants, alias)
+	delete(r.participants, name)
 	return nil
 }
 

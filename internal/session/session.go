@@ -46,7 +46,7 @@ type agentRuntime struct {
 type Session struct {
 	mu            sync.Mutex
 	registry      *participant.Registry
-	agents        map[string]agentRuntime
+	agents        map[participant.Alias]agentRuntime
 	obs           []Observer
 	now           func() time.Time
 	keepaliveTick time.Duration
@@ -116,7 +116,7 @@ func WithConfig(cfg *roomconfig.Config) Option {
 func New(opts ...Option) *Session {
 	s := &Session{
 		registry:      participant.NewRegistry(),
-		agents:        make(map[string]agentRuntime),
+		agents:        make(map[participant.Alias]agentRuntime),
 		now:           time.Now,
 		keepaliveTick: 30 * time.Second,
 		policies:      policy.NewSet(),
@@ -132,14 +132,23 @@ func New(opts ...Option) *Session {
 
 // ApprovalListener returns an ApprovalListener that publishes approval requests
 // as session events and blocks until the session resolves them.
-func (s *Session) ApprovalListener(alias string) agent.ApprovalListener {
-	return s.approvals.Listener(alias)
+func (s *Session) ApprovalListener(alias participant.Alias) agent.ApprovalListener {
+	listener := s.approvals.Listener(alias)
+	return approvalListenerFunc(func(ctx context.Context, req agent.ApprovalRequest) (agent.ApprovalDecision, error) {
+		if _, ok := s.Participant(alias); !ok {
+			return agent.ApprovalDecision{}, fmt.Errorf("approval participant %q: %w", alias.Name, errParticipantNotFound)
+		}
+		return listener.Decide(ctx, req)
+	})
 }
 
 // CreateAgentRuntime reserves the session-owned runtime record for alias.
-func (s *Session) CreateAgentRuntime(alias string) {
+func (s *Session) CreateAgentRuntime(alias participant.Alias) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if _, ok := s.lookupParticipantLocked(alias); !ok {
+		return
+	}
 	if _, ok := s.agents[alias]; ok {
 		return
 	}
@@ -148,9 +157,14 @@ func (s *Session) CreateAgentRuntime(alias string) {
 
 // CreateAgentContext derives a per-agent lifecycle context from the session
 // lifecycle context and records it in the agent runtime under alias.
-func (s *Session) CreateAgentContext(alias string) context.Context {
+func (s *Session) CreateAgentContext(alias participant.Alias) context.Context {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if _, ok := s.lookupParticipantLocked(alias); !ok {
+		ctx, cancel := context.WithCancel(s.lifecycle.ctx)
+		cancel()
+		return ctx
+	}
 	runtime := s.agents[alias]
 	if runtime.agentCancel != nil {
 		runtime.agentCancel()
@@ -212,7 +226,7 @@ func (s *Session) cancelAllAgentContexts() {
 	for _, runtime := range s.agents {
 		runtimes = append(runtimes, runtime)
 	}
-	s.agents = make(map[string]agentRuntime)
+	s.agents = make(map[participant.Alias]agentRuntime)
 	s.mu.Unlock()
 	for _, runtime := range runtimes {
 		if runtime.agentCancel != nil {
@@ -221,7 +235,7 @@ func (s *Session) cancelAllAgentContexts() {
 	}
 }
 
-func (s *Session) cancelAgentContext(alias string) {
+func (s *Session) cancelAgentContext(alias participant.Alias) {
 	s.mu.Lock()
 	runtime, ok := s.agents[alias]
 	if ok {
@@ -246,7 +260,7 @@ func (s *Session) notify(e Event) {
 	}
 }
 
-func (s *Session) notifyParticipantInvariant(alias string, err error, details ...string) {
+func (s *Session) notifyParticipantInvariant(alias participant.Alias, err error, details ...string) {
 	if err == nil {
 		return
 	}
@@ -331,29 +345,31 @@ func (s *Session) addParticipant(p *participant.Participant) error {
 // the participant so the caller can stop the agent.
 //
 // Return values:
-//   - (p, true)   — detached successfully; p is the participant (may be nil on
-//     registry inconsistency, which the caller handles as best-effort cleanup).
+//   - (p, true)   — detached successfully.
 //   - (p, false)  — participant exists but IsRemovable is false (startup window);
 //     caller should surface "not ready" rather than "not found".
 //   - (nil, false) — no attached runtime; caller falls through to evictCrashedBeforeStart.
-func (s *Session) detachParticipant(alias string) (*participant.Participant, bool) {
+func (s *Session) detachParticipant(alias participant.Alias) (*participant.Participant, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	p, ok := s.lookupParticipantLocked(alias)
+	if !ok {
+		return nil, false
+	}
 	runtime, ok := s.agents[alias]
 	if !ok || runtime.stop == nil {
 		return nil, false
 	}
-	p, _ := s.registry.Get(alias)
 	// Bound-runtime removal still waits for startup publication. Failed startup
 	// without a reader is handled by evictCrashedBeforeStart instead.
-	if p != nil && (!p.StartupReady || !p.IsRemovable()) {
+	if !p.StartupReady || !p.IsRemovable() {
 		return p, false
 	}
 	delete(s.agents, alias)
 	if runtime.agentCancel != nil {
 		runtime.agentCancel()
 	}
-	_ = s.registry.Remove(alias)
+	s.removeParticipantLocked(alias)
 	close(runtime.stop)
 	return p, true
 }
@@ -366,16 +382,16 @@ func (s *Session) detachParticipant(alias string) (*participant.Participant, boo
 // Returns "not found" for unknown aliases, "not ready" for participants still
 // in the startup window (StatusStarting), and nil on successful eviction of a
 // StatusCrashed participant.
-func (s *Session) evictCrashedBeforeStart(alias string) error {
+func (s *Session) evictCrashedBeforeStart(alias participant.Alias) error {
 	s.mu.Lock()
-	p, ok := s.registry.Get(alias)
+	p, ok := s.lookupParticipantLocked(alias)
 	if !ok {
 		s.mu.Unlock()
-		return fmt.Errorf("participant %q not found", alias)
+		return fmt.Errorf("participant %q not found", alias.Name)
 	}
 	if p.Status != participant.StatusCrashed || !p.IsRemovable() {
 		s.mu.Unlock()
-		return fmt.Errorf("participant %q is not ready", alias)
+		return fmt.Errorf("participant %q is not ready", alias.Name)
 	}
 	if runtime, ok := s.agents[alias]; ok {
 		if runtime.agentCancel != nil {
@@ -383,7 +399,7 @@ func (s *Session) evictCrashedBeforeStart(alias string) error {
 		}
 		delete(s.agents, alias)
 	}
-	_ = s.registry.Remove(alias)
+	_ = s.registry.Remove(alias.Name)
 	s.mu.Unlock()
 	s.notify(AgentStopped{Alias: alias})
 	return nil
@@ -400,10 +416,10 @@ func (s *Session) evictCrashedBeforeStart(alias string) error {
 //
 // Returns (stop, from, true) on success, where from is the pre-transition
 // status (StatusStarting) used to build the ParticipantStatusChanged event.
-func (s *Session) attachParticipant(alias string, a agent.Agent) (chan struct{}, participant.Status, bool) {
+func (s *Session) attachParticipant(alias participant.Alias, a agent.Agent) (chan struct{}, participant.Status, bool) {
 	stop := make(chan struct{})
 	s.mu.Lock()
-	p, ok := s.registry.Get(alias)
+	p, ok := s.lookupParticipantLocked(alias)
 	if !ok {
 		s.mu.Unlock()
 		return nil, "", false
@@ -431,9 +447,9 @@ func (s *Session) attachParticipant(alias string, a agent.Agent) (chan struct{},
 // commitStarted transitions the participant from StatusAttached to StatusIdle
 // and returns the corresponding ParticipantStatusChanged event. Called before
 // AgentReady is dispatched so that IsSendable is true when the event fires.
-func (s *Session) commitStarted(alias string, from participant.Status) (Event, bool) {
+func (s *Session) commitStarted(alias participant.Alias, from participant.Status) (Event, bool) {
 	s.mu.Lock()
-	p, ok := s.registry.Get(alias)
+	p, ok := s.lookupParticipantLocked(alias)
 	if !ok {
 		s.mu.Unlock()
 		return nil, false
@@ -448,35 +464,53 @@ func (s *Session) commitStarted(alias string, from participant.Status) (Event, b
 	return ev, true
 }
 
-func (s *Session) lookupParticipant(alias string) (*participant.Participant, bool) {
+func (s *Session) lookupParticipant(alias participant.Alias) (*participant.Participant, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.registry.Get(alias)
+	return s.lookupParticipantLocked(alias)
+}
+
+// lookupParticipantLocked validates both instance identity and Session membership.
+// The caller must hold s.mu.
+func (s *Session) lookupParticipantLocked(alias participant.Alias) (*participant.Participant, bool) {
+	p, ok := s.registry.Get(alias.Name)
+	if !ok || alias.ID == (participant.ID{}) || p.Alias != alias {
+		return nil, false
+	}
+	return p, true
+}
+
+// removeParticipantLocked never removes a replacement with the same name.
+// The caller must hold s.mu.
+func (s *Session) removeParticipantLocked(alias participant.Alias) {
+	if _, ok := s.lookupParticipantLocked(alias); ok {
+		_ = s.registry.Remove(alias.Name)
+	}
 }
 
 // readParticipantRuntime captures transport handles for session-internal
 // delivery. Public queries expose only View and cannot invoke the backend.
-func (s *Session) readParticipantRuntime(alias string) (participant.Participant, bool) {
+func (s *Session) readParticipantRuntime(alias participant.Alias) (participant.Participant, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	p, ok := s.registry.Get(alias)
+	p, ok := s.lookupParticipantLocked(alias)
 	if !ok {
 		return participant.Participant{}, false
 	}
 	return p.Snapshot(), true
 }
 
-func (s *Session) updateParticipant(alias string, fn func(*participant.Participant) (Event, error)) error {
+func (s *Session) updateParticipant(alias participant.Alias, fn func(*participant.Participant) (Event, error)) error {
 	var ev Event
 	var err error
 	s.mu.Lock()
-	p, ok := s.registry.Get(alias)
+	p, ok := s.lookupParticipantLocked(alias)
 	if ok {
 		ev, err = fn(p)
 	}
 	s.mu.Unlock()
 	if !ok {
-		return fmt.Errorf("%w: %q", errParticipantNotFound, alias)
+		return fmt.Errorf("%w: %q", errParticipantNotFound, alias.Name)
 	}
 	if err != nil {
 		return err
@@ -487,12 +521,23 @@ func (s *Session) updateParticipant(alias string, fn func(*participant.Participa
 	return nil
 }
 
-// Participant returns a detached observable view of one registered participant.
+// Participant returns a detached observable view of a registered instance.
 // Runtime handles, streams, and mutation methods remain private to the session.
-func (s *Session) Participant(alias string) (participant.View, bool) {
+func (s *Session) Participant(alias participant.Alias) (participant.View, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	p, ok := s.registry.Get(alias)
+	p, ok := s.lookupParticipantLocked(alias)
+	if !ok {
+		return participant.View{}, false
+	}
+	return p.View, true
+}
+
+// ParticipantByName resolves an input name to the current participant instance.
+func (s *Session) ParticipantByName(name string) (participant.View, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p, ok := s.registry.Get(name)
 	if !ok {
 		return participant.View{}, false
 	}
@@ -518,7 +563,7 @@ func (s *Session) Participants() []participant.View {
 // participant is StatusIdle when the first message arrives, but before
 // AgentReady is dispatched so the agent pipe is drained immediately and
 // cannot stall the child process while observers are being notified.
-func (s *Session) readLoop(stop <-chan struct{}, alias string, a agent.Agent) {
+func (s *Session) readLoop(stop <-chan struct{}, alias participant.Alias, a agent.Agent) {
 	for {
 		msg, err := a.Read()
 		if err != nil {
@@ -529,7 +574,7 @@ func (s *Session) readLoop(stop <-chan struct{}, alias string, a agent.Agent) {
 	}
 }
 
-func (s *Session) handleAgentReadError(stop <-chan struct{}, alias string) {
+func (s *Session) handleAgentReadError(stop <-chan struct{}, alias participant.Alias) {
 	if isCrashedReadError(stop) {
 		err := s.updateParticipant(alias, func(p *participant.Participant) (Event, error) {
 			from := p.Status
@@ -543,7 +588,7 @@ func (s *Session) handleAgentReadError(stop <-chan struct{}, alias string) {
 	s.notify(readErrorEvent(stop, alias))
 }
 
-func readErrorEvent(stop <-chan struct{}, alias string) Event {
+func readErrorEvent(stop <-chan struct{}, alias participant.Alias) Event {
 	if isCrashedReadError(stop) {
 		return AgentCrashed{Alias: alias}
 	}
@@ -562,13 +607,13 @@ func isCrashedReadError(stop <-chan struct{}) bool {
 // prepareParticipantForWork transitions the participant to Preparing state
 // under the session lock. Must be followed by Send then beginParticipantWorking
 // (on success) or abortWork (on Send failure).
-func (s *Session) prepareParticipantForWork(alias string) error {
+func (s *Session) prepareParticipantForWork(alias participant.Alias) error {
 	var ev ParticipantStatusChanged
 	s.mu.Lock()
-	p, ok := s.registry.Get(alias)
+	p, ok := s.lookupParticipantLocked(alias)
 	if !ok {
 		s.mu.Unlock()
-		return fmt.Errorf("%w: %q", errParticipantNotFound, alias)
+		return fmt.Errorf("%w: %q", errParticipantNotFound, alias.Name)
 	}
 	if !p.StartupReady {
 		s.mu.Unlock()
@@ -588,7 +633,7 @@ func (s *Session) prepareParticipantForWork(alias string) error {
 // beginParticipantWorking transitions from Preparing to Working and atomically
 // tracks the turn-lifecycle anchor in OpenStreams. Call this after a successful
 // Send to close the race window between PrepareForWork and anchor tracking.
-func (s *Session) beginParticipantWorking(alias string, anchor agent.StreamID) {
+func (s *Session) beginParticipantWorking(alias participant.Alias, anchor agent.StreamID) {
 	err := s.updateParticipant(alias, func(p *participant.Participant) (Event, error) {
 		from := p.Status
 		turnID := s.lastTurnID + 1
@@ -605,7 +650,7 @@ func (s *Session) beginParticipantWorking(alias string, anchor agent.StreamID) {
 
 // abortWork rolls back a Preparing or Working participant to Idle. Use when
 // Send fails after prepareParticipantForWork, or for error rollback paths.
-func (s *Session) abortWork(alias string) {
+func (s *Session) abortWork(alias participant.Alias) {
 	err := s.updateParticipant(alias, func(p *participant.Participant) (Event, error) {
 		if p.Status != participant.StatusWorking && p.Status != participant.StatusPreparing {
 			return nil, nil
@@ -623,7 +668,7 @@ func (s *Session) abortWork(alias string) {
 
 // markIdle transitions the participant to Idle via BecomeIdle. Called when the
 // anchor stream flush is received (shouldIdle=true from CloseStream).
-func (s *Session) markIdle(alias string) (uint64, bool) {
+func (s *Session) markIdle(alias participant.Alias) (uint64, bool) {
 	var turnID uint64
 	err := s.updateParticipant(alias, func(p *participant.Participant) (Event, error) {
 		from := p.Status
@@ -643,12 +688,12 @@ func (s *Session) markIdle(alias string) (uint64, bool) {
 // (e.g., a listener receiving a notice while an existing turn is in flight).
 // Unlike beginParticipantWorking, this does not change the participant's status
 // or replace its existing anchor.
-func (s *Session) trackAnchorStream(alias string, streamID agent.StreamID) {
+func (s *Session) trackAnchorStream(alias participant.Alias, streamID agent.StreamID) {
 	if streamID == "" {
 		return
 	}
 	s.mu.Lock()
-	p, ok := s.registry.Get(alias)
+	p, ok := s.lookupParticipantLocked(alias)
 	var err error
 	if ok {
 		err = p.TrackStream(streamID)
@@ -659,10 +704,10 @@ func (s *Session) trackAnchorStream(alias string, streamID agent.StreamID) {
 	}
 }
 
-func (s *Session) noteWorkingStreamMessage(alias string, msg agent.Message) (shouldIdle bool, sawTracked bool) {
+func (s *Session) noteWorkingStreamMessage(alias participant.Alias, msg agent.Message) (shouldIdle bool, sawTracked bool) {
 	var err error
 	s.mu.Lock()
-	p, ok := s.registry.Get(alias)
+	p, ok := s.lookupParticipantLocked(alias)
 	if !ok {
 		s.mu.Unlock()
 		return false, false
@@ -696,17 +741,17 @@ func (s *Session) noteWorkingStreamMessage(alias string, msg agent.Message) (sho
 	}
 }
 
-func (s *Session) participantStatus(alias string) (participant.Status, bool) {
+func (s *Session) participantStatus(alias participant.Alias) (participant.Status, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	p, ok := s.registry.Get(alias)
+	p, ok := s.lookupParticipantLocked(alias)
 	if !ok {
 		return "", false
 	}
 	return p.Status, true
 }
 
-func (s *Session) handleAgentMessage(alias string, msg agent.Message) {
+func (s *Session) handleAgentMessage(alias participant.Alias, msg agent.Message) {
 	if s.shouldDropIdleStreamFragment(alias, msg) {
 		return
 	}
@@ -733,7 +778,7 @@ func (s *Session) handleAgentMessage(alias string, msg agent.Message) {
 	})
 }
 
-func (s *Session) finishParticipantKeepalive(alias string) {
+func (s *Session) finishParticipantKeepalive(alias participant.Alias) {
 	err := s.updateParticipant(alias, func(p *participant.Participant) (Event, error) {
 		if p.Status != participant.StatusKeepalive {
 			return nil, nil
@@ -749,7 +794,7 @@ func (s *Session) finishParticipantKeepalive(alias string) {
 	}
 }
 
-func (s *Session) applyTurnLifecycle(alias string, msg agent.Message) (uint64, bool) {
+func (s *Session) applyTurnLifecycle(alias participant.Alias, msg agent.Message) (uint64, bool) {
 	// Stream tracking only — no status transitions here. Transitions happen via
 	// prepareParticipantForWork / beginParticipantWorking / markIdle driven by
 	// the session command layer and the anchor stream close.
@@ -769,7 +814,7 @@ func (s *Session) applyTurnLifecycle(alias string, msg agent.Message) (uint64, b
 	return 0, false
 }
 
-func (s *Session) shouldDropIdleStreamFragment(alias string, msg agent.Message) bool {
+func (s *Session) shouldDropIdleStreamFragment(alias participant.Alias, msg agent.Message) bool {
 	// Protocol guard:
 	// Streaming fragments must belong to an active turn. If an adapter emits one
 	// while the participant is idle, it is a lifecycle violation. Drop it to
@@ -797,7 +842,7 @@ func (s *Session) shouldDropIdleStreamFragment(alias string, msg agent.Message) 
 }
 
 type keepaliveCandidate struct {
-	alias string
+	alias participant.Alias
 	agent agent.Keepaliver
 }
 

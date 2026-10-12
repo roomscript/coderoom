@@ -3,6 +3,7 @@ package history
 import (
 	"testing"
 
+	"github.com/roomscript/coderoom/internal/participant"
 	roomstate "github.com/roomscript/coderoom/internal/room"
 	rec "github.com/roomscript/coderoom/internal/ui/room/history/record"
 )
@@ -16,7 +17,7 @@ func systemRecords(n int) []rec.Record {
 }
 
 func TestReplaceState_whenAtBottom_doesNotImplicitlyFollow(t *testing.T) {
-	m := New(nil, "")
+	m := New(nil, nil, "")
 	m = m.SetSize(80, 10)
 	records := systemRecords(25)
 	m = m.ReplaceSnapshot(roomstate.Snapshot{Records: records})
@@ -26,7 +27,7 @@ func TestReplaceState_whenAtBottom_doesNotImplicitlyFollow(t *testing.T) {
 	}
 	beforeY := m.YOffset()
 
-	records = append(records, rec.Record{Kind: rec.KindAgentOutput, Alias: "ada", Text: "hello"})
+	records = append(records, rec.Record{Kind: rec.KindAgentOutput, Alias: testAlias("ada"), Text: "hello"})
 	m = m.ReplaceSnapshot(roomstate.Snapshot{Records: records})
 	if m.YOffset() != beforeY {
 		t.Fatalf("expected new state not to auto-follow when history layer is passive; before=%d after=%d", beforeY, m.YOffset())
@@ -37,7 +38,7 @@ func TestReplaceState_whenAtBottom_doesNotImplicitlyFollow(t *testing.T) {
 }
 
 func TestReplaceState_whenScrolledUp_doesNotForceViewportToBottom(t *testing.T) {
-	m := New(nil, "")
+	m := New(nil, nil, "")
 	m = m.SetSize(80, 10)
 	records := systemRecords(25)
 	m = m.ReplaceSnapshot(roomstate.Snapshot{Records: records})
@@ -48,7 +49,7 @@ func TestReplaceState_whenScrolledUp_doesNotForceViewportToBottom(t *testing.T) 
 	}
 	y := m.YOffset()
 
-	records = append(records, rec.Record{Kind: rec.KindAgentOutput, Alias: "ada", Text: "hello"})
+	records = append(records, rec.Record{Kind: rec.KindAgentOutput, Alias: testAlias("ada"), Text: "hello"})
 	m = m.ReplaceSnapshot(roomstate.Snapshot{Records: records})
 	if m.YOffset() != y {
 		t.Fatalf("expected new state not to force viewport to bottom when scrolled up; yOffset changed from %d to %d", y, m.YOffset())
@@ -56,7 +57,7 @@ func TestReplaceState_whenScrolledUp_doesNotForceViewportToBottom(t *testing.T) 
 }
 
 func TestCursorLeftRight_crossesVisibleLineBoundaries(t *testing.T) {
-	m := New(nil, "")
+	m := New(nil, nil, "")
 	m = m.SetSize(5, 4)
 	m = m.ReplaceSnapshot(roomstate.Snapshot{
 		Records: []rec.Record{{Kind: rec.KindSystem, Text: "abcde fghi"}},
@@ -86,7 +87,7 @@ func TestCursorLeftRight_crossesVisibleLineBoundaries(t *testing.T) {
 }
 
 func TestCursorUpDown_preservesPreferredColumn(t *testing.T) {
-	m := New(nil, "")
+	m := New(nil, nil, "")
 	m = m.SetSize(6, 4)
 	m = m.ReplaceSnapshot(roomstate.Snapshot{
 		Records: []rec.Record{{Kind: rec.KindSystem, Text: "abcdef gh ij"}},
@@ -116,7 +117,7 @@ func TestCursorUpDown_preservesPreferredColumn(t *testing.T) {
 }
 
 func TestApplyRoomDelta_whenBottomAlignedButCursorNotAtLiveEnd_preservesCursorAndViewport(t *testing.T) {
-	m := New(nil, "")
+	m := New(nil, nil, "")
 	m = m.SetSize(8, 3)
 	records := systemRecords(8)
 	m = m.ReplaceSnapshot(roomstate.Snapshot{Records: records})
@@ -132,7 +133,7 @@ func TestApplyRoomDelta_whenBottomAlignedButCursorNotAtLiveEnd_preservesCursorAn
 			Index:  len(records),
 			Record: rec.Record{Kind: rec.KindSystem, Text: "[new]"},
 		}},
-		Meta: roomstate.DeltaMeta{Departed: map[string]bool{}},
+		Meta: roomstate.DeltaMeta{Departed: map[participant.Alias]bool{}},
 	})
 
 	afterRow, afterCol := m.CursorPosition()
@@ -145,7 +146,7 @@ func TestApplyRoomDelta_whenBottomAlignedButCursorNotAtLiveEnd_preservesCursorAn
 }
 
 func TestSetSize_whenCursorAtLiveEnd_reflowDoesNotImplicitlyRearmFollow(t *testing.T) {
-	m := New(nil, "")
+	m := New(nil, nil, "")
 	m = m.SetSize(12, 4)
 	m = m.ReplaceSnapshot(roomstate.Snapshot{
 		Records: []rec.Record{{Kind: rec.KindSystem, Text: "abcdefghijklmno"}},
@@ -162,7 +163,7 @@ func TestSetSize_whenCursorAtLiveEnd_reflowDoesNotImplicitlyRearmFollow(t *testi
 			Index:  1,
 			Record: rec.Record{Kind: rec.KindSystem, Text: "[new]"},
 		}},
-		Meta: roomstate.DeltaMeta{Departed: map[string]bool{}},
+		Meta: roomstate.DeltaMeta{Departed: map[participant.Alias]bool{}},
 	})
 	if m.cursorAtLiveEnd() {
 		t.Fatalf("expected history delta not to re-arm live cursor on its own; got row=%d col=%d", m.cursor.Row, m.cursor.Col)
@@ -170,7 +171,7 @@ func TestSetSize_whenCursorAtLiveEnd_reflowDoesNotImplicitlyRearmFollow(t *testi
 }
 
 func TestSetSize_whenCursorNotAtLiveEnd_reflowsBySurfaceCoordinate(t *testing.T) {
-	m := New(nil, "")
+	m := New(nil, nil, "")
 	m = m.SetSize(20, 4)
 	m = m.ReplaceSnapshot(roomstate.Snapshot{
 		Records: []rec.Record{{Kind: rec.KindSystem, Text: "abcdefghijkl"}},
@@ -194,12 +195,12 @@ func TestSetSize_whenCursorNotAtLiveEnd_reflowsBySurfaceCoordinate(t *testing.T)
 }
 
 func TestSetSize_whenCursorOnSeparatorBlankLine_preservesSeparatorRow(t *testing.T) {
-	m := New(nil, "")
+	m := New(nil, nil, "")
 	m = m.SetSize(20, 5)
 	m = m.ReplaceSnapshot(roomstate.Snapshot{
 		Records: []rec.Record{
-			{Kind: rec.KindAgentOutput, Alias: "ada", Text: "first block"},
-			{Kind: rec.KindAgentOutput, Alias: "bob", Text: "second block that wraps after resize"},
+			{Kind: rec.KindAgentOutput, Alias: testAlias("ada"), Text: "first block"},
+			{Kind: rec.KindAgentOutput, Alias: testAlias("bob"), Text: "second block that wraps after resize"},
 		},
 	})
 	m = m.GotoLiveEnd()

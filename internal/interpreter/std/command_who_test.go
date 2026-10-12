@@ -25,14 +25,14 @@ func TestWhoCommand_Go(t *testing.T) {
 		{name: "empty", text: "[no agents]"},
 		{
 			name:  "starting",
-			views: []participant.View{{Alias: "ada", Role: "builder", Status: participant.StatusStarting}},
+			views: []participant.View{{Alias: newTestAlias("ada"), Role: "builder", Status: participant.StatusStarting}},
 			text:  "[agents] ada",
 		},
 		{
 			name: "multiple",
 			views: []participant.View{
-				{Alias: "tim", Role: "reviewer", Status: participant.StatusIdle},
-				{Alias: "ada", Role: "builder", Status: participant.StatusWorking},
+				{Alias: newTestAlias("tim"), Role: "reviewer", Status: participant.StatusIdle},
+				{Alias: newTestAlias("ada"), Role: "builder", Status: participant.StatusWorking},
 			},
 			text: "[agents] ada, tim",
 		},
@@ -46,7 +46,7 @@ func TestWhoCommand_Go(t *testing.T) {
 				t.Fatal(err)
 			}
 			if len(tt.views) > 0 {
-				tt.views[0].Alias = "changed after preparation"
+				tt.views[0].Alias.Name = "changed after preparation"
 			}
 			var results []runtime.CommandResult
 			err = invocation.Go(func(completion runtime.CommandResult) { results = append(results, completion) })
@@ -75,13 +75,13 @@ func TestWhoCommand_PrepareRequiresParticipantCapability(t *testing.T) {
 func TestWhoCommand_PrepareCreatesIndependentInvocations(t *testing.T) {
 	command := std.WhoCommand{}
 	first, err := command.Prepare(promptlang.ParsedStatement{Located: promptlang.Located[promptlang.Statement]{Value: promptlang.Who{}}}, runtime.Context{Participants: participantReader{
-		views: []participant.View{{Alias: "ada"}},
+		views: []participant.View{{Alias: newTestAlias("ada")}},
 	}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	second, err := command.Prepare(promptlang.ParsedStatement{Located: promptlang.Located[promptlang.Statement]{Value: promptlang.Who{}}}, runtime.Context{Participants: participantReader{
-		views: []participant.View{{Alias: "tim"}},
+		views: []participant.View{{Alias: newTestAlias("tim")}},
 	}})
 	if err != nil {
 		t.Fatal(err)

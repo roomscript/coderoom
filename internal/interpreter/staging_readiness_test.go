@@ -14,11 +14,9 @@ import (
 func planStageForTest(t *testing.T, workflow *stageWorkflow, statement promptlang.Statement, targets []string, states []participantState) instructionSequence {
 	t.Helper()
 	sequence := workflow.start("hello", statement)
-	if send, ok := statement.(promptlang.Send); ok {
-		sess := session.New()
-		t.Cleanup(sess.Shutdown)
+	if _, ok := statement.(promptlang.Send); ok {
 		request := sequence[0].(prepareSendInstruction)
-		return workflow.handleCompletion(sendPlanResult{target: request.target, plan: sess.CreateParticipantSendPlan(send.Alias.Value), targets: targets, participants: states})
+		return workflow.handleCompletion(sendPlanResult{target: request.target, plan: testSendPlan(targets), participants: states})
 	}
 	sequence = acceptSuppliedStagePlan(t, workflow, sequence, targets)
 	read := sequence[0].(readParticipantStateInstruction)
@@ -30,14 +28,14 @@ func TestStageWorkflow_waitsForTemporaryStates(t *testing.T) {
 		for _, statement := range []promptlang.Statement{promptlang.Send{Alias: located("ben"), Text: located("hello")}, promptlang.Broadcast{Text: located("hello")}} {
 			t.Run(fmt.Sprintf("%s/%T", status, statement), func(t *testing.T) {
 				workflow := stageWorkflow{}
-				planStageForTest(t, &workflow, statement, []string{"ben"}, []participantState{{alias: "ben", status: status}})
+				planStageForTest(t, &workflow, statement, []string{"ben"}, []participantState{{alias: testAlias("ben"), status: status}})
 				if stage := workflow.snapshot(); stage == nil || !slices.Equal(stage.NotReadyAliases, []string{"ben"}) {
 					t.Fatalf("stage = %#v", stage)
 				}
-				sequence := workflow.handleSessionEvent(session.ParticipantStatusChanged{Alias: "ben", From: status, To: participant.StatusIdle})
+				sequence := workflow.handleSessionEvent(session.ParticipantStatusChanged{Alias: testAlias("ben"), From: status, To: participant.StatusIdle})
 				if status == participant.StatusStarting || status == participant.StatusAttached {
 					assertNoStageDispatch(t, sequence)
-					sequence = workflow.handleSessionEvent(session.AgentReady{Alias: "ben"})
+					sequence = workflow.handleSessionEvent(session.AgentReady{Alias: testAlias("ben")})
 				}
 				dispatch, ok := sequence[0].(executeSessionInstruction)
 				if !ok || !slices.Equal(stageDispatchRecipients(t, dispatch), []string{"ben"}) {
@@ -55,7 +53,7 @@ func TestStageWorkflow_distinguishesMissingAndCrashed(t *testing.T) {
 		want   error
 	}{
 		{name: "missing", want: errStageTargetUnavailable},
-		{name: "crashed", states: []participantState{{alias: "ben", status: participant.StatusCrashed}}, want: errStageTargetCrashed},
+		{name: "crashed", states: []participantState{{alias: testAlias("ben"), status: participant.StatusCrashed}}, want: errStageTargetCrashed},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			workflow := stageWorkflow{}
@@ -69,9 +67,9 @@ func TestStageWorkflow_distinguishesMissingAndCrashed(t *testing.T) {
 }
 
 func TestStageWorkflow_startupDepartureDiscards(t *testing.T) {
-	for _, event := range []session.Event{session.AgentCrashed{Alias: "ben"}, session.AgentStopped{Alias: "ben"}} {
+	for _, event := range []session.Event{session.AgentCrashed{Alias: testAlias("ben")}, session.AgentStopped{Alias: testAlias("ben")}} {
 		workflow := stageWorkflow{}
-		planStageForTest(t, &workflow, promptlang.Send{Alias: located("ben"), Text: located("hello")}, []string{"ben"}, []participantState{{alias: "ben", status: participant.StatusStarting}})
+		planStageForTest(t, &workflow, promptlang.Send{Alias: located("ben"), Text: located("hello")}, []string{"ben"}, []participantState{{alias: testAlias("ben"), status: participant.StatusStarting}})
 		sequence := workflow.handleSessionEvent(event)
 		if workflow.pending() {
 			t.Fatal("stage survived departure")
@@ -86,7 +84,7 @@ func TestStageWorkflow_startupDepartureDiscards(t *testing.T) {
 func TestStageWorkflow_interruptSkipsStartupAndMaintenance(t *testing.T) {
 	workflow := stageWorkflow{}
 	planStageForTest(t, &workflow, promptlang.Broadcast{Text: located("hello")}, []string{"ada", "ben", "cat"}, []participantState{
-		{alias: "ada", status: participant.StatusWorking}, {alias: "ben", status: participant.StatusStarting}, {alias: "cat", status: participant.StatusKeepalive},
+		{alias: testAlias("ada"), status: participant.StatusWorking}, {alias: testAlias("ben"), status: participant.StatusStarting}, {alias: testAlias("cat"), status: participant.StatusKeepalive},
 	})
 	if !slices.Equal(workflow.snapshot().Interruptible, []string{"ada"}) {
 		t.Fatalf("stage = %#v", workflow.snapshot())
@@ -96,16 +94,16 @@ func TestStageWorkflow_interruptSkipsStartupAndMaintenance(t *testing.T) {
 		t.Fatalf("interrupt = %#v, %v", sequence, ok)
 	}
 	cancel := sequence[0].(executeSessionInstruction)
-	if cancel.request != (cancelRequest{alias: "ada"}) {
+	if cancel.request != (cancelRequest{alias: testAlias("ada")}) {
 		t.Fatalf("request = %#v", cancel.request)
 	}
 	workflow.handleCompletion(sessionOutcome{target: cancel.target})
-	workflow.handleSessionEvent(session.ParticipantStatusChanged{Alias: "ada", To: participant.StatusIdle})
-	workflow.handleSessionEvent(session.AgentReady{Alias: "ben"})
+	workflow.handleSessionEvent(session.ParticipantStatusChanged{Alias: testAlias("ada"), To: participant.StatusIdle})
+	workflow.handleSessionEvent(session.AgentReady{Alias: testAlias("ben")})
 	if !workflow.pending() {
 		t.Fatal("dispatched while keepalive still running")
 	}
-	sequence = workflow.handleSessionEvent(session.ParticipantStatusChanged{Alias: "cat", To: participant.StatusIdle})
+	sequence = workflow.handleSessionEvent(session.ParticipantStatusChanged{Alias: testAlias("cat"), To: participant.StatusIdle})
 	if _, ok := sequence[0].(executeSessionInstruction); !ok {
 		t.Fatalf("dispatch = %#v", sequence)
 	}
@@ -113,16 +111,16 @@ func TestStageWorkflow_interruptSkipsStartupAndMaintenance(t *testing.T) {
 
 func TestSubmitContract_startingBroadcastKeepsFrozenRecipients(t *testing.T) {
 	interp, sess, events := newSubmitContractInterpreter(t)
-	sess.readinessRequirements = []participant.Participant{{View: participant.View{Alias: "ben", Status: participant.StatusStarting}}}
+	sess.readinessRequirements = []participant.Participant{{View: participant.View{Alias: testAlias("ben"), Status: participant.StatusStarting}}}
 	mustSubmit(t, interp.Submit("hello"))
 	receiveSubmitEvent[InputAccepted](t, events)
 	receiveSubmitEvent[SubmissionSucceeded](t, events)
 	receiveSubmitEvent[StateChanged](t, events)
 	assertNoSubmitExecution(t, sess.executed)
-	interp.executor.recordSessionEvent(session.AgentReady{Alias: "later"})
-	interp.executor.recordSessionEvent(session.AgentReady{Alias: "ben"})
+	interp.executor.recordSessionEvent(session.AgentReady{Alias: testAlias("later")})
+	interp.executor.recordSessionEvent(session.AgentReady{Alias: testAlias("ben")})
 	command := receiveSubmitCommand(t, sess.executed).(session.BroadcastCommand)
-	if !slices.Equal(command.Aliases, []string{"ben"}) {
+	if !slices.Equal(command.Aliases, testAliases([]string{"ben"})) {
 		t.Fatalf("recipients = %v", command.Aliases)
 	}
 }
@@ -140,7 +138,7 @@ func TestStageWorkflow_startupStageCanBeEditedOrDiscarded(t *testing.T) {
 	for _, edit := range []bool{true, false} {
 		t.Run(fmt.Sprintf("edit=%v", edit), func(t *testing.T) {
 			workflow := stageWorkflow{}
-			planStageForTest(t, &workflow, promptlang.Send{Alias: located("ben"), Text: located("hello")}, []string{"ben"}, []participantState{{alias: "ben", status: participant.StatusStarting}})
+			planStageForTest(t, &workflow, promptlang.Send{Alias: located("ben"), Text: located("hello")}, []string{"ben"}, []participantState{{alias: testAlias("ben"), status: participant.StatusStarting}})
 			if edit {
 				_, raw, ok := workflow.takeForEdit()
 				if !ok || raw != "hello" {

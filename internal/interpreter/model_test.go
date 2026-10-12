@@ -61,7 +61,7 @@ func TestInterpreterModel_ApplySessionEventProjectsBeforeWorkflowInstructions(t 
 	model := newInterpreterModel()
 	t.Cleanup(model.Close)
 
-	sequence, applied := model.ApplySessionEvent(session.AgentReady{Alias: "ada"})
+	sequence, applied := model.ApplySessionEvent(session.AgentReady{Alias: testAlias("ada")})
 	if !applied {
 		t.Fatal("event was not applied")
 	}
@@ -69,7 +69,7 @@ func TestInterpreterModel_ApplySessionEventProjectsBeforeWorkflowInstructions(t 
 		t.Fatalf("instructions = %d, want 0", len(sequence))
 	}
 	members := model.Snapshot().room.Members
-	if len(members) != 1 || members[0] != "ada" {
+	if len(members) != 1 || members[0] != testAlias("ada") {
 		t.Fatalf("members = %v, want [ada]", members)
 	}
 }

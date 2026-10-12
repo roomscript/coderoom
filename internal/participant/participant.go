@@ -66,7 +66,7 @@ const (
 // View is the observable state of a participant. It contains no live runtime
 // capabilities and is safe to expose in application snapshots.
 type View struct {
-	Alias      string
+	Alias      Alias
 	Role       string
 	Initiative Initiative
 	Status     Status
@@ -92,11 +92,11 @@ type Participant struct {
 	anchor agent.StreamID
 }
 
-// New creates a participant with the supplied identity and initiative. The
+// New creates a participant with a new identity and the supplied name and initiative. The
 // caller advances it into its initial lifecycle state before registration.
-func New(alias, role string, initiative Initiative) *Participant {
+func New(name, role string, initiative Initiative) *Participant {
 	return &Participant{View: View{
-		Alias:      alias,
+		Alias:      createAlias(name),
 		Role:       role,
 		Initiative: initiative,
 	}}

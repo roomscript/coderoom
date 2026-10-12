@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/roomscript/coderoom/internal/agent"
+	"github.com/roomscript/coderoom/internal/participant"
 )
 
 type approvalNotifier func(Event)
@@ -19,7 +20,7 @@ func (f approvalListenerFunc) Decide(ctx context.Context, req agent.ApprovalRequ
 
 type pendingApproval struct {
 	id    int64
-	alias string
+	alias participant.Alias
 	req   agent.ApprovalRequest
 	resp  chan agent.ApprovalDecision
 }
@@ -99,16 +100,16 @@ func newApprovalHub(notify approvalNotifier) *approvalHub {
 	return &approvalHub{queue: &approvalQueue{}, notify: notify}
 }
 
-func (h *approvalHub) Listener(alias string) agent.ApprovalListener {
+func (h *approvalHub) Listener(alias participant.Alias) agent.ApprovalListener {
 	return approvalListenerFunc(func(ctx context.Context, req agent.ApprovalRequest) (agent.ApprovalDecision, error) {
 		if h == nil {
-			return agent.ApprovalDecision{}, fmt.Errorf("approval listener for %q: hub is nil", alias)
+			return agent.ApprovalDecision{}, fmt.Errorf("approval listener for %q: hub is nil", alias.Name)
 		}
 		return h.request(ctx, alias, req)
 	})
 }
 
-func (h *approvalHub) request(ctx context.Context, alias string, req agent.ApprovalRequest) (agent.ApprovalDecision, error) {
+func (h *approvalHub) request(ctx context.Context, alias participant.Alias, req agent.ApprovalRequest) (agent.ApprovalDecision, error) {
 	if h.queue == nil {
 		return agent.ApprovalDecision{}, errors.New("approval queue is nil")
 	}
@@ -186,9 +187,9 @@ func (h *approvalHub) publish(p *pendingApproval) {
 	h.notify(ApprovalRequested{Alias: p.alias, ID: p.id, Req: req})
 }
 
-func aliasForApproval(p *pendingApproval) string {
+func aliasForApproval(p *pendingApproval) participant.Alias {
 	if p == nil {
-		return ""
+		return participant.Alias{}
 	}
 	return p.alias
 }

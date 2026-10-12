@@ -408,6 +408,7 @@ func (m Model) PlainText() string {
 	ctx := rec.RenderContext{
 		Key:           rec.RenderKey{Mode: rec.RenderTranscript, ColorVersion: m.colorVersion},
 		ColorForAlias: m.resolveColor,
+		ColorForName:  m.colorByName,
 	}
 	for _, r := range m.records {
 		parts = append(parts, rec.Render(r.record, ctx))

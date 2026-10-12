@@ -13,7 +13,7 @@ func TestRemove_executesNativeHandlerOnce(t *testing.T) {
 	mustSubmit(t, interp.Submit("/remove ada"))
 	receiveSubmitEvent[InputAccepted](t, events)
 	command := receiveSubmitCommand(t, sess.executed)
-	if command != (session.RemoveCommand{Alias: "ada"}) {
+	if command != (session.RemoveCommand{Alias: testAlias("ada")}) {
 		t.Fatalf("command = %#v, want remove ada", command)
 	}
 	receiveSubmitEvent[StateChanged](t, events)

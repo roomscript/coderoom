@@ -60,7 +60,7 @@ func (s *submitContractSession) AddObserver(observer session.Observer) {
 	s.observer = observer
 }
 
-func (*submitContractSession) CreateParticipantSendPlan(alias string) session.ParticipantSendPlan {
+func (*submitContractSession) CreateParticipantSendPlan(alias participant.Alias) session.ParticipantSendPlan {
 	planner := session.New()
 	defer planner.Shutdown()
 	return planner.CreateParticipantSendPlan(alias)
@@ -86,13 +86,22 @@ func (s *submitContractSession) Participants() []participant.View {
 	return values
 }
 
-func (s *submitContractSession) Participant(alias string) (participant.View, bool) {
+func (s *submitContractSession) Participant(alias participant.Alias) (participant.View, bool) {
 	for _, p := range s.Participants() {
 		if p.Alias == alias {
 			return p, true
 		}
 	}
 	return participant.View{}, false
+}
+
+func (s *submitContractSession) ParticipantByName(name string) (participant.View, bool) {
+	for _, value := range s.Participants() {
+		if value.Alias.Name == name {
+			return value, true
+		}
+	}
+	return participant.View{Alias: testAlias(name)}, true
 }
 
 func (s *submitContractSession) Shutdown() { s.shutdowns.Add(1) }
@@ -148,7 +157,7 @@ func TestSubmitContract_reportsUndefinedCommandWithoutMutation(t *testing.T) {
 
 func TestSubmitContract_executesNativeCommandAndAcceptsInputOnce(t *testing.T) {
 	interp, sess, events := newSubmitContractInterpreter(t)
-	command := session.CancelCommand{Alias: "ada"}
+	command := session.CancelCommand{Alias: testAlias("ada")}
 
 	mustSubmit(t, interp.Submit("/cancel ada"))
 	accepted := receiveSubmitEvent[InputAccepted](t, events)
@@ -191,13 +200,13 @@ func TestSubmitContract_reportsNativeExecutionFailure(t *testing.T) {
 func TestSubmitContract_terminalOutcomeFollowsCausalEvents(t *testing.T) {
 	interp, sess, events := newSubmitContractInterpreter(t)
 	sess.execute = func(_ session.Command, observer session.Observer) {
-		observer.OnEvent(session.AgentReady{Alias: "ada"})
+		observer.OnEvent(session.AgentReady{Alias: testAlias("ada")})
 	}
 
 	mustSubmit(t, interp.Submit("/cancel ada"))
 	receiveSubmitEvent[InputAccepted](t, events)
 	causal := receiveSubmitEvent[StateChanged](t, events)
-	if len(causal.Snapshot.Room.Members) != 1 || causal.Snapshot.Room.Members[0] != "ada" {
+	if len(causal.Snapshot.Room.Members) != 1 || causal.Snapshot.Room.Members[0] != testAlias("ada") {
 		t.Fatalf("causal members = %v, want [ada]", causal.Snapshot.Room.Members)
 	}
 	receiveSubmitEvent[StateChanged](t, events)
@@ -280,11 +289,11 @@ func TestSubmitContract_appliesCausalEventBeforeNextExecution(t *testing.T) {
 	sess.execute = func(_ session.Command, observer session.Observer) {
 		calls++
 		if calls == 1 {
-			observer.OnEvent(session.AgentReady{Alias: "ada"})
+			observer.OnEvent(session.AgentReady{Alias: testAlias("ada")})
 			return
 		}
 		members := interpreterModelOf(interp).Snapshot().room.Members
-		causalStateObserved <- len(members) == 1 && members[0] == "ada"
+		causalStateObserved <- len(members) == 1 && members[0] == testAlias("ada")
 	}
 
 	mustSubmit(t, interp.Submit("/cancel ada"))
@@ -515,7 +524,7 @@ func TestSubmitContract_shutdownWaitsForAcceptedExecution(t *testing.T) {
 
 func emitFakeRoutingOutcome(command session.Command, err error, observer session.Observer) {
 	result := session.RoutingResult{Err: err}
-	var aliases []string
+	var aliases []participant.Alias
 	role := session.RecipientPrimary
 	switch command := command.(type) {
 	case session.BroadcastCommand:
@@ -523,7 +532,7 @@ func emitFakeRoutingOutcome(command session.Command, err error, observer session
 	case session.SendToParticipantCommand:
 		result.Kind, aliases = session.RoutingParticipantSend, command.Plan.Targets()
 	case session.HandoffCommand:
-		result.Kind, aliases, role = session.RoutingHandoff, []string{command.ToAlias}, session.RecipientHandoff
+		result.Kind, aliases, role = session.RoutingHandoff, []participant.Alias{command.ToAlias}, session.RecipientHandoff
 	default:
 		return
 	}

@@ -48,7 +48,7 @@ func (s *recordingSession) Execute(command session.Command) error {
 	if hook != nil {
 		hook(command, observer)
 	} else if observer != nil {
-		observer.OnEvent(session.ParticipantStatusChanged{Alias: "ada", To: participant.StatusIdle})
+		observer.OnEvent(session.ParticipantStatusChanged{Alias: testAlias("ada"), To: participant.StatusIdle})
 	}
 	time.Sleep(time.Millisecond)
 	if observer != nil {
@@ -64,7 +64,7 @@ func (s *recordingSession) AddObserver(observer session.Observer) {
 	s.observer = observer
 }
 
-func (*recordingSession) CreateParticipantSendPlan(alias string) session.ParticipantSendPlan {
+func (*recordingSession) CreateParticipantSendPlan(alias participant.Alias) session.ParticipantSendPlan {
 	planner := session.New()
 	defer planner.Shutdown()
 	return planner.CreateParticipantSendPlan(alias)
@@ -76,13 +76,22 @@ func (s *recordingSession) Participants() []participant.View {
 	return append([]participant.View(nil), s.participants...)
 }
 
-func (s *recordingSession) Participant(alias string) (participant.View, bool) {
+func (s *recordingSession) Participant(alias participant.Alias) (participant.View, bool) {
 	for _, value := range s.Participants() {
 		if value.Alias == alias {
 			return value, true
 		}
 	}
 	return participant.View{}, false
+}
+
+func (s *recordingSession) ParticipantByName(name string) (participant.View, bool) {
+	for _, value := range s.Participants() {
+		if value.Alias.Name == name {
+			return value, true
+		}
+	}
+	return participant.View{Alias: testAlias(name)}, true
 }
 
 func (s *recordingSession) Shutdown() { s.shutdowns.Add(1) }
@@ -105,7 +114,7 @@ func (o eventObserver) OnEvent(event interpreter.Event) {
 func TestInterpreter_projectsSessionEventBeforePublishingSnapshot(t *testing.T) {
 	sess := newRecordingSession()
 	sess.participants = []participant.View{{
-		Alias:      "ada",
+		Alias:      testAlias("ada"),
 		Role:       "builder",
 		Initiative: participant.InitiativeManual,
 		Status:     participant.StatusIdle, StartupReady: true,
@@ -116,13 +125,13 @@ func TestInterpreter_projectsSessionEventBeforePublishingSnapshot(t *testing.T) 
 	receiveEvent[interpreter.StateChanged](t, events)
 	t.Cleanup(interp.Close)
 
-	sess.emit(session.AgentReady{Alias: "ada"})
+	sess.emit(session.AgentReady{Alias: testAlias("ada")})
 
 	changed := receiveEvent[interpreter.StateChanged](t, events)
-	if len(changed.Snapshot.Room.Members) != 1 || changed.Snapshot.Room.Members[0] != "ada" {
+	if len(changed.Snapshot.Room.Members) != 1 || changed.Snapshot.Room.Members[0] != testAlias("ada") {
 		t.Fatalf("room members = %v, want [ada]", changed.Snapshot.Room.Members)
 	}
-	if len(changed.Snapshot.Participants) != 1 || changed.Snapshot.Participants[0].Alias != "ada" {
+	if len(changed.Snapshot.Participants) != 1 || changed.Snapshot.Participants[0].Alias != testAlias("ada") {
 		t.Fatalf("participants = %#v, want ada", changed.Snapshot.Participants)
 	}
 }
@@ -135,7 +144,7 @@ func TestInterpreter_translatesApprovalState(t *testing.T) {
 	t.Cleanup(interp.Close)
 
 	sess.emit(session.ApprovalRequested{
-		Alias: "ada",
+		Alias: testAlias("ada"),
 		ID:    42,
 		Req: agent.ApprovalRequest{
 			Kind:    agent.ApprovalCommandExecution,
@@ -146,14 +155,14 @@ func TestInterpreter_translatesApprovalState(t *testing.T) {
 
 	requested := receiveEvent[interpreter.StateChanged](t, events)
 	approval := requested.Snapshot.Approval
-	if approval == nil || approval.ID != 42 || approval.Alias != "ada" || approval.Prompt != "Run tests?" {
+	if approval == nil || approval.ID != 42 || approval.Alias != testAlias("ada") || approval.Prompt != "Run tests?" {
 		t.Fatalf("approval = %#v", approval)
 	}
 	if len(approval.Options) != 2 || approval.Options[0].ID != "accept" {
 		t.Fatalf("approval options = %#v", approval.Options)
 	}
 
-	sess.emit(session.ApprovalCleared{Alias: "ada", ID: 42})
+	sess.emit(session.ApprovalCleared{Alias: testAlias("ada"), ID: 42})
 	cleared := receiveEvent[interpreter.StateChanged](t, events)
 	if cleared.Snapshot.Approval != nil {
 		t.Fatalf("approval after clear = %#v", cleared.Snapshot.Approval)
@@ -162,27 +171,27 @@ func TestInterpreter_translatesApprovalState(t *testing.T) {
 
 func TestInterpreter_snapshotAfterCloseUsesDetachedCache(t *testing.T) {
 	sess := newRecordingSession()
-	sess.participants = []participant.View{{Alias: "ada", Status: participant.StatusIdle, StartupReady: true}}
+	sess.participants = []participant.View{{Alias: testAlias("ada"), Status: participant.StatusIdle, StartupReady: true}}
 	events := make(chan interpreter.Event, 2)
 	interp := interpreter.New(context.Background(), sess, t.TempDir(), interpreter.WithObserver(eventObserver{events: events}))
 	receiveEvent[interpreter.StateChanged](t, events)
 
-	sess.emit(session.AgentReady{Alias: "ada"})
+	sess.emit(session.AgentReady{Alias: testAlias("ada")})
 	receiveEvent[interpreter.StateChanged](t, events)
 	emitApproval(sess, 42, agent.OptionAccept)
 	receiveEvent[interpreter.StateChanged](t, events)
 	interp.Close()
 
 	first := interp.Snapshot()
-	first.Room.Members[0] = "changed"
-	first.Participants[0].Alias = "changed"
+	first.Room.Members[0] = testAlias("changed")
+	first.Participants[0].Alias = testAlias("changed")
 	first.Approval.Options[0].ID = "changed"
 
 	second := interp.Snapshot()
-	if second.Room.Members[0] != "ada" {
+	if second.Room.Members[0] != testAlias("ada") {
 		t.Fatalf("cached room members = %v, want [ada]", second.Room.Members)
 	}
-	if second.Participants[0].Alias != "ada" {
+	if second.Participants[0].Alias != testAlias("ada") {
 		t.Fatalf("cached participants = %#v, want ada", second.Participants)
 	}
 	if second.Approval == nil || second.Approval.Options[0].ID != "accept" {
@@ -392,7 +401,7 @@ func mustResolveApproval(t *testing.T, interp *interpreter.Interpreter, id int64
 
 func approvalRequested(id int64, options ...agent.ApprovalOption) session.ApprovalRequested {
 	return session.ApprovalRequested{
-		Alias: "ada",
+		Alias: testAlias("ada"),
 		ID:    id,
 		Req: agent.ApprovalRequest{
 			Kind:    agent.ApprovalCommandExecution,
@@ -424,7 +433,7 @@ func assertNotExecuted(t *testing.T, commands <-chan session.Command) {
 
 func emitFakeRoutingOutcome(command session.Command, err error, observer session.Observer) {
 	result := session.RoutingResult{Err: err}
-	var aliases []string
+	var aliases []participant.Alias
 	role := session.RecipientPrimary
 	switch command := command.(type) {
 	case session.BroadcastCommand:
@@ -432,7 +441,7 @@ func emitFakeRoutingOutcome(command session.Command, err error, observer session
 	case session.SendToParticipantCommand:
 		result.Kind, aliases = session.RoutingParticipantSend, command.Plan.Targets()
 	case session.HandoffCommand:
-		result.Kind, aliases, role = session.RoutingHandoff, []string{command.ToAlias}, session.RecipientHandoff
+		result.Kind, aliases, role = session.RoutingHandoff, []participant.Alias{command.ToAlias}, session.RecipientHandoff
 	default:
 		return
 	}

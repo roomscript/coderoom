@@ -50,7 +50,7 @@ func TestSubmitAPI_executesNativeCommand(t *testing.T) {
 		t.Fatalf("accepted input = %#v", accepted)
 	}
 	command := receiveCommand(t, sess.executed)
-	want := session.CancelCommand{Alias: "ada"}
+	want := session.CancelCommand{Alias: testAlias("ada")}
 	if command != want {
 		t.Fatalf("native command = %#v, want %#v", command, want)
 	}

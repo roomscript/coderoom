@@ -16,17 +16,14 @@ func (w *stageWorkflow) prepareSend(result sendPlanResult) instructionSequence {
 		return nil
 	}
 	w.active.freezeSend(result)
-	if len(w.active.routing) == 0 {
-		return w.rejectSendPlanning(SubmissionFailed{
-			Raw: w.active.raw, Operation: "staged dispatch", Code: ErrorExecutionFailed,
-			Err: errNoStageTargets,
-		})
+	if len(w.active.targetAliases()) == 0 {
+		return w.rejectSendPlanning(unavailableStageFailure(w.active))
 	}
-	if slices.Contains(w.active.requirements.unavailable, w.active.send.action.Alias.Value) {
+	if slices.Contains(w.active.requirements.unavailable, w.active.send.delivery.PrimaryParticipant()) {
 		return w.rejectSendPlanning(unavailableStageFailure(w.active))
 	}
 
-	sequence := acceptedStageInputSequence(w.active.raw, w.active.routing)
+	sequence := acceptedStageInputSequence(w.active.raw, w.active.targetAliases())
 	if !w.active.requirements.isReady() {
 		return append(sequence, w.retainPlanUntilReady()...)
 	}
@@ -41,7 +38,7 @@ func (w *stageWorkflow) rejectSendPlanning(failure SubmissionFailed) instruction
 // resumeSendOnReadiness is the entry point after a retained send returns control.
 func (w *stageWorkflow) resumeSendOnReadiness() instructionSequence {
 	state := w.active
-	if slices.Contains(state.requirements.unavailable, state.send.action.Alias.Value) {
+	if slices.Contains(state.requirements.unavailable, state.send.delivery.PrimaryParticipant()) {
 		return w.discardUnavailableStage()
 	}
 	if !state.requirements.isReady() {
@@ -53,7 +50,6 @@ func (w *stageWorkflow) resumeSendOnReadiness() instructionSequence {
 func (w *stageWorkflow) startSendDispatch() executeSessionInstruction {
 	state := w.active
 	state.phase = stageDispatching
-	state.dispatchRouting = activeAliases(state.routing, state.requirements.unavailable)
 	state.pending = w.nextRef()
 	return executeSessionInstruction{
 		target:           state.pending,

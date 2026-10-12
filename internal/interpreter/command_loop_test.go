@@ -33,13 +33,14 @@ type causalBurstProbeExecutor struct {
 }
 
 func (e causalBurstProbeExecutor) startWorkflowShell(startShellInstruction) {
-	e.projected <- slices.Contains(e.model.Snapshot().room.Members, "turing")
+	e.projected <- slices.Contains(e.model.Snapshot().room.Members, testAlias("turing"))
 }
 
 func (op causalBurstProbeOperation) apply(e *interpreterExecutor) {
 	model := e.model.(*interpreterModel)
 	model.workflows.loop.active = &loopState{
 		generation: 1,
+		primary:    testAlias("ada"),
 		statement:  testLoopStatement(1),
 		body:       promptlang.Shell{Program: located("probe")},
 		phase:      loopWaitingForParticipant,
@@ -50,7 +51,7 @@ func (op causalBurstProbeOperation) apply(e *interpreterExecutor) {
 	runner.Run(instructionSequence{executeSessionInstruction{
 		target: workflowRef{kind: workflowLoop, generation: 99, requestID: 99},
 		request: createPlanAndExecuteParticipantSendRequest{
-			alias: "ada", message: "work", notice: "@ada: work",
+			alias: testAlias("ada"), message: "work", notice: "@ada: work",
 		},
 	}})
 	close(op.done)
@@ -104,8 +105,8 @@ func TestSubmitContract_loopAlternatesTurnsAndConditionsUntilBound(t *testing.T)
 func TestInstructionRunner_projectsCompleteCausalBurstBeforeDerivedInstruction(t *testing.T) {
 	sess := newSubmitContractSession()
 	sess.execute = func(_ session.Command, observer session.Observer) {
-		observer.OnEvent(session.ParticipantStatusChanged{Alias: "ada", To: participant.StatusIdle})
-		observer.OnEvent(session.AgentReady{Alias: "turing"})
+		observer.OnEvent(session.ParticipantStatusChanged{Alias: testAlias("ada"), To: participant.StatusIdle})
+		observer.OnEvent(session.AgentReady{Alias: testAlias("turing")})
 	}
 	projected := make(chan bool, 1)
 	interp := New(t.Context(), sess, "/workspace")
@@ -132,8 +133,8 @@ func TestSubmitContract_loopStopsWhenParticipantStopsOrCrashes(t *testing.T) {
 		event   session.Event
 		message string
 	}{
-		{"stopped", session.AgentStopped{Alias: "ada"}, "[loop] stopped: participant @ada stopped"},
-		{"crashed", session.AgentCrashed{Alias: "ada"}, "[loop] stopped: participant @ada crashed"},
+		{"stopped", session.AgentStopped{Alias: testAlias("ada")}, "[loop] stopped: participant @ada stopped"},
+		{"crashed", session.AgentCrashed{Alias: testAlias("ada")}, "[loop] stopped: participant @ada crashed"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -159,7 +160,7 @@ func TestSubmitContract_loopRetainsTerminalEventDuringDispatch(t *testing.T) {
 	interp, sess, events := newLoopTestInterpreter(t, &sequenceShellRunner{})
 	defineLoopCondition(t, interp, events)
 	sess.execute = func(_ session.Command, observer session.Observer) {
-		observer.OnEvent(session.AgentCrashed{Alias: "ada"})
+		observer.OnEvent(session.AgentCrashed{Alias: testAlias("ada")})
 	}
 
 	mustSubmit(t, interp.Submit("/loop @ada work /until /tests /max 1"))
@@ -195,7 +196,7 @@ func TestSubmitContract_failedLoopDispatchIgnoresSynchronousIdle(t *testing.T) {
 	defineLoopCondition(t, interp, events)
 	sess.executeErr = errors.New("send failed")
 	sess.execute = func(_ session.Command, observer session.Observer) {
-		observer.OnEvent(session.ParticipantStatusChanged{Alias: "ada", To: participant.StatusIdle})
+		observer.OnEvent(session.ParticipantStatusChanged{Alias: testAlias("ada"), To: participant.StatusIdle})
 	}
 
 	mustSubmit(t, interp.Submit("/loop @ada work /until /tests /max 1"))
@@ -256,16 +257,17 @@ func TestLoopWorkflow_consumesDispatchCompletionOnce(t *testing.T) {
 	target := workflowRef{kind: workflowLoop, generation: 1, requestID: 1}
 	workflow := loopWorkflow{active: &loopState{
 		generation: 1,
+		primary:    testAlias("ada"),
 		statement:  testLoopStatement(2),
 		phase:      loopDispatchingParticipant,
 		pending:    target,
 	}}
 
-	first := workflow.finishParticipantDelivery(sessionOutcome{target: target, routing: session.RoutingResult{Kind: session.RoutingParticipantSend, Recipients: []session.RecipientResult{{Alias: "ada", Role: session.RecipientPrimary, Status: session.DeliveryDelivered}}}})
+	first := workflow.finishParticipantDelivery(sessionOutcome{target: target, routing: session.RoutingResult{Kind: session.RoutingParticipantSend, Recipients: []session.RecipientResult{{Alias: testAlias("ada"), Role: session.RecipientPrimary, Status: session.DeliveryDelivered}}}})
 	if len(first) == 0 || workflow.active.phase != loopWaitingForParticipant {
 		t.Fatalf("first completion did not advance dispatch: %#v", first)
 	}
-	second := workflow.finishParticipantDelivery(sessionOutcome{target: target, routing: session.RoutingResult{Kind: session.RoutingParticipantSend, Recipients: []session.RecipientResult{{Alias: "ada", Role: session.RecipientPrimary, Status: session.DeliveryDelivered}}}})
+	second := workflow.finishParticipantDelivery(sessionOutcome{target: target, routing: session.RoutingResult{Kind: session.RoutingParticipantSend, Recipients: []session.RecipientResult{{Alias: testAlias("ada"), Role: session.RecipientPrimary, Status: session.DeliveryDelivered}}}})
 	if len(second) != 0 || workflow.active.turns != 1 {
 		t.Fatalf("duplicate completion advanced workflow: %#v", second)
 	}
@@ -275,6 +277,7 @@ func TestLoopWorkflow_staleShellCompletionDoesNotAdvanceCurrentGeneration(t *tes
 	current := workflowRef{kind: workflowLoop, generation: 2, requestID: 2}
 	workflow := loopWorkflow{active: &loopState{
 		generation: 2,
+		primary:    testAlias("ada"),
 		statement:  testLoopStatement(2),
 		phase:      loopEvaluating,
 		pending:    current,
@@ -314,7 +317,7 @@ func defineLoopCondition(t *testing.T, interp *Interpreter, events <-chan Event)
 
 func completeInterpreterLoopTurn(t *testing.T, interp *Interpreter, events <-chan Event) {
 	t.Helper()
-	interp.executor.recordSessionEvent(session.ParticipantStatusChanged{Alias: "ada", To: participant.StatusIdle})
+	interp.executor.recordSessionEvent(session.ParticipantStatusChanged{Alias: testAlias("ada"), To: participant.StatusIdle})
 	receiveSubmitEvent[StateChanged](t, events)
 }
 

@@ -6,6 +6,7 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/roomscript/coderoom/internal/agent"
+	"github.com/roomscript/coderoom/internal/participant"
 )
 
 func ptr(v int) *int { return &v }
@@ -13,7 +14,7 @@ func ptr(v int) *int { return &v }
 func TestRenderCommand_headerOnly(t *testing.T) {
 	r := Record{
 		Kind:  KindCommand,
-		Alias: "bot",
+		Alias: participant.New("bot", "", participant.InitiativeManual).Alias,
 		Msg: &agent.Message{
 			StreamID: "s1",
 			Mode:     agent.ModeStream,
@@ -29,7 +30,7 @@ func TestRenderCommand_headerOnly(t *testing.T) {
 func TestRenderCommand_withOutputAndExitCode(t *testing.T) {
 	r := Record{
 		Kind:  KindCommand,
-		Alias: "bot",
+		Alias: participant.New("bot", "", participant.InitiativeManual).Alias,
 		Msg: &agent.Message{
 			StreamID: "s1",
 			Mode:     agent.ModeStream,
@@ -54,7 +55,7 @@ func TestRenderCommand_withOutputAndExitCode(t *testing.T) {
 func TestRenderCommand_outputPreview_showsTopThreeLinesAndHint(t *testing.T) {
 	r := Record{
 		Kind:  KindCommand,
-		Alias: "bot",
+		Alias: participant.New("bot", "", participant.InitiativeManual).Alias,
 		Msg: &agent.Message{
 			StreamID: "s1",
 			Mode:     agent.ModeStream,
@@ -76,7 +77,7 @@ func TestRenderCommand_outputPreview_showsTopThreeLinesAndHint(t *testing.T) {
 func TestRenderCommand_longCmd_truncatesToSingleLine(t *testing.T) {
 	r := Record{
 		Kind:  KindCommand,
-		Alias: "bot",
+		Alias: participant.New("bot", "", participant.InitiativeManual).Alias,
 		Msg: &agent.Message{
 			StreamID: "s1",
 			Mode:     agent.ModeStream,
@@ -99,7 +100,7 @@ func TestRenderCommand_longCmd_truncatesToSingleLine(t *testing.T) {
 func TestRenderCommandTranscript_indentsAllOutputLines(t *testing.T) {
 	r := Record{
 		Kind:  KindCommand,
-		Alias: "bot",
+		Alias: participant.New("bot", "", participant.InitiativeManual).Alias,
 		Msg: &agent.Message{
 			StreamID: "s1",
 			Mode:     agent.ModeStream,

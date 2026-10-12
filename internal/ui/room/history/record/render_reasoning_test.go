@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/colorprofile"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/roomscript/coderoom/internal/agent"
+	"github.com/roomscript/coderoom/internal/participant"
 )
 
 func withANSIProfile(t *testing.T, fn func()) {
@@ -30,8 +31,8 @@ func TestRenderReasoning_bodyUsesSystemStyleExceptEmphasis(t *testing.T) {
 				Mode:  RenderViewport,
 				Width: 200,
 			},
-			ColorForAlias: func(alias string) string {
-				if alias != "alice" {
+			ColorForAlias: func(alias participant.Alias) string {
+				if alias.Name != "alice" {
 					return ""
 				}
 				return "6"

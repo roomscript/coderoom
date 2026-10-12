@@ -18,10 +18,10 @@ func TestStageWorkflow_freezesSendPlanAndDispatchesWhenReady(t *testing.T) {
 	planRequest := sequence[0].(prepareSendInstruction)
 
 	sequence = workflow.handleCompletion(sendPlanResult{
-		target: planRequest.target, targets: []string{"ada", "turing"},
+		target: planRequest.target, plan: testSendPlan([]string{"ada", "turing"}),
 		participants: []participantState{
-			{alias: "ada", status: participant.StatusIdle},
-			{alias: "turing", status: participant.StatusIdle},
+			{alias: testAlias("ada"), status: participant.StatusIdle},
+			{alias: testAlias("turing"), status: participant.StatusIdle},
 		},
 	})
 
@@ -54,21 +54,30 @@ func TestStageWorkflow_copiesSuppliedPlanTargets(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			workflow := stageWorkflow{}
-			supplied := slices.Clone(tt.targets)
-			planStageForTest(t, &workflow, tt.statement, supplied, []participantState{
-				{alias: "ada", status: participant.StatusWorking},
-				{alias: "turing", status: participant.StatusIdle},
-			})
+			supplied := testAliases(tt.targets)
+			states := []participantState{
+				{alias: testAlias("ada"), status: participant.StatusWorking},
+				{alias: testAlias("turing"), status: participant.StatusIdle},
+			}
+			sequence := workflow.start("hello", tt.statement)
+			if tt.name == "send" {
+				plan := testSendPlan(tt.targets)
+				supplied = plan.Targets()
+				workflow.prepareSend(sendPlanResult{target: sequence[0].(prepareSendInstruction).target, plan: plan, participants: states})
+			} else {
+				sequence = workflow.handleBroadcastPlan(broadcastPlanResult{target: sequence[0].(planBroadcastInstruction).target, targets: supplied})
+				workflow.handleParticipantState(participantStateResult{target: sequence[0].(readParticipantStateInstruction).target, readinessRequirements: states})
+			}
 			// Mutating producer-owned routing after preparation cannot change the stage.
 			for index := range supplied {
-				supplied[index] = "changed"
+				supplied[index] = testAlias("changed")
 			}
 			snapshot := workflow.snapshot()
 			if snapshot == nil || snapshot.Phase != StagePhasePending || !slices.Equal(snapshot.Routing, tt.targets) {
 				t.Fatalf("stage = %#v, want pending routing %v", snapshot, tt.targets)
 			}
-			sequence := workflow.handleSessionEvent(session.ParticipantStatusChanged{
-				Alias: "ada", To: participant.StatusIdle,
+			sequence = workflow.handleSessionEvent(session.ParticipantStatusChanged{
+				Alias: testAlias("ada"), To: participant.StatusIdle,
 			})
 			dispatch := sequence[0].(executeSessionInstruction)
 			recipients := stageDispatchRecipients(t, dispatch)
@@ -86,7 +95,7 @@ func acceptSuppliedStagePlan(t *testing.T, workflow *stageWorkflow, sequence ins
 	t.Helper()
 	switch request := sequence[0].(type) {
 	case planBroadcastInstruction:
-		return workflow.handleCompletion(broadcastPlanResult{target: request.target, targets: targets})
+		return workflow.handleCompletion(broadcastPlanResult{target: request.target, targets: testAliases(targets)})
 	default:
 		t.Fatalf("plan instruction = %T", request)
 		return nil
@@ -97,9 +106,9 @@ func stageDispatchRecipients(t *testing.T, dispatch executeSessionInstruction) [
 	t.Helper()
 	switch request := dispatch.request.(type) {
 	case executePlannedParticipantSendRequest:
-		return request.plan.Targets()
+		return participantNames(request.plan.Targets())
 	case broadcastRequest:
-		return request.aliases
+		return participantNames(request.aliases)
 	default:
 		t.Fatalf("dispatch request = %T", request)
 		return nil
@@ -111,15 +120,15 @@ func TestStageWorkflow_stagesBusyBroadcastWithDetachedSnapshot(t *testing.T) {
 	sequence := workflow.start("hello", promptlang.Broadcast{Text: located("hello")})
 	planRequest := sequence[0].(planBroadcastInstruction)
 	sequence = workflow.handleCompletion(broadcastPlanResult{
-		target: planRequest.target, targets: []string{"ada", "turing"},
+		target: planRequest.target, targets: testAliases([]string{"ada", "turing"}),
 	})
 	request := sequence[0].(readParticipantStateInstruction)
 	sequence = workflow.handleCompletion(participantStateResult{
 		target: request.target,
 		readinessRequirements: []participantState{
-			{alias: "ada", status: participant.StatusWorking, turnID: 7},
-			{alias: "turing", status: participant.StatusIdle},
-			{alias: "grace", status: participant.StatusWorking, turnID: 8},
+			{alias: testAlias("ada"), status: participant.StatusWorking, turnID: 7},
+			{alias: testAlias("turing"), status: participant.StatusIdle},
+			{alias: testAlias("grace"), status: participant.StatusWorking, turnID: 8},
 		},
 	})
 
@@ -145,25 +154,25 @@ func TestStageWorkflow_lifecycleDispatchUsesFrozenBroadcastTargets(t *testing.T)
 	sequence := workflow.start("hello", promptlang.Broadcast{Text: located("hello")})
 	plan := sequence[0].(planBroadcastInstruction)
 	sequence = workflow.handleCompletion(broadcastPlanResult{
-		target: plan.target, targets: []string{"ada", "turing"},
+		target: plan.target, targets: testAliases([]string{"ada", "turing"}),
 	})
 	read := sequence[0].(readParticipantStateInstruction)
 	workflow.handleCompletion(participantStateResult{
 		target: read.target,
 		readinessRequirements: []participantState{
-			{alias: "ada", status: participant.StatusWorking},
-			{alias: "turing", status: participant.StatusIdle},
+			{alias: testAlias("ada"), status: participant.StatusWorking},
+			{alias: testAlias("turing"), status: participant.StatusIdle},
 		},
 	})
 
 	sequence = workflow.handleSessionEvent(session.AgentMessage{
-		Alias: "ada", TurnCompleted: true, TurnID: 6,
+		Alias: testAlias("ada"), TurnCompleted: true, TurnID: 6,
 	})
 	if len(sequence) != 0 {
 		t.Fatalf("stale source completion produced instructions: %#v", sequence)
 	}
 	sequence = workflow.handleSessionEvent(session.ParticipantStatusChanged{
-		Alias: "grace", To: participant.StatusWorking,
+		Alias: testAlias("grace"), To: participant.StatusWorking,
 	})
 	if snapshot := workflow.snapshot(); !slices.Equal(snapshot.NotReadyAliases, []string{"ada"}) {
 		t.Fatalf("late join changed blocking aliases: %#v", snapshot)
@@ -173,14 +182,14 @@ func TestStageWorkflow_lifecycleDispatchUsesFrozenBroadcastTargets(t *testing.T)
 	}
 
 	sequence = workflow.handleSessionEvent(session.ParticipantStatusChanged{
-		Alias: "ada", To: participant.StatusIdle,
+		Alias: testAlias("ada"), To: participant.StatusIdle,
 	})
 	dispatch, ok := sequence[0].(executeSessionInstruction)
 	if !ok {
 		t.Fatalf("instruction = %T, want executeSessionInstruction", sequence[0])
 	}
 	request := dispatch.request.(broadcastRequest)
-	if !slices.Equal(request.aliases, []string{"ada", "turing"}) {
+	if !slices.Equal(request.aliases, testAliases([]string{"ada", "turing"})) {
 		t.Fatalf("dispatch aliases = %v, want frozen targets", request.aliases)
 	}
 }
@@ -190,24 +199,24 @@ func TestStageWorkflow_departedBroadcastTargetDoesNotBlockRemainingTargets(t *te
 	sequence := workflow.start("hello", promptlang.Broadcast{Text: located("hello")})
 	plan := sequence[0].(planBroadcastInstruction)
 	sequence = workflow.handleCompletion(broadcastPlanResult{
-		target: plan.target, targets: []string{"ada", "turing"},
+		target: plan.target, targets: testAliases([]string{"ada", "turing"}),
 	})
 	read := sequence[0].(readParticipantStateInstruction)
 	workflow.handleCompletion(participantStateResult{
 		target: read.target,
 		readinessRequirements: []participantState{
-			{alias: "ada", status: participant.StatusWorking},
-			{alias: "turing", status: participant.StatusWorking},
+			{alias: testAlias("ada"), status: participant.StatusWorking},
+			{alias: testAlias("turing"), status: participant.StatusWorking},
 		},
 	})
 
-	workflow.handleSessionEvent(session.AgentStopped{Alias: "ada"})
+	workflow.handleSessionEvent(session.AgentStopped{Alias: testAlias("ada")})
 	sequence = workflow.handleSessionEvent(session.ParticipantStatusChanged{
-		Alias: "turing", To: participant.StatusIdle,
+		Alias: testAlias("turing"), To: participant.StatusIdle,
 	})
 	dispatch := sequence[0].(executeSessionInstruction)
 	request := dispatch.request.(broadcastRequest)
-	if !slices.Equal(request.aliases, []string{"turing"}) {
+	if !slices.Equal(request.aliases, testAliases([]string{"turing"})) {
 		t.Fatalf("dispatch aliases = %v, want [turing]", request.aliases)
 	}
 	if !slices.Equal(workflow.snapshot().Unavailable, []string{"ada"}) {
@@ -220,11 +229,11 @@ func TestStageWorkflow_discardsSendWhenAddressedTargetDeparts(t *testing.T) {
 	sequence := workflow.start("@ada hello", promptlang.Send{Alias: located("ada"), Text: located("hello")})
 	plan := sequence[0].(prepareSendInstruction)
 	workflow.handleCompletion(sendPlanResult{
-		target: plan.target, targets: []string{"ada"},
-		participants: []participantState{{alias: "ada", status: participant.StatusWorking}},
+		target: plan.target, plan: testSendPlan([]string{"ada"}),
+		participants: []participantState{{alias: testAlias("ada"), status: participant.StatusWorking}},
 	})
 
-	sequence = workflow.handleSessionEvent(session.AgentCrashed{Alias: "ada"})
+	sequence = workflow.handleSessionEvent(session.AgentCrashed{Alias: testAlias("ada")})
 	record := sequence[0].(appendRecordInstruction).record
 	if record.Kind != room.KindSystem || workflow.pending() {
 		t.Fatalf("record = %#v, pending = %v", record, workflow.pending())
@@ -241,14 +250,14 @@ func TestStageWorkflow_namesDepartedSendTargetWhenListenerRemains(t *testing.T) 
 	sequence := workflow.start("@ada hello", promptlang.Send{Alias: located("ada"), Text: located("hello")})
 	plan := sequence[0].(prepareSendInstruction)
 	workflow.handleCompletion(sendPlanResult{
-		target: plan.target, targets: []string{"ada", "turing"},
+		target: plan.target, plan: testSendPlan([]string{"ada", "turing"}),
 		participants: []participantState{
-			{alias: "ada", status: participant.StatusWorking},
-			{alias: "turing", status: participant.StatusIdle},
+			{alias: testAlias("ada"), status: participant.StatusWorking},
+			{alias: testAlias("turing"), status: participant.StatusIdle},
 		},
 	})
 
-	sequence = workflow.handleSessionEvent(session.AgentStopped{Alias: "ada"})
+	sequence = workflow.handleSessionEvent(session.AgentStopped{Alias: testAlias("ada")})
 	record := sequence[0].(appendRecordInstruction).record
 	discarded := sequence[1].(publishEventInstruction).event.(StagedInputDiscarded)
 	if record.Text != `staged submission discarded: "ada" is no longer available` {
@@ -262,12 +271,12 @@ func TestStageWorkflow_namesDepartedSendTargetWhenListenerRemains(t *testing.T) 
 func TestInterpreterExecutor_planBroadcastSortsDetachedAliases(t *testing.T) {
 	session := newSubmitContractSession()
 	session.readinessRequirements = []participant.Participant{
-		{View: participant.View{Alias: "turing", Status: participant.StatusIdle, StartupReady: true}},
-		{View: participant.View{Alias: "ada", Status: participant.StatusIdle, StartupReady: true}},
+		{View: participant.View{Alias: testAlias("turing"), Status: participant.StatusIdle, StartupReady: true}},
+		{View: participant.View{Alias: testAlias("ada"), Status: participant.StatusIdle, StartupReady: true}},
 	}
 	executor := interpreterExecutor{session: session}
 
-	if got := executor.planBroadcast(); !slices.Equal(got, []string{"ada", "turing"}) {
+	if got := executor.planBroadcast(); !slices.Equal(got, testAliases([]string{"ada", "turing"})) {
 		t.Fatalf("routing = %v, want [turing]", got)
 	}
 }
@@ -276,13 +285,13 @@ func TestStageWorkflow_keepsHandoffPendingForSourceResolution(t *testing.T) {
 	workflow := stageWorkflow{}
 	statement := promptlang.Handoff{FromAlias: located("ada"), ToAlias: located("turing")}
 	sequence := workflow.start("/handoff ada turing", statement)
-	request := sequence[0].(readParticipantStateInstruction)
-	sequence = workflow.handleCompletion(participantStateResult{
+	request := sequence[0].(prepareHandoffInstruction)
+	sequence = workflow.handleCompletion(handoffPlanResult{from: testAlias(workflow.active.handoff.action.FromAlias.Value), to: testAlias(workflow.active.handoff.action.ToAlias.Value),
 		target: request.target,
-		readinessRequirements: []participantState{
-			{alias: "ada", status: participant.StatusIdle},
-			{alias: "turing", status: participant.StatusIdle},
-			{alias: "grace", status: participant.StatusWorking},
+		participants: []participantState{
+			{alias: testAlias("ada"), status: participant.StatusIdle},
+			{alias: testAlias("turing"), status: participant.StatusIdle},
+			{alias: testAlias("grace"), status: participant.StatusWorking},
 		},
 	})
 
@@ -295,7 +304,7 @@ func TestStageWorkflow_keepsHandoffPendingForSourceResolution(t *testing.T) {
 	} else if !slices.Equal(snapshot.NotReadyAliases, []string{"grace"}) {
 		t.Fatalf("handoff readinessRequirements = %#v, want busy bystander", snapshot)
 	}
-	sequence = workflow.handleSessionEvent(session.AgentStopped{Alias: "grace"})
+	sequence = workflow.handleSessionEvent(session.AgentStopped{Alias: testAlias("grace")})
 	if _, ok := sequence[0].(readHandoffSourceInstruction); !ok {
 		t.Fatalf("instruction = %T, want source read after bystander departure", sequence[0])
 	}
@@ -305,26 +314,26 @@ func TestStageWorkflow_handoffWaitsForSourceProjectionAndIdle(t *testing.T) {
 	workflow := stageWorkflow{}
 	statement := promptlang.Handoff{FromAlias: located("ada"), ToAlias: located("turing")}
 	sequence := workflow.start("/handoff ada turing", statement)
-	readParticipants := sequence[0].(readParticipantStateInstruction)
-	workflow.handleCompletion(participantStateResult{
+	readParticipants := sequence[0].(prepareHandoffInstruction)
+	workflow.handleCompletion(handoffPlanResult{from: testAlias(workflow.active.handoff.action.FromAlias.Value), to: testAlias(workflow.active.handoff.action.ToAlias.Value),
 		target: readParticipants.target,
-		readinessRequirements: []participantState{
-			{alias: "ada", status: participant.StatusWorking, turnID: 7},
-			{alias: "turing", status: participant.StatusIdle},
+		participants: []participantState{
+			{alias: testAlias("ada"), status: participant.StatusWorking, turnID: 7},
+			{alias: testAlias("turing"), status: participant.StatusIdle},
 		},
 	})
 
 	sequence = workflow.handleSessionEvent(session.ParticipantStatusChanged{
-		Alias: "ada", From: participant.StatusWorking, To: participant.StatusIdle,
+		Alias: testAlias("ada"), From: participant.StatusWorking, To: participant.StatusIdle,
 	})
 	if _, read := sequence[0].(readHandoffSourceInstruction); read {
 		t.Fatal("handoff read source before completed output projection")
 	}
 	sequence = workflow.handleSessionEvent(session.AgentMessage{
-		Alias: "ada", TurnCompleted: true, TurnID: 7,
+		Alias: testAlias("ada"), TurnCompleted: true, TurnID: 7,
 	})
 	readSource, ok := sequence[0].(readHandoffSourceInstruction)
-	if !ok || readSource.alias != "ada" {
+	if !ok || readSource.alias != testAlias("ada") {
 		t.Fatalf("instruction = %#v, want source read for ada", sequence[0])
 	}
 
@@ -335,7 +344,7 @@ func TestStageWorkflow_handoffWaitsForSourceProjectionAndIdle(t *testing.T) {
 	dispatch := sequence[0].(executeSessionInstruction)
 	request := dispatch.request.(handoffRequest)
 	if request.source != source ||
-		!slices.Equal(request.requiredReadyAliases, []string{"ada", "turing"}) {
+		!slices.Equal(request.requiredReadyAliases, testAliases([]string{"ada", "turing"})) {
 		t.Fatalf("request = %#v", request)
 	}
 }
@@ -344,16 +353,16 @@ func TestStageWorkflow_handoffDiscardsDepartedTarget(t *testing.T) {
 	workflow := stageWorkflow{}
 	statement := promptlang.Handoff{FromAlias: located("ada"), ToAlias: located("turing")}
 	sequence := workflow.start("/handoff ada turing", statement)
-	read := sequence[0].(readParticipantStateInstruction)
-	workflow.handleCompletion(participantStateResult{
+	read := sequence[0].(prepareHandoffInstruction)
+	workflow.handleCompletion(handoffPlanResult{from: testAlias(workflow.active.handoff.action.FromAlias.Value), to: testAlias(workflow.active.handoff.action.ToAlias.Value),
 		target: read.target,
-		readinessRequirements: []participantState{
-			{alias: "ada", status: participant.StatusWorking},
-			{alias: "turing", status: participant.StatusIdle},
+		participants: []participantState{
+			{alias: testAlias("ada"), status: participant.StatusWorking},
+			{alias: testAlias("turing"), status: participant.StatusIdle},
 		},
 	})
 
-	sequence = workflow.handleSessionEvent(session.AgentStopped{Alias: "turing"})
+	sequence = workflow.handleSessionEvent(session.AgentStopped{Alias: testAlias("turing")})
 	record := sequence[0].(appendRecordInstruction).record
 	if record.Kind != room.KindSystem || workflow.pending() {
 		t.Fatalf("record = %#v, pending = %v", record, workflow.pending())
@@ -369,17 +378,17 @@ func TestStageWorkflow_handoffIgnoresBusyLateJoiner(t *testing.T) {
 	workflow := stageWorkflow{}
 	statement := promptlang.Handoff{FromAlias: located("ada"), ToAlias: located("turing")}
 	sequence := workflow.start("/handoff ada turing", statement)
-	read := sequence[0].(readParticipantStateInstruction)
-	workflow.handleCompletion(participantStateResult{
+	read := sequence[0].(prepareHandoffInstruction)
+	workflow.handleCompletion(handoffPlanResult{from: testAlias(workflow.active.handoff.action.FromAlias.Value), to: testAlias(workflow.active.handoff.action.ToAlias.Value),
 		target: read.target,
-		readinessRequirements: []participantState{
-			{alias: "ada", status: participant.StatusWorking},
-			{alias: "turing", status: participant.StatusIdle},
+		participants: []participantState{
+			{alias: testAlias("ada"), status: participant.StatusWorking},
+			{alias: testAlias("turing"), status: participant.StatusIdle},
 		},
 	})
 
 	workflow.handleSessionEvent(session.ParticipantStatusChanged{
-		Alias: "grace", To: participant.StatusWorking,
+		Alias: testAlias("grace"), To: participant.StatusWorking,
 	})
 	if snapshot := workflow.snapshot(); !slices.Equal(snapshot.NotReadyAliases, []string{"ada"}) {
 		t.Fatalf("late join changed handoff readinessRequirements: %#v", snapshot)
@@ -396,18 +405,18 @@ func TestStageWorkflow_capturesOnlyActiveHandoffCompletion(t *testing.T) {
 		{
 			name:      "matching handoff",
 			statement: promptlang.Handoff{FromAlias: located("ada"), ToAlias: located("turing")},
-			event:     session.HandoffDelivered{FromAlias: "ada", ToAlias: "turing"},
+			event:     session.HandoffDelivered{FromAlias: testAlias("ada"), ToAlias: testAlias("turing")},
 			want:      true,
 		},
 		{
 			name:      "different handoff",
 			statement: promptlang.Handoff{FromAlias: located("ada"), ToAlias: located("turing")},
-			event:     session.HandoffDelivered{FromAlias: "grace", ToAlias: "turing"},
+			event:     session.HandoffDelivered{FromAlias: testAlias("grace"), ToAlias: testAlias("turing")},
 		},
 		{
 			name:      "different staged action",
 			statement: promptlang.Broadcast{Text: located("hello")},
-			event:     session.HandoffDelivered{FromAlias: "ada", ToAlias: "turing"},
+			event:     session.HandoffDelivered{FromAlias: testAlias("ada"), ToAlias: testAlias("turing")},
 		},
 	}
 
@@ -416,6 +425,10 @@ func TestStageWorkflow_capturesOnlyActiveHandoffCompletion(t *testing.T) {
 			workflow := stageWorkflow{}
 			workflow.start("input", tt.statement)
 			workflow.active.phase = stageDispatching
+			if workflow.active.handoff != nil {
+				workflow.active.handoff.from = testAlias(workflow.active.handoff.action.FromAlias.Value)
+				workflow.active.handoff.to = testAlias(workflow.active.handoff.action.ToAlias.Value)
+			}
 
 			workflow.handleSessionEvent(tt.event)
 
@@ -429,15 +442,15 @@ func TestStageWorkflow_capturesOnlyActiveHandoffCompletion(t *testing.T) {
 func TestInterpreterModel_readsCanonicalHandoffSource(t *testing.T) {
 	model := newInterpreterModel()
 	t.Cleanup(model.Close)
-	model.ApplySessionEvent(session.AgentReady{Alias: "ada"})
+	model.ApplySessionEvent(session.AgentReady{Alias: testAlias("ada")})
 	model.ApplySessionEvent(session.AgentMessage{
-		Alias:         "ada",
+		Alias:         testAlias("ada"),
 		Msg:           agent.Message{Mode: agent.ModeSingle, Content: agent.Output{Text: "finished"}},
 		TurnCompleted: true,
 		TurnID:        3,
 	})
 
-	source, ok := model.ReadHandoffSource("ada")
+	source, ok := model.ReadHandoffSource(testAlias("ada"))
 	if !ok || source.Text != "finished" || source.RecordIndex != 1 {
 		t.Fatalf("source = %#v, %v", source, ok)
 	}
@@ -462,7 +475,7 @@ func TestStageWorkflow_rejectsInitiallyUnavailableSendTarget(t *testing.T) {
 	sequence := workflow.start("@missing hello", promptlang.Send{Alias: located("missing"), Text: located("hello")})
 	plan := sequence[0].(prepareSendInstruction)
 	sequence = workflow.handleCompletion(sendPlanResult{
-		target: plan.target, targets: []string{"missing"},
+		target: plan.target, plan: testSendPlan([]string{"missing"}),
 	})
 
 	failed := sequence[len(sequence)-1].(publishEventInstruction).event.(SubmissionFailed)
@@ -476,12 +489,12 @@ func TestStageWorkflow_dispatchesRemainingBroadcastTargetAfterPlanningDeparture(
 	sequence := workflow.start("hello", promptlang.Broadcast{Text: located("hello")})
 	plan := sequence[0].(planBroadcastInstruction)
 	sequence = workflow.handleCompletion(broadcastPlanResult{
-		target: plan.target, targets: []string{"ada", "turing"},
+		target: plan.target, targets: testAliases([]string{"ada", "turing"}),
 	})
 	read := sequence[0].(readParticipantStateInstruction)
 	sequence = workflow.handleCompletion(participantStateResult{
 		target:                read.target,
-		readinessRequirements: []participantState{{alias: "turing", status: participant.StatusIdle}},
+		readinessRequirements: []participantState{{alias: testAlias("turing"), status: participant.StatusIdle}},
 	})
 
 	dispatch, ok := sequence[1].(executeSessionInstruction)
@@ -489,7 +502,7 @@ func TestStageWorkflow_dispatchesRemainingBroadcastTargetAfterPlanningDeparture(
 		t.Fatalf("instruction = %T, want executeSessionInstruction", sequence[1])
 	}
 	request := dispatch.request.(broadcastRequest)
-	if !slices.Equal(request.aliases, []string{"turing"}) {
+	if !slices.Equal(request.aliases, testAliases([]string{"turing"})) {
 		t.Fatalf("dispatch aliases = %v, want [turing]", request.aliases)
 	}
 	if !slices.Equal(workflow.snapshot().Unavailable, []string{"ada"}) {
@@ -500,7 +513,7 @@ func TestStageWorkflow_dispatchesRemainingBroadcastTargetAfterPlanningDeparture(
 func TestSubmitContract_stageOwnsPendingSnapshotAndPreParseGate(t *testing.T) {
 	interp, sess, events := newSubmitContractInterpreter(t)
 	sess.readinessRequirements = []participant.Participant{{View: participant.View{
-		Alias: "ada", Status: participant.StatusWorking, StartupReady: true,
+		Alias: testAlias("ada"), Status: participant.StatusWorking, StartupReady: true,
 	}}}
 
 	mustSubmit(t, interp.Submit("hello"))
@@ -527,14 +540,14 @@ func TestSubmitContract_stageOwnsPendingSnapshotAndPreParseGate(t *testing.T) {
 func TestSubmitContract_immediatelyDispatchesReadyBroadcast(t *testing.T) {
 	interp, sess, events := newSubmitContractInterpreter(t)
 	sess.readinessRequirements = []participant.Participant{{View: participant.View{
-		Alias: "ada", Status: participant.StatusIdle, StartupReady: true,
+		Alias: testAlias("ada"), Status: participant.StatusIdle, StartupReady: true,
 	}}}
 
 	mustSubmit(t, interp.Submit("hello"))
 	receiveSubmitEvent[InputAccepted](t, events)
 	command := receiveSubmitCommand(t, sess.executed)
 	broadcast, ok := command.(session.BroadcastCommand)
-	if !ok || broadcast.Text != "hello" || !slices.Equal(broadcast.Aliases, []string{"ada"}) {
+	if !ok || broadcast.Text != "hello" || !slices.Equal(broadcast.Aliases, testAliases([]string{"ada"})) {
 		t.Fatalf("command = %#v", command)
 	}
 	dispatched := receiveSubmitEvent[StagedInputDispatched](t, events)
@@ -551,7 +564,7 @@ func TestSubmitContract_immediatelyDispatchesReadyBroadcast(t *testing.T) {
 func TestSubmitContract_lifecycleDispatchesPendingBroadcast(t *testing.T) {
 	interp, sess, events := newSubmitContractInterpreter(t)
 	sess.readinessRequirements = []participant.Participant{{View: participant.View{
-		Alias: "ada", Status: participant.StatusWorking, StartupReady: true,
+		Alias: testAlias("ada"), Status: participant.StatusWorking, StartupReady: true,
 	}}}
 
 	mustSubmit(t, interp.Submit("hello"))
@@ -561,11 +574,11 @@ func TestSubmitContract_lifecycleDispatchesPendingBroadcast(t *testing.T) {
 	assertNoSubmitExecution(t, sess.executed)
 
 	interp.executor.recordSessionEvent(session.ParticipantStatusChanged{
-		Alias: "ada", From: participant.StatusWorking, To: participant.StatusIdle,
+		Alias: testAlias("ada"), From: participant.StatusWorking, To: participant.StatusIdle,
 	})
 	command := receiveSubmitCommand(t, sess.executed)
 	broadcast, ok := command.(session.BroadcastCommand)
-	if !ok || !slices.Equal(broadcast.Aliases, []string{"ada"}) {
+	if !ok || !slices.Equal(broadcast.Aliases, testAliases([]string{"ada"})) {
 		t.Fatalf("command = %#v", command)
 	}
 	dispatched := receiveSubmitEvent[StagedInputDispatched](t, events)
@@ -588,8 +601,8 @@ func TestSubmitContract_handoffUsesCanonicalRoomSource(t *testing.T) {
 	interp, sess, events := newSubmitContractInterpreter(t)
 	configureSuccessfulHandoff(sess)
 	sess.readinessRequirements = []participant.Participant{
-		{View: participant.View{Alias: "ada", Status: participant.StatusIdle, StartupReady: true}},
-		{View: participant.View{Alias: "turing", Status: participant.StatusIdle, StartupReady: true}},
+		{View: participant.View{Alias: testAlias("ada"), Status: participant.StatusIdle, StartupReady: true}},
+		{View: participant.View{Alias: testAlias("turing"), Status: participant.StatusIdle, StartupReady: true}},
 	}
 	seedCanonicalHandoffSource(t, interp, events)
 
@@ -615,12 +628,12 @@ func configureSuccessfulHandoff(sess *submitContractSession) {
 
 func seedCanonicalHandoffSource(t *testing.T, interp *Interpreter, events chan Event) {
 	t.Helper()
-	interp.executor.recordSessionEvent(session.AgentReady{Alias: "ada"})
+	interp.executor.recordSessionEvent(session.AgentReady{Alias: testAlias("ada")})
 	receiveSubmitEvent[StateChanged](t, events)
-	interp.executor.recordSessionEvent(session.AgentReady{Alias: "turing"})
+	interp.executor.recordSessionEvent(session.AgentReady{Alias: testAlias("turing")})
 	receiveSubmitEvent[StateChanged](t, events)
 	interp.executor.recordSessionEvent(session.AgentMessage{
-		Alias:         "ada",
+		Alias:         testAlias("ada"),
 		Msg:           agent.Message{Mode: agent.ModeSingle, Content: agent.Output{Text: "finished"}},
 		TurnCompleted: true,
 		TurnID:        3,
@@ -639,7 +652,7 @@ func assertCanonicalHandoffDispatch(
 	if !ok || handoff.Source.Text != "finished" || handoff.Source.RecordIndex < 0 {
 		t.Fatalf("command = %#v", command)
 	}
-	if !slices.Equal(handoff.RequiredReadyAliases, []string{"ada", "turing"}) {
+	if !slices.Equal(handoff.RequiredReadyAliases, testAliases([]string{"ada", "turing"})) {
 		t.Fatalf("readinessRequirements = %v", handoff.RequiredReadyAliases)
 	}
 	dispatched := receiveSubmitEvent[StagedInputDispatched](t, events)
@@ -671,15 +684,15 @@ func TestSubmitContract_failedHandoffDoesNotRecordInput(t *testing.T) {
 	interp, sess, events := newSubmitContractInterpreter(t)
 	sess.executeErr = errors.New("handoff failed")
 	sess.readinessRequirements = []participant.Participant{
-		{View: participant.View{Alias: "ada", Status: participant.StatusIdle, StartupReady: true}},
-		{View: participant.View{Alias: "turing", Status: participant.StatusIdle, StartupReady: true}},
+		{View: participant.View{Alias: testAlias("ada"), Status: participant.StatusIdle, StartupReady: true}},
+		{View: participant.View{Alias: testAlias("turing"), Status: participant.StatusIdle, StartupReady: true}},
 	}
-	interp.executor.recordSessionEvent(session.AgentReady{Alias: "ada"})
+	interp.executor.recordSessionEvent(session.AgentReady{Alias: testAlias("ada")})
 	receiveSubmitEvent[StateChanged](t, events)
-	interp.executor.recordSessionEvent(session.AgentReady{Alias: "turing"})
+	interp.executor.recordSessionEvent(session.AgentReady{Alias: testAlias("turing")})
 	receiveSubmitEvent[StateChanged](t, events)
 	interp.executor.recordSessionEvent(session.AgentMessage{
-		Alias: "ada",
+		Alias: testAlias("ada"),
 		Msg: agent.Message{
 			Mode: agent.ModeSingle, Content: agent.Output{Text: "finished"},
 		},
@@ -707,6 +720,8 @@ func (w *stageWorkflow) handleCompletion(completion any) instructionSequence {
 		return w.prepareSend(completion)
 	case broadcastPlanResult:
 		return w.handleBroadcastPlan(completion)
+	case handoffPlanResult:
+		return w.prepareHandoff(completion)
 	case participantStateResult:
 		return w.handleParticipantState(completion)
 	case handoffSourceResult:

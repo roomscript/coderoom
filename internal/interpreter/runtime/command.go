@@ -25,6 +25,7 @@ type ShellLauncher interface {
 }
 
 // SessionExecution is a host admission and shared event capability, not raw Session.
+// ParticipantByName resolves input names to current Session-owned identities.
 // CreateParticipantSendPlan delegates recipient selection to Session.
 // Subscribe receives all session events, including participant lifecycle facts
 // before execution. The callback runs immediately and may run on a producer
@@ -42,7 +43,8 @@ type ShellLauncher interface {
 // This prototype has no production adapter yet.
 type SessionExecution interface {
 	Subscribe(handle func(session.Event)) (unsubscribe func())
-	CreateParticipantSendPlan(alias string) session.ParticipantSendPlan
+	ParticipantByName(name string) (participant.View, bool)
+	CreateParticipantSendPlan(alias participant.Alias) session.ParticipantSendPlan
 	Execute(command session.Command) error
 }
 
@@ -78,20 +80,21 @@ type Invocation interface {
 }
 
 // Staging describes the frozen participants an invocation needs ready before Go.
+// Aliases retain instance identity; replacement participants cannot inherit waits.
 // All listed aliases use the shared readiness rule: idle and startup-ready.
 // The invocation owns this description; callers must treat it as read-only.
 // WaitFor gates execution; ToInform describes frozen contextual notice recipients, which
 // also gate readiness. WaitFor does not imply delivery. Departure handling is
 // command policy; the lifecycle tracks sticky departures. This draft is unwired.
 type Staging struct {
-	WaitFor  []string
-	ToInform []string
+	WaitFor  []participant.Alias
+	ToInform []participant.Alias
 	// DiscardInform removes an unavailable notice recipient from the command's
 	// retained delivery plan. The lifecycle calls it before Go,
 	// while removing that alias from its own waits. Nil means no update is needed.
 	// Departures are sticky: rejoining cannot restore a discarded recipient.
 	// An unavailable WaitFor alias fails staging; it never reaches this callback.
-	DiscardInform func(alias string)
+	DiscardInform func(alias participant.Alias)
 }
 
 // CommandResult contains final transcript records and the work's outcome.

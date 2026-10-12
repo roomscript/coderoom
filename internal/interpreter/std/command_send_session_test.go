@@ -16,46 +16,36 @@ import (
 	"github.com/roomscript/coderoom/internal/session"
 )
 
-// The adapter deliberately violates ParticipantReader's ordering contract: a
-// replacement appears before the original departure reaches collection. This
-// proves Session's delivery guard, not correct staging initialization.
-func TestSendLifecycle_SessionRejectsReplacementDespiteUncollectedDeparture(t *testing.T) {
-	gate := &sendDepartureGate{entered: make(chan struct{}), release: make(chan struct{})}
-	host := &sendSessionHost{ready: make(chan struct{}, 2), routing: make(chan session.RoutingResult, 1)}
-	replacement := &replacementSendAgent{Client: echo.New(), sent: make(chan string, 1)}
-	first := true
-	host.Session = session.New(session.WithObserver(gate), session.WithObserver(host),
-		session.WithAgentFactory(func(*session.Session, roomconfig.ParticipantConfig, session.AgentBackend) agent.Agent {
-			if first {
-				first = false
-				return echo.New()
+// These adapters deliberately violate snapshot/event collection ordering. A
+// replacement snapshot fails staging; a stale original snapshot reaches Session's
+// final membership guard. Neither path can deliver to the replacement.
+func TestSendLifecycle_RejectsReplacementDespiteUncollectedDeparture(t *testing.T) {
+	for _, stale := range []bool{false, true} {
+		t.Run(map[bool]string{false: "replacement snapshot", true: "stale original snapshot"}[stale], func(t *testing.T) {
+			host, invocation, replacement := prepareReplacementSendCase(t, stale)
+			lifecycle := runtime.NewInvocationLifecycle(invocation, runtime.Context{Participants: host, Session: host})
+			t.Cleanup(func() { lifecycle.Close(errors.New("cleanup")) })
+			completion := make(chan runtime.CommandResult, 1)
+			err := lifecycle.Start(func(result runtime.CommandResult) { completion <- result })
+			if err == nil {
+				t.Fatal("retained send accepted replacement")
 			}
-			return replacement
-		}))
-	t.Cleanup(host.Shutdown)
-	t.Cleanup(gate.unblock)
-	executeSendTestCommand(t, host.Session, session.InviteCommand{Alias: "ada"})
-	waitForSendSessionSignal(t, host.ready)
-	ctx := runtime.Context{Participants: host, Session: host}
-	invocation, err := (std.SendCommand{}).Prepare(parseSendStatement(t, "@ada work"), ctx)
-	if err != nil {
-		t.Fatal(err)
+			if stale {
+				if host.executions != 1 {
+					t.Fatal("stale snapshot did not exercise final Session guard")
+				}
+				routing := assertPrimarySessionRejection(t, host, err, invocation.Staging().WaitFor[0])
+				assertRejectedSendCompletion(t, lifecycle, receiveSendCompletion(t, completion), routing.Err)
+			} else if host.executions != 0 || len(host.routing) != 0 || len(completion) != 0 {
+				t.Fatal("replacement snapshot admitted delivery or queued an execution result")
+			}
+			assertNoReplacementSendDelivery(t, host, replacement)
+		})
 	}
-	host.beforeRead = func() {
-		executeSendTestCommand(t, host.Session, session.RemoveCommand{Alias: "ada"})
-		waitForSendSessionSignal(t, gate.entered)
-		executeSendTestCommand(t, host.Session, session.InviteCommand{Alias: "ada"})
-		waitForSendSessionSignal(t, host.ready)
-	}
-	lifecycle := runtime.NewInvocationLifecycle(invocation, ctx)
-	t.Cleanup(func() { lifecycle.Close(errors.New("cleanup")) })
-	completion := make(chan runtime.CommandResult, 1)
-	err = lifecycle.Start(func(result runtime.CommandResult) { completion <- result })
-	if err == nil || host.executions != 1 {
-		t.Fatalf("Start error = %v, Session executions = %d; want rejected execution", err, host.executions)
-	}
-	routing := assertPrimarySessionRejection(t, host, err)
-	assertRejectedSendCompletion(t, lifecycle, receiveSendCompletion(t, completion), routing.Err)
+}
+
+func assertNoReplacementSendDelivery(t *testing.T, host *sendSessionHost, replacement *replacementSendAgent) {
+	t.Helper()
 	host.subscriptions.mu.Lock()
 	subscriptions := len(host.subscriptions.handlers)
 	host.subscriptions.mu.Unlock()
@@ -69,7 +59,40 @@ func TestSendLifecycle_SessionRejectsReplacementDespiteUncollectedDeparture(t *t
 	}
 }
 
-func assertPrimarySessionRejection(t *testing.T, host *sendSessionHost, err error) session.RoutingResult {
+func prepareReplacementSendCase(t *testing.T, stale bool) (*sendSessionHost, runtime.Invocation, *replacementSendAgent) {
+	t.Helper()
+	gate := &sendDepartureGate{entered: make(chan struct{}), release: make(chan struct{})}
+	host := &sendSessionHost{ready: make(chan struct{}, 2), routing: make(chan session.RoutingResult, 1)}
+	replacement := &replacementSendAgent{Client: echo.New(), sent: make(chan string, 1)}
+	first := true
+	host.Session = session.New(session.WithObserver(gate), session.WithObserver(host), session.WithAgentFactory(func(*session.Session, roomconfig.ParticipantConfig, session.AgentBackend) agent.Agent {
+		if first {
+			first = false
+			return echo.New()
+		}
+		return replacement
+	}))
+	t.Cleanup(host.Shutdown)
+	t.Cleanup(gate.unblock)
+	executeSendTestCommand(t, host.Session, session.InviteCommand{Alias: "ada"})
+	waitForSendSessionSignal(t, host.ready)
+	invocation, err := (std.SendCommand{}).Prepare(parseSendStatement(t, "@ada work"), runtime.Context{Participants: host, Session: host})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stale {
+		host.snapshot = host.Session.Participants()
+	}
+	host.beforeRead = func() {
+		executeSendTestCommand(t, host.Session, session.RemoveCommand{Alias: invocation.Staging().WaitFor[0]})
+		waitForSendSessionSignal(t, gate.entered)
+		executeSendTestCommand(t, host.Session, session.InviteCommand{Alias: "ada"})
+		waitForSendSessionSignal(t, host.ready)
+	}
+	return host, invocation, replacement
+}
+
+func assertPrimarySessionRejection(t *testing.T, host *sendSessionHost, err error, alias participant.Alias) session.RoutingResult {
 	t.Helper()
 	var routing session.RoutingResult
 	select {
@@ -80,7 +103,7 @@ func assertPrimarySessionRejection(t *testing.T, host *sendSessionHost, err erro
 	if routing.Kind != session.RoutingParticipantSend || !errors.Is(err, routing.Err) {
 		t.Fatalf("Start did not report Session's routing rejection: %#v, %v", routing, err)
 	}
-	if len(routing.Recipients) != 1 || routing.Recipients[0].Alias != "ada" ||
+	if len(routing.Recipients) != 1 || routing.Recipients[0].Alias != alias ||
 		routing.Recipients[0].Role != session.RecipientPrimary || routing.Recipients[0].Status != session.DeliveryFailed ||
 		routing.Recipients[0].Err == nil {
 		t.Fatalf("primary routing result = %#v", routing.Recipients)
@@ -106,6 +129,7 @@ type sendSessionHost struct {
 	subscriptions sendDelivery
 	ready         chan struct{}
 	beforeRead    func()
+	snapshot      []participant.View
 	executions    int
 	routing       chan session.RoutingResult
 }
@@ -127,6 +151,9 @@ func (h *sendSessionHost) Participants() []participant.View {
 		hook := h.beforeRead
 		h.beforeRead = nil
 		hook()
+	}
+	if h.snapshot != nil {
+		return h.snapshot
 	}
 	return h.Session.Participants()
 }

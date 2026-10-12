@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/roomscript/coderoom/internal/agent"
+	"github.com/roomscript/coderoom/internal/participant"
 	"github.com/roomscript/coderoom/internal/session"
 )
 
@@ -37,13 +38,14 @@ func waitUpdate(t *testing.T, ch <-chan Update) Update {
 }
 
 func TestOnEvent_agentLifecycleAppendsSystemRecords(t *testing.T) {
+	ada := newTestAlias("ada")
 	room, updates := newTestRoom(t)
 
-	room.OnEvent(session.AgentStarting{Alias: "ada"})
+	room.OnEvent(session.AgentStarting{Alias: ada})
 	waitUpdate(t, updates)
-	room.OnEvent(session.AgentReady{Alias: "ada"})
+	room.OnEvent(session.AgentReady{Alias: ada})
 	waitUpdate(t, updates)
-	room.OnEvent(session.AgentStopped{Alias: "ada"})
+	room.OnEvent(session.AgentStopped{Alias: ada})
 	waitUpdate(t, updates)
 
 	snapshot := room.Snapshot()
@@ -59,18 +61,19 @@ func TestOnEvent_agentLifecycleAppendsSystemRecords(t *testing.T) {
 	if snapshot.Records[2].Text != "[ada left]" {
 		t.Fatalf("unexpected third record: %#v", snapshot.Records[2])
 	}
-	if !snapshot.Departed["ada"] {
+	if !snapshot.Departed[ada] {
 		t.Fatal("expected ada to be marked departed")
 	}
 }
 
 func TestOnEvent_agentMessageStreamsIntoSingleRecord(t *testing.T) {
+	ada := newTestAlias("ada")
 	room, updates := newTestRoom(t)
 
-	room.OnEvent(session.AgentMessage{Alias: "ada", Msg: agent.Message{StreamID: "out1", Mode: agent.ModeStream, Content: agent.Output{Text: "hello"}}})
+	room.OnEvent(session.AgentMessage{Alias: ada, Msg: agent.Message{StreamID: "out1", Mode: agent.ModeStream, Content: agent.Output{Text: "hello"}}})
 	waitUpdate(t, updates)
 
-	room.OnEvent(session.AgentMessage{Alias: "ada", Msg: agent.Message{StreamID: "out1", Mode: agent.ModeStream, Content: agent.Output{Text: " world"}}})
+	room.OnEvent(session.AgentMessage{Alias: ada, Msg: agent.Message{StreamID: "out1", Mode: agent.ModeStream, Content: agent.Output{Text: " world"}}})
 	waitUpdate(t, updates)
 
 	snapshot := room.Snapshot()
@@ -93,22 +96,23 @@ func TestOnEvent_agentMessageStreamsIntoSingleRecord(t *testing.T) {
 }
 
 func TestOnEvent_outputFlushClosesStreamAndPreservesAccumulatedRecord(t *testing.T) {
+	ada := newTestAlias("ada")
 	room, updates := newTestRoom(t)
 
-	room.OnEvent(session.AgentMessage{Alias: "ada", Msg: agent.Message{StreamID: "out1", Mode: agent.ModeStream, Content: agent.Output{Text: "hello"}}})
+	room.OnEvent(session.AgentMessage{Alias: ada, Msg: agent.Message{StreamID: "out1", Mode: agent.ModeStream, Content: agent.Output{Text: "hello"}}})
 	streamUpdate := waitUpdate(t, updates)
 	if streamUpdate.Trigger.Kind != UpdateTriggerNone {
 		t.Fatalf("stream update trigger = %#v, want none", streamUpdate.Trigger)
 	}
 	room.OnEvent(session.AgentMessage{
-		Alias:         "ada",
+		Alias:         ada,
 		Msg:           agent.Message{StreamID: "out1", Mode: agent.ModeFlush, Content: agent.Output{}},
 		TurnCompleted: true,
 		TurnID:        7,
 	})
 	flushUpdate := waitUpdate(t, updates)
 	if flushUpdate.Trigger.Kind != UpdateTriggerAgentTurnCompleted ||
-		flushUpdate.Trigger.Alias != "ada" || flushUpdate.Trigger.StreamID != "out1" ||
+		flushUpdate.Trigger.Alias != ada || flushUpdate.Trigger.StreamID != "out1" ||
 		flushUpdate.Trigger.TurnID != 7 {
 		t.Fatalf("flush update trigger = %#v", flushUpdate.Trigger)
 	}
@@ -130,10 +134,12 @@ func TestOnEvent_outputFlushClosesStreamAndPreservesAccumulatedRecord(t *testing
 }
 
 func TestOnEvent_contextHandoffAppendsAuditRecord(t *testing.T) {
+	ada := newTestAlias("ada")
+	turing := newTestAlias("turing")
 	room, updates := newTestRoom(t)
 
-	room.OnEvent(session.HandoffDelivered{FromAlias: "ada",
-		ToAlias: "turing",
+	room.OnEvent(session.HandoffDelivered{FromAlias: ada,
+		ToAlias: turing,
 		Text:    "ship it",
 		Preview: "[handoff ada -> turing]\n  ↦ source: ada latest output\n  > ship it",
 	})
@@ -152,26 +158,27 @@ func TestOnEvent_contextHandoffAppendsAuditRecord(t *testing.T) {
 }
 
 func TestLatestCompletedOutput(t *testing.T) {
+	ada := newTestAlias("ada")
 	room, updates := newTestRoom(t)
 
-	room.OnEvent(session.AgentReady{Alias: "ada"})
+	room.OnEvent(session.AgentReady{Alias: ada})
 	waitUpdate(t, updates)
 
-	room.OnEvent(session.AgentMessage{Alias: "ada", Msg: agent.Message{StreamID: "out1", Mode: agent.ModeStream, Content: agent.Output{Text: "partial"}}})
+	room.OnEvent(session.AgentMessage{Alias: ada, Msg: agent.Message{StreamID: "out1", Mode: agent.ModeStream, Content: agent.Output{Text: "partial"}}})
 	waitUpdate(t, updates)
-	room.OnEvent(session.AgentMessage{Alias: "ada", Msg: agent.Message{StreamID: "reason1", Mode: agent.ModeSingle, Content: agent.Reasoning{Text: "skip"}}})
+	room.OnEvent(session.AgentMessage{Alias: ada, Msg: agent.Message{StreamID: "reason1", Mode: agent.ModeSingle, Content: agent.Reasoning{Text: "skip"}}})
 	waitUpdate(t, updates)
-	room.OnEvent(session.AgentMessage{Alias: "ada", Msg: agent.Message{StreamID: "out2", Mode: agent.ModeSingle, Content: agent.Output{Text: "done"}}})
+	room.OnEvent(session.AgentMessage{Alias: ada, Msg: agent.Message{StreamID: "out2", Mode: agent.ModeSingle, Content: agent.Output{Text: "done"}}})
 	waitUpdate(t, updates)
 
-	got, ok := room.LatestCompletedOutput("ada")
+	got, ok := room.LatestCompletedOutput(ada)
 	if !ok {
 		t.Fatal("expected latest completed output")
 	}
 	if got != "done" {
 		t.Fatalf("LatestCompletedOutput = %q, want %q", got, "done")
 	}
-	source, ok := room.LatestHandoffSource("ada")
+	source, ok := room.LatestHandoffSource(ada)
 	if !ok || source.RecordIndex != 3 {
 		t.Fatalf("LatestHandoffSource = %#v, %v; want record 3", source, ok)
 	}
@@ -182,24 +189,25 @@ func TestLatestCompletedOutput(t *testing.T) {
 }
 
 func TestLatestCompletedOutput_returnsFlushedStreamOutput(t *testing.T) {
+	ada := newTestAlias("ada")
 	room, updates := newTestRoom(t)
 
-	room.OnEvent(session.AgentReady{Alias: "ada"})
+	room.OnEvent(session.AgentReady{Alias: ada})
 	waitUpdate(t, updates)
 
-	room.OnEvent(session.AgentMessage{Alias: "ada", Msg: agent.Message{StreamID: "out1", Mode: agent.ModeStream, Content: agent.Output{Text: "done"}}})
+	room.OnEvent(session.AgentMessage{Alias: ada, Msg: agent.Message{StreamID: "out1", Mode: agent.ModeStream, Content: agent.Output{Text: "done"}}})
 	waitUpdate(t, updates)
-	room.OnEvent(session.AgentMessage{Alias: "ada", Msg: agent.Message{StreamID: "out1", Mode: agent.ModeFlush, Content: agent.Output{}}})
+	room.OnEvent(session.AgentMessage{Alias: ada, Msg: agent.Message{StreamID: "out1", Mode: agent.ModeFlush, Content: agent.Output{}}})
 	waitUpdate(t, updates)
 
-	got, ok := room.LatestCompletedOutput("ada")
+	got, ok := room.LatestCompletedOutput(ada)
 	if !ok {
 		t.Fatal("expected latest completed flushed stream output")
 	}
 	if got != "done" {
 		t.Fatalf("LatestCompletedOutput = %q, want %q", got, "done")
 	}
-	source, ok := room.LatestHandoffSource("ada")
+	source, ok := room.LatestHandoffSource(ada)
 	if !ok || source.RecordIndex != 1 {
 		t.Fatalf("LatestHandoffSource = %#v, %v; want record 1", source, ok)
 	}
@@ -210,13 +218,14 @@ func TestLatestCompletedOutput_returnsFlushedStreamOutput(t *testing.T) {
 }
 
 func TestLatestHandoffSource_movesToNewestCompletedOutput(t *testing.T) {
+	ada := newTestAlias("ada")
 	room, updates := newTestRoom(t)
 
-	room.OnEvent(session.AgentReady{Alias: "ada"})
+	room.OnEvent(session.AgentReady{Alias: ada})
 	waitUpdate(t, updates)
-	room.OnEvent(session.AgentMessage{Alias: "ada", Msg: agent.Message{StreamID: "out1", Mode: agent.ModeSingle, Content: agent.Output{Text: "first"}}})
+	room.OnEvent(session.AgentMessage{Alias: ada, Msg: agent.Message{StreamID: "out1", Mode: agent.ModeSingle, Content: agent.Output{Text: "first"}}})
 	waitUpdate(t, updates)
-	room.OnEvent(session.AgentMessage{Alias: "ada", Msg: agent.Message{StreamID: "out2", Mode: agent.ModeSingle, Content: agent.Output{Text: "second"}}})
+	room.OnEvent(session.AgentMessage{Alias: ada, Msg: agent.Message{StreamID: "out2", Mode: agent.ModeSingle, Content: agent.Output{Text: "second"}}})
 	waitUpdate(t, updates)
 
 	snapshot := room.Snapshot()
@@ -229,16 +238,17 @@ func TestLatestHandoffSource_movesToNewestCompletedOutput(t *testing.T) {
 }
 
 func TestLatestHandoffSource_clearsOnDeparture(t *testing.T) {
+	ada := newTestAlias("ada")
 	room, updates := newTestRoom(t)
 
-	room.OnEvent(session.AgentReady{Alias: "ada"})
+	room.OnEvent(session.AgentReady{Alias: ada})
 	waitUpdate(t, updates)
-	room.OnEvent(session.AgentMessage{Alias: "ada", Msg: agent.Message{StreamID: "out1", Mode: agent.ModeSingle, Content: agent.Output{Text: "done"}}})
+	room.OnEvent(session.AgentMessage{Alias: ada, Msg: agent.Message{StreamID: "out1", Mode: agent.ModeSingle, Content: agent.Output{Text: "done"}}})
 	waitUpdate(t, updates)
-	room.OnEvent(session.AgentStopped{Alias: "ada"})
+	room.OnEvent(session.AgentStopped{Alias: ada})
 	waitUpdate(t, updates)
 
-	if _, ok := room.LatestHandoffSource("ada"); ok {
+	if _, ok := room.LatestHandoffSource(ada); ok {
 		t.Fatal("expected no handoff source after departure")
 	}
 	snapshot := room.Snapshot()
@@ -247,36 +257,38 @@ func TestLatestHandoffSource_clearsOnDeparture(t *testing.T) {
 	}
 }
 
-func TestLatestHandoffSource_restoredOnRejoin(t *testing.T) {
+func TestLatestHandoffSource_doesNotTransferOnReinvitation(t *testing.T) {
+	ada := newTestAlias("ada")
+	replacement := newTestAlias("ada")
 	room, updates := newTestRoom(t)
 
-	room.OnEvent(session.AgentReady{Alias: "ada"})
+	room.OnEvent(session.AgentReady{Alias: ada})
 	waitUpdate(t, updates)
-	room.OnEvent(session.AgentMessage{Alias: "ada", Msg: agent.Message{StreamID: "out1", Mode: agent.ModeSingle, Content: agent.Output{Text: "done"}}})
+	room.OnEvent(session.AgentMessage{Alias: ada, Msg: agent.Message{StreamID: "out1", Mode: agent.ModeSingle, Content: agent.Output{Text: "done"}}})
 	waitUpdate(t, updates)
-	room.OnEvent(session.AgentStopped{Alias: "ada"})
+	room.OnEvent(session.AgentStopped{Alias: ada})
 	waitUpdate(t, updates)
-	room.OnEvent(session.AgentReady{Alias: "ada"})
+	room.OnEvent(session.AgentReady{Alias: replacement})
 	waitUpdate(t, updates)
 
-	source, ok := room.LatestHandoffSource("ada")
-	if !ok || source.RecordIndex != 1 {
-		t.Fatalf("LatestHandoffSource after rejoin = %#v, %v; want record 1", source, ok)
+	if source, ok := room.LatestHandoffSource(replacement); ok {
+		t.Fatalf("replacement inherited predecessor's handoff source: %#v", source)
 	}
 	snapshot := room.Snapshot()
-	if !snapshot.Records[1].HandoffSource {
-		t.Fatalf("expected handoff marker restored on rejoin: %#v", snapshot.Records[1])
+	if snapshot.Records[1].Alias != ada || snapshot.Records[1].Text != "done" || snapshot.Records[1].HandoffSource {
+		t.Fatalf("predecessor's historical output changed on reinvitation: %#v", snapshot.Records[1])
 	}
 }
 
 func TestOnEvent_reasoningFlushClearsOnlyMatchingReasoningStream(t *testing.T) {
+	ada := newTestAlias("ada")
 	room, updates := newTestRoom(t)
 
-	room.OnEvent(session.AgentMessage{Alias: "ada", Msg: agent.Message{StreamID: "reason1", Mode: agent.ModeStream, Content: agent.Reasoning{Text: "think"}}})
+	room.OnEvent(session.AgentMessage{Alias: ada, Msg: agent.Message{StreamID: "reason1", Mode: agent.ModeStream, Content: agent.Reasoning{Text: "think"}}})
 	waitUpdate(t, updates)
-	room.OnEvent(session.AgentMessage{Alias: "ada", Msg: agent.Message{StreamID: "out1", Mode: agent.ModeStream, Content: agent.Output{Text: "say"}}})
+	room.OnEvent(session.AgentMessage{Alias: ada, Msg: agent.Message{StreamID: "out1", Mode: agent.ModeStream, Content: agent.Output{Text: "say"}}})
 	waitUpdate(t, updates)
-	room.OnEvent(session.AgentMessage{Alias: "ada", Msg: agent.Message{StreamID: "reason1", Mode: agent.ModeFlush, Content: agent.Reasoning{}}})
+	room.OnEvent(session.AgentMessage{Alias: ada, Msg: agent.Message{StreamID: "reason1", Mode: agent.ModeFlush, Content: agent.Reasoning{}}})
 	waitUpdate(t, updates)
 
 	snapshot := room.Snapshot()
@@ -289,14 +301,15 @@ func TestOnEvent_reasoningFlushClearsOnlyMatchingReasoningStream(t *testing.T) {
 }
 
 func TestOnEvent_commandFlushPreservesExitCodeAndClosesStream(t *testing.T) {
+	ada := newTestAlias("ada")
 	room, updates := newTestRoom(t)
 	exitCode := 0
 
-	room.OnEvent(session.AgentMessage{Alias: "ada", Msg: agent.Message{StreamID: "cmd1", Mode: agent.ModeStream, Content: agent.Command{Command: "true", Cwd: "/tmp"}}})
+	room.OnEvent(session.AgentMessage{Alias: ada, Msg: agent.Message{StreamID: "cmd1", Mode: agent.ModeStream, Content: agent.Command{Command: "true", Cwd: "/tmp"}}})
 	waitUpdate(t, updates)
-	room.OnEvent(session.AgentMessage{Alias: "ada", Msg: agent.Message{StreamID: "cmd1", Mode: agent.ModeStream, Content: agent.Command{Output: "ok\n", ExitCode: &exitCode}}})
+	room.OnEvent(session.AgentMessage{Alias: ada, Msg: agent.Message{StreamID: "cmd1", Mode: agent.ModeStream, Content: agent.Command{Output: "ok\n", ExitCode: &exitCode}}})
 	waitUpdate(t, updates)
-	room.OnEvent(session.AgentMessage{Alias: "ada", Msg: agent.Message{StreamID: "cmd1", Mode: agent.ModeFlush, Content: agent.Command{}}})
+	room.OnEvent(session.AgentMessage{Alias: ada, Msg: agent.Message{StreamID: "cmd1", Mode: agent.ModeFlush, Content: agent.Command{}}})
 	waitUpdate(t, updates)
 
 	snapshot := room.Snapshot()
@@ -316,20 +329,21 @@ func TestOnEvent_commandFlushPreservesExitCodeAndClosesStream(t *testing.T) {
 }
 
 func TestOnEvent_fileChangeFlushPreservesChangesAndClosesStream(t *testing.T) {
+	ada := newTestAlias("ada")
 	room, updates := newTestRoom(t)
 
-	room.OnEvent(session.AgentMessage{Alias: "ada", Msg: agent.Message{StreamID: "fc1", Mode: agent.ModeStream, Content: agent.FileChangeSet{
+	room.OnEvent(session.AgentMessage{Alias: ada, Msg: agent.Message{StreamID: "fc1", Mode: agent.ModeStream, Content: agent.FileChangeSet{
 		Changes: []agent.FileChange{{Path: "a.txt", Diff: "+one\n", ChangeKind: "update"}},
 	}},
 	})
 	waitUpdate(t, updates)
-	room.OnEvent(session.AgentMessage{Alias: "ada", Msg: agent.Message{StreamID: "fc1", Mode: agent.ModeStream, Content: agent.FileChangeSet{
+	room.OnEvent(session.AgentMessage{Alias: ada, Msg: agent.Message{StreamID: "fc1", Mode: agent.ModeStream, Content: agent.FileChangeSet{
 		Status:  agent.ToolStatusCompleted,
 		Changes: []agent.FileChange{{Path: "b.txt", Diff: "+two\n", ChangeKind: "add"}},
 	}},
 	})
 	waitUpdate(t, updates)
-	room.OnEvent(session.AgentMessage{Alias: "ada", Msg: agent.Message{StreamID: "fc1", Mode: agent.ModeFlush, Content: agent.FileChangeSet{}}})
+	room.OnEvent(session.AgentMessage{Alias: ada, Msg: agent.Message{StreamID: "fc1", Mode: agent.ModeFlush, Content: agent.FileChangeSet{}}})
 	waitUpdate(t, updates)
 
 	snapshot := room.Snapshot()
@@ -349,20 +363,22 @@ func TestOnEvent_fileChangeFlushPreservesChangesAndClosesStream(t *testing.T) {
 }
 
 func TestOnEvent_agentStoppedClearsOnlyStoppedAliasStreams(t *testing.T) {
+	ada := newTestAlias("ada")
+	bob := newTestAlias("bob")
 	room, updates := newTestRoom(t)
 
-	room.OnEvent(session.AgentMessage{Alias: "ada", Msg: agent.Message{StreamID: "ada-out", Mode: agent.ModeStream, Content: agent.Output{Text: "a"}}})
+	room.OnEvent(session.AgentMessage{Alias: ada, Msg: agent.Message{StreamID: "ada-out", Mode: agent.ModeStream, Content: agent.Output{Text: "a"}}})
 	waitUpdate(t, updates)
-	room.OnEvent(session.AgentMessage{Alias: "bob", Msg: agent.Message{StreamID: "bob-out", Mode: agent.ModeStream, Content: agent.Output{Text: "b"}}})
+	room.OnEvent(session.AgentMessage{Alias: bob, Msg: agent.Message{StreamID: "bob-out", Mode: agent.ModeStream, Content: agent.Output{Text: "b"}}})
 	waitUpdate(t, updates)
-	room.OnEvent(session.AgentStopped{Alias: "ada"})
+	room.OnEvent(session.AgentStopped{Alias: ada})
 	waitUpdate(t, updates)
 
 	snapshot := room.Snapshot()
 	if len(snapshot.OpenStreams) != 1 {
 		t.Fatalf("expected 1 remaining open stream, got %d", len(snapshot.OpenStreams))
 	}
-	if snapshot.OpenStreams[0].Alias != "bob" {
+	if snapshot.OpenStreams[0].Alias != bob {
 		t.Fatalf("expected bob stream to remain, got %#v", snapshot.OpenStreams[0])
 	}
 }
@@ -405,9 +421,10 @@ func TestAppendUserInputRecordNotifiesObserverAndAdvancesVersion(t *testing.T) {
 }
 
 func TestAppendLogRecordNotifiesObserverAndAdvancesVersion(t *testing.T) {
+	ada := newTestAlias("ada")
 	room, updates := newTestRoom(t)
 
-	room.AppendLogRecord("ada", "warn")
+	room.AppendLogRecord(ada, "warn")
 	update := waitUpdate(t, updates)
 	if update.Version != 1 {
 		t.Fatalf("unexpected update version: %#v", update)
@@ -418,7 +435,7 @@ func TestAppendLogRecordNotifiesObserverAndAdvancesVersion(t *testing.T) {
 		t.Fatalf("expected 1 record, got %d", len(snapshot.Records))
 	}
 	r := snapshot.Records[0]
-	if r.Kind != KindLog || r.Alias != "ada" || r.Text != "warn" {
+	if r.Kind != KindLog || r.Alias != ada || r.Text != "warn" {
 		t.Fatalf("unexpected log record: %#v", r)
 	}
 }
@@ -438,11 +455,12 @@ func TestDelta_fromZeroRequiresResync(t *testing.T) {
 }
 
 func TestDelta_incrementalCoalescesRepeatedRecordUpdates(t *testing.T) {
+	ada := newTestAlias("ada")
 	room, updates := newTestRoom(t)
 
-	room.OnEvent(session.AgentMessage{Alias: "ada", Msg: agent.Message{StreamID: "out1", Mode: agent.ModeStream, Content: agent.Output{Text: "hello"}}})
+	room.OnEvent(session.AgentMessage{Alias: ada, Msg: agent.Message{StreamID: "out1", Mode: agent.ModeStream, Content: agent.Output{Text: "hello"}}})
 	update1 := waitUpdate(t, updates)
-	room.OnEvent(session.AgentMessage{Alias: "ada", Msg: agent.Message{StreamID: "out1", Mode: agent.ModeStream, Content: agent.Output{Text: " world"}}})
+	room.OnEvent(session.AgentMessage{Alias: ada, Msg: agent.Message{StreamID: "out1", Mode: agent.ModeStream, Content: agent.Output{Text: " world"}}})
 	update2 := waitUpdate(t, updates)
 
 	delta, err := room.Delta(update1.Version)
@@ -509,16 +527,17 @@ func TestDelta_prunedVersionRequiresResync(t *testing.T) {
 }
 
 func TestSnapshotClonesRecordsAndState(t *testing.T) {
+	ada := newTestAlias("ada")
 	room, updates := newTestRoom(t)
 	exitCode := 7
 
-	room.OnEvent(session.AgentReady{Alias: "ada"})
+	room.OnEvent(session.AgentReady{Alias: ada})
 	waitUpdate(t, updates)
 	room.AppendUserInputRecord("hello", []string{"ada"})
 	waitUpdate(t, updates)
 	room.AppendRecord(Record{
 		Kind:  KindCommand,
-		Alias: "ada",
+		Alias: ada,
 		Text:  "out",
 		Msg: &agent.Message{
 			StreamID: "cmd1",
@@ -529,8 +548,9 @@ func TestSnapshotClonesRecordsAndState(t *testing.T) {
 	waitUpdate(t, updates)
 
 	snapshot := room.Snapshot()
-	snapshot.Members[0] = "mutated"
-	snapshot.Departed["ada"] = true
+	snapshot.Members[0].Name = "mutated"
+	snapshot.Members[0].ID = participant.ID{}
+	snapshot.Departed[ada] = true
 	snapshot.Records[0].Text = "changed"
 	snapshot.Records[1].Routing[0] = "mutated"
 	cmd := snapshot.Records[2].Msg.Content.(agent.Command)
@@ -538,10 +558,10 @@ func TestSnapshotClonesRecordsAndState(t *testing.T) {
 	snapshot.Records[2].Msg.Content = cmd
 
 	next := room.Snapshot()
-	if next.Members[0] != "ada" {
+	if next.Members[0] != ada {
 		t.Fatalf("expected members to be cloned, got %v", next.Members)
 	}
-	if next.Departed["ada"] {
+	if next.Departed[ada] {
 		t.Fatalf("expected departed map to be cloned, got %v", next.Departed)
 	}
 	if next.Records[0].Text != "[ada joined]" {

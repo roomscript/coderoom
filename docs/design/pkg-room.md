@@ -104,6 +104,13 @@ transitions. Room maintains only the membership list for a particular room —
 which aliases belong to it — not a mirrored snapshot of their status, role,
 or approval state.
 
+Membership and departure state use `participant.Alias`, which pairs the
+participant's immutable ID with its reusable display name. Snapshots and delta
+metadata expose `Members []participant.Alias` and
+`Departed map[participant.Alias]bool`. A delayed departure affects only its
+originating instance. Departure is terminal for that instance; a delayed
+`AgentReady` cannot restore it. Reinviting the same name joins a new alias.
+
 For V1, membership comes from the same agent-lifecycle events Room already
 consumes for system records: `AgentReady` adds an alias,
 `AgentStopped`/`AgentCrashed` remove it. No new event is needed for
@@ -203,6 +210,10 @@ latest projected turn independently of temporary runtime status, so keepalive
 and failed send preparation do not erase valid projection progress. Most
 updates, including locally appended records, carry no trigger.
 
+The trigger retains the originating `participant.Alias` as well as the separate
+turn ID. A delayed predecessor completion does not become a completion for its
+same-name replacement.
+
 The UI should render room state, not derive chat semantics from `session.Event`
 directly.
 
@@ -267,6 +278,16 @@ For agent output, a likely model is:
 This preserves the current streaming UX while removing accumulation logic from
 the UI.
 
+Streams are scoped by participant alias and stream ID. Adapters may reuse a
+stream ID across participant instances; accumulation, flush, and departure must
+affect only that instance's records and streams. `OpenStream.Alias` and
+`Record.Alias` retain the originating identity, including in historical records
+and detached snapshots/deltas. Names are derived through `.Name` for display.
+Local records such as shell output may use a zero-ID alias with a display name;
+system and user-input records may use the zero alias. Those labels do not grant
+participant membership or handoff eligibility. Routing footers remain derived
+display names.
+
 The room package therefore owns:
 
 - record identity
@@ -323,6 +344,19 @@ than:
 - reassembling low-level `session.Event` fragments ad hoc in the command path
 
 This is one of the main reasons to introduce room as a package-level concept.
+
+`LatestHandoffSource(alias participant.Alias)` and
+`LatestCompletedOutput(alias participant.Alias)` require that instance's room
+membership and select only completed output owned by it. The source-marker
+cache is also keyed by alias. The interpreter resolves an explicit source name
+through Session before querying Room; Room does not resolve names again.
+Reinvitation preserves the predecessor's transcript but does not transfer its
+output to the replacement. Until the replacement produces completed output,
+source selection follows the existing no-source failure path. Delayed old
+output or flush events retain their old owner and cannot populate or mark a
+replacement's source. Late output remains in the transcript without reopening
+streams for a departed instance, even if no flush follows. Session still
+validates final delivery membership.
 
 ---
 

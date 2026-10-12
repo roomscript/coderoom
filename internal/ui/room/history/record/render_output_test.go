@@ -5,12 +5,13 @@ import (
 	"testing"
 
 	"github.com/charmbracelet/x/ansi"
+	"github.com/roomscript/coderoom/internal/participant"
 )
 
 func TestRenderAgentOutput_marksHandoffSource(t *testing.T) {
 	r := Record{
 		Kind:          KindAgentOutput,
-		Alias:         "ada",
+		Alias:         participant.New("ada", "", participant.InitiativeManual).Alias,
 		Text:          "done",
 		HandoffSource: true,
 	}

@@ -4,13 +4,12 @@ import (
 	"testing"
 
 	"github.com/roomscript/coderoom/internal/interpreter/runtime"
-	"github.com/roomscript/coderoom/internal/interpreter/std"
 	"github.com/roomscript/coderoom/internal/promptlang"
 )
 
 func TestRegistry_Lookup(t *testing.T) {
 	registry := runtime.NewRegistry()
-	for _, command := range []runtime.Command{std.WhoCommand{}, std.ShellCommand{}} {
+	for _, command := range []runtime.Command{registryCommand{name: "who", statement: promptlang.Who{}}, registryCommand{name: "shell", statement: promptlang.Shell{}}} {
 		if err := registry.Register(command); err != nil {
 			t.Fatal(err)
 		}
@@ -47,7 +46,6 @@ func TestRegistry_Lookup(t *testing.T) {
 }
 
 type registryCommand struct {
-	runtime.Command
 	name      string
 	statement promptlang.Statement
 }
@@ -55,21 +53,27 @@ type registryCommand struct {
 func (c registryCommand) Name() string                    { return c.name }
 func (c registryCommand) Statement() promptlang.Statement { return c.statement }
 
+func (c registryCommand) Usage() string       { return "/" + c.name }
+func (c registryCommand) Description() string { return "test command" }
+func (registryCommand) Prepare(promptlang.ParsedStatement, runtime.Context) (runtime.Invocation, error) {
+	return &invocation{}, nil
+}
+
 func TestRegistry_RegisterRejectsInvalidCommands(t *testing.T) {
 	tests := []struct {
 		name    string
 		command runtime.Command
 	}{
 		{name: "nil command"},
-		{name: "missing name", command: registryCommand{Command: std.ShellCommand{}, statement: promptlang.Shell{}}},
-		{name: "missing statement", command: registryCommand{Command: std.ShellCommand{}, name: "shell"}},
-		{name: "duplicate name", command: registryCommand{Command: std.ShellCommand{}, name: "who", statement: promptlang.Shell{}}},
-		{name: "duplicate type", command: registryCommand{Command: std.WhoCommand{}, name: "another", statement: promptlang.Who{}}},
+		{name: "missing name", command: registryCommand{statement: promptlang.Shell{}}},
+		{name: "missing statement", command: registryCommand{name: "shell"}},
+		{name: "duplicate name", command: registryCommand{name: "who", statement: promptlang.Shell{}}},
+		{name: "duplicate type", command: registryCommand{name: "another", statement: promptlang.Who{}}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var registry runtime.Registry
-			if err := registry.Register(std.WhoCommand{}); err != nil {
+			if err := registry.Register(registryCommand{name: "who", statement: promptlang.Who{}}); err != nil {
 				t.Fatal(err)
 			}
 			if err := registry.Register(tt.command); err == nil {
@@ -85,7 +89,7 @@ func TestRegistry_RegisterRejectsInvalidCommands(t *testing.T) {
 
 func TestRegistry_EntriesPreserveOrderAndAreDetached(t *testing.T) {
 	registry := runtime.NewRegistry()
-	for _, command := range []runtime.Command{std.WhoCommand{}, std.ShellCommand{}} {
+	for _, command := range []runtime.Command{registryCommand{name: "who", statement: promptlang.Who{}}, registryCommand{name: "shell", statement: promptlang.Shell{}}} {
 		if err := registry.Register(command); err != nil {
 			t.Fatal(err)
 		}
@@ -94,7 +98,7 @@ func TestRegistry_EntriesPreserveOrderAndAreDetached(t *testing.T) {
 	if len(entries) != 2 || entries[0].Name() != "who" || entries[1].Name() != "shell" {
 		t.Fatalf("entries = %#v, want registration order", entries)
 	}
-	entries[0] = std.ShellCommand{}
+	entries[0] = registryCommand{name: "shell", statement: promptlang.Shell{}}
 	command, ok := registry.Lookup(promptlang.ParsedStatement{Located: promptlang.Located[promptlang.Statement]{Value: promptlang.Who{}}})
 	if !ok || command.Name() != "who" || registry.Entries()[0].Name() != "who" {
 		t.Fatal("changing returned entries mutated the registry")

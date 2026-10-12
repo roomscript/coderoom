@@ -9,16 +9,16 @@ import (
 )
 
 // participantUpdates collects facts immediately, independently of serialized
-// lifecycle evaluation. Aliases identify only the state needed for readiness.
+// lifecycle evaluation. Each state belongs to one resolved participant instance.
 type participantUpdates struct {
 	mu       sync.Mutex
 	active   bool
-	states   map[string]participantState
+	states   map[participant.Alias]participantState
 	revision uint64
 }
 
 type participantSnapshot struct {
-	states   map[string]participantState
+	states   map[participant.Alias]participantState
 	revision uint64
 }
 
@@ -38,7 +38,7 @@ func (u *participantUpdates) start() {
 	defer u.mu.Unlock()
 	u.active = true
 	if u.states == nil {
-		u.states = make(map[string]participantState)
+		u.states = make(map[participant.Alias]participantState)
 	}
 }
 
@@ -48,7 +48,11 @@ func (u *participantUpdates) stop() {
 	u.active = false
 }
 
-func (u *participantUpdates) collect(alias string, event session.Event) {
+func (u *participantUpdates) collect(event session.Event) {
+	alias, ok := parseParticipantAlias(event)
+	if !ok {
+		return
+	}
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	if !u.active {

@@ -77,7 +77,7 @@ func TestRenderSelectionLine_preservesSelectionWhenCursorAtLineEnd(t *testing.T)
 }
 
 func TestSelectionColumnsForRow_wrapsAcrossRows(t *testing.T) {
-	m := New(nil, "")
+	m := New(nil, nil, "")
 	m = m.SetSize(4, 4)
 	m = m.ReplaceSnapshot(roomstate.Snapshot{
 		Records: []rec.Record{{Kind: rec.KindSystem, Text: "abcdef"}},
@@ -99,7 +99,7 @@ func TestSelectionColumnsForRow_wrapsAcrossRows(t *testing.T) {
 }
 
 func TestSelectedText_returnsVisibleSelectionAsPlainText(t *testing.T) {
-	m := New(nil, "")
+	m := New(nil, nil, "")
 	m = m.SetSize(4, 4)
 	m = m.ReplaceSnapshot(roomstate.Snapshot{
 		Records: []rec.Record{{Kind: rec.KindSystem, Text: "abcdef"}},
@@ -120,7 +120,7 @@ func TestSelectedText_returnsVisibleSelectionAsPlainText(t *testing.T) {
 }
 
 func TestSelectedText_collapsedSelectionIsInactive(t *testing.T) {
-	m := New(nil, "")
+	m := New(nil, nil, "")
 	m = m.SetSize(10, 4)
 	m = m.ReplaceSnapshot(roomstate.Snapshot{
 		Records: []rec.Record{{Kind: rec.KindSystem, Text: "hello"}},
@@ -138,7 +138,7 @@ func TestSelectedText_collapsedSelectionIsInactive(t *testing.T) {
 }
 
 func TestSelectedText_includesCursorCellWhenSelectionExtendsRight(t *testing.T) {
-	m := New(nil, "")
+	m := New(nil, nil, "")
 	m = m.SetSize(10, 4)
 	m = m.ReplaceSnapshot(roomstate.Snapshot{
 		Records: []rec.Record{{Kind: rec.KindSystem, Text: "hello"}},
@@ -159,7 +159,7 @@ func TestSelectedText_includesCursorCellWhenSelectionExtendsRight(t *testing.T) 
 }
 
 func TestSelectedText_isSymmetricAcrossSelectionDirections(t *testing.T) {
-	m := New(nil, "")
+	m := New(nil, nil, "")
 	m = m.SetSize(10, 4)
 	m = m.ReplaceSnapshot(roomstate.Snapshot{
 		Records: []rec.Record{{Kind: rec.KindSystem, Text: "hello"}},
@@ -184,9 +184,9 @@ func TestSelectedText_isSymmetricAcrossSelectionDirections(t *testing.T) {
 }
 
 func TestSelectedText_removesLayoutIndentAndPreservesContentIndent(t *testing.T) {
-	m := New(nil, "")
+	m := New(nil, nil, "")
 	m = m.SetSize(20, 6)
-	record := roomstate.NewAgentRecord("ada", agent.Message{
+	record := roomstate.NewAgentRecord(testAlias("ada"), agent.Message{
 		Content: agent.Output{Text: "one\n  code"},
 	})
 	m = m.ReplaceSnapshot(roomstate.Snapshot{Records: []rec.Record{record}})
@@ -215,7 +215,7 @@ func TestSelectedText_removesToolRecordLayoutIndent(t *testing.T) {
 	}{
 		{
 			name: "command",
-			record: roomstate.NewAgentRecord("ada", agent.Message{Content: agent.Command{
+			record: roomstate.NewAgentRecord(testAlias("ada"), agent.Message{Content: agent.Command{
 				Command: "echo hi", Output: "  indented\n", ExitCode: &exitCode,
 			}}),
 			wantPrefix: "$ echo hi",
@@ -223,7 +223,7 @@ func TestSelectedText_removesToolRecordLayoutIndent(t *testing.T) {
 		},
 		{
 			name: "file change",
-			record: roomstate.NewAgentRecord("ada", agent.Message{Content: agent.FileChangeSet{
+			record: roomstate.NewAgentRecord(testAlias("ada"), agent.Message{Content: agent.FileChangeSet{
 				Status:  agent.ToolStatusCompleted,
 				Changes: []agent.FileChange{{Path: "a.txt", ChangeKind: "update", Diff: "line"}},
 			}}),
@@ -234,7 +234,7 @@ func TestSelectedText_removesToolRecordLayoutIndent(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			m := New(nil, "")
+			m := New(nil, nil, "")
 			m = m.SetSize(40, 12)
 			m = m.ReplaceSnapshot(roomstate.Snapshot{Records: []rec.Record{tt.record}})
 			m.cursor = Cursor{Row: 2, Col: 0, Visible: true}
@@ -259,7 +259,7 @@ func TestSelectedText_removesToolRecordLayoutIndent(t *testing.T) {
 }
 
 func TestSelectedText_removesTrailingWhitespace(t *testing.T) {
-	m := New(nil, "")
+	m := New(nil, nil, "")
 	m = m.SetSize(10, 4)
 	m = m.ReplaceSnapshot(roomstate.Snapshot{
 		Records: []rec.Record{{Kind: rec.KindSystem, Text: "text  \n  indented\t "}},
@@ -277,7 +277,7 @@ func TestSelectedText_removesTrailingWhitespace(t *testing.T) {
 }
 
 func TestSelectedText_excludesViewportTrailingPadding(t *testing.T) {
-	m := New(nil, "")
+	m := New(nil, nil, "")
 	m = m.SetSize(10, 4)
 	m = m.ReplaceSnapshot(roomstate.Snapshot{
 		Records: []rec.Record{{Kind: rec.KindSystem, Text: "text"}},

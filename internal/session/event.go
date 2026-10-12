@@ -16,27 +16,27 @@ type Event interface {
 }
 
 // AgentStarting reports that the session has begun starting an agent process.
-type AgentStarting struct{ Alias string }
+type AgentStarting struct{ Alias participant.Alias }
 
 // AgentReady reports that an agent is ready to receive messages. By the time
 // this event fires the participant is in StatusIdle and IsSendable returns true.
-type AgentReady struct{ Alias string }
+type AgentReady struct{ Alias participant.Alias }
 
 // AgentStopped reports that an agent exited during an intentional shutdown path.
-type AgentStopped struct{ Alias string }
+type AgentStopped struct{ Alias participant.Alias }
 
 // AgentCrashed reports that an agent exited unexpectedly.
-type AgentCrashed struct{ Alias string }
+type AgentCrashed struct{ Alias participant.Alias }
 
 // AgentLog carries a diagnostic line associated with an agent.
 type AgentLog struct {
-	Alias string
+	Alias participant.Alias
 	Text  string
 }
 
 // AgentMessage carries a typed agent message without translation.
 type AgentMessage struct {
-	Alias string
+	Alias participant.Alias
 	Msg   agent.Message
 	// TurnCompleted is true only when this message caused the participant to
 	// transition from working to idle.
@@ -47,7 +47,7 @@ type AgentMessage struct {
 
 // ParticipantStatusChanged reports a session-driven participant status transition.
 type ParticipantStatusChanged struct {
-	Alias string
+	Alias participant.Alias
 	From  participant.Status
 	To    participant.Status
 	Since time.Time
@@ -62,27 +62,27 @@ type RoutingCompleted struct{ Result RoutingResult }
 
 // HandoffDelivered reports a delivered handoff plus its audit metadata.
 type HandoffDelivered struct {
-	FromAlias string
-	ToAlias   string
+	FromAlias participant.Alias
+	ToAlias   participant.Alias
 	Text      string
 	Preview   string
 
 	SourceRecordIndex    int
-	RequiredReadyAliases []string
-	IdleAliases          []string
-	NotReadyAliases      []string
+	RequiredReadyAliases []participant.Alias
+	IdleAliases          []participant.Alias
+	NotReadyAliases      []participant.Alias
 }
 
 // ApprovalRequested reports that a new approval prompt became active.
 type ApprovalRequested struct {
-	Alias string
+	Alias participant.Alias
 	ID    int64
 	Req   agent.ApprovalRequest
 }
 
 // ApprovalCleared reports that an active approval prompt should be dismissed.
 type ApprovalCleared struct {
-	Alias string
+	Alias participant.Alias
 	ID    int64
 }
 

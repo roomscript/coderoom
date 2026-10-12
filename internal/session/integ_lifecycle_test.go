@@ -38,14 +38,14 @@ func TestSession_agentStopsCleanly(t *testing.T) {
 	drainUntilType[session.AgentReady](t, events, 10*time.Second)
 
 	if err := s.Execute(session.SendToParticipantCommand{
-		Plan:    s.CreateParticipantSendPlan("ada"),
+		Plan:    s.CreateParticipantSendPlan(resolvedAlias(s, "ada")),
 		Message: "What is 2+2? Reply with just the number.",
 	}); err != nil {
 		t.Fatalf("shared send: %v", err)
 	}
 	drainUntilIdle(t, events, 60*time.Second)
 
-	if err := s.Execute(session.RemoveCommand{Alias: "ada"}); err != nil {
+	if err := s.Execute(session.RemoveCommand{Alias: resolvedAlias(s, "ada")}); err != nil {
 		t.Fatalf("remove: %v", err)
 	}
 	drainUntilType[session.AgentStopped](t, events, 10*time.Second)

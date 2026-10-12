@@ -194,7 +194,13 @@ github.com/rivo/uniseg                     # display-width-aware line metrics
 
 The UI depends on the interpreter facade, not on session or agent packages.
 It renders each participant's assigned color from interpreter snapshots and
-does not allocate participant colors.
+does not allocate participant colors. The color map is keyed by full
+`participant.Alias`, so a same-name replacement changes the mapping and
+invalidates rendered colors even when its assigned color is unchanged. Record
+colors use exact instance lookup. Routing and stage labels use derived names
+for display only; approval headers also show `.Name`. Historical departure and
+stream ownership are projected from canonical transcript metadata rather than
+resolved again through the current name.
 
 ---
 

@@ -2,6 +2,7 @@ package interpreter
 
 import (
 	"github.com/roomscript/coderoom/internal/interpreter/runtime"
+	"github.com/roomscript/coderoom/internal/participant"
 	"github.com/roomscript/coderoom/internal/promptlang"
 	"github.com/roomscript/coderoom/internal/room"
 	"github.com/roomscript/coderoom/internal/session"
@@ -36,6 +37,23 @@ type startUserShellInstruction struct {
 	command   string
 }
 
+type executeParticipantCommandInstruction struct {
+	name    string
+	remove  bool
+	outcome submissionOutcome
+}
+
+type resolveParticipantInstruction struct {
+	target workflowRef
+	name   string
+}
+
+type prepareHandoffInstruction struct {
+	target workflowRef
+	from   string
+	to     string
+}
+
 type goInvocationInstruction struct {
 	command runtime.Command
 	context runtime.Context
@@ -50,7 +68,7 @@ type planBroadcastInstruction struct{ target workflowRef }
 type readParticipantStateInstruction struct{ target workflowRef }
 type readHandoffSourceInstruction struct {
 	target workflowRef
-	alias  string
+	alias  participant.Alias
 }
 type publishSnapshotInstruction struct{}
 type requestSnapshotInstruction struct{}
@@ -77,6 +95,10 @@ func (appendRecordInstruction) instruction()         {}
 func (publishEventInstruction) instruction()         {}
 
 type instructionSequence []instruction
+
+func (executeParticipantCommandInstruction) instruction() {}
+func (resolveParticipantInstruction) instruction()        {}
+func (prepareHandoffInstruction) instruction()            {}
 
 func (s *instructionSequence) append(next instructionSequence) {
 	*s = append(*s, next...)

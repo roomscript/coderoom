@@ -5,6 +5,7 @@ import (
 	"slices"
 
 	"github.com/roomscript/coderoom/internal/agent"
+	"github.com/roomscript/coderoom/internal/participant"
 	"github.com/roomscript/coderoom/internal/session"
 )
 
@@ -37,21 +38,23 @@ func (r *Room) applyEvent(e session.Event) (Update, bool) {
 func (r *Room) handleLifecycleEventLocked(e session.Event) ([]int, bool) {
 	switch e := e.(type) {
 	case session.AgentStarting:
-		return r.appendSystemRecordLocked("[" + e.Alias + " starting]"), true
+		return r.appendSystemRecordLocked("[" + e.Alias.Name + " starting]"), true
 	case session.AgentReady:
+		if r.departed[e.Alias] {
+			return nil, false
+		}
 		r.members[e.Alias] = struct{}{}
-		delete(r.departed, e.Alias)
 		dirty := r.refreshLatestHandoffSourceLocked(e.Alias)
-		dirty = append(dirty, r.appendSystemRecordLocked("["+e.Alias+" joined]")...)
+		dirty = append(dirty, r.appendSystemRecordLocked("["+e.Alias.Name+" joined]")...)
 		slices.Sort(dirty)
 		return slices.Compact(dirty), true
 	case session.AgentStopped:
 		dirty := r.handleDepartureLocked(e.Alias)
-		dirty = append(dirty, r.appendSystemRecordLocked("["+e.Alias+" left]")...)
+		dirty = append(dirty, r.appendSystemRecordLocked("["+e.Alias.Name+" left]")...)
 		return slices.Compact(dirty), true
 	case session.AgentCrashed:
 		dirty := r.handleDepartureLocked(e.Alias)
-		dirty = append(dirty, r.appendSystemRecordLocked("["+e.Alias+" crashed]")...)
+		dirty = append(dirty, r.appendSystemRecordLocked("["+e.Alias.Name+" crashed]")...)
 		return slices.Compact(dirty), true
 	case session.AgentLog:
 		return r.appendRecordLocked(Record{Kind: KindLog, Alias: e.Alias, Text: e.Text}), true
@@ -62,7 +65,7 @@ func (r *Room) handleLifecycleEventLocked(e session.Event) ([]int, bool) {
 	}
 }
 
-func (r *Room) handleDepartureLocked(alias string) []int {
+func (r *Room) handleDepartureLocked(alias participant.Alias) []int {
 	delete(r.members, alias)
 	r.clearStreamsLocked(alias)
 	r.departed[alias] = true
@@ -83,19 +86,19 @@ func handoffPreview(e session.HandoffDelivered) string {
 	if e.Preview != "" {
 		return e.Preview
 	}
-	return fmt.Sprintf("[handoff %s -> %s]\n\n%s", e.FromAlias, e.ToAlias, e.Text)
+	return fmt.Sprintf("[handoff %s -> %s]\n\n%s", e.FromAlias.Name, e.ToAlias.Name, e.Text)
 }
 
-func (r *Room) handleAgentMessageLocked(alias string, msg agent.Message) []int {
+func (r *Room) handleAgentMessageLocked(alias participant.Alias, msg agent.Message) []int {
 	switch msg.Content.(type) {
 	case agent.Output, agent.Reasoning, agent.Command, agent.FileChangeSet:
 		if msg.Mode == agent.ModeFlush {
-			r.sealStreamLocked(msg.StreamID)
+			r.sealStreamLocked(alias, msg.StreamID)
 			return r.refreshHandoffSourceAfterMessageLocked(alias, msg)
 		}
 	}
 
-	if slot, ok := r.streaming[msg.StreamID]; ok {
+	if slot, ok := r.streaming[alias][msg.StreamID]; ok {
 		updated, err := r.records[slot.RecordIdx].Accumulate(msg)
 		if err == nil {
 			r.records[slot.RecordIdx] = updated
@@ -108,7 +111,13 @@ func (r *Room) handleAgentMessageLocked(alias string, msg agent.Message) []int {
 
 	idx := len(r.records)
 	r.records = append(r.records, NewAgentRecord(alias, msg))
-	r.streaming[msg.StreamID] = OpenStream{
+	if r.departed[alias] {
+		return []int{idx}
+	}
+	if r.streaming[alias] == nil {
+		r.streaming[alias] = make(map[agent.StreamID]OpenStream)
+	}
+	r.streaming[alias][msg.StreamID] = OpenStream{
 		Alias:     alias,
 		RecordIdx: idx,
 		StreamID:  msg.StreamID,
@@ -120,7 +129,7 @@ func (r *Room) handleAgentMessageLocked(alias string, msg agent.Message) []int {
 	return slices.Compact(dirty)
 }
 
-func (r *Room) refreshHandoffSourceAfterMessageLocked(alias string, msg agent.Message) []int {
+func (r *Room) refreshHandoffSourceAfterMessageLocked(alias participant.Alias, msg agent.Message) []int {
 	if _, ok := msg.Content.(agent.Output); !ok {
 		return nil
 	}
@@ -143,14 +152,13 @@ func openStreamKind(msg agent.Message) OpenStreamKind {
 	}
 }
 
-func (r *Room) clearStreamsLocked(alias string) {
-	for streamID, slot := range r.streaming {
-		if slot.Alias == alias {
-			delete(r.streaming, streamID)
-		}
-	}
+func (r *Room) clearStreamsLocked(alias participant.Alias) {
+	delete(r.streaming, alias)
 }
 
-func (r *Room) sealStreamLocked(streamID agent.StreamID) {
-	delete(r.streaming, streamID)
+func (r *Room) sealStreamLocked(alias participant.Alias, streamID agent.StreamID) {
+	delete(r.streaming[alias], streamID)
+	if len(r.streaming[alias]) == 0 {
+		delete(r.streaming, alias)
+	}
 }

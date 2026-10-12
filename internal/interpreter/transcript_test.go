@@ -16,7 +16,7 @@ func (o transcriptTestObserver) OnEvent(event Event) { o.events <- event }
 func TestTranscriptStream_acceptancePrecedesRecordsAndCausalUpdatesPrecedeCompletion(t *testing.T) {
 	sess := newSubmitContractSession()
 	sess.execute = func(_ session.Command, observer session.Observer) {
-		observer.OnEvent(session.AgentLog{Alias: "ada", Text: "causal output"})
+		observer.OnEvent(session.AgentLog{Alias: testAlias("ada"), Text: "causal output"})
 	}
 	events := make(chan Event, 32)
 	interp := New(context.Background(), sess, ".", WithObserver(transcriptTestObserver{events: events}))

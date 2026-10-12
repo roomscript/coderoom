@@ -15,6 +15,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/atotto/clipboard"
 	"github.com/roomscript/coderoom/internal/interpreter"
+	"github.com/roomscript/coderoom/internal/participant"
 	roomstate "github.com/roomscript/coderoom/internal/room"
 	"github.com/roomscript/coderoom/internal/ui/room/approval"
 	"github.com/roomscript/coderoom/internal/ui/room/compose"
@@ -106,10 +107,10 @@ type Model struct {
 	clipboardWrite    func(string) error
 }
 
-func newPresentationModel(colorByAlias func(string) string, departedColor string) Model {
+func newPresentationModel(colorByAlias func(participant.Alias) string, colorByName func(string) string, departedColor string) Model {
 	compose := compose.New()
 	return Model{
-		history: history.New(colorByAlias, departedColor),
+		history: history.New(colorByAlias, colorByName, departedColor),
 		input: inputModel{
 			kind:     inputCompose,
 			compose:  compose,
@@ -176,18 +177,20 @@ func (m Model) SetHistorySnapshot(snapshot roomstate.Snapshot) Model {
 }
 
 // IsStreaming reports whether alias currently has an open turn.
-func (m Model) IsStreaming(alias string) bool { return m.history.IsStreaming(alias) }
+func (m Model) IsStreaming(alias participant.Alias) bool { return m.history.IsStreaming(alias) }
 
 // IsReasoningStreaming reports whether alias currently has an open reasoning record.
-func (m Model) IsReasoningStreaming(alias string) bool {
+func (m Model) IsReasoningStreaming(alias participant.Alias) bool {
 	return m.history.IsReasoningStreaming(alias)
 }
 
 // StreamingIdx returns the record index for the given streaming alias.
-func (m Model) StreamingIdx(alias string) (int, bool) { return m.history.StreamingIdx(alias) }
+func (m Model) StreamingIdx(alias participant.Alias) (int, bool) {
+	return m.history.StreamingIdx(alias)
+}
 
 // IsDeparted reports whether alias has left or crashed.
-func (m Model) IsDeparted(alias string) bool { return m.history.IsDeparted(alias) }
+func (m Model) IsDeparted(alias participant.Alias) bool { return m.history.IsDeparted(alias) }
 
 // ComposeValue returns the current composer buffer.
 func (m Model) ComposeValue() string { return m.input.compose.Value() }

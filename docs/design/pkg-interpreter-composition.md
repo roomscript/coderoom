@@ -138,10 +138,13 @@ directories are candidates, not requirements to create in one change.
 ## Registered command launch and completion
 
 `std.SendCommand` is an unwired preparation/direct-delivery prototype.
-`SendCommand.Prepare` validates the primary participant and asks Session to create
-one policy-aware `ParticipantSendPlan`. The invocation retains that plan.
-The plan also retains private participant-instance references. Session rejects
-delivery to same-alias replacements, even when departure notifications have not
+`SendCommand.Prepare` resolves the parsed name through
+`SessionExecution.ParticipantByName`, validates that view, and asks Session to
+create one policy-aware `ParticipantSendPlan` using the resolved alias. It does
+not select identity from the readiness snapshot or resolve the name again at
+launch. The invocation retains that plan.
+The plan retains resolved `participant.Alias` values and its Session binding.
+Session rejects delivery to same-name replacements, even when departure notifications have not
 reached staging. A primary replacement fails the send; a notice replacement
 reports a partial-delivery failure. This delivery guard does not establish the
 snapshot/event collection boundary required by the future adapter.
@@ -152,7 +155,7 @@ from the remaining `Targets()`. Staging does not select delivery recipients.
 `session.SendToParticipantCommand` with its retained plan. `Staging.DiscardInform`
 lets the host tell the invocation about a departed notice recipient before Go.
 Send uses `DiscardUnavailableNoticeRecipients` to update the plan. The lifecycle
-drops that alias from its waits and retains sticky departures, including same-alias
+drops that alias from its waits and retains sticky departures, including same-name
 replacements. An unavailable `WaitFor` alias fails staging and closes the
 invocation instead. Callbacks run on the host's serialized path before launch;
 the invocation ignores them after launch or close. Readiness and departure
@@ -160,6 +163,10 @@ handling are proved in the unwired lifecycle against the shared-feed fake.
 The invocation constructs the
 original input record from `ParsedStatement.Raw` only if delivery reaches someone;
 partial delivery preserves both routing metadata and the execution error.
+Routing completion matches the full primary alias, so an outcome for a same-name
+replacement cannot complete the original invocation. Notice-discard callbacks
+also require the exact frozen alias. `/who` renders `.Name`; shell output uses
+a local zero-ID display alias, without claiming participant identity.
 The capability revalidates availability at delivery and owns causal session-event
 handling. No session adapter is implemented yet. Lifecycle staging can retain
 and release this invocation; publication ordering, admission and the adapter
@@ -222,6 +229,22 @@ needs separate review before wiring.
 Invocation.Staging remains the sole frozen requirement description. Participant
 facts are progress state, not another delivery plan. /who and /shell return nil
 staging and create no monitor.
+
+Runtime's `SessionExecution.ParticipantByName` resolves an input name through
+Session before a command retains work. `CreateParticipantSendPlan` accepts the
+resolved `participant.Alias`; `Staging.WaitFor`, `ToInform`, and `DiscardInform`
+carry that same value. The monitor filters events by the full alias, and both
+collected state and discarded-notice state are keyed by alias. Snapshot merging
+fills only untouched instance entries: an old departure cannot overwrite a
+replacement's state, and a replacement's readiness cannot satisfy an old wait.
+Required-instance departures fail staging; optional-instance departures exclude
+only that notice. Names are derived for diagnostics. This identity boundary does
+not establish snapshot/event ordering, Session membership, or completion of a
+specific invocation or turn. The staging prototype remains unwired.
+
+Runtime tests use local command and invocation fakes. Tests exercising real
+standard commands through the runner, registry, and lifecycle live in `std`,
+so Runtime's package tests do not depend on a consuming command package.
 
 An interpreter-owned `runtime.Registry` registers `Command` implementations directly.
 `Command.Statement()` returns a representative AST value identifying the accepted

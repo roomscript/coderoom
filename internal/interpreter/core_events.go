@@ -47,11 +47,18 @@ func (m *interpreterModel) ApplySessionEvent(event session.Event) (instructionSe
 // is suspended while these reads run; workflows may retain the prepared plan.
 func (m *interpreterModel) ApplyPreparation(result preparationResult) instructionSequence {
 	source := m.workflows.stage.statement()
+	if alias, ok := result.(participantAliasResult); ok && alias.target.kind == workflowLoop {
+		source = m.workflows.loop.statement()
+	}
 	return withSubmissionSource(m.applyPreparation(result), source)
 }
 
 func (m *interpreterModel) applyPreparation(result preparationResult) instructionSequence {
 	switch result := result.(type) {
+	case participantAliasResult:
+		return m.workflows.loop.prepareParticipant(result)
+	case handoffPlanResult:
+		return m.workflows.stage.prepareHandoff(result)
 	case sendPlanResult:
 		return m.workflows.stage.prepareSend(result)
 	case broadcastPlanResult:

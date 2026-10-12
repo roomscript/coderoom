@@ -11,17 +11,17 @@ import (
 // The workflow decides whether unmet requirements mean waiting or discarding.
 type stageRequirements struct {
 	participants []participantState
-	unavailable  []string
+	unavailable  []participant.Alias
 }
 
-func freezeStageRequirements(participants []participantState, routing []string) stageRequirements {
+func freezeStageRequirements(participants []participantState, routing []participant.Alias) stageRequirements {
 	return stageRequirements{
 		participants: slices.Clone(participants),
 		unavailable:  unavailableAliases(participants, routing),
 	}
 }
 
-func (r *stageRequirements) waitingAliases() []string {
+func (r *stageRequirements) waitingAliases() []participant.Alias {
 	return notReadyAliases(r.participants, r.unavailable)
 }
 
@@ -29,7 +29,7 @@ func (r *stageRequirements) isReady() bool {
 	return len(r.waitingAliases()) == 0
 }
 
-func (r *stageRequirements) updateStatus(alias string, status participant.Status) {
+func (r *stageRequirements) updateStatus(alias participant.Alias, status participant.Status) {
 	if slices.Contains(r.unavailable, alias) {
 		return
 	}
@@ -44,7 +44,7 @@ func (r *stageRequirements) updateStatus(alias string, status participant.Status
 	}
 }
 
-func (r *stageRequirements) markReady(alias string) {
+func (r *stageRequirements) markReady(alias participant.Alias) {
 	if slices.Contains(r.unavailable, alias) {
 		return
 	}
@@ -57,15 +57,15 @@ func (r *stageRequirements) markReady(alias string) {
 	}
 }
 
-func (r *stageRequirements) markUnavailable(alias string) {
+func (r *stageRequirements) markUnavailable(alias participant.Alias) {
 	if !containsParticipant(r.participants, alias) || slices.Contains(r.unavailable, alias) {
 		return
 	}
 	r.unavailable = append(r.unavailable, alias)
-	slices.Sort(r.unavailable)
+	sortParticipantAliases(r.unavailable)
 }
 
-func (r *stageRequirements) turnID(alias string) uint64 {
+func (r *stageRequirements) turnID(alias participant.Alias) uint64 {
 	for _, value := range r.participants {
 		if value.alias == alias {
 			return value.turnID
@@ -74,7 +74,7 @@ func (r *stageRequirements) turnID(alias string) uint64 {
 	return 0
 }
 
-func (r *stageRequirements) updateTurnID(alias string, turnID uint64) {
+func (r *stageRequirements) updateTurnID(alias participant.Alias, turnID uint64) {
 	for index := range r.participants {
 		if r.participants[index].alias == alias {
 			r.participants[index].turnID = turnID
@@ -83,34 +83,34 @@ func (r *stageRequirements) updateTurnID(alias string, turnID uint64) {
 	}
 }
 
-func unavailableAliases(readinessRequirements []participantState, routing []string) []string {
-	byAlias := make(map[string]participant.Status, len(readinessRequirements))
+func unavailableAliases(readinessRequirements []participantState, routing []participant.Alias) []participant.Alias {
+	byAlias := make(map[participant.Alias]participant.Status, len(readinessRequirements))
 	for _, value := range readinessRequirements {
 		byAlias[value.alias] = value.status
 	}
-	var unavailable []string
+	var unavailable []participant.Alias
 	for _, alias := range routing {
 		status, ok := byAlias[alias]
 		if !ok || status == participant.StatusCrashed {
 			unavailable = append(unavailable, alias)
 		}
 	}
-	slices.Sort(unavailable)
+	sortParticipantAliases(unavailable)
 	return unavailable
 }
 
-func notReadyAliases(readinessRequirements []participantState, unavailable []string) []string {
-	var blocked []string
+func notReadyAliases(readinessRequirements []participantState, unavailable []participant.Alias) []participant.Alias {
+	var blocked []participant.Alias
 	for _, value := range readinessRequirements {
 		if !value.view().IsReadyForWork() && !slices.Contains(unavailable, value.alias) {
 			blocked = append(blocked, value.alias)
 		}
 	}
-	slices.Sort(blocked)
+	sortParticipantAliases(blocked)
 	return blocked
 }
 
-func containsParticipant(participants []participantState, alias string) bool {
+func containsParticipant(participants []participantState, alias participant.Alias) bool {
 	return slices.ContainsFunc(participants, func(value participantState) bool {
 		return value.alias == alias
 	})
@@ -133,19 +133,19 @@ func (r *stageRequirements) applySessionEvent(event session.Event) bool {
 	return true
 }
 
-func (r *stageRequirements) requiredReadyAliases() []string {
-	aliases := make([]string, 0, len(r.participants))
+func (r *stageRequirements) requiredReadyAliases() []participant.Alias {
+	aliases := make([]participant.Alias, 0, len(r.participants))
 	for _, value := range r.participants {
 		if !slices.Contains(r.unavailable, value.alias) {
 			aliases = append(aliases, value.alias)
 		}
 	}
-	slices.Sort(aliases)
+	sortParticipantAliases(aliases)
 	return aliases
 }
 
 type participantState struct {
-	alias          string
+	alias          participant.Alias
 	status         participant.Status
 	turnID         uint64
 	startupPending bool
@@ -155,15 +155,15 @@ func (s participantState) view() participant.View {
 	return participant.View{Alias: s.alias, Status: s.status, TurnID: s.turnID, StartupReady: !s.startupPending}
 }
 
-func (r *stageRequirements) interruptibleAliases(cancelled []string) []string {
+func (r *stageRequirements) interruptibleAliases(cancelled []participant.Alias) []participant.Alias {
 	waiting := r.waitingAliases()
-	var aliases []string
+	var aliases []participant.Alias
 	for _, value := range r.participants {
 		if value.view().HasActiveTurn() && value.view().IsCancellable() &&
 			slices.Contains(waiting, value.alias) && !slices.Contains(cancelled, value.alias) {
 			aliases = append(aliases, value.alias)
 		}
 	}
-	slices.Sort(aliases)
+	sortParticipantAliases(aliases)
 	return aliases
 }

@@ -17,8 +17,8 @@ func TestSubmitContract_whoPublishesCanonicalNoticeOnce(t *testing.T) {
 		notice       string
 	}{
 		{name: "empty", notice: "[no agents]"},
-		{name: "starting", participants: []participant.View{{Alias: "ada", Status: participant.StatusStarting}}, notice: "[agents] ada"},
-		{name: "sorted", participants: []participant.View{{Alias: "tim"}, {Alias: "ada"}}, notice: "[agents] ada, tim"},
+		{name: "starting", participants: []participant.View{{Alias: testAlias("ada"), Status: participant.StatusStarting}}, notice: "[agents] ada"},
+		{name: "sorted", participants: []participant.View{{Alias: testAlias("tim")}, {Alias: testAlias("ada")}}, notice: "[agents] ada, tim"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -60,7 +60,7 @@ func TestSubmitContract_whoCompletesBeforeShutdown(t *testing.T) {
 		}
 		t.Run(name, func(t *testing.T) {
 			sess := newSubmitContractSession()
-			sess.participants = []participant.View{{Alias: "ada"}}
+			sess.participants = []participant.View{{Alias: testAlias("ada")}}
 			events := make(chan Event, 32)
 			interp := New(context.Background(), sess, t.TempDir(), WithObserver(transcriptTestObserver{events: events}))
 			t.Cleanup(interp.Close)

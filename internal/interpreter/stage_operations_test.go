@@ -54,7 +54,7 @@ func TestStageOperations_interruptDispatchesAfterCausalIdle(t *testing.T) {
 	if !interp.InterruptAndDispatchStage() {
 		t.Fatal("InterruptAndDispatchStage returned false")
 	}
-	if command := receiveSubmitCommand(t, sess.executed); command != (session.CancelCommand{Alias: "ada"}) {
+	if command := receiveSubmitCommand(t, sess.executed); command != (session.CancelCommand{Alias: testAlias("ada")}) {
 		t.Fatalf("first command = %#v", command)
 	}
 	command := receiveSubmitCommand(t, sess.executed)
@@ -84,7 +84,7 @@ func TestStageOperations_duplicateInterruptDoesNotCancelTwice(t *testing.T) {
 	if interp.InterruptAndDispatchStage() {
 		t.Fatal("duplicate interrupt returned true")
 	}
-	if command := receiveSubmitCommand(t, sess.executed); command != (session.CancelCommand{Alias: "ada"}) {
+	if command := receiveSubmitCommand(t, sess.executed); command != (session.CancelCommand{Alias: testAlias("ada")}) {
 		t.Fatalf("command = %#v", command)
 	}
 	assertNoSubmitExecution(t, sess.executed)
@@ -93,8 +93,8 @@ func TestStageOperations_duplicateInterruptDoesNotCancelTwice(t *testing.T) {
 func TestStageOperations_partialCancelRetryTargetsOnlyFailures(t *testing.T) {
 	interp, sess, events := newSubmitContractInterpreter(t)
 	sess.readinessRequirements = []participant.Participant{
-		{View: participant.View{Alias: "ada", Status: participant.StatusWorking, StartupReady: true}},
-		{View: participant.View{Alias: "bob", Status: participant.StatusWorking, StartupReady: true}},
+		{View: participant.View{Alias: testAlias("ada"), Status: participant.StatusWorking, StartupReady: true}},
+		{View: participant.View{Alias: testAlias("bob"), Status: participant.StatusWorking, StartupReady: true}},
 	}
 	mustSubmit(t, interp.Submit("hello"))
 	receiveSubmitEvent[InputAccepted](t, events)
@@ -104,7 +104,7 @@ func TestStageOperations_partialCancelRetryTargetsOnlyFailures(t *testing.T) {
 	wantErr := errors.New("cancel failed")
 	sess.execute = func(command session.Command, _ session.Observer) {
 		cancel, ok := command.(session.CancelCommand)
-		if !ok || cancel.Alias != "ada" {
+		if !ok || cancel.Alias != testAlias("ada") {
 			return
 		}
 		sess.mu.Lock()
@@ -114,10 +114,10 @@ func TestStageOperations_partialCancelRetryTargetsOnlyFailures(t *testing.T) {
 	if !interp.InterruptAndDispatchStage() {
 		t.Fatal("first interrupt returned false")
 	}
-	if command := receiveSubmitCommand(t, sess.executed); command != (session.CancelCommand{Alias: "ada"}) {
+	if command := receiveSubmitCommand(t, sess.executed); command != (session.CancelCommand{Alias: testAlias("ada")}) {
 		t.Fatalf("first command = %#v", command)
 	}
-	if command := receiveSubmitCommand(t, sess.executed); command != (session.CancelCommand{Alias: "bob"}) {
+	if command := receiveSubmitCommand(t, sess.executed); command != (session.CancelCommand{Alias: testAlias("bob")}) {
 		t.Fatalf("second command = %#v", command)
 	}
 	assertInterruptRecordAliases(t, interp.Snapshot(), []string{"ada"})
@@ -128,7 +128,7 @@ func TestStageOperations_partialCancelRetryTargetsOnlyFailures(t *testing.T) {
 	if !interp.InterruptAndDispatchStage() {
 		t.Fatal("retry returned false")
 	}
-	if command := receiveSubmitCommand(t, sess.executed); command != (session.CancelCommand{Alias: "bob"}) {
+	if command := receiveSubmitCommand(t, sess.executed); command != (session.CancelCommand{Alias: testAlias("bob")}) {
 		t.Fatalf("retry command = %#v, want bob only", command)
 	}
 	assertNoSubmitExecution(t, sess.executed)
@@ -224,7 +224,7 @@ func newBlockedStageInterpreter(
 	t.Helper()
 	interp, sess, events := newSubmitContractInterpreter(t)
 	sess.readinessRequirements = []participant.Participant{{View: participant.View{
-		Alias: "ada", Status: participant.StatusWorking, StartupReady: true,
+		Alias: testAlias("ada"), Status: participant.StatusWorking, StartupReady: true,
 	}}}
 	mustSubmit(t, interp.Submit("hello"))
 	receiveSubmitEvent[InputAccepted](t, events)
@@ -235,7 +235,7 @@ func newBlockedStageInterpreter(
 
 func idleStageParticipantEvent() session.ParticipantStatusChanged {
 	return session.ParticipantStatusChanged{
-		Alias: "ada", From: participant.StatusWorking, To: participant.StatusIdle,
+		Alias: testAlias("ada"), From: participant.StatusWorking, To: participant.StatusIdle,
 	}
 }
 

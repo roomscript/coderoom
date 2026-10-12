@@ -200,7 +200,7 @@ func TestSubmit_InviteCompletesBeforeFollowingWho(t *testing.T) {
 	t.Cleanup(func() { close(startGate) })
 
 	m = submitThroughInterpreter(t, m, "/invite ada")
-	p, ok := sess.Participant("ada")
+	p, ok := sess.ParticipantByName("ada")
 	if !ok || p.Status != participant.StatusStarting {
 		t.Fatalf("participant = %#v, %v; want ada starting", p, ok)
 	}

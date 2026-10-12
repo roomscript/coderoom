@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"slices"
 	"sync"
+
+	"github.com/roomscript/coderoom/internal/participant"
 )
 
 // ErrInvocationNotPrepared rejects repeated starts and starts after close.
@@ -31,7 +33,7 @@ const (
 type readinessDecision struct {
 	status        readinessStatus
 	err           error
-	discardInform []string
+	discardInform []participant.Alias
 }
 
 // InvocationLifecycle starts a prepared invocation once and settles its result
@@ -45,7 +47,7 @@ type InvocationLifecycle struct {
 	invocation        Invocation
 	state             invocationState
 	enqueueCompletion func(CommandResult)
-	discardedInform   map[string]bool
+	discardedInform   map[participant.Alias]bool
 	pendingFailure    error
 }
 
@@ -96,7 +98,7 @@ func (l *InvocationLifecycle) startStagedInvocation() error {
 		return errors.New("staging requires participant reads and session events")
 	}
 	l.state = invocationWaiting
-	l.discardedInform = make(map[string]bool)
+	l.discardedInform = make(map[participant.Alias]bool)
 	l.monitor.initialize(l.ctx, l.includesParticipant)
 
 	readiness, err := l.prepareStagedExecution()
@@ -232,7 +234,7 @@ func (l *InvocationLifecycle) evaluateReadiness(snapshot participantSnapshot) re
 		state, exists := snapshot.states[alias]
 		if !exists || state.departed {
 			return readinessDecision{
-				status: readinessFailed, err: fmt.Errorf("required participant %q is unavailable", alias),
+				status: readinessFailed, err: fmt.Errorf("required participant %q is unavailable", alias.Name),
 			}
 		}
 		if !state.isReadyForWork() {
@@ -268,7 +270,7 @@ func (l *InvocationLifecycle) discardDepartedNotices(decision readinessDecision)
 	}
 }
 
-func (l *InvocationLifecycle) includesParticipant(alias string) bool {
+func (l *InvocationLifecycle) includesParticipant(alias participant.Alias) bool {
 	staging := l.invocation.Staging()
 	return slices.Contains(staging.WaitFor, alias) || slices.Contains(staging.ToInform, alias)
 }

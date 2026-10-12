@@ -17,14 +17,14 @@ func TestSession_sharedSendMarksWorkingUntilFlush(t *testing.T) {
 	b := newEventBuf(events)
 
 	if err := s.Execute(session.SendToParticipantCommand{
-		Plan:    s.CreateParticipantSendPlan("ada"),
+		Plan:    s.CreateParticipantSendPlan(resolvedAlias(s, "ada")),
 		Message: "What is 2+2? Reply with just the number.",
 	}); err != nil {
 		t.Fatalf("shared send: %v", err)
 	}
 
 	waitForFirstStreamOutput(t, b, "ada", 30*time.Second)
-	p, ok := s.Participant("ada")
+	p, ok := s.ParticipantByName("ada")
 	if !ok {
 		t.Fatal("expected participant ada")
 	}
@@ -33,7 +33,7 @@ func TestSession_sharedSendMarksWorkingUntilFlush(t *testing.T) {
 	}
 
 	waitForIdleThenFlush(t, b, "ada", 60*time.Second)
-	p, _ = s.Participant("ada")
+	p, _ = s.ParticipantByName("ada")
 	if p.Status != participant.StatusIdle {
 		t.Fatalf("expected ada to be idle after flush, got %q", p.Status)
 	}
@@ -44,7 +44,7 @@ func TestSession_cancelInterruptEndsTurnAndReturnsIdle(t *testing.T) {
 	b := newEventBuf(events)
 
 	if err := s.Execute(session.SendToParticipantCommand{
-		Plan:    s.CreateParticipantSendPlan("ada"),
+		Plan:    s.CreateParticipantSendPlan(resolvedAlias(s, "ada")),
 		Message: "Write 200 numbered bullet points, one per line, with short text. Keep going until you reach 200.",
 	}); err != nil {
 		t.Fatalf("shared send: %v", err)
@@ -53,7 +53,7 @@ func TestSession_cancelInterruptEndsTurnAndReturnsIdle(t *testing.T) {
 	waitForFirstStreamOutputThenCancel(t, b, s, "ada", 30*time.Second)
 	waitForIdleThenFlush(t, b, "ada", 60*time.Second)
 
-	p, ok := s.Participant("ada")
+	p, ok := s.ParticipantByName("ada")
 	if !ok {
 		t.Fatal("expected participant ada")
 	}
@@ -67,20 +67,20 @@ func TestSession_privateSendMarksWorkingUntilFlush(t *testing.T) {
 	b := newEventBuf(events)
 
 	if err := s.Execute(session.SendToParticipantOutsideRoomCommand{
-		Alias: "ada",
+		Alias: resolvedAlias(s, "ada"),
 		Text:  "What is 2+2? Reply with just the number.",
 	}); err != nil {
 		t.Fatalf("private send: %v", err)
 	}
 
 	waitForFirstStreamOutput(t, b, "ada", 30*time.Second)
-	p, _ := s.Participant("ada")
+	p, _ := s.ParticipantByName("ada")
 	if p.Status != participant.StatusWorking {
 		t.Fatalf("expected ada to be working during private turn, got %q", p.Status)
 	}
 
 	waitForIdleThenFlush(t, b, "ada", 60*time.Second)
-	p, _ = s.Participant("ada")
+	p, _ = s.ParticipantByName("ada")
 	if p.Status != participant.StatusIdle {
 		t.Fatalf("expected ada to be idle after flush, got %q", p.Status)
 	}
@@ -96,11 +96,11 @@ func TestSession_broadcastMarksAllWorkingUntilFlush(t *testing.T) {
 		t.Fatalf("broadcast: %v", err)
 	}
 
-	p, _ := s.Participant("ada")
+	p, _ := s.ParticipantByName("ada")
 	if p.Status != participant.StatusWorking {
 		t.Fatalf("expected ada to be working during broadcast, got %q", p.Status)
 	}
-	p, _ = s.Participant("turing")
+	p, _ = s.ParticipantByName("turing")
 	if p.Status != participant.StatusWorking {
 		t.Fatalf("expected turing to be working during broadcast, got %q", p.Status)
 	}
@@ -111,11 +111,11 @@ func TestSession_broadcastMarksAllWorkingUntilFlush(t *testing.T) {
 	waitForIdleThenFlush(t, b, "ada", 60*time.Second)
 	waitForIdleThenFlush(t, b, "turing", 60*time.Second)
 
-	p, _ = s.Participant("ada")
+	p, _ = s.ParticipantByName("ada")
 	if p.Status != participant.StatusIdle {
 		t.Fatalf("expected ada to be idle after flush, got %q", p.Status)
 	}
-	p, _ = s.Participant("turing")
+	p, _ = s.ParticipantByName("turing")
 	if p.Status != participant.StatusIdle {
 		t.Fatalf("expected turing to be idle after flush, got %q", p.Status)
 	}
@@ -129,7 +129,7 @@ func TestSession_sharedSendNoticeMarksListenerWorkingUntilFlush(t *testing.T) {
 	}
 
 	if err := s.Execute(session.SendToParticipantCommand{
-		Plan:    s.CreateParticipantSendPlan("ada"),
+		Plan:    s.CreateParticipantSendPlan(resolvedAlias(s, "ada")),
 		Message: "Reply with just the word: ok",
 		Notice:  "You are a silent listener. Reply only with {\"acknowledge\":true}.",
 	}); err != nil {
@@ -139,14 +139,14 @@ func TestSession_sharedSendNoticeMarksListenerWorkingUntilFlush(t *testing.T) {
 	// Listener is marked working synchronously before SendNotice is issued.
 	// It may return to idle quickly (e.g., immediate compliant ack), so assert
 	// only that it is never left in starting/crashed.
-	p, _ := s.Participant("turing")
+	p, _ := s.ParticipantByName("turing")
 	if p.Status != participant.StatusWorking && p.Status != participant.StatusIdle {
 		t.Fatalf("expected turing to be working or idle after notice send, got %q", p.Status)
 	}
 
 	// Listener turn is a notice; it may be silent, so wait for the notice flush.
 	waitForFirstOutputFlush(t, b, "turing", 60*time.Second)
-	p, _ = s.Participant("turing")
+	p, _ = s.ParticipantByName("turing")
 	if p.Status != participant.StatusIdle {
 		t.Fatalf("expected turing to be idle after notice flush, got %q", p.Status)
 	}
@@ -157,12 +157,12 @@ func waitForIdleThenFlush(t *testing.T, b *eventBuf, alias string, timeout time.
 	var seenIdle bool
 	b.waitFor(t, timeout, func(ev session.Event) bool {
 		status, ok := ev.(session.ParticipantStatusChanged)
-		if ok && status.Alias == alias && status.From == participant.StatusWorking && status.To == participant.StatusIdle {
+		if ok && status.Alias.Name == alias && status.From == participant.StatusWorking && status.To == participant.StatusIdle {
 			seenIdle = true
 			return false
 		}
 		msg, ok := ev.(session.AgentMessage)
-		if !ok || msg.Alias != alias {
+		if !ok || msg.Alias.Name != alias {
 			return false
 		}
 		if _, ok := msg.Msg.Content.(agent.Output); ok && msg.Msg.Mode == agent.ModeFlush {

@@ -28,13 +28,13 @@ func TestInstructionRunner_usesReportedDeliveriesForFooters(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			interp, sess, _ := newSubmitContractInterpreter(t)
 			sess.readinessRequirements = []participant.Participant{
-				{View: participant.View{Alias: "ada", Status: participant.StatusIdle, StartupReady: true}},
-				{View: participant.View{Alias: "turing", Status: participant.StatusIdle, StartupReady: true}},
+				{View: participant.View{Alias: testAlias("ada"), Status: participant.StatusIdle, StartupReady: true}},
+				{View: participant.View{Alias: testAlias("turing"), Status: participant.StatusIdle, StartupReady: true}},
 			}
 			sess.executeErr = tt.commandErr
 			sess.routingOverride = true
 			sess.execute = func(_ session.Command, observer session.Observer) {
-				recipients := []session.RecipientResult{{Alias: "ada", Role: session.RecipientBroadcast, Status: session.DeliveryDelivered}, {Alias: "turing", Role: session.RecipientBroadcast, Status: tt.status}}
+				recipients := []session.RecipientResult{{Alias: testAlias("ada"), Role: session.RecipientBroadcast, Status: session.DeliveryDelivered}, {Alias: testAlias("turing"), Role: session.RecipientBroadcast, Status: tt.status}}
 				if !tt.wantRecord {
 					recipients[0].Status = session.DeliveryFailed
 				}
@@ -101,7 +101,7 @@ func TestInstructionRunner_missingRoutingOutcomeIsContractFailure(t *testing.T) 
 	for _, commandErr := range []error{nil, original} {
 		t.Run(fmt.Sprint(commandErr), func(t *testing.T) {
 			interp, sess, events := newSubmitContractInterpreter(t)
-			sess.readinessRequirements = []participant.Participant{{View: participant.View{Alias: "ada", Status: participant.StatusIdle, StartupReady: true}}}
+			sess.readinessRequirements = []participant.Participant{{View: participant.View{Alias: testAlias("ada"), Status: participant.StatusIdle, StartupReady: true}}}
 			sess.routingOverride = true
 			sess.executeErr = commandErr
 			mustSubmit(t, interp.Submit("work"))
@@ -121,7 +121,7 @@ func TestInstructionRunner_missingRoutingOutcomeIsContractFailure(t *testing.T) 
 }
 
 func TestInstructionRunner_nonRoutingRequestDoesNotRequireOutcome(t *testing.T) {
-	accepted, err := routingAcceptance(cancelRequest{alias: "ada"}, session.RoutingResult{}, nil)
+	accepted, err := routingAcceptance(cancelRequest{alias: testAlias("ada")}, session.RoutingResult{}, nil)
 	if !accepted || err != nil {
 		t.Fatalf("acceptance = %v, error = %v", accepted, err)
 	}
@@ -130,20 +130,20 @@ func TestInstructionRunner_nonRoutingRequestDoesNotRequireOutcome(t *testing.T) 
 func TestInstructionRunner_partialDeliveryRecordsInputBeforeCausalOutput(t *testing.T) {
 	interp, sess, _ := newSubmitContractInterpreter(t)
 	sess.readinessRequirements = []participant.Participant{
-		{View: participant.View{Alias: "ada", Status: participant.StatusIdle, StartupReady: true}},
-		{View: participant.View{Alias: "turing", Status: participant.StatusIdle, StartupReady: true}},
+		{View: participant.View{Alias: testAlias("ada"), Status: participant.StatusIdle, StartupReady: true}},
+		{View: participant.View{Alias: testAlias("turing"), Status: participant.StatusIdle, StartupReady: true}},
 	}
 	failure := errors.New("turing rejected delivery")
 	sess.executeErr = failure
 	sess.routingOverride = true
 	sess.execute = func(_ session.Command, observer session.Observer) {
 		// Output arrives during Execute, before the routing outcome and return error.
-		observer.OnEvent(session.AgentMessage{Alias: "ada", Msg: agent.Message{Mode: agent.ModeSingle, Content: agent.Output{Text: "response"}}})
+		observer.OnEvent(session.AgentMessage{Alias: testAlias("ada"), Msg: agent.Message{Mode: agent.ModeSingle, Content: agent.Output{Text: "response"}}})
 		observer.OnEvent(session.RoutingCompleted{Result: session.RoutingResult{
 			Kind: session.RoutingBroadcast, Err: failure,
 			Recipients: []session.RecipientResult{
-				{Alias: "ada", Role: session.RecipientBroadcast, Status: session.DeliveryDelivered},
-				{Alias: "turing", Role: session.RecipientBroadcast, Status: session.DeliveryFailed, Err: failure},
+				{Alias: testAlias("ada"), Role: session.RecipientBroadcast, Status: session.DeliveryDelivered},
+				{Alias: testAlias("turing"), Role: session.RecipientBroadcast, Status: session.DeliveryFailed, Err: failure},
 			},
 		}})
 	}

@@ -2,7 +2,6 @@ package runtime
 
 import (
 	"errors"
-	"reflect"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -40,13 +39,26 @@ func (h *monitorHost) Participants() []participant.View {
 	return slices.Clone(h.views)
 }
 
+func (h *monitorHost) ParticipantByName(name string) (participant.View, bool) {
+	for _, view := range h.views {
+		if view.Alias.Name == name {
+			return view, true
+		}
+	}
+	return participant.View{}, false
+}
+
+func newTestAlias(name string) participant.Alias {
+	return participant.New(name, "builder", participant.InitiativeManual).Alias
+}
+
 func (h *monitorHost) callback() func(session.Event) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return h.handle
 }
 
-func (*monitorHost) CreateParticipantSendPlan(string) session.ParticipantSendPlan {
+func (*monitorHost) CreateParticipantSendPlan(participant.Alias) session.ParticipantSendPlan {
 	return session.ParticipantSendPlan{}
 }
 
@@ -70,12 +82,13 @@ func (i *monitorInvocation) Go(func(CommandResult)) error {
 }
 
 func newWaitingMonitor() (*InvocationLifecycle, *monitorHost, *monitorInvocation) {
+	ada, tim := newTestAlias("ada"), newTestAlias("tim")
 	host := &monitorHost{views: []participant.View{
-		{Alias: "ada", Status: participant.StatusWorking, StartupReady: true},
-		{Alias: "tim", Status: participant.StatusWorking, StartupReady: true},
+		{Alias: ada, Status: participant.StatusWorking, StartupReady: true},
+		{Alias: tim, Status: participant.StatusWorking, StartupReady: true},
 	}}
 	invocation := &monitorInvocation{
-		staging: &Staging{WaitFor: []string{"ada"}, ToInform: []string{"tim"}},
+		staging: &Staging{WaitFor: []participant.Alias{ada}, ToInform: []participant.Alias{tim}},
 		started: make(chan struct{}, 1),
 	}
 	lifecycle := NewInvocationLifecycle(invocation, Context{Participants: host, Session: host})
@@ -124,6 +137,7 @@ func TestInvocationMonitor_CloseDuringInitialRead(t *testing.T) {
 func TestInvocationMonitor_CloseRacesWithReady(t *testing.T) {
 	for range 32 {
 		lifecycle, host, invocation := newWaitingMonitor()
+		ada, tim := invocation.staging.WaitFor[0], invocation.staging.ToInform[0]
 		if err := lifecycle.Start(func(CommandResult) {}); err != nil {
 			t.Fatal(err)
 		}
@@ -132,8 +146,8 @@ func TestInvocationMonitor_CloseRacesWithReady(t *testing.T) {
 		calls.Add(2)
 		go func() {
 			defer calls.Done()
-			handle(session.AgentReady{Alias: "ada"})
-			handle(session.AgentReady{Alias: "tim"})
+			handle(session.AgentReady{Alias: ada})
+			handle(session.AgentReady{Alias: tim})
 		}()
 		go func() {
 			defer calls.Done()
@@ -145,7 +159,7 @@ func TestInvocationMonitor_CloseRacesWithReady(t *testing.T) {
 			t.Fatal("readiness/discard race duplicated launch or leaked resources")
 		}
 		count := invocation.launches.Load()
-		handle(session.AgentReady{Alias: "ada"}) // Captured callback after unsubscribe.
+		handle(session.AgentReady{Alias: ada}) // Captured callback after unsubscribe.
 		if invocation.launches.Load() != count {
 			t.Fatal("late callback restored closed work")
 		}
@@ -153,12 +167,14 @@ func TestInvocationMonitor_CloseRacesWithReady(t *testing.T) {
 }
 
 func TestInvocationMonitor_ProcessesCollectedDeparturesBeforeLaunch(t *testing.T) {
-	for _, alias := range []string{"ada", "tim"} {
-		t.Run(alias, func(t *testing.T) {
+	for _, name := range []string{"ada", "tim"} {
+		t.Run(name, func(t *testing.T) {
 			lifecycle, host, invocation := newWaitingMonitor()
+			view, _ := host.ParticipantByName(name)
+			alias, ada := view.Alias, invocation.staging.WaitFor[0]
 			defer lifecycle.Close(errors.New("cleanup"))
 			var discards atomic.Int32
-			invocation.staging.DiscardInform = func(string) { discards.Add(1) }
+			invocation.staging.DiscardInform = func(participant.Alias) { discards.Add(1) }
 			results := make(chan CommandResult, 2)
 			if err := lifecycle.Start(func(result CommandResult) { results <- result }); err != nil {
 				t.Fatal(err)
@@ -169,9 +185,9 @@ func TestInvocationMonitor_ProcessesCollectedDeparturesBeforeLaunch(t *testing.T
 			handle(session.ParticipantStatusChanged{Alias: alias, From: participant.StatusWorking, To: participant.StatusIdle})
 			handle(session.AgentStopped{Alias: alias})
 			handle(session.AgentReady{Alias: alias})
-			handle(session.AgentReady{Alias: "ada"})
+			handle(session.AgentReady{Alias: ada})
 			lifecycle.mu.Unlock()
-			if alias == "tim" {
+			if alias.Name == "tim" {
 				waitMonitorSignal(t, invocation.started)
 				if discards.Load() != 1 {
 					t.Fatal("replacement optional recipient was not discarded once")
@@ -192,15 +208,18 @@ func TestInvocationMonitor_ProcessesCollectedDeparturesBeforeLaunch(t *testing.T
 }
 
 func TestInvocationMonitor_DepartureDuringDiscardPreventsLaunch(t *testing.T) {
-	for _, event := range []session.Event{
-		session.AgentStopped{Alias: "ada"}, session.AgentCrashed{Alias: "ada"},
-	} {
-		t.Run(reflect.TypeOf(event).Name(), func(t *testing.T) {
+	for _, kind := range []string{"stopped", "crashed"} {
+		t.Run(kind, func(t *testing.T) {
 			lifecycle, host, invocation := newWaitingMonitor()
 			defer lifecycle.Close(errors.New("cleanup"))
-			host.views = []participant.View{{Alias: "ada", Status: participant.StatusIdle, StartupReady: true}}
+			ada := invocation.staging.WaitFor[0]
+			var event session.Event = session.AgentStopped{Alias: ada}
+			if kind == "crashed" {
+				event = session.AgentCrashed{Alias: ada}
+			}
+			host.views = []participant.View{{Alias: ada, Status: participant.StatusIdle, StartupReady: true}}
 			var discards atomic.Int32
-			invocation.staging.DiscardInform = func(string) {
+			invocation.staging.DiscardInform = func(participant.Alias) {
 				discards.Add(1)
 				host.callback()(event)
 			}
@@ -217,36 +236,38 @@ func TestInvocationMonitor_DepartureDuringDiscardPreventsLaunch(t *testing.T) {
 
 func TestInvocationMonitor_OptionalDepartureDuringDiscardIsReevaluated(t *testing.T) {
 	lifecycle, host, invocation := newWaitingMonitor()
+	ada, tim, ben := invocation.staging.WaitFor[0], invocation.staging.ToInform[0], newTestAlias("ben")
 	defer lifecycle.Close(errors.New("cleanup"))
 	host.views = []participant.View{
-		{Alias: "ada", Status: participant.StatusIdle, StartupReady: true},
-		{Alias: "ben", Status: participant.StatusIdle, StartupReady: true},
+		{Alias: ada, Status: participant.StatusIdle, StartupReady: true},
+		{Alias: ben, Status: participant.StatusIdle, StartupReady: true},
 	}
-	invocation.staging.ToInform = []string{"tim", "ben"}
-	var discarded []string
-	invocation.staging.DiscardInform = func(alias string) {
+	invocation.staging.ToInform = []participant.Alias{tim, ben}
+	var discarded []participant.Alias
+	invocation.staging.DiscardInform = func(alias participant.Alias) {
 		discarded = append(discarded, alias)
-		if alias == "tim" {
-			host.callback()(session.AgentStopped{Alias: "ben"})
+		if alias.Name == "tim" {
+			host.callback()(session.AgentStopped{Alias: ben})
 		}
 	}
 	if err := lifecycle.Start(func(CommandResult) {}); err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(discarded, []string{"tim", "ben"}) || invocation.launches.Load() != 1 {
+	if !slices.Equal(discarded, []participant.Alias{tim, ben}) || invocation.launches.Load() != 1 {
 		t.Fatalf("discarded = %v, launches = %d", discarded, invocation.launches.Load())
 	}
 }
 
 func TestInvocationMonitor_BusyUpdateDuringDiscardRetainsWork(t *testing.T) {
 	lifecycle, host, invocation := newWaitingMonitor()
+	ada := invocation.staging.WaitFor[0]
 	defer lifecycle.Close(errors.New("cleanup"))
-	host.views = []participant.View{{Alias: "ada", Status: participant.StatusIdle, StartupReady: true}}
+	host.views = []participant.View{{Alias: ada, Status: participant.StatusIdle, StartupReady: true}}
 	var discards atomic.Int32
-	invocation.staging.DiscardInform = func(string) {
+	invocation.staging.DiscardInform = func(participant.Alias) {
 		discards.Add(1)
 		host.callback()(session.ParticipantStatusChanged{
-			Alias: "ada", From: participant.StatusIdle, To: participant.StatusWorking,
+			Alias: ada, From: participant.StatusIdle, To: participant.StatusWorking,
 		})
 	}
 	if err := lifecycle.Start(func(CommandResult) {}); err != nil {
@@ -255,7 +276,7 @@ func TestInvocationMonitor_BusyUpdateDuringDiscardRetainsWork(t *testing.T) {
 	if invocation.launches.Load() != 0 {
 		t.Fatal("busy update was lost before launch")
 	}
-	host.callback()(session.AgentReady{Alias: "ada"})
+	host.callback()(session.AgentReady{Alias: ada})
 	waitMonitorSignal(t, invocation.started)
 	if discards.Load() != 1 || invocation.launches.Load() != 1 {
 		t.Fatal("reevaluation repeated discard or launch")

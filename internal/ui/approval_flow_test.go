@@ -67,7 +67,7 @@ func TestOperationFailed_RendersInterpreterError(t *testing.T) {
 func TestApprovalEvents_ClearActivePrompt(t *testing.T) {
 	m := makeReadyModel(t)
 	m = pushEvent(m, session.ApprovalRequested{
-		Alias: "ada",
+		Alias: testAlias("ada"),
 		ID:    7,
 		Req: agent.ApprovalRequest{
 			Ask:     "approve?",
@@ -92,7 +92,7 @@ func TestApprovalEvents_ClearActivePrompt(t *testing.T) {
 func TestApprovalEvents_IgnoreClearForDifferentApproval(t *testing.T) {
 	m := makeReadyModel(t)
 	m = pushEvent(m, session.ApprovalRequested{
-		Alias: "ada",
+		Alias: testAlias("ada"),
 		ID:    7,
 		Req: agent.ApprovalRequest{
 			Ask:     "approve?",
@@ -119,7 +119,7 @@ func TestApprovalEvents_ClearRestoresStagedComposer(t *testing.T) {
 	}
 
 	m = pushEvent(m, session.ApprovalRequested{
-		Alias: "ada",
+		Alias: testAlias("ada"),
 		ID:    7,
 		Req: agent.ApprovalRequest{
 			Ask:     "approve?",

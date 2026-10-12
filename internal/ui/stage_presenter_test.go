@@ -130,10 +130,10 @@ func TestInterpreterStagePresenterUsesSnapshotParticipantColors(t *testing.T) {
 	stage := &interpreter.StagedSubmission{Raw: "hello", NotReadyAliases: []string{"ada"}}
 	snapshot := interpreter.Snapshot{
 		Stage:        stage,
-		Participants: []participant.View{{Alias: "ada", Color: "#ff0000"}},
+		Participants: []participant.View{{Alias: testAlias("ada"), Color: "#ff0000"}},
 	}
 
-	status := renderInterpreterStageStatus(stage, snapshotParticipantColor(snapshot.Participants))
+	status := renderInterpreterStageStatus(stage, snapshotParticipantNameColor(snapshot.Participants))
 	if !strings.Contains(status, "\x1b[") {
 		t.Fatalf("status does not contain snapshot participant color: %q", status)
 	}
@@ -149,7 +149,7 @@ func presentStageSnapshot(m Model, stage *interpreter.StagedSubmission) Model {
 
 func showTestApproval(m Model) Model {
 	return pushEvent(m, session.ApprovalRequested{
-		Alias: "ada", ID: 7,
+		Alias: testAlias("ada"), ID: 7,
 		Req: agent.ApprovalRequest{
 			Ask: "approve?", Options: []agent.ApprovalOption{agent.OptionAccept},
 		},

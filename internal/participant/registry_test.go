@@ -56,6 +56,17 @@ func TestRegistry_Add_emptyAlias(t *testing.T) {
 	}
 }
 
+func TestRegistry_Add_zeroID(t *testing.T) {
+	r := participant.NewRegistry()
+	p := &participant.Participant{View: participant.View{Alias: participant.Alias{Name: "ada"}}}
+	if err := r.Add(p); err == nil {
+		t.Fatal("expected error on zero ID")
+	}
+	if _, ok := r.Get("ada"); ok {
+		t.Fatal("participant with zero ID was registered")
+	}
+}
+
 func TestRegistry_Add_duplicateAlias(t *testing.T) {
 	r := participant.NewRegistry()
 	if err := r.Add(newParticipant("ada")); err != nil {
@@ -88,7 +99,7 @@ func TestRegistry_Add_assignsDeterministicUniqueColors(t *testing.T) {
 	seen := make(map[string]bool, len(participants))
 	for _, p := range participants {
 		if p.Color == "" {
-			t.Fatalf("participant %q has no color", p.Alias)
+			t.Fatalf("participant %q has no color", p.Alias.Name)
 		}
 		if seen[p.Color] {
 			t.Fatalf("color %q assigned more than once", p.Color)
@@ -183,7 +194,7 @@ func TestRegistry_List(t *testing.T) {
 	}
 	aliases := map[string]bool{}
 	for _, p := range list {
-		aliases[p.Alias] = true
+		aliases[p.Alias.Name] = true
 	}
 	for _, want := range []string{"ada", "turing"} {
 		if !aliases[want] {
@@ -211,7 +222,7 @@ func TestRegistry_ListAvailable_filtersByAgentAndStatus(t *testing.T) {
 	avail := r.ListAvailable()
 	aliases := map[string]bool{}
 	for _, p := range avail {
-		aliases[p.Alias] = true
+		aliases[p.Alias.Name] = true
 	}
 	assertAvailableAlias(t, aliases, "starting", false)
 	assertAvailableAlias(t, aliases, "crashed", false)

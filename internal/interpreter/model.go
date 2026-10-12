@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/roomscript/coderoom/internal/interpreter/runtime"
+	"github.com/roomscript/coderoom/internal/participant"
 	"github.com/roomscript/coderoom/internal/promptlang"
 	"github.com/roomscript/coderoom/internal/room"
 	"github.com/roomscript/coderoom/internal/session"
@@ -85,7 +86,7 @@ func (m *interpreterModel) AppendRecord(record room.Record) {
 	m.room.AppendRecord(record)
 }
 
-func (m *interpreterModel) ReadHandoffSource(alias string) (session.HandoffSource, bool) {
+func (m *interpreterModel) ReadHandoffSource(alias participant.Alias) (session.HandoffSource, bool) {
 	return m.room.LatestHandoffSource(alias)
 }
 

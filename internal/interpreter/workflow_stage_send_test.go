@@ -21,7 +21,7 @@ func TestStageWorkflow_replacedSendIgnoresOldCompletions(t *testing.T) {
 					stage.discard()
 				}
 				planStageForTest(t, stage, promptlang.Send{Alias: located("ben"), Text: located("new")},
-					[]string{"ben"}, []participantState{{alias: "ben", status: participant.StatusWorking}})
+					[]string{"ben"}, []participantState{{alias: testAlias("ben"), status: participant.StatusWorking}})
 				before := stage.snapshot()
 				pending := stage.active.pending
 
@@ -45,11 +45,11 @@ func TestStageWorkflow_replacedSendIgnoresOldCompletions(t *testing.T) {
 
 func startOldSendCompletion(stage *stageWorkflow, phase string) any {
 	stage.start("@ada old", promptlang.Send{Alias: located("ada"), Text: located("old")})
-	plan := sendPlanResult{target: stage.active.pending, targets: []string{"ada"}}
+	plan := sendPlanResult{target: stage.active.pending, plan: testSendPlan([]string{"ada"})}
 	if phase == "plan" {
 		return plan
 	}
-	plan.participants = []participantState{{alias: "ada", status: participant.StatusIdle}}
+	plan.participants = []participantState{{alias: testAlias("ada"), status: participant.StatusIdle}}
 	stage.prepareSend(plan)
 	return sessionOutcome{target: stage.active.pending}
 }
@@ -60,8 +60,8 @@ func TestStageWorkflow_sendPreparationIsConsumedOnce(t *testing.T) {
 			stage := stageWorkflow{}
 			stage.start("@ada hello", promptlang.Send{Alias: located("ada"), Text: located("hello")})
 			plan := sendPlanResult{
-				target: stage.active.pending, targets: []string{"ada"},
-				participants: []participantState{{alias: "ada", status: status}},
+				target: stage.active.pending, plan: testSendPlan([]string{"ada"}),
+				participants: []participantState{{alias: testAlias("ada"), status: status}},
 			}
 			stage.prepareSend(plan)
 			before := stage.snapshot()

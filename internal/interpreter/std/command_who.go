@@ -40,7 +40,7 @@ func (WhoCommand) Prepare(parsed promptlang.ParsedStatement, ctx runtime.Context
 	views := ctx.Participants.Participants()
 	aliases := make([]string, len(views))
 	for index, view := range views {
-		aliases[index] = view.Alias
+		aliases[index] = view.Alias.Name
 	}
 	slices.Sort(aliases)
 	text := "[no agents]"

@@ -5,7 +5,6 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-
 	"github.com/roomscript/coderoom/internal/agent"
 	"github.com/roomscript/coderoom/internal/interpreter"
 	"github.com/roomscript/coderoom/internal/session"
@@ -16,7 +15,7 @@ import (
 
 func TestHandleEvent_agentStarted(t *testing.T) {
 	m := makeReadyModel(t)
-	m = pushEvent(m, session.AgentReady{Alias: "ada"})
+	m = pushEvent(m, session.AgentReady{Alias: testAlias("ada")})
 	if !hasRecord(m, record.KindSystem, "[ada joined]") {
 		t.Errorf("expected [ada joined] system record; records: %v", m.room.HistoryRecords())
 	}
@@ -24,7 +23,7 @@ func TestHandleEvent_agentStarted(t *testing.T) {
 
 func TestHandleEvent_agentStarting(t *testing.T) {
 	m := makeReadyModel(t)
-	m = pushEvent(m, session.AgentStarting{Alias: "ada"})
+	m = pushEvent(m, session.AgentStarting{Alias: testAlias("ada")})
 	if !hasRecord(m, record.KindSystem, "[ada starting]") {
 		t.Errorf("expected [ada starting] system record; records: %v", m.room.HistoryRecords())
 	}
@@ -32,8 +31,8 @@ func TestHandleEvent_agentStarting(t *testing.T) {
 
 func TestHandleEvent_agentStopped(t *testing.T) {
 	m := makeReadyModel(t)
-	m = pushEvent(m, session.AgentReady{Alias: "ada"})
-	m = pushEvent(m, session.AgentStopped{Alias: "ada"})
+	m = pushEvent(m, session.AgentReady{Alias: testAlias("ada")})
+	m = pushEvent(m, session.AgentStopped{Alias: testAlias("ada")})
 	if !hasRecord(m, record.KindSystem, "[ada left]") {
 		t.Errorf("expected [ada left] system record; records: %v", m.room.HistoryRecords())
 	}
@@ -41,8 +40,8 @@ func TestHandleEvent_agentStopped(t *testing.T) {
 
 func TestHandleEvent_agentCrashed(t *testing.T) {
 	m := makeReadyModel(t)
-	m = pushEvent(m, session.AgentReady{Alias: "ada"})
-	m = pushEvent(m, session.AgentCrashed{Alias: "ada"})
+	m = pushEvent(m, session.AgentReady{Alias: testAlias("ada")})
+	m = pushEvent(m, session.AgentCrashed{Alias: testAlias("ada")})
 	if !hasRecord(m, record.KindSystem, "[ada crashed]") {
 		t.Errorf("expected [ada crashed] system record; records: %v", m.room.HistoryRecords())
 	}
@@ -50,7 +49,7 @@ func TestHandleEvent_agentCrashed(t *testing.T) {
 
 func TestHandleEvent_agentLog(t *testing.T) {
 	m := makeReadyModel(t)
-	m = pushEvent(m, session.AgentLog{Alias: "ada", Text: "npm warn something"})
+	m = pushEvent(m, session.AgentLog{Alias: testAlias("ada"), Text: "npm warn something"})
 	if !hasRecord(m, record.KindLog, "npm warn something") {
 		t.Errorf("expected log record with text; records: %v", m.room.HistoryRecords())
 	}
@@ -80,8 +79,8 @@ func TestHandleEvent_broadcastAndSharedSendProduceNoSystemRecord(t *testing.T) {
 
 func TestTranscript_contextHandoffPresentedOnce(t *testing.T) {
 	m := makeReadyModel(t)
-	m = pushEvent(m, session.HandoffDelivered{FromAlias: "ada",
-		ToAlias: "turing",
+	m = pushEvent(m, session.HandoffDelivered{FromAlias: testAlias("ada"),
+		ToAlias: testAlias("turing"),
 		Text:    "final answer",
 		Preview: "[handoff ada -> turing]\n  ↦ source: ada latest output\n  > final answer",
 	})
@@ -94,14 +93,14 @@ func TestTranscript_contextHandoffPresentedOnce(t *testing.T) {
 
 func TestHandleDelta_firstDeltaCreatesRecord(t *testing.T) {
 	m := makeReadyModel(t)
-	m = pushEvent(m, session.AgentMessage{Alias: "ada", Msg: agent.Message{
+	m = pushEvent(m, session.AgentMessage{Alias: testAlias("ada"), Msg: agent.Message{
 		StreamID: "out1", Mode: agent.ModeStream, Content: agent.Output{Text: "hello"},
 	}})
 	recs := m.room.HistoryRecords()
 	if len(recs) != 1 {
 		t.Fatalf("expected 1 record, got %d", len(recs))
 	}
-	idx, ok := m.room.StreamingIdx("ada")
+	idx, ok := m.room.StreamingIdx(testAlias("ada"))
 	if !ok {
 		t.Fatal("expected ada to be streaming")
 	}
@@ -109,7 +108,7 @@ func TestHandleDelta_firstDeltaCreatesRecord(t *testing.T) {
 	if rec.Kind != record.KindAgentOutput {
 		t.Errorf("expected agent output record, got kind %d", rec.Kind)
 	}
-	if rec.Alias != "ada" {
+	if rec.Alias != testAlias("ada") {
 		t.Errorf("expected alias ada, got %q", rec.Alias)
 	}
 	if rec.Msg == nil {
@@ -126,17 +125,17 @@ func TestHandleDelta_firstDeltaCreatesRecord(t *testing.T) {
 
 func TestHandleDelta_subsequentDeltaAppendsInPlace(t *testing.T) {
 	m := makeReadyModel(t)
-	m = pushEvent(m, session.AgentMessage{Alias: "ada", Msg: agent.Message{
+	m = pushEvent(m, session.AgentMessage{Alias: testAlias("ada"), Msg: agent.Message{
 		StreamID: "out1", Mode: agent.ModeStream, Content: agent.Output{Text: "hello"},
 	}})
-	m = pushEvent(m, session.AgentMessage{Alias: "ada", Msg: agent.Message{
+	m = pushEvent(m, session.AgentMessage{Alias: testAlias("ada"), Msg: agent.Message{
 		StreamID: "out1", Mode: agent.ModeStream, Content: agent.Output{Text: " world"},
 	}})
 	recs := m.room.HistoryRecords()
 	if len(recs) != 1 {
 		t.Fatalf("expected 1 record (in-place append), got %d", len(recs))
 	}
-	idx, _ := m.room.StreamingIdx("ada")
+	idx, _ := m.room.StreamingIdx(testAlias("ada"))
 	if recs[idx].Msg == nil {
 		t.Fatal("expected record to carry Msg, got nil")
 	}
@@ -151,10 +150,10 @@ func TestHandleDelta_subsequentDeltaAppendsInPlace(t *testing.T) {
 
 func TestHandleDelta_distinctOutputStreamsCreateDistinctRecords(t *testing.T) {
 	m := makeReadyModel(t)
-	m = pushEvent(m, session.AgentMessage{Alias: "ada", Msg: agent.Message{
+	m = pushEvent(m, session.AgentMessage{Alias: testAlias("ada"), Msg: agent.Message{
 		StreamID: "out1", Mode: agent.ModeStream, Content: agent.Output{Text: "hello"},
 	}})
-	m = pushEvent(m, session.AgentMessage{Alias: "ada", Msg: agent.Message{
+	m = pushEvent(m, session.AgentMessage{Alias: testAlias("ada"), Msg: agent.Message{
 		StreamID: "out2", Mode: agent.ModeStream, Content: agent.Output{Text: "world"},
 	}})
 
@@ -181,21 +180,21 @@ func TestHandleDelta_distinctOutputStreamsCreateDistinctRecords(t *testing.T) {
 
 func TestHandleDelta_twoAgentsStreamConcurrently(t *testing.T) {
 	m := makeReadyModel(t)
-	m = pushEvent(m, session.AgentMessage{Alias: "ada", Msg: agent.Message{
+	m = pushEvent(m, session.AgentMessage{Alias: testAlias("ada"), Msg: agent.Message{
 		StreamID: "out-ada", Mode: agent.ModeStream, Content: agent.Output{Text: "a"},
 	}})
-	m = pushEvent(m, session.AgentMessage{Alias: "bob", Msg: agent.Message{
+	m = pushEvent(m, session.AgentMessage{Alias: testAlias("bob"), Msg: agent.Message{
 		StreamID: "out-bob", Mode: agent.ModeStream, Content: agent.Output{Text: "b"},
 	}})
-	m = pushEvent(m, session.AgentMessage{Alias: "ada", Msg: agent.Message{
+	m = pushEvent(m, session.AgentMessage{Alias: testAlias("ada"), Msg: agent.Message{
 		StreamID: "out-ada", Mode: agent.ModeStream, Content: agent.Output{Text: "2"},
 	}})
 	recs := m.room.HistoryRecords()
 	if len(recs) != 2 {
 		t.Fatalf("expected 2 records, got %d", len(recs))
 	}
-	adaIdx, _ := m.room.StreamingIdx("ada")
-	bobIdx, _ := m.room.StreamingIdx("bob")
+	adaIdx, _ := m.room.StreamingIdx(testAlias("ada"))
+	bobIdx, _ := m.room.StreamingIdx(testAlias("bob"))
 	if recs[adaIdx].Msg == nil {
 		t.Fatal("expected ada record to carry Msg, got nil")
 	}
@@ -220,45 +219,45 @@ func TestHandleDelta_twoAgentsStreamConcurrently(t *testing.T) {
 
 func TestHandleEvent_outputFlushClearsMatchingStream(t *testing.T) {
 	m := makeReadyModel(t)
-	m = pushEvent(m, session.AgentMessage{Alias: "ada", Msg: agent.Message{
+	m = pushEvent(m, session.AgentMessage{Alias: testAlias("ada"), Msg: agent.Message{
 		StreamID: "out1", Mode: agent.ModeStream, Content: agent.Output{Text: "hello"},
 	}})
-	m = pushEvent(m, session.AgentMessage{Alias: "ada", Msg: agent.Message{
+	m = pushEvent(m, session.AgentMessage{Alias: testAlias("ada"), Msg: agent.Message{
 		StreamID: "out1", Mode: agent.ModeFlush, Content: agent.Output{},
 	}})
-	if m.room.IsStreaming("ada") {
+	if m.room.IsStreaming(testAlias("ada")) {
 		t.Error("expected streaming to be cleared after output flush")
 	}
 }
 
 func TestHandleEvent_outputFlushClosesOnlyMatchingStream(t *testing.T) {
 	m := makeReadyModel(t)
-	m = pushEvent(m, session.AgentMessage{Alias: "ada", Msg: agent.Message{
+	m = pushEvent(m, session.AgentMessage{Alias: testAlias("ada"), Msg: agent.Message{
 		StreamID: "out1", Mode: agent.ModeStream, Content: agent.Output{Text: "hello"},
 	}})
-	m = pushEvent(m, session.AgentMessage{Alias: "ada", Msg: agent.Message{
+	m = pushEvent(m, session.AgentMessage{Alias: testAlias("ada"), Msg: agent.Message{
 		StreamID: "out2", Mode: agent.ModeStream, Content: agent.Output{Text: "world"},
 	}})
 
-	if !m.room.IsStreaming("ada") {
+	if !m.room.IsStreaming(testAlias("ada")) {
 		t.Fatal("expected ada to be streaming before output flush")
 	}
 
-	m = pushEvent(m, session.AgentMessage{Alias: "ada", Msg: agent.Message{
+	m = pushEvent(m, session.AgentMessage{Alias: testAlias("ada"), Msg: agent.Message{
 		StreamID: "out1", Mode: agent.ModeFlush, Content: agent.Output{},
 	}})
-	if !m.room.IsStreaming("ada") {
+	if !m.room.IsStreaming(testAlias("ada")) {
 		t.Error("expected out2 to remain open after out1 flush")
 	}
 }
 
 func TestHandleEvent_agentStoppedClearsStreaming(t *testing.T) {
 	m := makeReadyModel(t)
-	m = pushEvent(m, session.AgentMessage{Alias: "ada", Msg: agent.Message{
+	m = pushEvent(m, session.AgentMessage{Alias: testAlias("ada"), Msg: agent.Message{
 		StreamID: "out1", Mode: agent.ModeStream, Content: agent.Output{Text: "mid-stream"},
 	}})
-	m = pushEvent(m, session.AgentStopped{Alias: "ada"})
-	if m.room.IsStreaming("ada") {
+	m = pushEvent(m, session.AgentStopped{Alias: testAlias("ada")})
+	if m.room.IsStreaming(testAlias("ada")) {
 		t.Error("streaming should be cleared when agent stops mid-turn")
 	}
 }
@@ -305,25 +304,25 @@ func TestRenderHelp_includesMetadataAndUIShortcuts(t *testing.T) {
 
 func TestMarkDeparted_greyRepaintOnStop(t *testing.T) {
 	m := makeReadyModel(t)
-	m = pushEvent(m, session.AgentMessage{Alias: "ada", Msg: agent.Message{
+	m = pushEvent(m, session.AgentMessage{Alias: testAlias("ada"), Msg: agent.Message{
 		StreamID: "out1", Mode: agent.ModeStream, Content: agent.Output{Text: "hello"},
 	}})
-	m = pushEvent(m, session.AgentMessage{Alias: "ada", Msg: agent.Message{
+	m = pushEvent(m, session.AgentMessage{Alias: testAlias("ada"), Msg: agent.Message{
 		StreamID: "out1", Mode: agent.ModeFlush, Content: agent.Output{},
 	}})
-	m = pushEvent(m, session.AgentStopped{Alias: "ada"})
-	if !m.room.IsDeparted("ada") {
+	m = pushEvent(m, session.AgentStopped{Alias: testAlias("ada")})
+	if !m.room.IsDeparted(testAlias("ada")) {
 		t.Error("expected ada in departed map after stop")
 	}
 }
 
 func TestMarkDeparted_greyRepaintOnCrash(t *testing.T) {
 	m := makeReadyModel(t)
-	m = pushEvent(m, session.AgentMessage{Alias: "ada", Msg: agent.Message{
+	m = pushEvent(m, session.AgentMessage{Alias: testAlias("ada"), Msg: agent.Message{
 		StreamID: "out1", Mode: agent.ModeStream, Content: agent.Output{Text: "hello"},
 	}})
-	m = pushEvent(m, session.AgentCrashed{Alias: "ada"})
-	if !m.room.IsDeparted("ada") {
+	m = pushEvent(m, session.AgentCrashed{Alias: testAlias("ada")})
+	if !m.room.IsDeparted(testAlias("ada")) {
 		t.Error("expected ada in departed map after crash")
 	}
 }
@@ -332,7 +331,7 @@ func TestMarkDeparted_greyRepaintOnCrash(t *testing.T) {
 
 func TestHandleReasoningDelta_firstDeltaCreatesRecord(t *testing.T) {
 	m := makeReadyModel(t)
-	m = pushEvent(m, session.AgentMessage{Alias: "ada", Msg: agent.Message{
+	m = pushEvent(m, session.AgentMessage{Alias: testAlias("ada"), Msg: agent.Message{
 		StreamID: "reason1", Mode: agent.ModeStream, Content: agent.Reasoning{Text: "let me think"},
 	}})
 	recs := m.room.HistoryRecords()
@@ -352,17 +351,17 @@ func TestHandleReasoningDelta_firstDeltaCreatesRecord(t *testing.T) {
 	if thought.Text != "let me think" {
 		t.Errorf("expected body 'let me think', got %q", thought.Text)
 	}
-	if !m.room.IsReasoningStreaming("ada") {
+	if !m.room.IsReasoningStreaming(testAlias("ada")) {
 		t.Error("expected ada to be reasoning-streaming")
 	}
 }
 
 func TestHandleReasoningDelta_appendsInPlace(t *testing.T) {
 	m := makeReadyModel(t)
-	m = pushEvent(m, session.AgentMessage{Alias: "ada", Msg: agent.Message{
+	m = pushEvent(m, session.AgentMessage{Alias: testAlias("ada"), Msg: agent.Message{
 		StreamID: "reason1", Mode: agent.ModeStream, Content: agent.Reasoning{Text: "step 1"},
 	}})
-	m = pushEvent(m, session.AgentMessage{Alias: "ada", Msg: agent.Message{
+	m = pushEvent(m, session.AgentMessage{Alias: testAlias("ada"), Msg: agent.Message{
 		StreamID: "reason1", Mode: agent.ModeStream, Content: agent.Reasoning{Text: " step 2"},
 	}})
 	recs := m.room.HistoryRecords()
@@ -383,10 +382,10 @@ func TestHandleReasoningDelta_appendsInPlace(t *testing.T) {
 
 func TestHandleReasoningDelta_independentOfOutputStreaming(t *testing.T) {
 	m := makeReadyModel(t)
-	m = pushEvent(m, session.AgentMessage{Alias: "ada", Msg: agent.Message{
+	m = pushEvent(m, session.AgentMessage{Alias: testAlias("ada"), Msg: agent.Message{
 		StreamID: "reason1", Mode: agent.ModeStream, Content: agent.Reasoning{Text: "thinking"},
 	}})
-	m = pushEvent(m, session.AgentMessage{Alias: "ada", Msg: agent.Message{
+	m = pushEvent(m, session.AgentMessage{Alias: testAlias("ada"), Msg: agent.Message{
 		StreamID: "out1", Mode: agent.ModeStream, Content: agent.Output{Text: "responding"},
 	}})
 	recs := m.room.HistoryRecords()
@@ -403,13 +402,13 @@ func TestHandleReasoningDelta_independentOfOutputStreaming(t *testing.T) {
 
 func TestReasoningFlush_clearsReasoningStreaming(t *testing.T) {
 	m := makeReadyModel(t)
-	m = pushEvent(m, session.AgentMessage{Alias: "ada", Msg: agent.Message{
+	m = pushEvent(m, session.AgentMessage{Alias: testAlias("ada"), Msg: agent.Message{
 		StreamID: "reason1", Mode: agent.ModeStream, Content: agent.Reasoning{Text: "thinking"},
 	}})
-	m = pushEvent(m, session.AgentMessage{Alias: "ada", Msg: agent.Message{
+	m = pushEvent(m, session.AgentMessage{Alias: testAlias("ada"), Msg: agent.Message{
 		StreamID: "reason1", Mode: agent.ModeFlush, Content: agent.Reasoning{},
 	}})
-	if m.room.IsReasoningStreaming("ada") {
+	if m.room.IsReasoningStreaming(testAlias("ada")) {
 		t.Error("expected reasoning streaming to be cleared after reasoning flush")
 	}
 }
@@ -418,14 +417,14 @@ func TestReasoningFlush_clearsReasoningStreaming(t *testing.T) {
 
 func TestStreamingCleared_onStop(t *testing.T) {
 	m := makeReadyModel(t)
-	m = pushEvent(m, session.AgentMessage{Alias: "ada", Msg: agent.Message{
+	m = pushEvent(m, session.AgentMessage{Alias: testAlias("ada"), Msg: agent.Message{
 		StreamID: "out1", Mode: agent.ModeStream, Content: agent.Output{Text: "mid-stream"},
 	}})
-	if !m.room.IsStreaming("ada") {
+	if !m.room.IsStreaming(testAlias("ada")) {
 		t.Fatal("expected ada to be streaming after delta")
 	}
-	m = pushEvent(m, session.AgentStopped{Alias: "ada"})
-	if m.room.IsStreaming("ada") {
+	m = pushEvent(m, session.AgentStopped{Alias: testAlias("ada")})
+	if m.room.IsStreaming(testAlias("ada")) {
 		t.Error("streaming should be cleared on agent stop")
 	}
 }

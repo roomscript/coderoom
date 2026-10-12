@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/roomscript/coderoom/internal/participant"
 	"github.com/roomscript/coderoom/internal/promptlang"
 	"github.com/roomscript/coderoom/internal/room"
 	"github.com/roomscript/coderoom/internal/session"
@@ -35,8 +36,9 @@ type instructionExecutorPort interface {
 	startShell(string, string, string, promptlang.ParsedStatement)
 	executeSessionRequest(sessionRequest) error
 	executeCommand(session.Command) error
-	createParticipantSendPlan(string) (session.ParticipantSendPlan, []string)
-	planBroadcast() []string
+	createParticipantSendPlan(string) session.ParticipantSendPlan
+	participantByName(string) participant.Alias
+	planBroadcast() []participant.Alias
 	participantState() []participantState
 	takeSessionEvents() []session.Event
 	refreshSnapshot() Snapshot
@@ -50,7 +52,7 @@ type instructionModelPort interface {
 	ApplySessionEvent(session.Event) (instructionSequence, bool)
 	AppendRecord(room.Record)
 	TakeTranscriptChanges() []TranscriptChanged
-	ReadHandoffSource(string) (session.HandoffSource, bool)
+	ReadHandoffSource(participant.Alias) (session.HandoffSource, bool)
 }
 
 // instructionRunner owns causal instruction ordering. It knows how to execute
@@ -141,6 +143,14 @@ func (r *instructionRunner) applyExecutionInstruction(value instruction) ([]runn
 	case executeCommandInstruction:
 		items, snapshot := r.executeCommand(value)
 		return items, snapshot, true
+	case executeParticipantCommandInstruction:
+		alias := r.executor.participantByName(value.name)
+		var command session.Command = session.CancelCommand{Alias: alias}
+		if value.remove {
+			command = session.RemoveCommand{Alias: alias}
+		}
+		items, snapshot := r.executeCommand(executeCommandInstruction{command: command, outcome: value.outcome})
+		return items, snapshot, true
 	case executeSessionInstruction:
 		return r.executeSession(value), false, true
 	default:
@@ -151,10 +161,19 @@ func (r *instructionRunner) applyExecutionInstruction(value instruction) ([]runn
 // Preparation reads return facts immediately; they never introduce a wait.
 func (r *instructionRunner) applyPreparationInstruction(value instruction) ([]runnerItem, bool) {
 	switch value := value.(type) {
+	case resolveParticipantInstruction:
+		return []runnerItem{preparationItem{result: participantAliasResult{
+			target: value.target, alias: r.executor.participantByName(value.name),
+		}}}, true
+	case prepareHandoffInstruction:
+		return []runnerItem{preparationItem{result: handoffPlanResult{
+			target: value.target, from: r.executor.participantByName(value.from),
+			to: r.executor.participantByName(value.to), participants: r.executor.participantState(),
+		}}}, true
 	case prepareSendInstruction:
-		plan, targets := r.executor.createParticipantSendPlan(value.alias)
+		plan := r.executor.createParticipantSendPlan(value.alias)
 		return []runnerItem{preparationItem{result: sendPlanResult{
-			target: value.target, plan: plan, targets: targets, participants: r.executor.participantState(),
+			target: value.target, plan: plan, participants: r.executor.participantState(),
 		}}}, true
 	case planBroadcastInstruction:
 		targets := r.executor.planBroadcast()

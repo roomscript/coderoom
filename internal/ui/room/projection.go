@@ -1,12 +1,13 @@
 package room
 
 import (
+	"github.com/roomscript/coderoom/internal/participant"
 	roomstate "github.com/roomscript/coderoom/internal/room"
 )
 
 // NewPresenter creates a room without a session observer or a room actor.
-func NewPresenter(colorByAlias func(string) string, departedColor string) Model {
-	m := newPresentationModel(colorByAlias, departedColor)
+func NewPresenter(colorByAlias func(participant.Alias) string, colorByName func(string) string, departedColor string) Model {
+	m := newPresentationModel(colorByAlias, colorByName, departedColor)
 	m.projectionIndices = make(map[int]int)
 	return m
 }
