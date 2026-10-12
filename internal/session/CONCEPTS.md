@@ -11,7 +11,7 @@ workflow coordination; the room projects conversation history.
 | Outside-room participant send | An outgoing message sent without a room record or notices to others. Agent responses can still appear in the room. |
 | Broadcast | Work directed to a selected set of participants. |
 | Notice | Context delivered without requesting substantive work. |
-| Routing plan | Intended recipients frozen by session; it neither reserves readiness nor guarantees delivery. |
+| Routing plan | Intended recipient instances frozen by session; it neither reserves readiness nor guarantees delivery. A replacement with the same alias cannot inherit a retained participant send. |
 | Routing result | Actual delivery outcomes, including partial success; distinct from the routing plan. |
 | Readiness requirements | Participants required to be ready before execution. Interpreter waits; session rechecks before delivery. Participants not ready are the unmet subset. |
 | Handoff | Context transferred from one participant's completed room-visible output to another participant. |
@@ -33,3 +33,8 @@ attempts or rejection: recipient role, delivered/failed/not-attempted status,
 and errors. Delivery means adapter acceptance; work completion is separate.
 `HandoffDelivered` carries accepted context for room projection. Footers use
 accepted recipients and distinguish failed or unsent recipients.
+
+Participant sends recheck each planned participant instance before delivery.
+A replaced primary fails without attempting notices. A replaced notice recipient
+fails that notice while preserving successful primary delivery. If staging has
+already collected the departure, it can discard the notice before execution.

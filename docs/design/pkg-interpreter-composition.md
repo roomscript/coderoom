@@ -139,7 +139,13 @@ directories are candidates, not requirements to create in one change.
 
 `std.SendCommand` is an unwired preparation/direct-delivery prototype.
 `SendCommand.Prepare` validates the primary participant and asks Session to create
-one policy-aware `ParticipantSendPlan`. The invocation retains that plan;
+one policy-aware `ParticipantSendPlan`. The invocation retains that plan.
+The plan also retains private participant-instance references. Session rejects
+delivery to same-alias replacements, even when departure notifications have not
+reached staging. A primary replacement fails the send; a notice replacement
+reports a partial-delivery failure. This delivery guard does not establish the
+snapshot/event collection boundary required by the future adapter.
+
 `Staging` derives `WaitFor` from `PrimaryParticipant()` and `ToInform`
 from the remaining `Targets()`. Staging does not select delivery recipients.
 `Context.Session` supplies shared-feed `SessionExecution`; `Go(complete)` submits the native

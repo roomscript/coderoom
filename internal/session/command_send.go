@@ -71,25 +71,33 @@ type SendToParticipantCommand struct {
 }
 
 // ParticipantSendPlan is an immutable, session-bound routing decision. Planning
-// freezes recipients but does not reserve their availability.
+// freezes recipient instances but does not reserve their availability.
 type ParticipantSendPlan struct {
 	session       *Session
 	primaryAlias  string
 	noticeAliases []string
+	participants  map[string]*participant.Participant
 }
 
 // CreateParticipantSendPlan freezes the policy-aware targets for an in-room participant send.
 func (s *Session) CreateParticipantSendPlan(primaryAlias string) ParticipantSendPlan {
-	plan := ParticipantSendPlan{session: s, primaryAlias: primaryAlias}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	primary, _ := s.registry.Get(primaryAlias)
+	plan := ParticipantSendPlan{
+		session: s, primaryAlias: primaryAlias,
+		participants: map[string]*participant.Participant{primaryAlias: primary},
+	}
 	if !s.policies.Enabled(policy.SendNotices) {
 		return plan
 	}
-	for _, p := range s.Participants() {
+	for _, p := range s.registry.List() {
 		if p.Status == participant.StatusCrashed {
 			continue
 		}
 		if p.Alias != primaryAlias {
 			plan.noticeAliases = append(plan.noticeAliases, p.Alias)
+			plan.participants[p.Alias] = p
 		}
 	}
 	slices.Sort(plan.noticeAliases)
@@ -137,6 +145,22 @@ func (p ParticipantSendPlan) validate(s *Session) error {
 	return nil
 }
 
+// validateParticipant rejects departures even when their notifications have not
+// reached staging yet. Reusing an alias cannot transfer a retained send.
+// Execute serializes invitations/removals with these delivery checks.
+func (p ParticipantSendPlan) validateParticipant(alias string) error {
+	p.session.mu.Lock()
+	defer p.session.mu.Unlock()
+	current, ok := p.session.registry.Get(alias)
+	if !ok {
+		return fmt.Errorf("participant %q: %w", alias, errParticipantNotFound)
+	}
+	if current != p.participants[alias] {
+		return fmt.Errorf("participant %q was replaced after send preparation", alias)
+	}
+	return nil
+}
+
 func (c SendToParticipantCommand) execute(s *Session) (err error) {
 	result := createRoutingResult(RoutingParticipantSend, []string{c.Plan.primaryAlias}, RecipientPrimary)
 	for _, alias := range c.Plan.noticeAliases {
@@ -149,6 +173,10 @@ func (c SendToParticipantCommand) execute(s *Session) (err error) {
 		return err
 	}
 	alias := c.Plan.primaryAlias
+	if err := c.Plan.validateParticipant(alias); err != nil {
+		result.record(0, err)
+		return err
+	}
 	a, err := acquireParticipantForDirectSend(alias, s)
 	if err != nil {
 		result.record(0, err)
@@ -161,7 +189,10 @@ func (c SendToParticipantCommand) execute(s *Session) (err error) {
 	result.record(0, nil)
 	var errs []error
 	for index, alias := range c.Plan.noticeAliases {
-		deliveryErr := sendNoticeRecipient(alias, c.Notice, s)
+		deliveryErr := c.Plan.validateParticipant(alias)
+		if deliveryErr == nil {
+			deliveryErr = sendNoticeRecipient(alias, c.Notice, s)
+		}
 		result.record(index+1, deliveryErr)
 		if deliveryErr != nil {
 			errs = append(errs, deliveryErr)

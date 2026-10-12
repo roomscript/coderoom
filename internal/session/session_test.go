@@ -1060,6 +1060,61 @@ func TestParticipantSendPlanReportsListenerRemovedBeforeExecution(t *testing.T) 
 	}
 }
 
+func TestParticipantSendPlanRejectsSameAliasReplacement(t *testing.T) {
+	for _, alias := range []string{"ada", "turing"} {
+		t.Run(alias, func(t *testing.T) {
+			obs := newTestObserver()
+			agents := map[string]agent.Agent{"ada": newMockAgent(), "turing": newMockAgent()}
+			s := newSession(t, session.WithObserver(obs), mappedFactory(agents))
+			for _, name := range []string{"ada", "turing"} {
+				invite(t, s, name)
+				mustReceive[session.AgentReady](t, obs.ch)
+			}
+			enableSendNotices(t, s)
+			plan := s.CreateParticipantSendPlan("ada")
+			if err := s.Execute(session.RemoveCommand{Alias: alias}); err != nil {
+				t.Fatal(err)
+			}
+			mustReceive[session.AgentStopped](t, obs.ch)
+			replacement := newMockAgent()
+			agents[alias] = replacement
+			invite(t, s, alias)
+			mustReceive[session.AgentReady](t, obs.ch)
+
+			err := s.Execute(session.SendToParticipantCommand{Plan: plan, Message: "work", Notice: "context"})
+			if err == nil {
+				t.Fatal("retained plan accepted a replacement recipient")
+			}
+			var wantDelivered []string
+			if alias == "turing" {
+				wantDelivered = []string{"ada"}
+			}
+			if got := session.DeliveredAliases(err); !slices.Equal(got, wantDelivered) {
+				t.Fatalf("delivered aliases = %v, want %v", got, wantDelivered)
+			}
+			assertReplacementRouting(t, obs, alias)
+			replacement.mu.Lock()
+			defer replacement.mu.Unlock()
+			if len(replacement.sends) != 0 {
+				t.Fatalf("replacement received retained send: %v", replacement.sends)
+			}
+		})
+	}
+}
+
+func assertReplacementRouting(t *testing.T, obs *testObserver, alias string) {
+	t.Helper()
+	outcomes, _ := readRoutingOutcomes(obs)
+	if len(outcomes) != 1 || outcomes[0].Kind != session.RoutingParticipantSend || outcomes[0].Err == nil {
+		t.Fatalf("replacement rejection outcomes = %#v", outcomes)
+	}
+	statuses := []session.DeliveryStatus{session.DeliveryFailed, session.DeliveryNotAttempted}
+	if alias == "turing" {
+		statuses = []session.DeliveryStatus{session.DeliveryDelivered, session.DeliveryFailed}
+	}
+	assertRecipientOutcomes(t, outcomes[0], []session.RecipientRole{session.RecipientPrimary, session.RecipientNotice}, statuses)
+}
+
 func TestParticipantSendPlanDiscardUnavailableNoticeRecipientsExcludesSameAliasRejoin(t *testing.T) {
 	obs := newTestObserver()
 	ada := newMockAgent()

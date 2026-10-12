@@ -22,6 +22,10 @@ commits to the human.
 - Session selects recipients once in `ParticipantSendPlan`. Staging derives
   readiness aliases from it. Its callback removes departed notices from the
   retained plan; it does not mutate the frozen readiness description.
+  The plan retains private participant-instance references so Session rejects
+  same-alias replacements even before their departure events reach staging.
+  A real-Session send regression covers a blocked departure during initialization.
+  This delivery guard does not resolve snapshot/event ordering for the adapter.
 - The unwired lifecycle keeps Context directly and delegates subscription,
   state merging, queue and worker lifetime to an unexported participantMonitor.
   Readiness/departure policy, launch and settlement remain in the lifecycle.
