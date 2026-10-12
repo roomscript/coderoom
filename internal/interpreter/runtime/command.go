@@ -10,7 +10,10 @@ import (
 	"github.com/roomscript/coderoom/internal/shell"
 )
 
-// ParticipantReader is a read capability, not a session execution handle.
+// ParticipantReader returns a fresh detached view on each call. For subscribed
+// collectors, lifecycle events represented by the view must be collected before
+// this read returns, so initialization can preserve events over snapshot entries.
+// It is a read capability, not a session execution handle.
 type ParticipantReader interface {
 	Participants() []participant.View
 }
@@ -21,14 +24,21 @@ type ShellLauncher interface {
 	Go(program string, complete func(shell.Result)) error
 }
 
-// SessionExecution is a host capability scoped to one invocation, not raw Session.
+// SessionExecution is a host admission and shared event capability, not raw Session.
 // CreateParticipantSendPlan delegates recipient selection to Session.
-// Subscribe registers before Execute. The host queues request-correlated events
-// on its serialized path, never invoking the handler inline. Unsubscribe also
-// suppresses events already queued for this subscription.
+// Subscribe receives all session events, including participant lifecycle facts
+// before execution. The callback runs immediately and may run on a producer
+// goroutine; it must be concurrency-safe. Subscribe itself does not invoke the
+// callback inline. Subscribe always returns a non-nil unsubscribe function.
+// Unsubscribe is safe from a callback and prevents further
+// delivery without waiting for in-flight callbacks. Consumers own their queues.
+// Execute must support admission from an invocation's worker while the host
+// continues to serialize actual Session execution.
 // Execute admits work without waiting for delivery; admission failures return an
 // error, while delivery outcomes arrive as session.RoutingCompleted events.
 // The host owns the serialized session execution lane and worker lifetime.
+// A primary alias must have at most one admitted send awaiting its routing result;
+// alias matching cannot distinguish concurrent requests to the same primary.
 // This prototype has no production adapter yet.
 type SessionExecution interface {
 	Subscribe(handle func(session.Event)) (unsubscribe func())
@@ -62,7 +72,8 @@ type Invocation interface {
 	Staging() *Staging
 	Go(complete func(CommandResult)) error
 	// Close releases invocation-owned subscriptions; it is idempotent and runs
-	// on the host serialized path. Worker cancellation remains the host's job.
+	// after the lifecycle stops its monitor. Implementations must tolerate racing
+	// callbacks. Cancellation of admitted delivery remains the host's job.
 	Close()
 }
 
@@ -71,12 +82,12 @@ type Invocation interface {
 // The invocation owns this description; callers must treat it as read-only.
 // WaitFor gates execution; ToInform describes frozen contextual notice recipients, which
 // also gate readiness. WaitFor does not imply delivery. Departure handling is
-// command policy; the host tracks sticky departures. This draft is unwired.
+// command policy; the lifecycle tracks sticky departures. This draft is unwired.
 type Staging struct {
 	WaitFor  []string
 	ToInform []string
 	// DiscardInform removes an unavailable notice recipient from the command's
-	// retained delivery plan. The host calls it on its serialized path before Go,
+	// retained delivery plan. The lifecycle calls it before Go,
 	// while removing that alias from its own waits. Nil means no update is needed.
 	// Departures are sticky: rejoining cannot restore a discarded recipient.
 	// An unavailable WaitFor alias fails staging; it never reaches this callback.

@@ -41,7 +41,7 @@ func (h *prototypeInterpreter) submit(command runtime.Command, statement promptl
 		h.publications = append(h.publications, "submission failed")
 		return fmt.Errorf("prepare command: %w", err)
 	}
-	lifecycle := runtime.NewInvocationLifecycle(invocation)
+	lifecycle := runtime.NewInvocationLifecycle(invocation, ctx)
 	h.pending[lifecycle] = struct{}{}
 	err = lifecycle.Start(func(completion runtime.CommandResult) {
 		// Capture the lifecycle to correlate this callback with its own invocation.
@@ -157,7 +157,7 @@ func assertPrototypeShellCompletion(t *testing.T, completion runtime.CommandResu
 	}
 }
 
-func TestInvocationLifecycle_FailedLaunchAndUnsupportedStaging(t *testing.T) {
+func TestInvocationLifecycle_FailedLaunchAndMissingStagingCapabilities(t *testing.T) {
 	failure := errors.New("launch failed")
 	for _, tt := range []struct {
 		name       string
@@ -165,11 +165,11 @@ func TestInvocationLifecycle_FailedLaunchAndUnsupportedStaging(t *testing.T) {
 		wantErr    error
 	}{
 		{name: "callback before failed launch", invocation: &invocation{err: failure, immediate: true}, wantErr: failure},
-		{name: "unsupported staging", invocation: &invocation{staging: &runtime.Staging{WaitFor: []string{"ada"}}}, wantErr: runtime.ErrStagingUnsupported},
+		{name: "missing staging capabilities", invocation: &invocation{staging: &runtime.Staging{WaitFor: []string{"ada"}}}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			host := newPrototypeInterpreter()
-			if err := host.submit(&command{invocation: tt.invocation}, promptlang.ParsedStatement{}, runtime.Context{}); !errors.Is(err, tt.wantErr) {
+			if err := host.submit(&command{invocation: tt.invocation}, promptlang.ParsedStatement{}, runtime.Context{}); err == nil || (tt.wantErr != nil && !errors.Is(err, tt.wantErr)) {
 				t.Fatalf("submission error = %v", err)
 			}
 			host.close(errors.New("closed"))
@@ -182,7 +182,7 @@ func TestInvocationLifecycle_FailedLaunchAndUnsupportedStaging(t *testing.T) {
 
 func TestInvocationLifecycle_StartOnceAndClose(t *testing.T) {
 	i := &invocation{}
-	lifecycle := runtime.NewInvocationLifecycle(i)
+	lifecycle := runtime.NewInvocationLifecycle(i, runtime.Context{})
 	if _, ok := lifecycle.Complete(runtime.CommandResult{}); ok {
 		t.Fatal("completion accepted before launch")
 	}
@@ -210,7 +210,7 @@ func TestInvocationLifecycle_ReleasesInvocation(t *testing.T) {
 	for _, mode := range []string{"completion", "launch failure", "close prepared", "close running"} {
 		t.Run(mode, func(t *testing.T) {
 			i := &invocation{}
-			l := runtime.NewInvocationLifecycle(i)
+			l := runtime.NewInvocationLifecycle(i, runtime.Context{})
 			if mode == "launch failure" {
 				i.err = failure
 			}

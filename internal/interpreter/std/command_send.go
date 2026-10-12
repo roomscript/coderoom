@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"sync"
 
 	"github.com/roomscript/coderoom/internal/interpreter/runtime"
 	"github.com/roomscript/coderoom/internal/participant"
@@ -12,8 +13,8 @@ import (
 	"github.com/roomscript/coderoom/internal/session"
 )
 
-// SendCommand prepares addressed sends. This prototype is not registered in the
-// interpreter; delivery and staging integration remain separate checkpoints.
+// SendCommand prepares addressed sends. This prototype remains unregistered;
+// production delivery and staging still use the legacy workflow.
 type SendCommand struct{}
 
 var _ runtime.Command = SendCommand{}
@@ -30,46 +31,42 @@ func (SendCommand) Description() string { return "send to one agent" }
 // Statement identifies the accepted parsed statement.
 func (SendCommand) Statement() promptlang.Statement { return promptlang.Send{} }
 
-// Prepare retains Session's frozen send plan and derives readiness requirements.
+// Prepare validates the target and asks Session to select recipients once.
+// The invocation retains that delivery plan; staging describes its readiness needs.
 func (SendCommand) Prepare(parsed promptlang.ParsedStatement, ctx runtime.Context) (runtime.Invocation, error) {
-	statement, ok := parsed.Value.(promptlang.Send)
-	if !ok {
-		return nil, errors.New("send requires a send statement")
-	}
-	if ctx.Session == nil {
-		return nil, errors.New("send requires session execution")
-	}
-	if parsed.Raw == "" {
-		return nil, errors.New("send requires original input")
-	}
-	if ctx.Participants == nil {
-		return nil, errors.New("send requires participant reads")
+	statement, err := validateSendInput(parsed, ctx)
+	if err != nil {
+		return nil, err
 	}
 	if err := validateSendTarget(statement.Alias.Value, ctx.Participants.Participants()); err != nil {
 		return nil, fmt.Errorf("prepare send: %w", err)
 	}
 	plan := ctx.Session.CreateParticipantSendPlan(statement.Alias.Value)
-	targets := plan.Targets()
-	if len(targets) == 0 {
+	if len(plan.Targets()) == 0 {
 		return nil, errors.New("send requires a valid participant send plan")
 	}
-	primary := plan.PrimaryParticipant()
-	notices := slices.DeleteFunc(targets, func(alias string) bool { return alias == primary })
-	invocation := &sendInvocation{
-		session: ctx.Session,
-		staging: &runtime.Staging{WaitFor: []string{primary}, ToInform: notices},
-		command: session.SendToParticipantCommand{
-			Plan: plan, Message: statement.Text.Value,
-			Notice: fmt.Sprintf("@%s: %s", statement.Alias.Value, statement.Text.Value),
-		},
-		raw: parsed.Raw,
-	}
-	invocation.staging.DiscardInform = invocation.discardInform
-	return invocation, nil
+	return newSendInvocation(statement, parsed.Raw, plan, ctx.Session), nil
 }
 
-// Validation preserves preparation-time rejection of missing or crashed targets.
-// Session remains the authority for selection and execution-time availability.
+func validateSendInput(parsed promptlang.ParsedStatement, ctx runtime.Context) (promptlang.Send, error) {
+	statement, ok := parsed.Value.(promptlang.Send)
+	if !ok {
+		return promptlang.Send{}, errors.New("send requires a send statement")
+	}
+	if ctx.Session == nil {
+		return promptlang.Send{}, errors.New("send requires session execution")
+	}
+	if parsed.Raw == "" {
+		return promptlang.Send{}, errors.New("send requires original input")
+	}
+	if ctx.Participants == nil {
+		return promptlang.Send{}, errors.New("send requires participant reads")
+	}
+	return statement, nil
+}
+
+// Missing and crashed targets fail preparation. Busy and starting targets are
+// valid: the lifecycle waits for readiness, and Session checks again at delivery.
 func validateSendTarget(alias string, participants []participant.View) error {
 	for _, view := range participants {
 		if view.Alias != alias {
@@ -83,34 +80,62 @@ func validateSendTarget(alias string, participants []participant.View) error {
 	return fmt.Errorf("participant %q not found", alias)
 }
 
+type sendState uint8
+
+const (
+	sendPrepared sendState = iota
+	sendAwaitingDelivery
+	sendClosed
+)
+
 type sendInvocation struct {
+	mu          sync.Mutex
 	session     runtime.SessionExecution
+	state       sendState
 	unsubscribe func()
-	closed      bool
 	staging     *runtime.Staging
 	command     session.SendToParticipantCommand
 	raw         string
 }
 
+func newSendInvocation(statement promptlang.Send, raw string, plan session.ParticipantSendPlan, execution runtime.SessionExecution) *sendInvocation {
+	invocation := &sendInvocation{
+		session: execution,
+		staging: deriveSendStaging(plan),
+		command: session.SendToParticipantCommand{
+			Plan: plan, Message: statement.Text.Value,
+			Notice: fmt.Sprintf("@%s: %s", statement.Alias.Value, statement.Text.Value),
+		},
+		raw: raw,
+	}
+	invocation.staging.DiscardInform = invocation.discardInform
+	return invocation
+}
+
+func deriveSendStaging(plan session.ParticipantSendPlan) *runtime.Staging {
+	primary := plan.PrimaryParticipant()
+	notices := slices.DeleteFunc(plan.Targets(), func(alias string) bool { return alias == primary })
+	return &runtime.Staging{WaitFor: []string{primary}, ToInform: notices}
+}
+
 func (i *sendInvocation) Staging() *runtime.Staging { return i.staging }
 
-// discardInform updates delivery while the host updates its staging waits.
+// discardInform changes the frozen delivery plan only before execution starts.
 func (i *sendInvocation) discardInform(alias string) {
-	if i.closed || i.unsubscribe != nil {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	if i.state != sendPrepared {
 		return
 	}
 	i.command.Plan = i.command.Plan.DiscardUnavailableNoticeRecipients([]string{alias})
 }
 
-// Go registers its continuation before admitting delivery. The host queues
-// events, so even immediate delivery cannot resume this invocation inside Go.
+// Go subscribes before admitting delivery. Admission errors return here;
+// delivery outcomes arrive through the subscription and enqueue completion.
 func (i *sendInvocation) Go(complete func(runtime.CommandResult)) error {
-	if i.closed || i.unsubscribe != nil {
-		return runtime.ErrInvocationNotPrepared
+	if err := i.subscribeForDelivery(complete); err != nil {
+		return err
 	}
-	i.unsubscribe = i.session.Subscribe(func(event session.Event) {
-		i.handleSessionEvent(event, complete)
-	})
 	if err := i.session.Execute(i.command); err != nil {
 		i.Close()
 		return fmt.Errorf("launch send: %w", err)
@@ -118,42 +143,88 @@ func (i *sendInvocation) Go(complete func(runtime.CommandResult)) error {
 	return nil
 }
 
-func (i *sendInvocation) handleSessionEvent(event session.Event, complete func(runtime.CommandResult)) {
-	if i.closed {
-		return
+func (i *sendInvocation) subscribeForDelivery(complete func(runtime.CommandResult)) error {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	if i.state != sendPrepared {
+		return runtime.ErrInvocationNotPrepared
 	}
-	routed, ok := event.(session.RoutingCompleted)
-	if !ok || routed.Result.Kind != session.RoutingParticipantSend {
-		return
+	i.state = sendAwaitingDelivery
+	i.unsubscribe = i.session.Subscribe(func(event session.Event) {
+		i.handleSessionEvent(event, complete)
+	})
+	if i.unsubscribe == nil {
+		i.unsubscribe = func() {}
 	}
-	primaryAlias := i.command.Plan.PrimaryParticipant()
-	if !slices.ContainsFunc(routed.Result.Recipients, func(recipient session.RecipientResult) bool {
-		return recipient.Role == session.RecipientPrimary && recipient.Alias == primaryAlias
-	}) {
-		return
-	}
-	i.Close()
-	result := routed.Result
-	completion := runtime.CommandResult{Err: result.Err}
-	delivered := result.Aliases(session.DeliveryDelivered)
-	if len(delivered) != 0 {
-		completion.Records = []room.Record{{
-			Kind: room.KindUserInput, Text: i.raw, Routing: delivered,
-			FailedRouting: result.Aliases(session.DeliveryFailed),
-			UnsentRouting: result.Aliases(session.DeliveryNotAttempted),
-		}}
-	}
-	complete(completion)
+	return nil
 }
 
-// Close releases the continuation on completion, failed admission or discard.
-func (i *sendInvocation) Close() {
-	if i.closed {
+func (i *sendInvocation) handleSessionEvent(event session.Event, complete func(runtime.CommandResult)) {
+	routed, ok := event.(session.RoutingCompleted)
+	if !ok {
 		return
 	}
-	i.closed = true
-	if i.unsubscribe != nil {
-		i.unsubscribe()
-		i.unsubscribe = nil
+	unsubscribe := i.acceptDelivery(routed.Result)
+	if unsubscribe == nil {
+		return
+	}
+	unsubscribe()
+	complete(deriveSendCompletion(i.raw, routed.Result))
+}
+
+// acceptDelivery checks ownership and consumes the result under one lock.
+// Closing before releasing the lock rejects duplicates and racing callbacks.
+// Nil means rejection. Otherwise, the caller releases the accepted result's
+// subscription after unlocking; subscribeForDelivery ensures a non-nil function.
+func (i *sendInvocation) acceptDelivery(result session.RoutingResult) func() {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	if i.state != sendAwaitingDelivery || !i.matchesDelivery(result) {
+		return nil
+	}
+	i.state = sendClosed
+	unsubscribe := i.unsubscribe
+	i.unsubscribe = nil
+	return unsubscribe
+}
+
+// matchesDelivery is called with the invocation locked. A notice to our alias
+// does not identify our send; the result must name our primary recipient.
+func (i *sendInvocation) matchesDelivery(result session.RoutingResult) bool {
+	if result.Kind != session.RoutingParticipantSend {
+		return false
+	}
+	primary := i.command.Plan.PrimaryParticipant()
+	return slices.ContainsFunc(result.Recipients, func(recipient session.RecipientResult) bool {
+		return recipient.Role == session.RecipientPrimary && recipient.Alias == primary
+	})
+}
+
+// deriveSendCompletion preserves actual partial routing and original input.
+// No submitted input record is created when delivery reaches nobody.
+func deriveSendCompletion(raw string, result session.RoutingResult) runtime.CommandResult {
+	completion := runtime.CommandResult{Err: result.Err}
+	delivered := result.Aliases(session.DeliveryDelivered)
+	if len(delivered) == 0 {
+		return completion
+	}
+	completion.Records = []room.Record{{
+		Kind: room.KindUserInput, Text: raw, Routing: delivered,
+		FailedRouting: result.Aliases(session.DeliveryFailed),
+		UnsentRouting: result.Aliases(session.DeliveryNotAttempted),
+	}}
+	return completion
+}
+
+// Close rejects future starts and delivery results, then releases the subscription
+// once. Unsubscribe runs outside the lock so callbacks can finish safely.
+func (i *sendInvocation) Close() {
+	i.mu.Lock()
+	i.state = sendClosed
+	unsubscribe := i.unsubscribe
+	i.unsubscribe = nil
+	i.mu.Unlock()
+	if unsubscribe != nil {
+		unsubscribe()
 	}
 }

@@ -140,39 +140,82 @@ directories are candidates, not requirements to create in one change.
 `std.SendCommand` is an unwired preparation/direct-delivery prototype.
 `SendCommand.Prepare` validates the primary participant and asks Session to create
 one policy-aware `ParticipantSendPlan`. The invocation retains that plan;
-`Staging` derives `WaitFor` (the primary) and `ToInform` (the notices) from its
-`Targets()`. Staging does not select delivery recipients. `Context.Session`
-supplies invocation-scoped `SessionExecution`; `Go(complete)` submits the native
+`Staging` derives `WaitFor` from `PrimaryParticipant()` and `ToInform`
+from the remaining `Targets()`. Staging does not select delivery recipients.
+`Context.Session` supplies shared-feed `SessionExecution`; `Go(complete)` submits the native
 `session.SendToParticipantCommand` with its retained plan. `Staging.DiscardInform`
 lets the host tell the invocation about a departed notice recipient before Go.
-Send uses `DiscardUnavailableNoticeRecipients` to update the plan. The host drops
-that alias from its waits and retains sticky departures, including same-alias
+Send uses `DiscardUnavailableNoticeRecipients` to update the plan. The lifecycle
+drops that alias from its waits and retains sticky departures, including same-alias
 replacements. An unavailable `WaitFor` alias fails staging and closes the
 invocation instead. Callbacks run on the host's serialized path before launch;
-the invocation ignores them after launch or close. Staging readiness and
-departure tracking remain unwired.
+the invocation ignores them after launch or close. Readiness and departure
+handling are proved in the unwired lifecycle against the shared-feed fake.
 The invocation constructs the
 original input record from `ParsedStatement.Raw` only if delivery reaches someone;
 partial delivery preserves both routing metadata and the execution error.
 The capability revalidates availability at delivery and owns causal session-event
-handling. No session adapter is implemented yet. Lifecycle staging still rejects
-this invocation; readiness, optional departures and publication ordering remain
-the next proof before registration or interpreter wiring.
+handling. No session adapter is implemented yet. Lifecycle staging can retain
+and release this invocation; publication ordering, admission and the adapter
+remain production integration work before registration or interpreter wiring.
 
-An unwired `InvocationLifecycle` prototype wraps one prepared invocation through
-composition. The host calls `Command.Prepare`, retains the lifecycle and calls
-`Start` with a queue-only callback bound to that lifecycle. Later, `Complete`
-consumes the queued result once; the host publishes it. After cancelling/joining
-workers and draining completions, `Close(reason)` settles unfinished work.
-The prototype rejects staging requirements until waiting is implemented. Tests
-demonstrate host code for `/who` and `/shell`. The interpreter still uses the
-stateless `CommandRunner.Go` bridge; production lifecycle ownership is unchanged.
+An unwired `InvocationLifecycle` is now a private-monitor concurrency prototype.
+It retains Context directly. Its unexported participantMonitor component owns
+subscription, collected state, initial merge, wake-up queue and stop/join mechanics;
+the lifecycle retains readiness/departure policy, launch and result settlement.
+Start explicitly selects ordinary or staged execution. Staged preparation returns
+a readiness outcome without calling Go or changing lifecycle state. Starting
+execution and handling its failure are separate steps; resource cleanup closes
+once and never changes lifecycle state implicitly.
+`Start(complete)` synchronously subscribes, collects updates into a synchronized
+alias-keyed readiness map and merges initial views only for missing aliases. The read
+must not overtake collection of lifecycle events reflected in its snapshot.
+An already-ready invocation starts immediately; otherwise the lifecycle starts
+one private monitoring routine. Its single subscription callback records facts
+and signals a buffered wake-up channel. Wake-ups coalesce; the worker evaluates
+the latest collected state. Evaluation reads a state revision; launch commits
+only if that revision is still current, freezing collection under its lock.
+Changed facts trigger reevaluation, including events collected during
+DiscardInform. Command callbacks and Go run outside the collector lock.
+No `Enqueue` capability is exposed.
 
-`Invocation.Staging() *Staging` is an unwired readiness contract draft. It returns
-frozen participant aliases or nil; `/who` and `/shell` return nil. Future staging
-will wait for idle, startup-ready participants and track sticky departures before
-calling `Go`. Invocation tracking remains in the interpreter; runner responsibility
-changes are deferred until send and staging clarify the boundary.
+The worker owns waiting advancement, optional-recipient plan changes, launch and
+failure settlement. It stops monitoring and unsubscribes before calling the
+unchanged `Invocation.Go(complete)`. A nil Go result means admission, not delivery
+or participant completion. Completion callbacks still only enqueue results for
+host publication. The Session capability must admit work safely from the monitor
+while preserving the host's serialized native execution lane. The prototype does
+not directly call raw Session or publish room records from the worker.
+
+Lifecycle state is protected separately from participant collection. Close signals
+cancellation before taking the lifecycle lock, then settles and joins monitoring.
+If launch has already committed, Close waits for Go to return admission; it cannot
+cancel native delivery itself. The host still owns admitted delivery cancellation,
+completion draining and public outcomes. A reader that blocks during initialization
+must return before Close can finish; no read-cancellation API is introduced.
+
+A nil Start result means acceptance, possibly while waiting. Initial failures
+return from Start; failures on the monitoring timeline close and enqueue settlement.
+Complete accepts a result once, preserving delayed launch failure over an earlier
+callback emitted inside the failed Go. Tests use channels for asynchronous launch
+and failure, and cover initial merges, departure ordering, partial delivery,
+initialization cancellation, readiness/discard races and monitor cleanup.
+
+The queue can only account for facts already received by its callback. Tests prove
+that collected departures precede evaluation, including ready/stop/rejoin ordering.
+The worker cannot see departures still buffered upstream. The future production
+adapter must establish collection and admission ordering; this prototype does not
+validate that adapter or guarantee atomic availability across external events.
+
+This is an explicit experiment with lifecycle-owned monitoring, departing from
+the production rule that workers only enqueue results and the coordinator advances
+workflows. Production CommandRunner, stage operations and workflow ownership are
+unchanged. The initial publication, shutdown and cancellation integration still
+needs separate review before wiring.
+
+Invocation.Staging remains the sole frozen requirement description. Participant
+facts are progress state, not another delivery plan. /who and /shell return nil
+staging and create no monitor.
 
 An interpreter-owned `runtime.Registry` registers `Command` implementations directly.
 `Command.Statement()` returns a representative AST value identifying the accepted
@@ -262,16 +305,28 @@ adapter, and loop tests against fake delivery/shell ports without a fake Session
 ### Session continuation prototype
 
 Addressed send registers a continuation through `Context.Session.Subscribe`
-before `Execute(session.Command)`. Each host handle belongs to one invocation request;
-event type and participant alias are not sufficient correlation. The host queues
-handlers on its serialized path, including events emitted during execution.
-`Execute` is asynchronous admission: delivery outcomes arrive through existing
-`session.RoutingCompleted` values. There is no polling or per-command waiter.
+before `Execute(session.Command)`. Subscribe delivers the shared Session event
+feed through one immediate callback. Send guards callback state against racing
+Close calls, checks the primary recipient, self-unsubscribes and reports records
+through the host's completion queue. Send ignores unrelated events
+and accepts `RoutingParticipantSend` only when its primary recipient matches
+`Plan.PrimaryParticipant()`. An alias appearing as a notice is insufficient.
+Tests deliver the same events to simultaneous subscriptions for different primary
+aliases. Primary-alias matching does not distinguish overlapping requests to the
+same primary; the production adapter must keep at most one such send awaiting a
+routing outcome.
 
-The native session command carries the original frozen `ParticipantSendPlan`.
-The host adapter must serialize actual session calls without reselecting recipients.
-This adapter is not implemented or wired; raw `session.Session.Execute` does not
-provide this admission contract. Tests use separate scoped handles and explicit
-queue draining. `Invocation.Close` releases subscriptions on completion, failed
-admission, or discard; lifecycle terminal paths call it once. Worker lifetime
-and public event ordering still belong to the interpreter.
+The lifecycle uses this same feed for participant readiness and departures before
+execution. Its callback records facts and wakes the private monitor.
+A snapshot read must not overtake collection of events reflected in that snapshot.
+Unsubscribe stops delivery without waiting for in-flight callbacks; callbacks
+must tolerate a racing Close. The lifecycle disables collection and joins its
+monitor, so captured callbacks cannot restore closed work.
+The capability's production adapter is still absent; raw `Session.Execute` does
+not provide asynchronous admission or a monitored subscription lifetime.
+
+The native session command retains its frozen `ParticipantSendPlan`; no execution
+path reselects recipients. `Invocation.Close` releases send continuations on
+completion, failed admission or discard. Worker lifetime, actual input-record
+publication before causal output, submission milestones and stage presentation
+remain interpreter responsibilities to prove during later wiring.

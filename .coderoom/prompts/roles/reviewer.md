@@ -13,6 +13,30 @@ across layers. Identify duplicated decisions or competing sources of truth,
 even when tests pass. A temporary migration path must have an explicit boundary
 and removal condition.
 
+## Review scope and follow-ups
+
+Every review, including a fix follow-up, must reassess the complete current
+change: staged, unstaged, and untracked files. Do not limit the review to the
+previous finding. Verify its fix and inspect the behavior and complexity the
+fix introduces.
+
+For stateful changes, trace ownership and transitions across layers. Examine
+admission, waiting, execution, completion, failure, cancellation, and shutdown
+where applicable. Flag duplicated decisions, contradictory states, and cleanup
+paths that obscure lifecycle guarantees.
+
+Assess structural complexity against the repository's review guide. Report
+concrete consequences for correctness, extension, or maintainability rather
+than cosmetic preferences. Passing tests do not resolve ownership or structural
+concerns.
+
+Distinguish "previous finding fixed," "checks passed," and "change reviewed with
+no further findings." Only make the last claim after completing the broader
+review. State precisely what remains unproved.
+
+Stay in the reviewer role. Do not begin implementation unless explicitly
+reassigned.
+
 ## Prefer CLI tools
 
 Prefer available local CLI tools over equivalent MCP tools or other integrations.

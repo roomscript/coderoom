@@ -25,17 +25,19 @@ There is no `Init`, `Next`, polling, or generic fact/expectation contract.
 **Staging** holds frozen `WaitFor` and `ToInform` aliases, or nil for no waiting.
 Both groups gate idle, startup-ready readiness; `ToInform` also receives notices.
 The command identifies its delivery targets; `WaitFor` does not imply delivery.
-The host fails staging if a `WaitFor` alias departs. For a departed `ToInform`
+The lifecycle fails staging if a `WaitFor` alias departs. For a departed `ToInform`
 alias it stops waiting and calls `DiscardInform`, which updates the delivery plan.
 Departures stay sticky. Staging is unwired; `/who` and `/shell` return nil.
 
 ## Capabilities and records
 
 **Context** supplies narrow capabilities. `ParticipantReader` exposes participant
-information without session execution access. `ShellLauncher` starts shell work
-using executor-owned workers and lifetime. Shell display text comes from its
-statement. Unwired sends subscribe through an invocation-scoped session handle,
-then call `Execute`; the host queues correlated events, never invoking inline.
+information through detached reads without session execution access.
+`ShellLauncher` starts shell work using executor-owned workers and lifetime.
+`Session.Subscribe(handle)` delivers all events immediately to one callback.
+The lifecycle callback retains synchronized facts and wakes its private monitor.
+Send handles routing results with synchronized state, filters kind and primary
+alias, and self-unsubscribes on completion. Both keep publication in host callbacks.
 `Close` releases subscriptions. Commands receive no raw model.
 
 **CommandResult** contains existing `room.Record` values and an error. Commands
@@ -53,6 +55,14 @@ and rejects late callbacks.
 Contracts and `CommandRunner` live in `runtime`; commands live in `std`.
 The unwired `InvocationLifecycle` composes a prepared invocation with
 `Start`/`Complete`/`Close`; the interpreter still uses the stateless `Go` bridge.
+It keeps Context directly and delegates subscription, queue and worker lifetime
+to an unexported participantMonitor; readiness policy and launch stay in the lifecycle.
+For staged work, it subscribes, collects updates into a synchronized map, then
+merges initial views only for missing aliases. The read must not overtake collection
+of events reflected in its snapshot. A private routine evaluates collected state without rereading Session,
+then launches once and self-unsubscribes. Close cancels and joins that routine. Departures stay sticky. Initial failures return from
+Start; later failures close and enqueue settlement. Nil Start means acceptance,
+which may still be waiting.
 `/who` prepares its original sorted alias notice and completes immediately.
 Its queued completion appends the system record after launch acknowledgement.
 The UI receives transcript deltas, with no `/who` result branch.
@@ -65,4 +75,5 @@ are separate from submission success; user commands and loops remain legacy.
 Both commands are registered. Unwired `SendCommand` retains Session's send plan,
 derives staging from it and submits the native session command with that plan.
 It returns the original input record with actual routing.
-The session admission adapter and lifecycle staging remain unwired.
+Lifecycle staging is proved with a shared-feed fake. Production admission,
+publication and stage integration remain unwired.

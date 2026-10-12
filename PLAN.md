@@ -22,20 +22,31 @@ commits to the human.
 - Session selects recipients once in `ParticipantSendPlan`. Staging derives
   readiness aliases from it. Its callback removes departed notices from the
   retained plan; it does not mutate the frozen readiness description.
-- Next: draft a small staging helper API for review before implementation or
-  wiring. The host supplies readiness snapshots and departures after projecting
-  events. Ready work starts once; otherwise retain it. Required departures fail
-  and close; optional departures drop waits and call `DiscardInform`. Keep
-  departures sticky across same-alias rejoin; discard prevents later execution.
-- `SessionExecution` is request-scoped: subscribe before native command admission,
-  queue correlated events, never invoke handlers inline. Its production adapter
-  is absent. Raw `Session.Execute` is synchronous and cannot supply that contract.
-- `InvocationLifecycle` is also unwired and currently rejects staging with
-  `ErrStagingUnsupported`. Revisit runner/lifecycle responsibilities only after
-  proving staging; keep interpreter ownership of publication and shutdown.
+- The unwired lifecycle keeps Context directly and delegates subscription,
+  state merging, queue and worker lifetime to an unexported participantMonitor.
+  Readiness/departure policy, launch and settlement remain in the lifecycle.
+  It prototypes a private monitoring routine for waiting work. Start subscribes, collects facts, and fills only missing aliases from
+  the initial list. The callback records state and signals a private wake-up
+  queue. The routine handles readiness, sticky departures, launch and failures.
+  Launch validates the evaluated state revision and freezes collection atomically;
+  updates collected during evaluation trigger a retry before dispatch.
+- Close cancels and joins monitoring; an already-committed Go may finish admission.
+  Go and completion signatures remain unchanged. Session admission must tolerate
+  calls from the monitoring timeline and still serialize native execution.
+  Subscribe remains the only event API; Enqueue has been removed.
+- The private queue sees collected facts, not departures still buffered upstream.
+  The future adapter must prove collection/read/admission ordering. Tests cover
+  ready/stop/rejoin facts collected before evaluation, initialization cancellation,
+  readiness/discard races, partial delivery and monitor cleanup.
+- This is an explicit prototype exception to coordinator-owned workflow advancement.
+  The interpreter still owns publication, admitted worker cancellation and shutdown.
+  Production CommandRunner, registered commands and legacy sends are unchanged.
+- Next: inspect this concurrency prototype before designing the production adapter
+  or wiring. Resolve source-event ordering, same-primary send ownership, causal
+  transcript publication, stage operations and shutdown integration separately.
 
-Last validation: `go test ./internal/interpreter/...` and `make lint` passed for
-the callback draft. This does not validate a production staging adapter.
+Last validation: `go test ./...`, `go test -race ./...` and `make lint` passed
+for the lifecycle staging draft. This does not validate a production staging adapter.
 
 ## Scope assessment
 
@@ -118,9 +129,9 @@ the current package until a real consumer demonstrates a useful boundary.
   Standalone `std.SendCommand` retains Session's frozen `ParticipantSendPlan`,
   deriving `Staging.WaitFor` and `ToInform` from it for readiness. It submits the
   native session command with that same plan and drafts
-  original input records and partial delivery through queued, request-scoped
-  session continuations, registered before asynchronous admission. Invocation
-  cleanup releases subscriptions on completion, failure or discard. It is
+  original input records and partial delivery through queued shared-feed
+  session continuations with explicit primary matching, registered before
+  asynchronous admission. Invocation cleanup releases subscriptions on completion, failure or discard. It is
   not registered; the real session adapter and lifecycle staging remain unwired.
   Start with the standalone `Invocation.Staging() *Staging` draft: frozen aliases
   or nil, with existing commands returning nil. The draft is not execution wiring.
@@ -131,12 +142,12 @@ the current package until a real consumer demonstrates a useful boundary.
   Prove direct delivery and partial results with a narrow fake
   adapter. Preserve submission milestones and keep existing staged sends working
   through the bridge. Review this boundary before wiring staging.
-- [ ] 2b. Addressed-send staged delivery: route the prepared plan through staging
-  and prove direct/staged delivery against the same fake adapter from 2a. The
+- [ ] 2b. Addressed-send staged delivery: the unwired lifecycle proves
+  direct/staged delivery against the same shared-feed fake adapter from 2a.
+  Production wiring is still pending. The
   `Staging.DiscardInform(alias)` draft lets send filter its retained Session plan
-  before launch; primary departures fail staging. Tracking and readiness remain
-  unwired. Preserve
-  user admission, startup readiness, atomic edit/discard/interrupt, cancellation
+  before launch; primary departures fail staging. Tracking and readiness are
+  proved but remain unwired. Preserve user admission, startup readiness, atomic edit/discard/interrupt, cancellation
   retry, partial delivery and submission milestones. Review separately from 2a;
   do not combine both sub-checkpoints into one implementation pass.
 - [ ] 3. Migrate broadcast: extend the proven delivery capability for frozen
