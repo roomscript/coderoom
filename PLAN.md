@@ -46,7 +46,13 @@ commits to the human.
   The interpreter still owns publication, admitted worker cancellation and shutdown.
   Production CommandRunner, registered commands and legacy sends are unchanged.
 - Next: inspect this concurrency prototype before designing the production adapter
-  or wiring. Resolve source-event ordering, same-primary send ownership, causal
+  or wiring. Source-boundary review proves raw Session snapshots can overtake
+  observer delivery (`TestParticipants_canOvertakeReadyNotification`), but does not
+  demonstrate unsafe send delivery or incorrect lifecycle behavior. Existing send
+  guards reject same-alias replacements despite delayed departure. Next add a
+  lifecycle regression for older collected readiness versus a newer snapshot,
+  before choosing an adapter design. See the composition doc's observed ordering
+  limitation. Resolve source-event ordering, same-primary send ownership, causal
   transcript publication, stage operations and shutdown integration separately.
 
 Last validation: `go test ./...`, `go test -race ./...` and `make lint` passed

@@ -220,6 +220,28 @@ The worker cannot see departures still buffered upstream. The future production
 adapter must establish collection and admission ordering; this prototype does not
 validate that adapter or guarantee atomic availability across external events.
 
+**Observed snapshot/event ordering limitation.**
+
+Raw `Session.Participants()` is not an observer-delivery barrier. Session commits
+state under its mutex, releases it, and then notifies observers. A preceding
+observer can block `AgentReady` while a snapshot already exposes idle,
+startup-ready state. `TestParticipants_canOvertakeReadyNotification` proves this
+with a real Session. Draining the interpreter inbox before a raw read does not
+establish collection ordering when a notification has not reached that inbox.
+
+This observation does not demonstrate unsafe send delivery. `std.SendCommand`
+retains frozen participant identities, subscribes before admission, and consumes
+routing completion once. Session checks membership and readiness at execution;
+the retained-send replacement regression proves rejection despite an uncollected
+old departure. Partial delivery is reported through the existing routing result.
+
+Before choosing an adapter design, add a lifecycle regression showing whether
+snapshot/event ordering changes waiting or failure behavior. In particular,
+initial merging preserves collected facts over snapshot entries, so an older
+collected ready fact can hide a newer busy snapshot. A source-boundary test alone
+does not prove the resulting lifecycle behavior. Production adapter design and
+wiring remain pending; this review adds no new projection or event API requirement.
+
 This is an explicit experiment with lifecycle-owned monitoring, departing from
 the production rule that workers only enqueue results and the coordinator advances
 workflows. Production CommandRunner, stage operations and workflow ownership are

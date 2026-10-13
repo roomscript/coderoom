@@ -547,6 +547,8 @@ func (s *Session) ParticipantByName(name string) (participant.View, bool) {
 // Participants returns all registered participants in one locked snapshot,
 // including startup and crashed states. Status and readiness are not rewritten
 // or filtered; consumers select recipients using the shared View predicates.
+// This is not an observer-delivery barrier: committed state may be visible
+// before its lifecycle notification reaches an observer.
 func (s *Session) Participants() []participant.View {
 	s.mu.Lock()
 	defer s.mu.Unlock()
