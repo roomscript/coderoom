@@ -12,15 +12,19 @@ This follows [#55](https://github.com/roomscript/coderoom/issues/55) and conside
 
 The current interpreter implementation has moved to `internal/interpreter/monolith`
 behind its existing interface. The public `internal/interpreter` facade initially
-delegates every request to one instance. Shared `api` contracts keep front-end
+delegates unsupported requests to one instance. `/who` is selected in the facade
+and admitted through the shared coordinator bridge. Shared `api` contracts keep front-end
 imports stable and let both implementations publish identical event and snapshot
 types without importing the parent package. `runtime` and `std` remain separate.
 
 Keep Session execution, canonical transcript projection, publication and shutdown
 with one runtime while migrating command selection. The monolith is that owner
-for this first checkpoint; no command routing or production admission changes are
-part of the package move. Production admission and same-primary routing ownership
-are the next proof. Later route a command to the modular path only when its needed
+for this checkpoint. An additive `SubmitCommand` method queues a selected runtime
+command on its existing serialized path, reusing admission checks, CommandRunner,
+completion tracking, publication and shutdown. Its command catalog and handlers,
+including `/who`, are untouched. The facade registry currently selects only `/who`.
+Native asynchronous send admission and same-primary routing ownership remain the
+next proof; this participant-read bridge does not establish either. Later route a command to the modular path only when its needed
 capabilities are proved; otherwise delegate before execution starts. Never retry
 through fallback after the selected path begins execution.
 

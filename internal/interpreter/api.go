@@ -5,6 +5,8 @@ import (
 	"context"
 
 	"github.com/roomscript/coderoom/internal/interpreter/monolith"
+	"github.com/roomscript/coderoom/internal/interpreter/runtime"
+	"github.com/roomscript/coderoom/internal/interpreter/std"
 	"github.com/roomscript/coderoom/internal/promptlang"
 )
 
@@ -12,14 +14,16 @@ import (
 type Option func(*Interpreter)
 
 // Interpreter selects migrated functionality and delegates remaining work to the
-// monolith. During this initial cutover all requests delegate to one fallback,
-// which retains execution, transcript publication, and shutdown ownership.
-type Interpreter struct{ fallback *monolith.Interpreter }
+// monolith. Both paths use the fallback's execution, publication and shutdown owner.
+type Interpreter struct {
+	fallback *monolith.Interpreter
+	commands *runtime.Registry
+}
 
 // New starts one interpreter runtime backed by sess. Options are applied through
 // the facade before the fallback starts, preserving initial observer publication.
 func New(ctx context.Context, sess SessionController, cwd string, opts ...Option) *Interpreter {
-	i := &Interpreter{}
+	i := &Interpreter{commands: newCommandRegistry()}
 	i.fallback = monolith.New(ctx, sess, cwd, func(fallback *monolith.Interpreter) {
 		i.fallback = fallback
 		for _, option := range opts {
@@ -27,6 +31,14 @@ func New(ctx context.Context, sess SessionController, cwd string, opts ...Option
 		}
 	})
 	return i
+}
+
+func newCommandRegistry() *runtime.Registry {
+	registry := runtime.NewRegistry()
+	if err := registry.Register(std.WhoCommand{}); err != nil {
+		panic(err)
+	}
+	return registry
 }
 
 // ResolveCommand returns a room-scoped command body, or ErrClosed after shutdown.

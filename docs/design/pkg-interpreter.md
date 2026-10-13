@@ -8,17 +8,22 @@ focused.
 
 The public `internal/interpreter` entry point delegates to the existing
 implementation in `internal/interpreter/monolith`. The facade retains the current
-methods and option signatures; this first move delegates all work, including
-registered `/who` and `/shell` commands. Front ends keep their existing imports.
+methods and option signatures. `/who` is now selected by the facade's runtime
+registry and executed through an additive `monolith.SubmitCommand` bridge; other
+input delegates to the original `Submit` path. The monolith's command registry and
+`/who` behavior remain intact, and `/shell` still runs through the fallback. Front ends keep their existing imports.
 Shared events, snapshots, errors and record inspection live in
 `internal/interpreter/api`, with aliases on both interfaces to preserve one set of
 contracts and avoid a parent-package import cycle.
 
 One monolith executor continues to own serialized Session execution, canonical
 room state, ordered event publication, worker lifetime and shutdown. The facade
-adds no second observer, transcript, queue or runtime. Later migrated commands
-will use shared admission/publication capabilities rather than execute Session
-independently. Choose the modular or fallback path before execution and retain it
+adds no second observer, transcript, queue or runtime. The bridge checks existing
+stage admission and executes the selected command through `CommandRunner`, sharing
+invocation tracking, completion publication and shutdown. Parse failures and
+unsupported statements use the unchanged fallback parser/admission rules. Later
+send commands still need native asynchronous admission and result ownership; they
+must not execute Session independently. Choose the modular or fallback path before execution and retain it
 through completion; do not fall back after an execution failure.
 
 Implementation filenames discussed below and in the workflow design refer to

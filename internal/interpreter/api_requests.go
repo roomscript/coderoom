@@ -1,7 +1,15 @@
 package interpreter
 
+import "github.com/roomscript/coderoom/internal/promptlang"
+
 // Submit queues prompt-language input, or returns ErrClosed after shutdown.
 func (i *Interpreter) Submit(raw string) error {
+	statement, err := promptlang.Parse(raw)
+	if err == nil {
+		if command, ok := i.commands.Lookup(statement); ok {
+			return i.fallback.SubmitCommand(command, statement) //nolint:wrapcheck // Preserve coordinator error identity.
+		}
+	}
 	return i.fallback.Submit(raw) //nolint:wrapcheck // Preserve existing facade error identity.
 }
 

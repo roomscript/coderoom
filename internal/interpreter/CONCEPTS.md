@@ -4,8 +4,11 @@
 options remain available to the CLI and front ends. The current implementation
 lives in `monolith`, preserving its interface and behavior.
 
-The facade initially delegates all requests to one monolith instance, including
-the registered `/who` and `/shell` module paths. The monolith remains the sole
+The facade selects `/who` through its own runtime registry. It submits the selected
+command through the additive `monolith.SubmitCommand` bridge, which queues it on
+the existing coordinator and uses `runtime.CommandRunner`. Other statements and
+parse failures delegate to the original `Submit` interface before execution.
+The monolith's `/who` handler and registry remain intact; `/shell` still uses them. The monolith remains the sole
 owner of Session execution, canonical room state, ordered publication, admitted
 workers and shutdown. The facade adds no observer, execution queue or transcript.
 
@@ -14,11 +17,15 @@ inspection helpers. Both the facade and monolith alias these contracts, so the
 monolith never imports its parent package and event types need no conversion.
 `runtime` and `std` stay independent command contracts and modules.
 
-The next capability is serialized production admission shared by modular commands
-and fallback work. Command selection will happen before execution; an invocation
-stays on its selected path through completion. An execution error must not cause
-fallback and duplicate work. No command selection or admission cutover is included
-in this package move.
+The shared bridge owns stage admission, detached participant reads, invocation
+identity, launch acknowledgement, queued completion publication and shutdown.
+The facade adds only command selection; it never retries through fallback after a
+selected command fails. Unsupported input is parsed again by the unchanged legacy
+Submit path, preserving its admission-before-syntax-error behavior.
+
+Native asynchronous send admission and same-primary result ownership remain the
+next capability. Session delivery and InvocationLifecycle staging are unwired;
+the bridge currently supplies participant reads and the existing shell launcher.
 
 Start at `api.go` and `api_requests.go` for the facade; see
 [monolith concepts](monolith/CONCEPTS.md) for current execution algorithms and

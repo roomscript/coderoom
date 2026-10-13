@@ -79,3 +79,10 @@ derives staging from it and submits the native session command with that plan.
 It returns the original input record with actual routing.
 Lifecycle staging is proved with a shared-feed fake. Production admission,
 publication and stage integration remain unwired.
+
+The public interpreter now selects `/who` in its runtime registry and queues it
+through `monolith.SubmitCommand`. The existing coordinator supplies participant
+reads and runs CommandRunner, preserving acknowledgement, completion identity,
+publication and shutdown. `/shell` and unsupported input still use legacy dispatch;
+the monolith's existing `/who` path remains available. Native send admission and
+lifecycle staging remain unwired.

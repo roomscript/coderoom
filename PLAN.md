@@ -13,7 +13,9 @@ the issue is complete.
 Current checkpoint: the public interpreter facade now delegates to the existing
 implementation in `internal/interpreter/monolith`, with shared `api` contracts.
 The monolith still owns execution, transcript publication and shutdown; the facade
-adds no runtime and initially delegates every request. Command routing is unchanged.
+adds no runtime. It now selects `/who` in its own registry and uses the additive
+`monolith.SubmitCommand` bridge for serialized admission and execution; other input
+uses the original fallback. Existing monolith command handlers are untouched.
 The send and staging prototypes remain **unwired**. `/who` and
 `/shell` are registered; production addressed send still uses its legacy path.
 Read `internal/interpreter/std/CONCEPTS.md` for the short concept agreement, then
@@ -67,8 +69,14 @@ commits to the human.
   snapshots and ordered change subscriptions. Session retains runtime bookkeeping
   and translates participant facts into Session events. Group shares the Session
   state lock; no transition separately queues facts or flushes callbacks.
-- Next: prove production admission and same-primary ownership through the shared
-  monolith execution owner before routing commands in the new facade.
+- `/who` now proves facade selection and the shared coordinator bridge. It uses
+  CommandRunner, stage admission, detached reads, invocation identity, acknowledgement,
+  completion publication and shutdown without changing the monolith's handlers.
+  Invalid or unsupported input delegates before execution; selected-command errors
+  never retry through fallback.
+- Next: prove native asynchronous send admission and same-primary ownership through
+  that shared execution owner. The `/who` bridge does not yet provide Session
+  delivery or lifecycle staging.
   Resolve same-primary send ownership, causal transcript publication, stage
   operations and shutdown integration separately. Registered commands and legacy
   sends remain unchanged.
@@ -160,6 +168,11 @@ the current package until a real consumer demonstrates a useful boundary.
   all work to one runtime, with no routing changes. Public API tests stay at the
   facade boundary; implementation tests move with the monolith. This is separate
   from admission and command wiring.
+- [x] 1c. Wire one modular facade command: `/who` is selected through the facade
+  runtime registry and queued through the additive `monolith.SubmitCommand` bridge.
+  Existing monolith files/handlers remain unchanged. Regressions prove selection,
+  publication order, duplicate completion rejection, accepted work at shutdown,
+  stage admission, source identity and existing /who output.
 - [ ] 2a. Addressed-send preparation and direct delivery:
   Standalone `std.SendCommand` retains Session's frozen `ParticipantSendPlan`,
   deriving `Staging.WaitFor` and `ToInform` from it for readiness. It submits the
