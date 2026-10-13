@@ -163,7 +163,7 @@ participants for the remainder of the room.
 
 ## Learn more
 
-- [coderoom overview and engineering ideas](https://www.trigosec.com/coderoom)
+- [coderoom overview and engineering ideas](https://g18a.com/coderoom)
 - [Prompt language](docs/design/prompt-language.md)
 - [Participant roles](docs/design/participant-roles.md)
 - [Architecture](docs/design/architecture.md)
