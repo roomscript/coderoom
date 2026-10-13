@@ -13,7 +13,7 @@ the issue is complete.
 Current checkpoint: the public interpreter facade now delegates to the existing
 implementation in `internal/interpreter/monolith`, with shared `api` contracts.
 The monolith still owns execution, transcript publication and shutdown; the facade
-adds no runtime. It now selects `/who` in its own registry and uses the additive
+adds no runtime. It now selects `/who` and `/shell` in its own registry and uses the additive
 `monolith.SubmitCommand` bridge for serialized admission and execution; other input
 uses the original fallback. Existing monolith command handlers are untouched.
 The send and staging prototypes remain **unwired**. `/who` and
@@ -173,6 +173,9 @@ the current package until a real consumer demonstrates a useful boundary.
   Existing monolith files/handlers remain unchanged. Regressions prove selection,
   publication order, duplicate completion rejection, accepted work at shutdown,
   stage admission, source identity and existing /who output.
+- [x] 1d. Wire `/shell` through the facade registry and the same coordinator bridge.
+  Verify structured output and execution errors, launch-before-completion ordering,
+  and cancellation with joined shutdown. Existing monolith handlers remain intact.
 - [ ] 2a. Addressed-send preparation and direct delivery:
   Standalone `std.SendCommand` retains Session's frozen `ParticipantSendPlan`,
   deriving `Staging.WaitFor` and `ToInform` from it for readiness. It submits the

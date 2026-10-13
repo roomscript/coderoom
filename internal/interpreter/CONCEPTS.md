@@ -4,11 +4,11 @@
 options remain available to the CLI and front ends. The current implementation
 lives in `monolith`, preserving its interface and behavior.
 
-The facade selects `/who` through its own runtime registry. It submits the selected
+The facade selects `/who` and `/shell` through its own runtime registry. It submits the selected
 command through the additive `monolith.SubmitCommand` bridge, which queues it on
 the existing coordinator and uses `runtime.CommandRunner`. Other statements and
 parse failures delegate to the original `Submit` interface before execution.
-The monolith's `/who` handler and registry remain intact; `/shell` still uses them. The monolith remains the sole
+The monolith's command handlers and registry remain intact. The monolith remains the sole
 owner of Session execution, canonical room state, ordered publication, admitted
 workers and shutdown. The facade adds no observer, execution queue or transcript.
 

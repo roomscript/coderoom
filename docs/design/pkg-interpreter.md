@@ -8,10 +8,10 @@ focused.
 
 The public `internal/interpreter` entry point delegates to the existing
 implementation in `internal/interpreter/monolith`. The facade retains the current
-methods and option signatures. `/who` is now selected by the facade's runtime
+methods and option signatures. `/who` and `/shell` are now selected by the facade's runtime
 registry and executed through an additive `monolith.SubmitCommand` bridge; other
 input delegates to the original `Submit` path. The monolith's command registry and
-`/who` behavior remain intact, and `/shell` still runs through the fallback. Front ends keep their existing imports.
+handlers remain intact. Front ends keep their existing imports.
 Shared events, snapshots, errors and record inspection live in
 `internal/interpreter/api`, with aliases on both interfaces to preserve one set of
 contracts and avoid a parent-package import cycle.

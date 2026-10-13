@@ -1,7 +1,7 @@
 # Interpreter composition: discussion draft
 
-Status: incremental experiment. `/who` calls the new runner through its legacy
-completion path; module registration and shell execution capabilities remain proposals.
+Status: incremental migration. The facade selects `/who` and `/shell` through its
+registry; the monolith retains execution and publication ownership.
 
 This follows [#55](https://github.com/roomscript/coderoom/issues/55) and considers
 [#39](https://github.com/roomscript/coderoom/issues/39). The existing contracts in
@@ -12,7 +12,7 @@ This follows [#55](https://github.com/roomscript/coderoom/issues/55) and conside
 
 The current interpreter implementation has moved to `internal/interpreter/monolith`
 behind its existing interface. The public `internal/interpreter` facade initially
-delegates unsupported requests to one instance. `/who` is selected in the facade
+delegates unsupported requests to one instance. `/who` and `/shell` are selected in the facade
 and admitted through the shared coordinator bridge. Shared `api` contracts keep front-end
 imports stable and let both implementations publish identical event and snapshot
 types without importing the parent package. `runtime` and `std` remain separate.
@@ -22,9 +22,9 @@ with one runtime while migrating command selection. The monolith is that owner
 for this checkpoint. An additive `SubmitCommand` method queues a selected runtime
 command on its existing serialized path, reusing admission checks, CommandRunner,
 completion tracking, publication and shutdown. Its command catalog and handlers,
-including `/who`, are untouched. The facade registry currently selects only `/who`.
+including `/who`, are untouched. The facade registry currently selects `/who` and `/shell`.
 Native asynchronous send admission and same-primary routing ownership remain the
-next proof; this participant-read bridge does not establish either. Later route a command to the modular path only when its needed
+next proof; this command bridge does not establish either. Later route a command to the modular path only when its needed
 capabilities are proved; otherwise delegate before execution starts. Never retry
 through fallback after the selected path begins execution.
 

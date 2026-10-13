@@ -124,7 +124,7 @@ The public interpreter now delegates to `internal/interpreter/monolith` during
 command migration. The monolith remains the single execution, transcript,
 publication and shutdown owner. Shared `internal/interpreter/api` contracts keep
 front-end methods, events and snapshots stable; `runtime` and `std` remain command
-contracts and modules. `/who` is selected in the facade and queued through a narrow
+contracts and modules. `/who` and `/shell` are selected in the facade and queued through a narrow
 `monolith.SubmitCommand` bridge; other commands use the existing fallback. The
 monolith's catalog and handlers remain intact, with no independent execution or
 publication pipeline.

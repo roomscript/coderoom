@@ -38,6 +38,9 @@ func newCommandRegistry() *runtime.Registry {
 	if err := registry.Register(std.WhoCommand{}); err != nil {
 		panic(err)
 	}
+	if err := registry.Register(std.ShellCommand{}); err != nil {
+		panic(err)
+	}
 	return registry
 }
 
