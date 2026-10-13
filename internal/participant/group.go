@@ -2,21 +2,25 @@ package participant
 
 import "fmt"
 
-// Registry tracks current participants in a session by name.
-// It is not safe for concurrent use; the caller is responsible for synchronisation.
-type Registry struct {
-	participants map[string]*Participant
-	colors       colorAllocator
+// Group owns participant membership, detached snapshots, and ordered change
+// subscriptions. The owner serializes Group access with its state lock; participant
+// changes and subscription capture must use that same lock. Deliver callbacks only
+// after releasing it. Subscriptions synchronize their own delivery queues.
+type Group struct {
+	participants        map[string]*Participant
+	colors              colorAllocator
+	subscriptions       map[*Subscription]struct{}
+	subscriptionsClosed bool
 }
 
-// NewRegistry returns an empty Registry.
-func NewRegistry() *Registry {
-	return &Registry{participants: make(map[string]*Participant)}
+// NewGroup returns an empty Group.
+func NewGroup() *Group {
+	return &Group{participants: make(map[string]*Participant)}
 }
 
 // Add registers an already-identified participant without changing its alias.
 // Returns an error if p is nil, its ID is zero, or its name is empty or taken.
-func (r *Registry) Add(p *Participant) error {
+func (g *Group) Add(p *Participant) error {
 	if p == nil {
 		return fmt.Errorf("participant must not be nil")
 	}
@@ -26,34 +30,34 @@ func (r *Registry) Add(p *Participant) error {
 	if p.Alias.ID == (ID{}) {
 		return fmt.Errorf("participant ID must not be zero")
 	}
-	if _, exists := r.participants[p.Alias.Name]; exists {
+	if _, exists := g.participants[p.Alias.Name]; exists {
 		return fmt.Errorf("participant %q already registered", p.Alias.Name)
 	}
-	p.Color = r.colors.next()
-	r.participants[p.Alias.Name] = p
+	p.Color = g.colors.next()
+	g.participants[p.Alias.Name] = p
 	return nil
 }
 
 // Get returns the current participant with the given name.
-func (r *Registry) Get(name string) (*Participant, bool) {
-	p, ok := r.participants[name]
+func (g *Group) Get(name string) (*Participant, bool) {
+	p, ok := g.participants[name]
 	return p, ok
 }
 
 // Remove removes the current participant with the given name.
 // Returns an error if the name is not found.
-func (r *Registry) Remove(name string) error {
-	if _, exists := r.participants[name]; !exists {
+func (g *Group) Remove(name string) error {
+	if _, exists := g.participants[name]; !exists {
 		return fmt.Errorf("participant %q not found", name)
 	}
-	delete(r.participants, name)
+	delete(g.participants, name)
 	return nil
 }
 
-// List returns all registered participants in unspecified order.
-func (r *Registry) List() []*Participant {
-	result := make([]*Participant, 0, len(r.participants))
-	for _, p := range r.participants {
+// List returns all registered participants in unspecified ordeg.
+func (g *Group) List() []*Participant {
+	result := make([]*Participant, 0, len(g.participants))
+	for _, p := range g.participants {
 		result = append(result, p)
 	}
 	return result
@@ -64,9 +68,9 @@ func (r *Registry) List() []*Participant {
 // currently in StatusStarting, StatusPreparing, StatusKeepalive, StatusAttached,
 // or StatusCrashed.
 // Order is unspecified.
-func (r *Registry) ListAvailable() []*Participant {
+func (g *Group) ListAvailable() []*Participant {
 	var out []*Participant
-	for _, p := range r.participants {
+	for _, p := range g.participants {
 		if p.Agent == nil {
 			continue
 		}
@@ -80,9 +84,9 @@ func (r *Registry) ListAvailable() []*Participant {
 
 // ListStarting returns all participants currently in StatusStarting.
 // Order is unspecified.
-func (r *Registry) ListStarting() []*Participant {
+func (g *Group) ListStarting() []*Participant {
 	var out []*Participant
-	for _, p := range r.participants {
+	for _, p := range g.participants {
 		if p.Status == StatusStarting {
 			out = append(out, p)
 		}
@@ -92,9 +96,9 @@ func (r *Registry) ListStarting() []*Participant {
 
 // ListCrashed returns all participants currently in StatusCrashed.
 // Order is unspecified.
-func (r *Registry) ListCrashed() []*Participant {
+func (g *Group) ListCrashed() []*Participant {
 	var out []*Participant
-	for _, p := range r.participants {
+	for _, p := range g.participants {
 		if p.Status == StatusCrashed {
 			out = append(out, p)
 		}
@@ -104,9 +108,9 @@ func (r *Registry) ListCrashed() []*Participant {
 
 // ListWorking returns all participants currently in StatusWorking.
 // Order is unspecified.
-func (r *Registry) ListWorking() []*Participant {
+func (g *Group) ListWorking() []*Participant {
 	var out []*Participant
-	for _, p := range r.participants {
+	for _, p := range g.participants {
 		if p.Status == StatusWorking {
 			out = append(out, p)
 		}
@@ -114,8 +118,8 @@ func (r *Registry) ListWorking() []*Participant {
 	return out
 }
 
-func (r *Registry) hasStatus(s Status) bool {
-	for _, p := range r.participants {
+func (g *Group) hasStatus(s Status) bool {
+	for _, p := range g.participants {
 		if p.Status == s {
 			return true
 		}
@@ -124,16 +128,16 @@ func (r *Registry) hasStatus(s Status) bool {
 }
 
 // HasStarting reports whether any participant is currently in StatusStarting.
-func (r *Registry) HasStarting() bool { return r.hasStatus(StatusStarting) }
+func (g *Group) HasStarting() bool { return g.hasStatus(StatusStarting) }
 
 // HasAttached reports whether any participant is currently in StatusAttached.
-func (r *Registry) HasAttached() bool { return r.hasStatus(StatusAttached) }
+func (g *Group) HasAttached() bool { return g.hasStatus(StatusAttached) }
 
 // HasCrashed reports whether any participant is currently in StatusCrashed.
-func (r *Registry) HasCrashed() bool { return r.hasStatus(StatusCrashed) }
+func (g *Group) HasCrashed() bool { return g.hasStatus(StatusCrashed) }
 
 // HasWorking reports whether any participant is currently in StatusWorking.
-func (r *Registry) HasWorking() bool { return r.hasStatus(StatusWorking) }
+func (g *Group) HasWorking() bool { return g.hasStatus(StatusWorking) }
 
 // HasKeepalive reports whether any participant is currently in StatusKeepalive.
-func (r *Registry) HasKeepalive() bool { return r.hasStatus(StatusKeepalive) }
+func (g *Group) HasKeepalive() bool { return g.hasStatus(StatusKeepalive) }

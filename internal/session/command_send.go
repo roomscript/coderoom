@@ -88,7 +88,7 @@ func (s *Session) CreateParticipantSendPlan(primaryAlias participant.Alias) Part
 	if !s.policies.Enabled(policy.SendNotices) {
 		return plan
 	}
-	for _, p := range s.registry.List() {
+	for _, p := range s.participants.List() {
 		if p.Status == participant.StatusCrashed {
 			continue
 		}

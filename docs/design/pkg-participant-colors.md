@@ -13,7 +13,7 @@ architecture and is not yet reflected in the current code.
 
 ## Goal
 
-`participant.Registry` should assign every participant a stable, readable
+`participant.Group` should assign every participant a stable, readable
 colour without depending on a short, predefined list. The candidate space is
 the full 24-bit sRGB range expressible as CSS/HTML hex colours (`#RRGGBB`); this
 does not mean maintaining a list of every value or using CSS named colours.

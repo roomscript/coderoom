@@ -113,6 +113,11 @@ func (d *sendDelivery) Participants() []participant.View {
 	return snapshot
 }
 
+func (d *sendDelivery) SubscribeParticipants(handle func(session.Event)) ([]participant.View, func()) {
+	unsubscribe := d.Subscribe(handle)
+	return d.Participants(), unsubscribe
+}
+
 func (d *sendDelivery) Execute(command session.Command) error {
 	request := command.(session.SendToParticipantCommand)
 	d.mu.Lock()

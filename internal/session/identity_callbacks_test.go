@@ -131,9 +131,7 @@ func registerReplacementForCallback(t *testing.T, s *Session, status participant
 	s.CreateAgentRuntime(original.Alias)
 	oldCtx := s.CreateAgentContext(original.Alias)
 	s.cancelAgentContext(original.Alias)
-	s.mu.Lock()
-	s.removeParticipantLocked(original.Alias)
-	s.mu.Unlock()
+	s.changeParticipants(func() { s.removeParticipantLocked(original.Alias) })
 	if oldCtx.Err() == nil {
 		t.Fatal("old participant context remained live after removal")
 	}

@@ -158,6 +158,13 @@ func (h *sendSessionHost) Participants() []participant.View {
 	return h.Session.Participants()
 }
 
+// This negative fixture deliberately violates the atomic boundary, preserving
+// the stale snapshot/final Session guard cases independently of the real API.
+func (h *sendSessionHost) SubscribeParticipants(handle func(session.Event)) ([]participant.View, func()) {
+	unsubscribe := h.Subscribe(handle)
+	return h.Participants(), unsubscribe
+}
+
 func (h *sendSessionHost) OnEvent(event session.Event) {
 	h.subscriptions.mu.Lock()
 	h.subscriptions.queue = append(h.subscriptions.queue, event)

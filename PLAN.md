@@ -25,38 +25,52 @@ commits to the human.
   The plan retains private participant-instance references so Session rejects
   same-alias replacements even before their departure events reach staging.
   A real-Session send regression covers a blocked departure during initialization.
-  This delivery guard does not resolve snapshot/event ordering for the adapter.
+  Snapshot/event ordering is now handled separately by Session's atomic
+  `SubscribeParticipants` boundary; production admission remains unwired.
 - The unwired lifecycle keeps Context directly and delegates subscription,
   state merging, queue and worker lifetime to an unexported participantMonitor.
   Readiness/departure policy, launch and settlement remain in the lifecycle.
-  It prototypes a private monitoring routine for waiting work. Start subscribes, collects facts, and fills only missing aliases from
-  the initial list. The callback records state and signals a private wake-up
-  queue. The routine handles readiness, sticky departures, launch and failures.
+  It prototypes a private monitoring routine for waiting work. Start atomically
+  captures initial views and subscribes to subsequent facts through
+  `SubscribeParticipants`, then fills only missing aliases from the initial list.
+  The callback records state and signals a private wake-up queue. The routine handles readiness, sticky departures, launch and failures.
   Launch validates the evaluated state revision and freezes collection atomically;
   updates collected during evaluation trigger a retry before dispatch.
 - Close cancels and joins monitoring; an already-committed Go may finish admission.
   Go and completion signatures remain unchanged. Session admission must tolerate
   calls from the monitoring timeline and still serialize native execution.
-  Subscribe remains the only event API; Enqueue has been removed.
+  `Subscribe` handles routing continuations; `SubscribeParticipants` supplies
+  atomic lifecycle initialization. Enqueue remains removed.
 - The private queue sees collected facts, not departures still buffered upstream.
-  The future adapter must prove collection/read/admission ordering. Tests cover
-  ready/stop/rejoin facts collected before evaluation, initialization cancellation,
+  Session queues lifecycle facts with mutations and excludes pre-snapshot facts
+  from new subscriptions. The future adapter must preserve this boundary and
+  prove admission ordering. Tests cover ready/stop/rejoin facts collected before evaluation, initialization cancellation,
   readiness/discard races, partial delivery and monitor cleanup.
 - This is an explicit prototype exception to coordinator-owned workflow advancement.
   The interpreter still owns publication, admitted worker cancellation and shutdown.
   Production CommandRunner, registered commands and legacy sends are unchanged.
-- Next: inspect this concurrency prototype before designing the production adapter
-  or wiring. Source-boundary review proves raw Session snapshots can overtake
-  observer delivery (`TestParticipants_canOvertakeReadyNotification`), but does not
-  demonstrate unsafe send delivery or incorrect lifecycle behavior. Existing send
-  guards reject same-alias replacements despite delayed departure. Next add a
-  lifecycle regression for older collected readiness versus a newer snapshot,
-  before choosing an adapter design. See the composition doc's observed ordering
-  limitation. Resolve source-event ordering, same-primary send ownership, causal
-  transcript publication, stage operations and shutdown integration separately.
+- The atomic snapshot/subscription boundary is implemented separately from
+  production wiring.
+  A real-Session lifecycle regression retains work on a busy snapshot despite a
+  delayed ordinary ready notification, then launches once on the next idle fact.
+  Another preserves newer idle facts arriving before the initial snapshot returns.
+  Source tests cover callback serialization, pre-snapshot exclusion, readiness,
+  removal/replacement, unsubscribe and shutdown. The earlier unordered fake remains
+  a negative contract test; snapshot precedence is unchanged.
+- Lifecycle transitions now use one `changeParticipants` boundary that owns
+  locking, before/after view capture and post-unlock delivery. Callers only describe
+  the participant change. `participant.Group` replaces Registry and owns membership,
+  snapshots and ordered change subscriptions. Session retains runtime bookkeeping
+  and translates participant facts into Session events. Group shares the Session
+  state lock; no transition separately queues facts or flushes callbacks.
+- Next: review this atomic subscription boundary, then design production admission.
+  Resolve same-primary send ownership, causal transcript publication, stage
+  operations and shutdown integration separately. Registered commands and legacy
+  sends remain unchanged.
 
 Last validation: `go test ./...`, `go test -race ./...` and `make lint` passed
-for the lifecycle staging draft. This does not validate a production staging adapter.
+for the atomic participant subscription and lifecycle staging draft. This does
+not validate a production staging adapter.
 
 ## Scope assessment
 

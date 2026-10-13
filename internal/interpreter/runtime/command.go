@@ -10,9 +10,8 @@ import (
 	"github.com/roomscript/coderoom/internal/shell"
 )
 
-// ParticipantReader returns a fresh detached view on each call. For subscribed
-// collectors, lifecycle events represented by the view must be collected before
-// this read returns, so initialization can preserve events over snapshot entries.
+// ParticipantReader returns a fresh detached view on each call. This inspection
+// capability does not establish lifecycle event-collection ordering.
 // It is a read capability, not a session execution handle.
 type ParticipantReader interface {
 	Participants() []participant.View
@@ -43,6 +42,11 @@ type ShellLauncher interface {
 // This prototype has no production adapter yet.
 type SessionExecution interface {
 	Subscribe(handle func(session.Event)) (unsubscribe func())
+	// SubscribeParticipants atomically returns initial state and subscribes to
+	// subsequent lifecycle facts in mutation order. It never replays facts from
+	// before that snapshot. Callbacks may race its return, but are not inline;
+	// unsubscribe has the same non-blocking semantics as Subscribe.
+	SubscribeParticipants(handle func(session.Event)) (initial []participant.View, unsubscribe func())
 	ParticipantByName(name string) (participant.View, bool)
 	CreateParticipantSendPlan(alias participant.Alias) session.ParticipantSendPlan
 	Execute(command session.Command) error

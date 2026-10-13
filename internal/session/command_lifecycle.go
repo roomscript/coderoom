@@ -102,9 +102,7 @@ func startInvitedAgent(alias participant.Alias, a agent.Agent, s *Session) {
 
 func stopUnreadyParticipant(alias participant.Alias, a agent.Agent, s *Session) {
 	s.cancelAgentContext(alias)
-	s.mu.Lock()
-	s.removeParticipantLocked(alias)
-	s.mu.Unlock()
+	s.changeParticipants(func() { s.removeParticipantLocked(alias) })
 	_ = a.Stop()
 }
 

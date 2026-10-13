@@ -94,8 +94,8 @@ func (l *InvocationLifecycle) validateStart(enqueueCompletion func(CommandResult
 }
 
 func (l *InvocationLifecycle) startStagedInvocation() error {
-	if l.ctx.Participants == nil || l.ctx.Session == nil {
-		return errors.New("staging requires participant reads and session events")
+	if l.ctx.Session == nil {
+		return errors.New("staging requires participant lifecycle subscription")
 	}
 	l.state = invocationWaiting
 	l.discardedInform = make(map[participant.Alias]bool)

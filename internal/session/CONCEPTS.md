@@ -45,3 +45,9 @@ Session membership. Commands, frozen plans, and runtime events retain aliases.
 Runtime/context maps use those aliases, and background callbacks validate them
 before mutation. Routing outcomes retain instance aliases and derive names for
 display; they do not maintain parallel recipient selections.
+
+`participant.Group` owns membership, color allocation, detached views and ordered
+change subscriptions. Session's `changeParticipants` boundary holds its state lock
+while changing participants and runtime bookkeeping, asks Group to capture facts,
+then delivers them after unlocking. Group reports participant-owned status,
+readiness and removal changes; Session translates them into lifecycle events.

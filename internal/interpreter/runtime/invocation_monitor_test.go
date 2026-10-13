@@ -13,11 +13,12 @@ import (
 )
 
 type monitorHost struct {
-	mu      sync.Mutex
-	handle  func(session.Event)
-	views   []participant.View
-	entered chan struct{}
-	release chan struct{}
+	mu         sync.Mutex
+	handle     func(session.Event)
+	views      []participant.View
+	entered    chan struct{}
+	release    chan struct{}
+	beforeRead func()
 }
 
 func (h *monitorHost) Subscribe(handle func(session.Event)) func() {
@@ -32,11 +33,19 @@ func (h *monitorHost) Subscribe(handle func(session.Event)) func() {
 }
 
 func (h *monitorHost) Participants() []participant.View {
+	if h.beforeRead != nil {
+		h.beforeRead()
+	}
 	if h.entered != nil {
 		close(h.entered)
 		<-h.release
 	}
 	return slices.Clone(h.views)
+}
+
+func (h *monitorHost) SubscribeParticipants(handle func(session.Event)) ([]participant.View, func()) {
+	unsubscribe := h.Subscribe(handle)
+	return h.Participants(), unsubscribe
 }
 
 func (h *monitorHost) ParticipantByName(name string) (participant.View, bool) {
@@ -67,10 +76,11 @@ func (*monitorHost) Execute(session.Command) error {
 }
 
 type monitorInvocation struct {
-	staging  *Staging
-	started  chan struct{}
-	launches atomic.Int32
-	closes   atomic.Int32
+	staging   *Staging
+	started   chan struct{}
+	launches  atomic.Int32
+	closes    atomic.Int32
+	launchErr error
 }
 
 func (i *monitorInvocation) Staging() *Staging { return i.staging }
@@ -78,7 +88,7 @@ func (i *monitorInvocation) Close()            { i.closes.Add(1) }
 func (i *monitorInvocation) Go(func(CommandResult)) error {
 	i.launches.Add(1)
 	i.started <- struct{}{}
-	return nil
+	return i.launchErr
 }
 
 func newWaitingMonitor() (*InvocationLifecycle, *monitorHost, *monitorInvocation) {
@@ -101,6 +111,81 @@ func waitMonitorSignal(t *testing.T, signal <-chan struct{}) {
 	case <-signal:
 	case <-time.After(3 * time.Second):
 		t.Fatal("monitor did not reach synchronization point")
+	}
+}
+
+// Missing collection ordering is a host contract violation, not unsafe native
+// delivery: the execution guard rejects busy work, but staging fails to retain it.
+func TestInvocationMonitor_InitialBusySnapshotRequiresCollectedBusyFact(t *testing.T) {
+	for _, ordered := range []bool{false, true} {
+		t.Run(map[bool]string{false: "busy fact pending upstream", true: "busy fact collected before read returns"}[ordered], func(t *testing.T) {
+			lifecycle, host, invocation := newWaitingMonitor()
+			defer lifecycle.Close(errors.New("cleanup"))
+			ada := invocation.staging.WaitFor[0]
+			invocation.staging.ToInform = nil
+			busyErr := errors.New("execution rejected busy participant")
+			invocation.launchErr = busyErr
+			host.beforeRead = func() {
+				handle := host.callback()
+				handle(session.AgentReady{Alias: ada})
+				if ordered {
+					handle(session.ParticipantStatusChanged{
+						Alias: ada, From: participant.StatusIdle, To: participant.StatusWorking,
+					})
+				}
+			}
+			results := make(chan CommandResult, 1)
+			err := lifecycle.Start(func(result CommandResult) { results <- result })
+			if !ordered {
+				if !errors.Is(err, busyErr) || invocation.launches.Load() != 1 {
+					t.Fatalf("unordered initialization = %v, launches = %d; want execution rejection", err, invocation.launches.Load())
+				}
+				if len(results) != 0 || invocation.closes.Load() != 1 || host.callback() != nil {
+					t.Fatal("failed initial launch retained resources or queued completion")
+				}
+				return
+			}
+			assertInitialBusyMonitorResumes(t, lifecycle, host, invocation, err, results)
+		})
+	}
+}
+
+func assertInitialBusyMonitorResumes(t *testing.T, lifecycle *InvocationLifecycle, host *monitorHost, invocation *monitorInvocation, err error, results <-chan CommandResult) {
+	t.Helper()
+	if err != nil || invocation.launches.Load() != 0 || host.callback() == nil {
+		t.Fatalf("ordered initialization did not retain waiting work: %v", err)
+	}
+	invocation.launchErr = nil
+	host.callback()(session.ParticipantStatusChanged{
+		Alias: invocation.staging.WaitFor[0], From: participant.StatusWorking, To: participant.StatusIdle,
+	})
+	waitMonitorSignal(t, invocation.started)
+	waitMonitorSignal(t, lifecycle.monitor.done)
+	if invocation.launches.Load() != 1 || host.callback() != nil || len(results) != 0 {
+		t.Fatal("readiness did not launch exactly once and release monitoring")
+	}
+}
+
+func TestInvocationMonitor_InitialBusySnapshotPreservesLaterReadyFact(t *testing.T) {
+	lifecycle, host, invocation := newWaitingMonitor()
+	defer lifecycle.Close(errors.New("cleanup"))
+	ada := invocation.staging.WaitFor[0]
+	invocation.staging.ToInform = nil
+	host.beforeRead = func() {
+		handle := host.callback()
+		// The busy snapshot was captured before the participant became idle.
+		handle(session.ParticipantStatusChanged{
+			Alias: ada, From: participant.StatusIdle, To: participant.StatusWorking,
+		})
+		handle(session.ParticipantStatusChanged{
+			Alias: ada, From: participant.StatusWorking, To: participant.StatusIdle,
+		})
+	}
+	if err := lifecycle.Start(func(CommandResult) {}); err != nil {
+		t.Fatal(err)
+	}
+	if invocation.launches.Load() != 1 || host.callback() != nil {
+		t.Fatal("older busy snapshot hid the collected readiness or retained monitoring")
 	}
 }
 

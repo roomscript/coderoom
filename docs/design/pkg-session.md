@@ -142,6 +142,28 @@ type Observer interface {
 
 Implementations must be fast; avoid operations that can block for non-trivial time. A blocking observer will stall all agent reader goroutines. If an observer needs to process events on its own goroutine, it puts the event on an internal queue inside its `OnEvent` implementation — the session controller is not responsible for that decoupling.
 
+`SubscribeParticipants(handle)` supplies a separate lifecycle capability for
+retained interpreter work. It atomically captures detached initial participant
+views and installs a subscription under the Session state lock. Subsequent status,
+startup-readiness and removal facts are captured by one `changeParticipants`
+boundary: lock, snapshot, apply the change, capture facts, unlock, deliver.
+Callers describe only the state or membership change; they never queue or flush
+notifications. The boundary compares detached views before and after the change,
+so an observed lifecycle transaction takes two lightweight Group snapshots. Stream
+fragment bookkeeping does not pass through this boundary.
+
+`participant.Group` owns membership, snapshots, fact derivation, and ordered
+subscriptions, replacing the former Registry. Session keeps the mutation boundary
+so participant changes and its agent runtime bookkeeping remain atomic, and
+translates participant-owned facts into Session events. Group shares that state
+lock rather than introducing another collection mutex. Facts preceding the initial
+snapshot are never replayed; callbacks can race the return. The feed includes
+internal attached transitions but does not alter ordinary observer notifications
+or transcript publication. Callbacks must only collect facts and return promptly.
+Unsubscribe drops queued facts without waiting for an in-flight callback and is
+safe from a callback; Session shutdown releases subscriptions. Ordinary
+`Participants()` reads remain detached inspection snapshots, not delivery barriers.
+
 Multiple observers remain supported for infrastructure concerns such as event
 logging. At the application boundary, the interpreter is the observer: it
 updates its canonical room projection, advances workflows, and publishes
@@ -267,7 +289,7 @@ does not replace Session membership checks or the send plan's Session binding.
 
 `InviteCommand` constructs the participant, which generates its UUID-backed
 `participant.Alias` before registration. Session preserves that identity and calls
-`registry.Add`, which assigns the participant's deterministic color. It then
+`Group.Add`, which assigns the participant's deterministic color. It then
 starts the agent. On success, it emits `AgentReady` and launches a reader
 goroutine for that agent. A participant removed later does not release its
 color for reuse during the session.
@@ -302,11 +324,11 @@ When `Read()` returns an error, the goroutine checks whether shutdown was
 requested (via a per-agent stop channel) to emit `AgentStopped` vs
 `AgentCrashed`, then exits.
 
-`RemoveCommand` removes the participant from the registry, cancels the reader
+`RemoveCommand` removes the participant from the Group, cancels the reader
 goroutine's context (so it will emit `AgentStopped` rather than `AgentCrashed`
 when it exits), then calls `agent.Stop`.
 
-`CancelCommand` validates the resolved participant alias against current membership and rejects it if the agent is still starting or has crashed. It calls `agent.Interrupt()`, which is best-effort — the call returns nil for all no-op cases (no active turn, or the backend does not support cancellation). The agent remains in the registry and its reader goroutine continues running.
+`CancelCommand` validates the resolved participant alias against current membership and rejects it if the agent is still starting or has crashed. It calls `agent.Interrupt()`, which is best-effort — the call returns nil for all no-op cases (no active turn, or the backend does not support cancellation). The agent remains in the Group and its reader goroutine continues running.
 
 ---
 
@@ -363,7 +385,7 @@ callers, valid only for their creating session, and execution reports all succes
 - One goroutine per agent (the reader loop) — spawned on `InviteCommand`, exits on agent death or `RemoveCommand`.
 - `Execute` runs on the caller's goroutine (the interpreter's serialized execution loop).
 - Reader goroutines call `observer.OnEvent` directly; the observer must not block.
-- The registry and session state are accessed from both `Execute` and reader goroutines. A mutex protects shared access.
+- The participant Group and session state are accessed from both `Execute` and reader goroutines. A mutex protects shared access.
 - Keepalive candidate selection happens under the session lock, but adapter
   calls such as `KeepAlive()` happen after unlocking. Session first claims the
   participant (`idle -> keepalive`) under lock, then touches the backend out of

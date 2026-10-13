@@ -511,12 +511,7 @@ func TestEchoInvite_completesAnchoredTurnWithUnchangedOutput(t *testing.T) {
 	if !ok || output.Text != prompt {
 		t.Fatalf("output = %#v, want %q", msg.Msg.Content, prompt)
 	}
-	for {
-		event := mustReceive[session.ParticipantStatusChanged](t, obs.ch)
-		if event.To == participant.StatusIdle {
-			break
-		}
-	}
+	awaitIdleWithoutInvariantLog(t, obs, s, "ada", "after echoed output")
 }
 
 func TestInvite_resolvesRoleFromConfig(t *testing.T) {

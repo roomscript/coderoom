@@ -28,12 +28,12 @@ func TestNew_createsUniqueUUIDAliases(t *testing.T) {
 func TestAlias_survivesRegistrationAndLifecycle(t *testing.T) {
 	p := participant.New("ada", "builder", participant.InitiativeManual)
 	want := p.Alias
-	registry := participant.NewRegistry()
+	group := participant.NewGroup()
 	steps := []struct {
 		name string
 		run  func() error
 	}{
-		{"registration", func() error { return registry.Add(p) }},
+		{"registration", func() error { return group.Add(p) }},
 		{"startup", func() error { p.BeginStartup(testNow()); return nil }},
 		{"attachment", func() error { return p.AttachAgent(fakeAgent{}, testNow()) }},
 		{"idle", func() error { return p.CommitIdle(testNow()) }},
@@ -66,9 +66,9 @@ func TestAlias_survivesRegistrationAndLifecycle(t *testing.T) {
 	}
 }
 
-func TestRegistry_sameNameInstancesHaveDistinctAliases(t *testing.T) {
-	first := participant.NewRegistry()
-	second := participant.NewRegistry()
+func TestGroup_sameNameInstancesHaveDistinctAliases(t *testing.T) {
+	first := participant.NewGroup()
+	second := participant.NewGroup()
 	original := participant.New("ada", "builder", participant.InitiativeManual)
 	other := participant.New("ada", "builder", participant.InitiativeManual)
 	if err := first.Add(original); err != nil {

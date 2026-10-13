@@ -26,8 +26,8 @@ func newParticipant(alias string) *participant.Participant {
 	return p
 }
 
-func TestRegistry_AddAndGet(t *testing.T) {
-	r := participant.NewRegistry()
+func TestGroup_AddAndGet(t *testing.T) {
+	r := participant.NewGroup()
 	p := newParticipant("ada")
 
 	if err := r.Add(p); err != nil {
@@ -42,22 +42,22 @@ func TestRegistry_AddAndGet(t *testing.T) {
 	}
 }
 
-func TestRegistry_Add_nil(t *testing.T) {
-	r := participant.NewRegistry()
+func TestGroup_Add_nil(t *testing.T) {
+	r := participant.NewGroup()
 	if err := r.Add(nil); err == nil {
 		t.Fatal("expected error on nil participant, got nil")
 	}
 }
 
-func TestRegistry_Add_emptyAlias(t *testing.T) {
-	r := participant.NewRegistry()
+func TestGroup_Add_emptyAlias(t *testing.T) {
+	r := participant.NewGroup()
 	if err := r.Add(&participant.Participant{}); err == nil {
 		t.Fatal("expected error on empty alias, got nil")
 	}
 }
 
-func TestRegistry_Add_zeroID(t *testing.T) {
-	r := participant.NewRegistry()
+func TestGroup_Add_zeroID(t *testing.T) {
+	r := participant.NewGroup()
 	p := &participant.Participant{View: participant.View{Alias: participant.Alias{Name: "ada"}}}
 	if err := r.Add(p); err == nil {
 		t.Fatal("expected error on zero ID")
@@ -67,8 +67,8 @@ func TestRegistry_Add_zeroID(t *testing.T) {
 	}
 }
 
-func TestRegistry_Add_duplicateAlias(t *testing.T) {
-	r := participant.NewRegistry()
+func TestGroup_Add_duplicateAlias(t *testing.T) {
+	r := participant.NewGroup()
 	if err := r.Add(newParticipant("ada")); err != nil {
 		t.Fatalf("first Add: %v", err)
 	}
@@ -77,9 +77,9 @@ func TestRegistry_Add_duplicateAlias(t *testing.T) {
 	}
 }
 
-func TestRegistry_Add_assignsDeterministicUniqueColors(t *testing.T) {
-	first := participant.NewRegistry()
-	second := participant.NewRegistry()
+func TestGroup_Add_assignsDeterministicUniqueColors(t *testing.T) {
+	first := participant.NewGroup()
+	second := participant.NewGroup()
 
 	for _, alias := range []string{"ada", "turing", "hopper"} {
 		firstParticipant := newParticipant(alias)
@@ -108,9 +108,9 @@ func TestRegistry_Add_assignsDeterministicUniqueColors(t *testing.T) {
 	}
 }
 
-func TestRegistry_Add_rejectedParticipantDoesNotConsumeColor(t *testing.T) {
-	withRejection := participant.NewRegistry()
-	baseline := participant.NewRegistry()
+func TestGroup_Add_rejectedParticipantDoesNotConsumeColor(t *testing.T) {
+	withRejection := participant.NewGroup()
+	baseline := participant.NewGroup()
 
 	first := newParticipant("ada")
 	if err := withRejection.Add(first); err != nil {
@@ -136,18 +136,18 @@ func TestRegistry_Add_rejectedParticipantDoesNotConsumeColor(t *testing.T) {
 	}
 }
 
-func TestRegistry_Remove_doesNotReleaseColor(t *testing.T) {
-	registry := participant.NewRegistry()
+func TestGroup_Remove_doesNotReleaseColor(t *testing.T) {
+	group := participant.NewGroup()
 	removed := newParticipant("ada")
-	if err := registry.Add(removed); err != nil {
+	if err := group.Add(removed); err != nil {
 		t.Fatalf("Add removed participant: %v", err)
 	}
-	if err := registry.Remove("ada"); err != nil {
+	if err := group.Remove("ada"); err != nil {
 		t.Fatalf("Remove: %v", err)
 	}
 
 	replacement := newParticipant("turing")
-	if err := registry.Add(replacement); err != nil {
+	if err := group.Add(replacement); err != nil {
 		t.Fatalf("Add replacement: %v", err)
 	}
 	if replacement.Color == removed.Color {
@@ -155,16 +155,16 @@ func TestRegistry_Remove_doesNotReleaseColor(t *testing.T) {
 	}
 }
 
-func TestRegistry_Get_missing(t *testing.T) {
-	r := participant.NewRegistry()
+func TestGroup_Get_missing(t *testing.T) {
+	r := participant.NewGroup()
 	_, ok := r.Get("nobody")
 	if ok {
 		t.Fatal("expected ok=false for unknown alias")
 	}
 }
 
-func TestRegistry_Remove(t *testing.T) {
-	r := participant.NewRegistry()
+func TestGroup_Remove(t *testing.T) {
+	r := participant.NewGroup()
 	if err := r.Add(newParticipant("ada")); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
@@ -176,15 +176,15 @@ func TestRegistry_Remove(t *testing.T) {
 	}
 }
 
-func TestRegistry_Remove_missing(t *testing.T) {
-	r := participant.NewRegistry()
+func TestGroup_Remove_missing(t *testing.T) {
+	r := participant.NewGroup()
 	if err := r.Remove("nobody"); err == nil {
 		t.Fatal("expected error removing unknown alias, got nil")
 	}
 }
 
-func TestRegistry_List(t *testing.T) {
-	r := participant.NewRegistry()
+func TestGroup_List(t *testing.T) {
+	r := participant.NewGroup()
 	_ = r.Add(newParticipant("ada"))
 	_ = r.Add(newParticipant("turing"))
 
@@ -203,15 +203,15 @@ func TestRegistry_List(t *testing.T) {
 	}
 }
 
-func TestRegistry_List_empty(t *testing.T) {
-	r := participant.NewRegistry()
+func TestGroup_List_empty(t *testing.T) {
+	r := participant.NewGroup()
 	if list := r.List(); len(list) != 0 {
 		t.Errorf("expected empty list, got %d", len(list))
 	}
 }
 
-func TestRegistry_ListAvailable_filtersByAgentAndStatus(t *testing.T) {
-	r := participant.NewRegistry()
+func TestGroup_ListAvailable_filtersByAgentAndStatus(t *testing.T) {
+	r := participant.NewGroup()
 	addAvailableTestParticipant(t, r, "starting", participant.StatusStarting, false)
 	addAvailableTestParticipant(t, r, "crashed", participant.StatusCrashed, true)
 	addAvailableTestParticipant(t, r, "preparing", participant.StatusPreparing, true)
@@ -232,7 +232,7 @@ func TestRegistry_ListAvailable_filtersByAgentAndStatus(t *testing.T) {
 	assertAvailableAlias(t, aliases, "working", true)
 }
 
-func addAvailableTestParticipant(t *testing.T, r *participant.Registry, alias string, status participant.Status, attachAgent bool) {
+func addAvailableTestParticipant(t *testing.T, r *participant.Group, alias string, status participant.Status, attachAgent bool) {
 	t.Helper()
 	p := newParticipant(alias)
 	p.Status = status
@@ -255,8 +255,8 @@ func assertAvailableAlias(t *testing.T, aliases map[string]bool, alias string, w
 	t.Fatalf("expected %q to be excluded from ListAvailable", alias)
 }
 
-func TestRegistry_StatusListsAndPredicates(t *testing.T) {
-	r := participant.NewRegistry()
+func TestGroup_StatusListsAndPredicates(t *testing.T) {
+	r := participant.NewGroup()
 
 	pStarting := newParticipant("starting")
 	pStarting.Status = participant.StatusStarting

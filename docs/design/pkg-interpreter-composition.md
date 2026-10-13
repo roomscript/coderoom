@@ -180,9 +180,11 @@ Start explicitly selects ordinary or staged execution. Staged preparation return
 a readiness outcome without calling Go or changing lifecycle state. Starting
 execution and handling its failure are separate steps; resource cleanup closes
 once and never changes lifecycle state implicitly.
-`Start(complete)` synchronously subscribes, collects updates into a synchronized
-alias-keyed readiness map and merges initial views only for missing aliases. The read
-must not overtake collection of lifecycle events reflected in its snapshot.
+`Start(complete)` uses `Session.SubscribeParticipants` to atomically capture initial
+views and subscribe to subsequent lifecycle facts. It collects updates into a
+synchronized alias-keyed readiness map and merges initial views only for missing
+aliases. Facts collected during initialization are necessarily after the snapshot
+boundary, so preserving them cannot restore an older ready state.
 An already-ready invocation starts immediately; otherwise the lifecycle starts
 one private monitoring routine. Its single subscription callback records facts
 and signals a buffered wake-up channel. Wake-ups coalesce; the worker evaluates
@@ -216,11 +218,12 @@ initialization cancellation, readiness/discard races and monitor cleanup.
 
 The queue can only account for facts already received by its callback. Tests prove
 that collected departures precede evaluation, including ready/stop/rejoin ordering.
-The worker cannot see departures still buffered upstream. The future production
-adapter must establish collection and admission ordering; this prototype does not
-validate that adapter or guarantee atomic availability across external events.
+The worker cannot see facts still queued for its callback. The atomic subscription
+settles snapshot/event ordering, but does not guarantee availability after launch
+commits. The future production adapter must preserve this subscription boundary
+and serialize admission; this prototype does not validate that adapter.
 
-**Observed snapshot/event ordering limitation.**
+**Snapshot/event ordering boundary.**
 
 Raw `Session.Participants()` is not an observer-delivery barrier. Session commits
 state under its mutex, releases it, and then notifies observers. A preceding
@@ -235,12 +238,45 @@ routing completion once. Session checks membership and readiness at execution;
 the retained-send replacement regression proves rejection despite an uncollected
 old departure. Partial delivery is reported through the existing routing result.
 
-Before choosing an adapter design, add a lifecycle regression showing whether
-snapshot/event ordering changes waiting or failure behavior. In particular,
-initial merging preserves collected facts over snapshot entries, so an older
-collected ready fact can hide a newer busy snapshot. A source-boundary test alone
-does not prove the resulting lifecycle behavior. Production adapter design and
-wiring remain pending; this review adds no new projection or event API requirement.
+`TestInvocationMonitor_InitialBusySnapshotRequiresCollectedBusyFact` reproduces
+the lifecycle consequence with a narrow fake: an older collected ready fact hides
+a newer busy snapshot when the busy notification is pending upstream. The lifecycle
+attempts launch, and the fake execution guard rejects it; initial submission fails
+instead of remaining staged. Collecting the busy fact before the read returns
+retains waiting work, which launches once when a later idle fact arrives.
+
+This negative fixture violates the lifecycle subscription boundary. Snapshot
+precedence is not a safe local fix:
+`TestInvocationMonitor_InitialBusySnapshotPreservesLaterReadyFact` covers a busy
+snapshot captured before a newer collected idle event. That event must win to
+avoid retaining ready work indefinitely. Neither snapshots nor lifecycle events
+carry a comparable source revision, so the monitor cannot distinguish these
+histories from the conflicting statuses alone.
+
+Session now provides `SubscribeParticipants(handle) -> (initialViews, unsubscribe)`.
+Snapshot capture and subscription installation share the Session state lock.
+One `changeParticipants` boundary owns lifecycle mutation, before/after view
+capture and delivery. Callers describe registration, state/readiness changes or
+removal without queuing facts or remembering a flush. `participant.Group` replaces Registry and owns membership, snapshots, fact
+capture and subscription queues. It queues participant-owned changes while that
+same lock is held; delivery starts after unlocking. Session translates status,
+readiness and removal facts into its lifecycle events. Group imports no Session
+vocabulary and adds no independent collection lock. A subscriber never
+receives facts from before its initial snapshot. The feed includes the internal
+attached status and startup readiness separately; it does not change canonical
+observer notifications. Each subscriber serializes its own drain without a new
+worker goroutine. Unsubscribe drops queued facts, permits an in-flight callback
+to finish, and can be called from a callback. Session shutdown releases subscriptions.
+
+The monitor uses this capability directly rather than combining `Subscribe` with
+`ParticipantReader.Participants()`. A real-Session lifecycle regression keeps work
+waiting on a busy snapshot despite a delayed ordinary `AgentReady`, then launches
+once on the later native idle transition. Another preserves a native idle fact
+collected while the initial busy snapshot is returning. Source tests cover blocked
+callbacks,
+post-snapshot ordering, reads and unsubscribe from callbacks, startup readiness,
+removal/replacement identity and shutdown. Production admission, stage operations
+and transcript publication remain unwired.
 
 This is an explicit experiment with lifecycle-owned monitoring, departing from
 the production rule that workers only enqueue results and the coordinator advances
@@ -367,9 +403,10 @@ aliases. Primary-alias matching does not distinguish overlapping requests to the
 same primary; the production adapter must keep at most one such send awaiting a
 routing outcome.
 
-The lifecycle uses this same feed for participant readiness and departures before
-execution. Its callback records facts and wakes the private monitor.
-A snapshot read must not overtake collection of events reflected in that snapshot.
+The lifecycle uses the separate atomic `SubscribeParticipants` boundary for
+readiness and departures before execution. It returns initial views and only
+post-snapshot lifecycle facts. Its callback records facts and wakes the private
+monitor; ordinary participant inspection reads establish no collection ordering.
 Unsubscribe stops delivery without waiting for in-flight callbacks; callbacks
 must tolerate a racing Close. The lifecycle disables collection and joins its
 monitor, so captured callbacks cannot restore closed work.

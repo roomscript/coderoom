@@ -45,7 +45,7 @@ type agentRuntime struct {
 // It is not safe for concurrent calls to Execute.
 type Session struct {
 	mu            sync.Mutex
-	registry      *participant.Registry
+	participants  *participant.Group
 	agents        map[participant.Alias]agentRuntime
 	obs           []Observer
 	now           func() time.Time
@@ -115,7 +115,7 @@ func WithConfig(cfg *roomconfig.Config) Option {
 // New returns an empty Session.
 func New(opts ...Option) *Session {
 	s := &Session{
-		registry:      participant.NewRegistry(),
+		participants:  participant.NewGroup(),
 		agents:        make(map[participant.Alias]agentRuntime),
 		now:           time.Now,
 		keepaliveTick: 30 * time.Second,
@@ -183,7 +183,7 @@ func (s *Session) Execute(cmd Command) error {
 func (s *Session) snapshotAgentsToStop() []agent.Agent {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	ps := s.registry.List()
+	ps := s.participants.List()
 	out := make([]agent.Agent, 0, len(ps))
 	for _, p := range ps {
 		if p.Agent == nil {
@@ -207,6 +207,7 @@ func (s *Session) Shutdown() {
 		for _, a := range s.snapshotAgentsToStop() {
 			_ = a.Stop()
 		}
+		s.closeParticipantSubscriptions()
 	})
 }
 
@@ -332,9 +333,9 @@ func truncateForLog(s string) string {
 }
 
 func (s *Session) addParticipant(p *participant.Participant) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if err := s.registry.Add(p); err != nil {
+	var err error
+	s.changeParticipants(func() { err = s.participants.Add(p) })
+	if err != nil {
 		return fmt.Errorf("register participant: %w", err)
 	}
 	return nil
@@ -350,28 +351,31 @@ func (s *Session) addParticipant(p *participant.Participant) error {
 //     caller should surface "not ready" rather than "not found".
 //   - (nil, false) — no attached runtime; caller falls through to evictCrashedBeforeStart.
 func (s *Session) detachParticipant(alias participant.Alias) (*participant.Participant, bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	p, ok := s.lookupParticipantLocked(alias)
-	if !ok {
-		return nil, false
-	}
-	runtime, ok := s.agents[alias]
-	if !ok || runtime.stop == nil {
-		return nil, false
-	}
-	// Bound-runtime removal still waits for startup publication. Failed startup
-	// without a reader is handled by evictCrashedBeforeStart instead.
-	if !p.StartupReady || !p.IsRemovable() {
-		return p, false
-	}
-	delete(s.agents, alias)
-	if runtime.agentCancel != nil {
-		runtime.agentCancel()
-	}
-	s.removeParticipantLocked(alias)
-	close(runtime.stop)
-	return p, true
+	var bound *participant.Participant
+	var detached bool
+	s.changeParticipants(func() {
+		p, ok := s.lookupParticipantLocked(alias)
+		if !ok {
+			return
+		}
+		runtime, ok := s.agents[alias]
+		if !ok || runtime.stop == nil {
+			return
+		}
+		bound = p
+		// Failed startup without a reader is handled by evictCrashedBeforeStart.
+		if !p.StartupReady || !p.IsRemovable() {
+			return
+		}
+		delete(s.agents, alias)
+		if runtime.agentCancel != nil {
+			runtime.agentCancel()
+		}
+		s.removeParticipantLocked(alias)
+		close(runtime.stop)
+		detached = true
+	})
+	return bound, detached
 }
 
 // evictCrashedBeforeStart removes a participant that crashed before its reader
@@ -383,24 +387,28 @@ func (s *Session) detachParticipant(alias participant.Alias) (*participant.Parti
 // in the startup window (StatusStarting), and nil on successful eviction of a
 // StatusCrashed participant.
 func (s *Session) evictCrashedBeforeStart(alias participant.Alias) error {
-	s.mu.Lock()
-	p, ok := s.lookupParticipantLocked(alias)
-	if !ok {
-		s.mu.Unlock()
-		return fmt.Errorf("participant %q not found", alias.Name)
-	}
-	if p.Status != participant.StatusCrashed || !p.IsRemovable() {
-		s.mu.Unlock()
-		return fmt.Errorf("participant %q is not ready", alias.Name)
-	}
-	if runtime, ok := s.agents[alias]; ok {
-		if runtime.agentCancel != nil {
-			runtime.agentCancel()
+	var err error
+	s.changeParticipants(func() {
+		p, ok := s.lookupParticipantLocked(alias)
+		if !ok {
+			err = fmt.Errorf("participant %q not found", alias.Name)
+			return
 		}
-		delete(s.agents, alias)
+		if p.Status != participant.StatusCrashed || !p.IsRemovable() {
+			err = fmt.Errorf("participant %q is not ready", alias.Name)
+			return
+		}
+		if runtime, ok := s.agents[alias]; ok {
+			if runtime.agentCancel != nil {
+				runtime.agentCancel()
+			}
+			delete(s.agents, alias)
+		}
+		s.removeParticipantLocked(alias)
+	})
+	if err != nil {
+		return err
 	}
-	_ = s.registry.Remove(alias.Name)
-	s.mu.Unlock()
 	s.notify(AgentStopped{Alias: alias})
 	return nil
 }
@@ -417,30 +425,33 @@ func (s *Session) evictCrashedBeforeStart(alias participant.Alias) error {
 // Returns (stop, from, true) on success, where from is the pre-transition
 // status (StatusStarting) used to build the ParticipantStatusChanged event.
 func (s *Session) attachParticipant(alias participant.Alias, a agent.Agent) (chan struct{}, participant.Status, bool) {
-	stop := make(chan struct{})
-	s.mu.Lock()
-	p, ok := s.lookupParticipantLocked(alias)
-	if !ok {
-		s.mu.Unlock()
-		return nil, "", false
-	}
-	// Shutdown cancels the lifetime and removes runtimes before taking its stop
-	// snapshot. Reject late startups before binding an agent, so failed startup
-	// cleanup and shutdown cannot both acquire ownership of stopping it.
-	runtime, ok := s.agents[alias]
-	if !ok || s.lifecycle.ctx.Err() != nil {
-		s.mu.Unlock()
-		return nil, "", false
-	}
-	from := p.Status
-	if err := p.AttachAgent(a, s.now()); err != nil {
-		s.mu.Unlock()
+	var stop chan struct{}
+	var from participant.Status
+	var err error
+	s.changeParticipants(func() {
+		p, ok := s.lookupParticipantLocked(alias)
+		if !ok {
+			return
+		}
+		// Reject late startups after shutdown has removed runtime ownership.
+		runtime, ok := s.agents[alias]
+		if !ok || s.lifecycle.ctx.Err() != nil {
+			return
+		}
+		from = p.Status
+		if err = p.AttachAgent(a, s.now()); err != nil {
+			return
+		}
+		stop = make(chan struct{})
+		runtime.stop = stop
+		s.agents[alias] = runtime
+	})
+	if err != nil {
 		s.notifyParticipantInvariant(alias, fmt.Errorf("attach agent: %w", err))
+	}
+	if stop == nil {
 		return nil, "", false
 	}
-	runtime.stop = stop
-	s.agents[alias] = runtime
-	s.mu.Unlock()
 	return stop, from, true
 }
 
@@ -448,20 +459,22 @@ func (s *Session) attachParticipant(alias participant.Alias, a agent.Agent) (cha
 // and returns the corresponding ParticipantStatusChanged event. Called before
 // AgentReady is dispatched so that IsSendable is true when the event fires.
 func (s *Session) commitStarted(alias participant.Alias, from participant.Status) (Event, bool) {
-	s.mu.Lock()
-	p, ok := s.lookupParticipantLocked(alias)
-	if !ok {
-		s.mu.Unlock()
-		return nil, false
-	}
-	if err := p.CommitIdle(s.now()); err != nil {
-		s.mu.Unlock()
+	var event Event
+	var err error
+	s.changeParticipants(func() {
+		p, ok := s.lookupParticipantLocked(alias)
+		if !ok {
+			return
+		}
+		if err = p.CommitIdle(s.now()); err != nil {
+			return
+		}
+		event = ParticipantStatusChanged{Alias: alias, From: from, To: p.Status, Since: p.Since}
+	})
+	if err != nil {
 		s.notifyParticipantInvariant(alias, fmt.Errorf("commit idle: %w", err))
-		return nil, false
 	}
-	ev := Event(ParticipantStatusChanged{Alias: alias, From: from, To: p.Status, Since: p.Since})
-	s.mu.Unlock()
-	return ev, true
+	return event, event != nil
 }
 
 func (s *Session) lookupParticipant(alias participant.Alias) (*participant.Participant, bool) {
@@ -473,7 +486,7 @@ func (s *Session) lookupParticipant(alias participant.Alias) (*participant.Parti
 // lookupParticipantLocked validates both instance identity and Session membership.
 // The caller must hold s.mu.
 func (s *Session) lookupParticipantLocked(alias participant.Alias) (*participant.Participant, bool) {
-	p, ok := s.registry.Get(alias.Name)
+	p, ok := s.participants.Get(alias.Name)
 	if !ok || alias.ID == (participant.ID{}) || p.Alias != alias {
 		return nil, false
 	}
@@ -481,10 +494,10 @@ func (s *Session) lookupParticipantLocked(alias participant.Alias) (*participant
 }
 
 // removeParticipantLocked never removes a replacement with the same name.
-// The caller must hold s.mu.
+// Call only inside changeParticipants, which captures and delivers departure.
 func (s *Session) removeParticipantLocked(alias participant.Alias) {
 	if _, ok := s.lookupParticipantLocked(alias); ok {
-		_ = s.registry.Remove(alias.Name)
+		_ = s.participants.Remove(alias.Name)
 	}
 }
 
@@ -500,23 +513,22 @@ func (s *Session) readParticipantRuntime(alias participant.Alias) (participant.P
 	return p.Snapshot(), true
 }
 
-func (s *Session) updateParticipant(alias participant.Alias, fn func(*participant.Participant) (Event, error)) error {
-	var ev Event
+func (s *Session) updateParticipant(alias participant.Alias, change func(*participant.Participant) (Event, error)) error {
+	var event Event
 	var err error
-	s.mu.Lock()
-	p, ok := s.lookupParticipantLocked(alias)
-	if ok {
-		ev, err = fn(p)
-	}
-	s.mu.Unlock()
-	if !ok {
-		return fmt.Errorf("%w: %q", errParticipantNotFound, alias.Name)
-	}
+	s.changeParticipants(func() {
+		p, ok := s.lookupParticipantLocked(alias)
+		if !ok {
+			err = fmt.Errorf("%w: %q", errParticipantNotFound, alias.Name)
+			return
+		}
+		event, err = change(p)
+	})
 	if err != nil {
 		return err
 	}
-	if ev != nil {
-		s.notify(ev)
+	if event != nil {
+		s.notify(event)
 	}
 	return nil
 }
@@ -537,7 +549,7 @@ func (s *Session) Participant(alias participant.Alias) (participant.View, bool) 
 func (s *Session) ParticipantByName(name string) (participant.View, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	p, ok := s.registry.Get(name)
+	p, ok := s.participants.Get(name)
 	if !ok {
 		return participant.View{}, false
 	}
@@ -552,12 +564,12 @@ func (s *Session) ParticipantByName(name string) (participant.View, bool) {
 func (s *Session) Participants() []participant.View {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	ps := s.registry.List()
-	out := make([]participant.View, len(ps))
-	for i, p := range ps {
-		out[i] = p.View
-	}
-	return out
+	return s.participantsLocked()
+}
+
+// participantsLocked returns a detached snapshot while the caller holds s.mu.
+func (s *Session) participantsLocked() []participant.View {
+	return s.participants.Snapshot()
 }
 
 // readLoop runs in a goroutine per agent, forwarding agent.Message values to
@@ -610,26 +622,16 @@ func isCrashedReadError(stop <-chan struct{}) bool {
 // under the session lock. Must be followed by Send then beginParticipantWorking
 // (on success) or abortWork (on Send failure).
 func (s *Session) prepareParticipantForWork(alias participant.Alias) error {
-	var ev ParticipantStatusChanged
-	s.mu.Lock()
-	p, ok := s.lookupParticipantLocked(alias)
-	if !ok {
-		s.mu.Unlock()
-		return fmt.Errorf("%w: %q", errParticipantNotFound, alias.Name)
-	}
-	if !p.StartupReady {
-		s.mu.Unlock()
-		return participant.ErrNotReadyForWork
-	}
-	from := p.Status
-	if err := p.PrepareForWork(s.now()); err != nil {
-		s.mu.Unlock()
-		return fmt.Errorf("prepare for work: %w", err)
-	}
-	ev = ParticipantStatusChanged{Alias: alias, From: from, To: p.Status, Since: p.Since}
-	s.mu.Unlock()
-	s.notify(ev)
-	return nil
+	return s.updateParticipant(alias, func(p *participant.Participant) (Event, error) {
+		if !p.StartupReady {
+			return nil, participant.ErrNotReadyForWork
+		}
+		from := p.Status
+		if err := p.PrepareForWork(s.now()); err != nil {
+			return nil, fmt.Errorf("prepare for work: %w", err)
+		}
+		return ParticipantStatusChanged{Alias: alias, From: from, To: p.Status, Since: p.Since}, nil
+	})
 }
 
 // beginParticipantWorking transitions from Preparing to Working and atomically
@@ -893,8 +895,16 @@ func (s *Session) sweepKeepalive() {
 func (s *Session) collectKeepaliveCandidates(now time.Time) ([]keepaliveCandidate, []Event) {
 	var candidates []keepaliveCandidate
 	var events []Event
-	s.mu.Lock()
-	for _, p := range s.registry.List() {
+	s.changeParticipants(func() { candidates, events = s.reserveKeepaliveCandidatesLocked(now) })
+	return candidates, events
+}
+
+// reserveKeepaliveCandidatesLocked reserves eligible participants while the
+// changeParticipants boundary holds the Session lock.
+func (s *Session) reserveKeepaliveCandidatesLocked(now time.Time) ([]keepaliveCandidate, []Event) {
+	var candidates []keepaliveCandidate
+	var events []Event
+	for _, p := range s.participants.List() {
 		alias := p.Alias
 		if p.Status != participant.StatusIdle || p.Agent == nil {
 			continue
@@ -922,6 +932,5 @@ func (s *Session) collectKeepaliveCandidates(now time.Time) ([]keepaliveCandidat
 		})
 		candidates = append(candidates, keepaliveCandidate{alias: alias, agent: keepaliver})
 	}
-	s.mu.Unlock()
 	return candidates, events
 }

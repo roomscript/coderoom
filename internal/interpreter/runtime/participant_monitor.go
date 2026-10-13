@@ -30,8 +30,9 @@ func newParticipantMonitor() *participantMonitor {
 func (m *participantMonitor) initialize(ctx Context, includes func(participant.Alias) bool) {
 	m.includes = includes
 	m.updates.start()
-	m.unsubscribe = ctx.Session.Subscribe(m.handleEvent)
-	m.updates.merge(ctx.Participants.Participants())
+	initial, unsubscribe := ctx.Session.SubscribeParticipants(m.handleEvent)
+	m.unsubscribe = unsubscribe
+	m.updates.merge(initial)
 }
 
 func (m *participantMonitor) handleEvent(event session.Event) {

@@ -62,33 +62,55 @@ Session checks this before reserving work so premature sends cannot leave a
 participant stuck in preparing. Legacy immediate routing uses IsRoutable,
 while the interpreter freezes eligible recipients and waits for IsReadyForWork.
 
+## Group and change subscriptions
+
+`Group` replaces the former participant registry. It owns membership, color
+allocation, detached `Snapshot()` views, and ordered lifecycle subscriptions.
+Session owns the state lock that serializes Group access together with its agent
+runtime bookkeeping; Group adds no independent collection lock.
+
+`Subscribe(handle)` captures initial views and registers an opaque subscription
+under that owner lock. `CaptureChanges(before)` compares the earlier views with
+current membership and queues participant-owned `Change` facts: `StatusChanged`,
+`BecameReady`, and `Removed`. They carry detached before/after views and resolved
+instance identity. Group imports no Session types. A captured `Delivery` is invoked
+only after the owner unlocks; it retains the subscribers present at capture, so
+new subscribers never receive facts preceding their snapshot.
+
+Each subscription serializes its own queue without worker goroutines. Callbacks
+run outside its mutex and may read state or unsubscribe through the owner's lock.
+Unsubscribe drops queued facts without waiting for an in-flight callback.
+`CloseSubscriptions` releases subscriptions while preserving membership for final
+inspection and lifecycle cleanup. Session translates each Group fact into its
+existing lifecycle event vocabulary; canonical observers are unchanged.
+
 ## Identity and color allocation
 
 `Participant.Color` is part of participant identity for the lifetime of a
 session. An individual participant stores its assigned color but does not choose
 one independently. Distinct deterministic assignment requires collection-level
-state, so `participant.Registry` owns the participant color allocator.
+state, so `participant.Group` owns the participant color allocator.
 
 ```go
-type Registry struct {
+type Group struct {
     participants map[string]*Participant
     colors       ColorAllocator
 }
 ```
 
-When a participant is added, the registry validates the addition and assigns
+When a participant is added, the group validates the addition and assigns
 the next color before publishing the participant. `session.InviteCommand`
 therefore carries only the alias and other non-visual invitation semantics; it
 does not accept a UI- or interpreter-selected color.
 
-Allocation is monotonic for one registry/session. Removing a participant does
+Allocation is monotonic for one group/session. Removing a participant does
 not release its color because historical records retain participant identity;
 reusing the same color for a later collaborator could visually conflate them.
 The sequence is deterministic so equivalent invitation order produces
 equivalent colors in the TUI, tests, and non-interactive clients.
 
 An addition rejected during validation does not consume a color. Once the
-registry accepts and publishes the participant, the color remains consumed even
+group accepts and publishes the participant, the color remains consumed even
 if asynchronous agent startup later fails, matching the participant's presence
 in lifecycle events and historical room records.
 
@@ -234,6 +256,7 @@ become idle while its anchor remains open.
 
 `internal/participant` owns:
 
+- Group membership, detached views, and ordered lifecycle change subscriptions
 - deterministic, session-scoped participant color allocation
 - retaining assigned color as participant identity
 - participant statuses
