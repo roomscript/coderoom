@@ -1,70 +1,26 @@
-# Interpreter concepts
+# Interpreter migration boundary
 
-The interpreter turns requests and session events into actions, keeping plans
-until they can proceed. It owns prompt meaning, command definitions, workflows,
-and the room's conversation history. Session owns lifecycle and delivery;
-front ends present interpreter state and events.
+`interpreter.Interpreter` is the public entry point. Its existing methods and
+options remain available to the CLI and front ends. The current implementation
+lives in `monolith`, preserving its interface and behavior.
 
-For code entry points, start at `api_requests.go`, `core_input.go`, and `core_events.go`.
+The facade initially delegates all requests to one monolith instance, including
+the registered `/who` and `/shell` module paths. The monolith remains the sole
+owner of Session execution, canonical room state, ordered publication, admitted
+workers and shutdown. The facade adds no observer, execution queue or transcript.
 
-| Concept | Meaning |
-|---|---|
-| Request | What the user wants: submit, edit, discard, interrupt, or resolve an approval. |
-| Action | What to do: send, execute a command, or evaluate a condition. |
-| Plan | The action, chosen recipients, source-selection rules, and requirements. |
-| Requirements | What must be true: recipients are ready, or source output is complete. |
-| Pending work | A plan kept for later because its requirements are not yet met. |
-| Workflow | Rules for moving a request through actions, waits, and outcomes. |
-| Outcome | Acceptance, queued success, delivery, failure, or work completion: distinct milestones. |
-| Published event | An outcome, transcript change, or state change delivered to observers. |
+`api` contains the shared events, snapshots, submission errors and detached record
+inspection helpers. Both the facade and monolith alias these contracts, so the
+monolith never imports its parent package and event types need no conversion.
+`runtime` and `std` stay independent command contracts and modules.
 
-## Core algorithms
+The next capability is serialized production admission shared by modular commands
+and fallback work. Command selection will happen before execution; an invocation
+stays on its selected path through completion. An execution error must not cause
+fallback and duplicate work. No command selection or admission cutover is included
+in this package move.
 
-```text
-handle user request:
-    check whether the request is allowed in the current state
-    interpret and validate the request
-    prepare a plan
-    execute it if ready, otherwise keep it as pending work
-    report the outcome and observable changes
-
-handle session event or asynchronous result:
-    apply session facts to the room and application state
-    check whether the event or result advances current work
-    advance affected workflows, ignoring results from superseded work
-    discard or fail work that can no longer proceed
-    execute actions whose requirements are now satisfied
-    report the outcomes and observable changes
-```
-
-Session events update the room even when no workflow is waiting for them.
-Matching a result to current work determines whether that work advances.
-Inspection reads detached state; closing settles accepted work and stops execution.
-
-## Example: addressed send
-
-```text
-User requests: send “hello” to Ada.
-Prepare a plan: message, fixed recipients, readiness requirements.
-Ada is starting: keep the plan and wait.
-Ada becomes ready: execute the plan when all required recipients are ready.
-Session reports delivery: publish the outcome.
-```
-
-## Waiting and observation
-
-Preparation reads and session commands run synchronously. Actual waits return
-control; later readiness, output, or shell results resume work. Accepting a
-cancellation request does not mean the participant is ready.
-
-Staged recipients stay fixed. Optional recipients who leave can be removed;
-losing a required target discards the stage. Session checks readiness again at delivery.
-
-Published events tell observers what happened. They receive initial state, then
-events in order: conversation changes and detached state. Input accepted for
-delivery is recorded before its resulting output. Events caused by execution are
-applied before its result advances work. Delivery means adapter acceptance, not
-work completion.
-
-See [workflow design](../../docs/design/pkg-interpreter-workflows.md) for detailed
-ordering guarantees and [session concepts](../session/CONCEPTS.md) for delivery terms.
+Start at `api.go` and `api_requests.go` for the facade; see
+[monolith concepts](monolith/CONCEPTS.md) for current execution algorithms and
+[composition design](../../docs/design/pkg-interpreter-composition.md) for the
+migration agreement.

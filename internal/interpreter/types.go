@@ -1,253 +1,132 @@
 package interpreter
 
-import (
-	"errors"
+import "github.com/roomscript/coderoom/internal/interpreter/api"
 
-	"github.com/roomscript/coderoom/internal/agent"
-	"github.com/roomscript/coderoom/internal/participant"
-	"github.com/roomscript/coderoom/internal/promptlang"
-	roomstate "github.com/roomscript/coderoom/internal/room"
-	"github.com/roomscript/coderoom/internal/shell"
-)
+// CommandDetails is detached command output for transcript presentation.
+type CommandDetails = api.CommandDetails
 
-var (
-	// ErrClosed reports that the interpreter can no longer accept operations.
-	ErrClosed = errors.New("interpreter closed")
-	// ErrStagePending rejects new input while a staged submission awaits a stage action.
-	ErrStagePending = errors.New("submission blocked by pending stage")
-)
+// FileChange is one file change presented in a transcript.
+type FileChange = api.FileChange
+
+// FileChangeDetails is detached file-change output for transcript presentation.
+type FileChangeDetails = api.FileChangeDetails
+
+// TranscriptChanged carries canonical record changes in interpreter processing
+// order. Snapshots are for state inspection; front ends render this event stream
+// rather than echoing semantic events or reconciling snapshot records.
+type TranscriptChanged = api.TranscriptChanged
 
 // ErrorCode classifies terminal submission errors independently of their
 // presentation text or concrete Go error type.
-type ErrorCode string
-
-// Stable terminal submission error codes.
-const (
-	ErrorInvalidInput           ErrorCode = "invalid_input"
-	ErrorStagePending           ErrorCode = "stage_pending"
-	ErrorReservedCommand        ErrorCode = "reserved_command"
-	ErrorCommandExists          ErrorCode = "command_exists"
-	ErrorExecutionFailed        ErrorCode = "execution_failed"
-	ErrorParticipantUnavailable ErrorCode = "participant_unavailable"
-)
+type ErrorCode = api.ErrorCode
 
 // ApprovalKind identifies an approval request without exposing agent protocol
 // types to front ends.
-type ApprovalKind string
-
-// Supported approval request kinds.
-const (
-	ApprovalCommandExecution ApprovalKind = "commandExecution"
-	ApprovalFileChange       ApprovalKind = "fileChange"
-	ApprovalPermissions      ApprovalKind = "permissions"
-)
+type ApprovalKind = api.ApprovalKind
 
 // ApprovalOption is one selectable approval response.
-type ApprovalOption struct {
-	ID    string
-	Label string
-}
+type ApprovalOption = api.ApprovalOption
 
 // Approval is the active application-level approval request.
-type Approval struct {
-	ID      int64
-	Alias   participant.Alias
-	Kind    ApprovalKind
-	Prompt  string
-	Options []ApprovalOption
-}
+type Approval = api.Approval
 
 // ApprovalChoice identifies the option selected by a front end.
-type ApprovalChoice struct{ OptionID string }
+type ApprovalChoice = api.ApprovalChoice
 
 // Snapshot is a detached point-in-time view of interpreter state.
-type Snapshot struct {
-	Room         roomstate.Snapshot
-	Participants []participant.View
-	Approval     *Approval
-	Stage        *StagedSubmission
-}
+type Snapshot = api.Snapshot
 
 // StagePhase describes the externally observable state of a staged submission.
-type StagePhase string
-
-const (
-	// StagePhasePending means the submission is waiting for its frozen readiness requirements.
-	StagePhasePending StagePhase = "pending"
-)
+type StagePhase = api.StagePhase
 
 // StagedSubmission is the detached presentation state of one pending composer submission.
-type StagedSubmission struct {
-	Raw                string
-	Routing            []string
-	NotReadyAliases    []string
-	Interruptible      []string
-	Unavailable        []string
-	InterruptRequested bool
-	Phase              StagePhase
-}
+type StagedSubmission = api.StagedSubmission
 
 // Event is an application event emitted by the interpreter.
-type Event interface{ interpreterEvent() }
+type Event = api.Event
 
 // StateChanged reports a new immutable application snapshot.
-type StateChanged struct{ Snapshot Snapshot }
+type StateChanged = api.StateChanged
 
 // OperationFailed reports an asynchronous interpreter operation failure.
-type OperationFailed struct {
-	Raw       string
-	Statement promptlang.ParsedStatement
-	Operation string
-	Err       error
-}
+type OperationFailed = api.OperationFailed
 
 // InputAccepted reports prompt-language input accepted for execution.
-type InputAccepted struct {
-	Statement promptlang.ParsedStatement
-	Raw       string
-	Routing   []string
-}
+type InputAccepted = api.InputAccepted
 
 // StagedInputDispatched reports the delivered routing for a staged input.
 // Front ends use it to preserve transcript insertion at the dispatch boundary.
-type StagedInputDispatched struct {
-	Raw     string
-	Routing []string
-}
+type StagedInputDispatched = api.StagedInputDispatched
 
 // HandoffCompleted presents the audit record for a completed handoff after
 // its staged input has been presented.
-type HandoffCompleted struct{ Preview string }
+type HandoffCompleted = api.HandoffCompleted
 
 // StagedInputDiscarded reports a staged input abandoned by lifecycle changes.
-type StagedInputDiscarded struct {
-	Raw    string
-	Reason string
-}
+type StagedInputDiscarded = api.StagedInputDiscarded
 
 // InputRejected reports input rejected before acceptance.
-type InputRejected struct {
-	Raw  string
-	Code ErrorCode
-	Err  error
-}
+type InputRejected = api.InputRejected
 
 // UnknownCommand reports valid input with no interpreter handler.
-type UnknownCommand struct {
-	Err       error
-	Statement promptlang.ParsedStatement
-	Raw       string
-	Name      string
-}
+type UnknownCommand = api.UnknownCommand
 
 // ParticipantsListed is retained for source compatibility.
 //
 // Deprecated: /who now returns its notice through canonical transcript records.
-type ParticipantsListed struct{ Participants []participant.View }
+type ParticipantsListed = api.ParticipantsListed //nolint:staticcheck // Retain the deprecated public type for source compatibility.
 
 // HelpEntry describes one prompt-language form without prescribing how a
 // front end lays it out.
-type HelpEntry struct {
-	Usage       string
-	Description string
-}
+type HelpEntry = api.HelpEntry
 
 // HelpListed reports the command metadata requested by /help.
-type HelpListed struct {
-	Commands []HelpEntry
-	Messages []HelpEntry
-}
+type HelpListed = api.HelpListed
 
 // DebugAction identifies a front-end debug operation parsed by the interpreter.
-type DebugAction string
-
-// Supported presentation-only debug actions.
-const (
-	DebugActionView DebugAction = "view"
-	DebugActionRows DebugAction = "rows"
-)
+type DebugAction = api.DebugAction
 
 // DebugRequested asks the front end to execute a presentation-only debug action.
-type DebugRequested struct{ Action DebugAction }
+type DebugRequested = api.DebugRequested
 
 // ExitRequested asks a front end to end its interactive session.
-type ExitRequested struct{}
+type ExitRequested = api.ExitRequested
 
 // ShellCompleted reports the structured result of a local shell command.
-type ShellCompleted struct {
-	Raw       string
-	Statement promptlang.ParsedStatement
-	Command   string
-	Cwd       string
-	Result    shell.Result
-	Output    string
-}
+type ShellCompleted = api.ShellCompleted
 
 // LoopStatus reports a user-visible bounded-loop lifecycle transition.
-type LoopStatus struct{ Message string }
+type LoopStatus = api.LoopStatus
 
 // SubmissionSucceeded reports that recognized input executed or scheduled
 // successfully. Asynchronous work started by the command may still be active.
-type SubmissionSucceeded struct {
-	Raw       string
-	Statement promptlang.ParsedStatement
-}
+type SubmissionSucceeded = api.SubmissionSucceeded
 
 // SubmissionFailed reports the terminal failure of recognized input.
-type SubmissionFailed struct {
-	Statement promptlang.ParsedStatement
-	Raw       string
-	Operation string
-	Code      ErrorCode
-	Err       error
-}
-
-func (StateChanged) interpreterEvent()          {}
-func (OperationFailed) interpreterEvent()       {}
-func (InputAccepted) interpreterEvent()         {}
-func (StagedInputDispatched) interpreterEvent() {}
-func (HandoffCompleted) interpreterEvent()      {}
-func (StagedInputDiscarded) interpreterEvent()  {}
-func (InputRejected) interpreterEvent()         {}
-func (UnknownCommand) interpreterEvent()        {}
-func (ParticipantsListed) interpreterEvent()    {}
-func (HelpListed) interpreterEvent()            {}
-func (ExitRequested) interpreterEvent()         {}
-func (ShellCompleted) interpreterEvent()        {}
-func (LoopStatus) interpreterEvent()            {}
-func (SubmissionSucceeded) interpreterEvent()   {}
-func (SubmissionFailed) interpreterEvent()      {}
+type SubmissionFailed = api.SubmissionFailed
 
 // Observer consumes application events. Implementations should return quickly.
-type Observer interface{ OnEvent(Event) }
+type Observer = api.Observer
 
-func approvalFromAgent(id int64, alias participant.Alias, request agent.ApprovalRequest) Approval {
-	options := make([]ApprovalOption, len(request.Options))
-	for index, option := range request.Options {
-		options[index] = ApprovalOption{ID: string(option), Label: approvalOptionLabel(option)}
-	}
-	return Approval{
-		ID:      id,
-		Alias:   alias,
-		Kind:    ApprovalKind(request.Kind),
-		Prompt:  request.Ask,
-		Options: options,
-	}
-}
+var (
+	// ErrClosed reports that the interpreter can no longer accept operations.
+	ErrClosed = api.ErrClosed
+	// ErrStagePending rejects new input while a staged submission awaits a stage action.
+	ErrStagePending = api.ErrStagePending
+)
 
-func approvalOptionLabel(option agent.ApprovalOption) string {
-	switch option {
-	case agent.OptionAccept:
-		return "Accept"
-	case agent.OptionAcceptForSession:
-		return "Accept for session"
-	case agent.OptionDecline:
-		return "Decline"
-	case agent.OptionCancel:
-		return "Cancel"
-	default:
-		return string(option)
-	}
-}
-
-func (DebugRequested) interpreterEvent() {}
+// Shared interpreter constants.
+const (
+	ErrorInvalidInput           = api.ErrorInvalidInput
+	ErrorStagePending           = api.ErrorStagePending
+	ErrorReservedCommand        = api.ErrorReservedCommand
+	ErrorCommandExists          = api.ErrorCommandExists
+	ErrorExecutionFailed        = api.ErrorExecutionFailed
+	ErrorParticipantUnavailable = api.ErrorParticipantUnavailable
+	ApprovalCommandExecution    = api.ApprovalCommandExecution
+	ApprovalFileChange          = api.ApprovalFileChange
+	ApprovalPermissions         = api.ApprovalPermissions
+	StagePhasePending           = api.StagePhasePending
+	DebugActionView             = api.DebugActionView
+	DebugActionRows             = api.DebugActionRows
+)

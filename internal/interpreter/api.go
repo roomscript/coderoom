@@ -1,29 +1,41 @@
-// Package interpreter implements coderoom's UI-independent application layer.
+// Package interpreter is the public entry point for coderoom's application layer.
 package interpreter
 
-import "github.com/roomscript/coderoom/internal/promptlang"
+import (
+	"context"
 
-// Option configures an Interpreter.
+	"github.com/roomscript/coderoom/internal/interpreter/monolith"
+	"github.com/roomscript/coderoom/internal/promptlang"
+)
+
+// Option configures an Interpreter before execution and publication start.
 type Option func(*Interpreter)
 
-// Interpreter is the public facade and composition root for the interpreter.
-type Interpreter struct {
-	model    *interpreterModel
-	executor *interpreterExecutor
+// Interpreter selects migrated functionality and delegates remaining work to the
+// monolith. During this initial cutover all requests delegate to one fallback,
+// which retains execution, transcript publication, and shutdown ownership.
+type Interpreter struct{ fallback *monolith.Interpreter }
+
+// New starts one interpreter runtime backed by sess. Options are applied through
+// the facade before the fallback starts, preserving initial observer publication.
+func New(ctx context.Context, sess SessionController, cwd string, opts ...Option) *Interpreter {
+	i := &Interpreter{}
+	i.fallback = monolith.New(ctx, sess, cwd, func(fallback *monolith.Interpreter) {
+		i.fallback = fallback
+		for _, option := range opts {
+			option(i)
+		}
+	})
+	return i
 }
 
-// ResolveCommand returns a room-scoped command body. It returns ErrClosed if
-// shutdown prevents acceptance.
+// ResolveCommand returns a room-scoped command body, or ErrClosed after shutdown.
 func (i *Interpreter) ResolveCommand(invocation promptlang.UserCommand) (promptlang.Shell, error) {
-	return i.executor.resolveCommand(invocation)
+	return i.fallback.ResolveCommand(invocation) //nolint:wrapcheck // Preserve existing facade error identity.
 }
 
 // Snapshot returns a detached view of current application state.
-func (i *Interpreter) Snapshot() Snapshot {
-	return i.executor.snapshot()
-}
+func (i *Interpreter) Snapshot() Snapshot { return i.fallback.Snapshot() }
 
-// Close stops the interpreter and its owned background work.
-func (i *Interpreter) Close() {
-	i.executor.close()
-}
+// Close stops the runtime and its owned background work.
+func (i *Interpreter) Close() { i.fallback.Close() }

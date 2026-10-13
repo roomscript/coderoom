@@ -4,6 +4,26 @@ See [`pkg-interpreter-workflows.md`](pkg-interpreter-workflows.md) for the
 workflow and instruction boundary used to keep this package's serialized coordinator
 focused.
 
+## Migration layout
+
+The public `internal/interpreter` entry point delegates to the existing
+implementation in `internal/interpreter/monolith`. The facade retains the current
+methods and option signatures; this first move delegates all work, including
+registered `/who` and `/shell` commands. Front ends keep their existing imports.
+Shared events, snapshots, errors and record inspection live in
+`internal/interpreter/api`, with aliases on both interfaces to preserve one set of
+contracts and avoid a parent-package import cycle.
+
+One monolith executor continues to own serialized Session execution, canonical
+room state, ordered event publication, worker lifetime and shutdown. The facade
+adds no second observer, transcript, queue or runtime. Later migrated commands
+will use shared admission/publication capabilities rather than execute Session
+independently. Choose the modular or fallback path before execution and retain it
+through completion; do not fall back after an execution failure.
+
+Implementation filenames discussed below and in the workflow design refer to
+`monolith/` during this migration unless another package is named explicitly.
+
 ## Scope
 
 The interpreter is coderoom's UI-independent application layer. It accepts

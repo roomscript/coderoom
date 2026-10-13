@@ -8,6 +8,25 @@ This follows [#55](https://github.com/roomscript/coderoom/issues/55) and conside
 [pkg-interpreter.md](pkg-interpreter.md) and
 [pkg-interpreter-workflows.md](pkg-interpreter-workflows.md) remain authoritative.
 
+## Public facade and monolith fallback
+
+The current interpreter implementation has moved to `internal/interpreter/monolith`
+behind its existing interface. The public `internal/interpreter` facade initially
+delegates every request to one instance. Shared `api` contracts keep front-end
+imports stable and let both implementations publish identical event and snapshot
+types without importing the parent package. `runtime` and `std` remain separate.
+
+Keep Session execution, canonical transcript projection, publication and shutdown
+with one runtime while migrating command selection. The monolith is that owner
+for this first checkpoint; no command routing or production admission changes are
+part of the package move. Production admission and same-primary routing ownership
+are the next proof. Later route a command to the modular path only when its needed
+capabilities are proved; otherwise delegate before execution starts. Never retry
+through fallback after the selected path begins execution.
+
+Existing implementation-file references below describe the `monolith` package
+unless qualified otherwise.
+
 ## Current responsibility map
 
 | Responsibility | Current implementation | Composition opportunity |

@@ -10,7 +10,11 @@ the issue is complete.
 
 ## Resume here
 
-Current checkpoint: the send and staging prototypes are **unwired**. `/who` and
+Current checkpoint: the public interpreter facade now delegates to the existing
+implementation in `internal/interpreter/monolith`, with shared `api` contracts.
+The monolith still owns execution, transcript publication and shutdown; the facade
+adds no runtime and initially delegates every request. Command routing is unchanged.
+The send and staging prototypes remain **unwired**. `/who` and
 `/shell` are registered; production addressed send still uses its legacy path.
 Read `internal/interpreter/std/CONCEPTS.md` for the short concept agreement, then
 `runtime/command.go`, `std/command_send.go` and their tests (under
@@ -63,7 +67,8 @@ commits to the human.
   snapshots and ordered change subscriptions. Session retains runtime bookkeeping
   and translates participant facts into Session events. Group shares the Session
   state lock; no transition separately queues facts or flushes callbacks.
-- Next: review this atomic subscription boundary, then design production admission.
+- Next: prove production admission and same-primary ownership through the shared
+  monolith execution owner before routing commands in the new facade.
   Resolve same-primary send ownership, causal transcript publication, stage
   operations and shutdown integration separately. Registered commands and legacy
   sends remain unchanged.
@@ -149,6 +154,12 @@ the current package until a real consumer demonstrates a useful boundary.
   clearer. Keep invocation identity, acknowledgement, completion tracking and
   shutdown settlement in the interpreter. `runtime.CommandRunner` continues to
   call `Prepare` and `Go`; coordinator extraction is not the next checkpoint.
+- [x] 1b. Move the current implementation behind the new public facade:
+  `monolith` retains the existing implementation/interface; shared `api` contracts
+  preserve front-end types without a parent-package dependency. The facade delegates
+  all work to one runtime, with no routing changes. Public API tests stay at the
+  facade boundary; implementation tests move with the monolith. This is separate
+  from admission and command wiring.
 - [ ] 2a. Addressed-send preparation and direct delivery:
   Standalone `std.SendCommand` retains Session's frozen `ParticipantSendPlan`,
   deriving `Staging.WaitFor` and `ToInform` from it for readiness. It submits the

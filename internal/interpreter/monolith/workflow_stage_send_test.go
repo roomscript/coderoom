@@ -1,0 +1,77 @@
+package monolith
+
+import (
+	"reflect"
+	"testing"
+
+	"github.com/roomscript/coderoom/internal/participant"
+	"github.com/roomscript/coderoom/internal/promptlang"
+)
+
+func TestStageWorkflow_replacedSendIgnoresOldCompletions(t *testing.T) {
+	for _, remove := range []string{"edit", "discard"} {
+		for _, completion := range []string{"plan", "delivery"} {
+			t.Run(remove+"/"+completion, func(t *testing.T) {
+				model := interpreterModel{}
+				stage := &model.workflows.stage
+				stale := startOldSendCompletion(stage, completion)
+				if remove == "edit" {
+					stage.takeForEdit()
+				} else {
+					stage.discard()
+				}
+				planStageForTest(t, stage, promptlang.Send{Alias: located("ben"), Text: located("new")},
+					[]string{"ben"}, []participantState{{alias: testAlias("ben"), status: participant.StatusWorking}})
+				before := stage.snapshot()
+				pending := stage.active.pending
+
+				var sequence instructionSequence
+				switch stale := stale.(type) {
+				case preparationResult:
+					sequence = model.ApplyPreparation(stale)
+				case executionOutcome:
+					sequence = model.ApplyOutcome(stale)
+				}
+				if len(sequence) != 0 {
+					t.Fatalf("stale completion returned instructions: %#v", sequence)
+				}
+				if !reflect.DeepEqual(stage.snapshot(), before) || stage.active.pending != pending {
+					t.Fatal("stale completion changed the replacement send")
+				}
+			})
+		}
+	}
+}
+
+func startOldSendCompletion(stage *stageWorkflow, phase string) any {
+	stage.start("@ada old", promptlang.Send{Alias: located("ada"), Text: located("old")})
+	plan := sendPlanResult{target: stage.active.pending, plan: testSendPlan([]string{"ada"})}
+	if phase == "plan" {
+		return plan
+	}
+	plan.participants = []participantState{{alias: testAlias("ada"), status: participant.StatusIdle}}
+	stage.prepareSend(plan)
+	return sessionOutcome{target: stage.active.pending}
+}
+
+func TestStageWorkflow_sendPreparationIsConsumedOnce(t *testing.T) {
+	for _, status := range []participant.Status{participant.StatusIdle, participant.StatusWorking} {
+		t.Run(string(status), func(t *testing.T) {
+			stage := stageWorkflow{}
+			stage.start("@ada hello", promptlang.Send{Alias: located("ada"), Text: located("hello")})
+			plan := sendPlanResult{
+				target: stage.active.pending, plan: testSendPlan([]string{"ada"}),
+				participants: []participantState{{alias: testAlias("ada"), status: status}},
+			}
+			stage.prepareSend(plan)
+			before := stage.snapshot()
+			pending := stage.active.pending
+			if repeated := stage.prepareSend(plan); len(repeated) != 0 {
+				t.Fatalf("repeated preparation returned instructions: %#v", repeated)
+			}
+			if !reflect.DeepEqual(stage.snapshot(), before) || stage.active.pending != pending {
+				t.Fatal("repeated preparation changed the send")
+			}
+		})
+	}
+}

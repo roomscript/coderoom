@@ -120,6 +120,12 @@ UI-independent application layer. Responsible for:
 - Exposing observable events and snapshots to front ends
 - Preserving serialized session dispatch
 
+The public interpreter now delegates to `internal/interpreter/monolith` during
+command migration. The monolith remains the single execution, transcript,
+publication and shutdown owner. Shared `internal/interpreter/api` contracts keep
+front-end methods, events and snapshots stable; `runtime` and `std` remain command
+contracts and modules. This first package move changes no command routing.
+
 See [`pkg-interpreter.md`](pkg-interpreter.md).
 
 ---

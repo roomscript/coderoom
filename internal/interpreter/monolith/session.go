@@ -1,0 +1,20 @@
+package monolith
+
+import (
+	"github.com/roomscript/coderoom/internal/participant"
+	"github.com/roomscript/coderoom/internal/session"
+)
+
+// SessionController is the session behavior consumed by Interpreter. It is an
+// internal dependency port, not part of the front-end event or snapshot API.
+type SessionController interface {
+	Execute(session.Command) error
+	AddObserver(session.Observer)
+	CreateParticipantSendPlan(alias participant.Alias) session.ParticipantSendPlan
+	Participants() []participant.View
+	Participant(alias participant.Alias) (participant.View, bool)
+	ParticipantByName(name string) (participant.View, bool)
+	Shutdown()
+}
+
+var _ SessionController = (*session.Session)(nil)

@@ -1,29 +1,14 @@
 package interpreter
 
-import (
-	"context"
-
-	"github.com/roomscript/coderoom/internal/shell"
-)
+import "github.com/roomscript/coderoom/internal/interpreter/monolith"
 
 // ShellRunner executes one shell program.
-type ShellRunner interface {
-	Run(context.Context, string, string) shell.Result
-}
+type ShellRunner = monolith.ShellRunner
 
 // ShellRunnerFunc adapts a function to ShellRunner.
-type ShellRunnerFunc func(context.Context, string, string) shell.Result
-
-// Run executes the adapted function.
-func (f ShellRunnerFunc) Run(ctx context.Context, cwd, program string) shell.Result {
-	return f(ctx, cwd, program)
-}
+type ShellRunnerFunc = monolith.ShellRunnerFunc
 
 // WithShellRunner replaces local shell execution, primarily for tests.
 func WithShellRunner(runner ShellRunner) Option {
-	return func(i *Interpreter) {
-		if runner != nil {
-			i.executor.setShellRunner(runner)
-		}
-	}
+	return func(i *Interpreter) { monolith.WithShellRunner(runner)(i.fallback) }
 }
