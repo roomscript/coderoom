@@ -127,7 +127,11 @@ front-end methods, events and snapshots stable; `runtime` and `std` remain comma
 contracts and modules. `/who` and `/shell` are selected in the facade and queued through a narrow
 `monolith.SubmitCommand` bridge; other commands use the existing fallback. The
 monolith's catalog and handlers remain intact, with no independent execution or
-publication pipeline.
+publication pipeline. The bridge also supplies native addressed-send admission
+for module tests on that same serialized lane. Routing outcomes are scoped to
+the dispatch owner, with one pending modular send per primary. Delivery input
+records precede causal session events; settlement follows their projection.
+Public addressed sends and lifecycle staging still use the legacy path.
 
 See [`pkg-interpreter.md`](pkg-interpreter.md).
 

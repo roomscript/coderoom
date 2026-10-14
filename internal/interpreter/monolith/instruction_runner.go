@@ -67,7 +67,10 @@ func newInstructionRunner(model instructionModelPort, executor instructionExecut
 }
 
 func (r *instructionRunner) Run(sequence instructionSequence) {
-	queue := instructionItems(sequence)
+	r.runItems(instructionItems(sequence))
+}
+
+func (r *instructionRunner) runItems(queue []runnerItem) {
 	snapshotRequested := false
 	for len(queue) > 0 {
 		item := queue[0]

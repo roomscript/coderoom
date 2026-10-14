@@ -34,7 +34,9 @@ Departures stay sticky. Staging is unwired; `/who` and `/shell` return nil.
 **Context** supplies narrow capabilities. `ParticipantReader` exposes participant
 information through detached reads without session execution access.
 `ShellLauncher` starts shell work using executor-owned workers and lifetime.
-`Session.Subscribe(handle)` delivers all events immediately to one callback.
+`Session.Subscribe(handle)` delivers events to one callback. The native send
+adapter scopes routing outcomes to the invocation that owns the dispatch;
+lifecycle facts still use the shared interpreter observer.
 Staging uses `Session.SubscribeParticipants(handle)` instead: it atomically returns
 initial views and subscribes to subsequent lifecycle facts in mutation order.
 The lifecycle callback retains synchronized facts and wakes its private monitor.
@@ -74,15 +76,19 @@ shell capability retains `ShellCompleted` for compatibility. Execution failures
 are separate from submission success; user commands and loops remain legacy.
 `runtime.Registry.Register(command)` indexes the type returned by `Statement()`.
 `Lookup(parsed)` selects the command; metadata comes from the command itself.
-Both commands are registered. Unwired `SendCommand` retains Session's send plan,
+Both commands are registered. Unregistered `SendCommand` retains Session's send plan,
 derives staging from it and submits the native session command with that plan.
 It returns the original input record with actual routing.
-Lifecycle staging is proved with a shared-feed fake. Production admission,
-publication and stage integration remain unwired.
+Lifecycle staging is proved with a shared-feed fake. Native send admission and
+causal publication are proved through the monolith bridge; public addressed sends and lifecycle staging remain on the legacy path.
 
 The public interpreter now selects `/who` and `/shell` in its runtime registry and queues it
 through `monolith.SubmitCommand`. The existing coordinator supplies participant
 reads and runs CommandRunner, preserving acknowledgement, completion identity,
 publication and shutdown. Unsupported input still uses legacy dispatch;
-the monolith's existing `/who` path remains available. Native send admission and
-lifecycle staging remain unwired.
+the monolith's existing `/who` path remains available. The bridge now supplies
+native addressed-send admission on the same serialized lane. One modular send per primary can await routing; legacy and loop dispatches
+cannot settle its subscription. Completion records precede causal event projection,
+then execution outcomes publish. Shutdown drains admitted delivery and releases
+invocation subscriptions. Public send registration and lifecycle staging remain
+unwired.

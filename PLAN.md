@@ -16,7 +16,8 @@ The monolith still owns execution, transcript publication and shutdown; the faca
 adds no runtime. It now selects `/who` and `/shell` in its own registry and uses the additive
 `monolith.SubmitCommand` bridge for serialized admission and execution; other input
 uses the original fallback. Existing monolith command handlers are untouched.
-The send and staging prototypes remain **unwired**. `/who` and
+Public send registration and lifecycle staging remain **unwired**; native
+send admission is now proved through the shared bridge. `/who` and
 `/shell` are registered; production addressed send still uses its legacy path.
 Read `internal/interpreter/std/CONCEPTS.md` for the short concept agreement, then
 `runtime/command.go`, `std/command_send.go` and their tests (under
@@ -32,7 +33,7 @@ commits to the human.
   same-alias replacements even before their departure events reach staging.
   A real-Session send regression covers a blocked departure during initialization.
   Snapshot/event ordering is now handled separately by Session's atomic
-  `SubscribeParticipants` boundary; production admission remains unwired.
+  `SubscribeParticipants` boundary; public staged admission remains unwired.
 - The unwired lifecycle keeps Context directly and delegates subscription,
   state merging, queue and worker lifetime to an unexported participantMonitor.
   Readiness/departure policy, launch and settlement remain in the lifecycle.
@@ -74,16 +75,23 @@ commits to the human.
   completion publication and shutdown without changing the monolith's handlers.
   Invalid or unsupported input delegates before execution; selected-command errors
   never retry through fallback.
-- Next: prove native asynchronous send admission and same-primary ownership through
-  that shared execution owner. The `/who` bridge does not yet provide Session
-  delivery or lifecycle staging.
-  Resolve same-primary send ownership, causal transcript publication, stage
-  operations and shutdown integration separately. Registered commands and legacy
-  sends remain unchanged.
+- Native addressed-send admission is now proved through `SubmitCommand` with
+  `std.SendCommand`, without public registration. Its invocation-scoped adapter
+  queues execution on the existing lane, reserves one pending modular send per
+  primary, and delivers only the owning dispatch's routing outcome. Legacy and
+  loop routing cannot settle that invocation. Send records precede causal event
+  projection; settlement follows it. Invocation cleanup releases subscriptions,
+  and shutdown drains already-admitted native delivery.
+- Next: review this direct-delivery boundary, then integrate lifecycle staging
+  and atomic stage operations separately. Public sends still use the legacy path.
+  The adapter supports addressed sends only; no loop or staging migration is
+  included. Keep `/who`, `/shell` and legacy behavior unchanged.
 
 Last validation: `go test ./...`, `go test -race ./...` and `make lint` passed
-for the atomic participant subscription and lifecycle staging draft. This does
-not validate a production staging adapter.
+for the native addressed-send admission bridge and its regressions. A later
+full race run hit an intermittent Codex notice-filter failure; ten focused
+repetitions and the final full race rerun passed. This does not validate public send registration or a
+production staging adapter.
 
 ## Scope assessment
 
@@ -176,6 +184,10 @@ the current package until a real consumer demonstrates a useful boundary.
 - [x] 1d. Wire `/shell` through the facade registry and the same coordinator bridge.
   Verify structured output and execution errors, launch-before-completion ordering,
   and cancellation with joined shutdown. Existing monolith handlers remain intact.
+- [x] 1e. Prove native addressed-send admission through the shared owner without
+  public registration. Tests cover direct and partial delivery, rejection,
+  missing outcomes, same-primary overlap with legacy sends, worker admission,
+  causal transcript ordering, cleanup and admitted delivery during shutdown.
 - [ ] 2a. Addressed-send preparation and direct delivery:
   Standalone `std.SendCommand` retains Session's frozen `ParticipantSendPlan`,
   deriving `Staging.WaitFor` and `ToInform` from it for readiness. It submits the
@@ -183,7 +195,8 @@ the current package until a real consumer demonstrates a useful boundary.
   original input records and partial delivery through queued shared-feed
   session continuations with explicit primary matching, registered before
   asynchronous admission. Invocation cleanup releases subscriptions on completion, failure or discard. It is
-  not registered; the real session adapter and lifecycle staging remain unwired.
+  not registered; the native Session adapter is now supplied by the monolith
+  bridge for direct-delivery tests. Lifecycle staging remains unwired.
   Start with the standalone `Invocation.Staging() *Staging` draft: frozen aliases
   or nil, with existing commands returning nil. The draft is not execution wiring.
   Every send should use one staging path, immediately releasing ready work or

@@ -1,11 +1,13 @@
 package monolith
 
 import (
+	"fmt"
 	"maps"
 	"slices"
 
 	"github.com/roomscript/coderoom/internal/interpreter/runtime"
 	"github.com/roomscript/coderoom/internal/participant"
+	"github.com/roomscript/coderoom/internal/promptlang"
 )
 
 // participantViews supplies detached reads without live session access.
@@ -20,7 +22,7 @@ type invocationCompletedOperation struct {
 }
 
 // goInvocation runs on the serialized path. The callback may run anywhere, but
-// only enqueues; launch failure removes its identity before queued results apply.
+// only hands off results; launch failure removes its identity before results apply.
 func (e *interpreterExecutor) goInvocation(value goInvocationInstruction) instructionSequence {
 	e.nextInvocationID++
 	id := e.nextInvocationID
@@ -31,15 +33,27 @@ func (e *interpreterExecutor) goInvocation(value goInvocationInstruction) instru
 	if value.context.Participants == nil {
 		value.context.Participants = participantViews(e.participants())
 	}
+	delivery := &commandSession{executor: e}
+	if e.commandSessions == nil {
+		e.commandSessions = make(map[uint64]*commandSession)
+	}
+	e.commandSessions[id] = delivery
+	if value.context.Session == nil {
+		value.context.Session = delivery
+	}
 	launcher := &userShellLauncher{executor: e}
 	if value.context.Shell == nil {
 		value.context.Shell = launcher
 	}
-	err := (runtime.CommandRunner{}).Go(value.command, value.outcome.statement, value.context, func(completion runtime.CommandResult) {
-		e.enqueueCompletion(invocationCompletedOperation{id: id, completion: completion, event: launcher.completionEvent(value.outcome)})
+	owned := &ownedCommand{Command: value.command}
+	delivery.invocation = owned
+	err := (runtime.CommandRunner{}).Go(owned, value.outcome.statement, value.context, func(completion runtime.CommandResult) {
+		delivery.complete(invocationCompletedOperation{id: id, completion: completion, event: launcher.completionEvent(value.outcome)})
 	})
 	if err != nil {
 		delete(e.pendingInvocations, id)
+		delivery.release()
+		delete(e.commandSessions, id)
 		outcome := value.outcome
 		outcome.err = err
 		return submissionResultSequence(outcome)
@@ -48,12 +62,18 @@ func (e *interpreterExecutor) goInvocation(value goInvocationInstruction) instru
 }
 
 func (op invocationCompletedOperation) apply(e *interpreterExecutor) {
+	e.runner.Run(e.settleInvocation(op))
+}
+
+func (e *interpreterExecutor) settleInvocation(op invocationCompletedOperation) instructionSequence {
 	outcome, ok := e.pendingInvocations[op.id]
 	if !ok {
-		return
+		return nil
 	}
 	delete(e.pendingInvocations, op.id)
-	e.runner.Run(invocationCompletionSequence(outcome, op.completion, op.event))
+	e.commandSessions[op.id].release()
+	delete(e.commandSessions, op.id)
+	return invocationCompletionSequence(outcome, op.completion, op.event)
 }
 
 func invocationCompletionSequence(outcome submissionOutcome, completion runtime.CommandResult, event Event) instructionSequence {
@@ -104,6 +124,28 @@ func (e *interpreterExecutor) failPendingInvocations() {
 	for _, id := range slices.Sorted(maps.Keys(e.pendingInvocations)) {
 		outcome := e.pendingInvocations[id]
 		delete(e.pendingInvocations, id)
+		e.commandSessions[id].release()
+		delete(e.commandSessions, id)
 		e.runner.Run(invocationCompletionSequence(outcome, runtime.CommandResult{Err: ErrClosed}, nil))
+	}
+}
+
+// Retain cleanup without changing CommandRunner's preparation/launch ownership.
+type ownedCommand struct {
+	runtime.Command
+	invocation runtime.Invocation
+}
+
+func (c *ownedCommand) Prepare(statement promptlang.ParsedStatement, ctx runtime.Context) (runtime.Invocation, error) {
+	invocation, err := c.Command.Prepare(statement, ctx)
+	c.invocation = invocation
+	if err != nil {
+		return nil, fmt.Errorf("prepare owned command: %w", err)
+	}
+	return invocation, nil
+}
+func (c *ownedCommand) close() {
+	if c.invocation != nil {
+		c.invocation.Close()
 	}
 }

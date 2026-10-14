@@ -26,8 +26,11 @@ type ShellLauncher interface {
 // SessionExecution is a host admission and shared event capability, not raw Session.
 // ParticipantByName resolves input names to current Session-owned identities.
 // CreateParticipantSendPlan delegates recipient selection to Session.
-// Subscribe receives all session events, including participant lifecycle facts
-// before execution. The callback runs immediately and may run on a producer
+// Subscribe receives session events, including participant lifecycle facts
+// before execution. A host may scope routing outcomes to the invocation whose
+// native dispatch produced them; unrelated routing outcomes are not required.
+// Lifecycle callbacks run immediately; routing callbacks run within the owning
+// dispatch burst, before projection. Callbacks may run on a producer
 // goroutine; it must be concurrency-safe. Subscribe itself does not invoke the
 // callback inline. Subscribe always returns a non-nil unsubscribe function.
 // Unsubscribe is safe from a callback and prevents further
@@ -39,7 +42,8 @@ type ShellLauncher interface {
 // The host owns the serialized session execution lane and worker lifetime.
 // A primary alias must have at most one admitted send awaiting its routing result;
 // alias matching cannot distinguish concurrent requests to the same primary.
-// This prototype has no production adapter yet.
+// The monolith adapter admits addressed sends only. Lifecycle staging remains
+// unwired; atomic subscriptions require a supporting Session controller.
 type SessionExecution interface {
 	Subscribe(handle func(session.Event)) (unsubscribe func())
 	// SubscribeParticipants atomically returns initial state and subscribes to
