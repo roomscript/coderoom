@@ -17,16 +17,44 @@ and admitted through the shared coordinator bridge. Shared `api` contracts keep 
 imports stable and let both implementations publish identical event and snapshot
 types without importing the parent package. `runtime` and `std` remain separate.
 
-Keep Session execution, canonical transcript projection, publication and shutdown
-with one runtime while migrating command selection. The monolith is that owner
-for this checkpoint. An additive `SubmitCommand` method queues a selected runtime
-command on its existing serialized path, reusing admission checks, CommandRunner,
-completion tracking, publication and shutdown. Its command catalog and handlers,
-including `/who`, are untouched. The facade registry currently selects `/who` and `/shell`.
-Native asynchronous send admission and same-primary routing ownership remain the
-next proof; this command bridge does not establish either. Later route a command to the modular path only when its needed
-capabilities are proved; otherwise delegate before execution starts. Never retry
-through fallback after the selected path begins execution.
+Keep Session execution and canonical publication on one serialized lane during
+migration. The new interpreter schedules its own command algorithm there; the
+monolith supplies `Schedule` rather than receiving a callback that creates or
+returns a lifecycle. The new interpreter calls `AdmitCommand`, prepares the
+invocation, constructs/starts its existing concrete `InvocationLifecycle`, and
+retains it in its own pending map. Completion acceptance, duplicate rejection,
+identity and cleanup all belong to the new interpreter. No Execution interface
+or command execution wrapper is involved.
+
+`AdmitCommand` returns a `CommandSubmission` containing invocation-scoped Context
+and publication methods, or nil after publishing rejection. Its methods run on
+the shared lane; only `QueueCompletion` is producer-safe. The new interpreter
+explicitly publishes submission acceptance/failure after Start, and accepted
+completion records/outcomes after it settles the lifecycle. Work running on the
+lane must not call blocking queue methods such as Snapshot or Close.
+
+The monolith adapter retains completion work within a native routing burst. The
+new interpreter settles that work before the monolith projects causal events;
+input records publish before those events and terminal outcomes afterward.
+For other completions, work runs on the same queue. Callbacks only queue work,
+which avoids settling inline under Start/Go's lifecycle lock. Failed starts and
+late/duplicate results cannot publish because the new interpreter removes their
+pending identity. The monolith stores and invokes no migrated lifecycle.
+
+After execution and completion draining, `WithShutdown` invokes the new
+interpreter's cleanup hook on that lane, before publication closes. The new
+interpreter closes/joins remaining lifecycles and publishes their outcomes in
+submission order. This also handles parent-context cancellation. The monolith
+keeps worker cancellation and canonical projection until those move in a later
+checkpoint; it never adopts new lifecycle or stage policy.
+
+`/who` and `/shell` use this path. Other commands delegate to the monolith before
+execution; never retry fallback after selected execution starts. `SubmitCommand`
+remains a temporary legacy bridge. The destination is the new interpreter
+replacing and removing the monolith. Real-Session tests cover busy/startup
+waiting, departures, cleanup, direct/partial delivery and causal ordering. Public
+send remains unregistered until visible staging and atomic edit/discard/interrupt
+are integrated in the new interpreter.
 
 Existing implementation-file references below describe the `monolith` package
 unless qualified otherwise.
@@ -160,7 +188,8 @@ directories are candidates, not requirements to create in one change.
 
 ## Registered command launch and completion
 
-`std.SendCommand` is an unwired preparation/direct-delivery prototype.
+`std.SendCommand` is integrated through the new interpreter in tests; public
+registration awaits visible stage operations.
 `SendCommand.Prepare` resolves the parsed name through
 `SessionExecution.ParticipantByName`, validates that view, and asks Session to
 create one policy-aware `ParticipantSendPlan` using the resolved alias. It does
@@ -170,19 +199,19 @@ The plan retains resolved `participant.Alias` values and its Session binding.
 Session rejects delivery to same-name replacements, even when departure notifications have not
 reached staging. A primary replacement fails the send; a notice replacement
 reports a partial-delivery failure. This delivery guard does not establish the
-snapshot/event collection boundary required by the future adapter.
+snapshot/event collection boundary supplied separately by atomic subscriptions.
 
 `Staging` derives `WaitFor` from `PrimaryParticipant()` and `ToInform`
 from the remaining `Targets()`. Staging does not select delivery recipients.
 `Context.Session` supplies shared-feed `SessionExecution`; `Go(complete)` submits the native
 `session.SendToParticipantCommand` with its retained plan. `Staging.DiscardInform`
-lets the host tell the invocation about a departed notice recipient before Go.
+lets the lifecycle tell the invocation about a departed notice recipient before Go.
 Send uses `DiscardUnavailableNoticeRecipients` to update the plan. The lifecycle
 drops that alias from its waits and retains sticky departures, including same-name
 replacements. An unavailable `WaitFor` alias fails staging and closes the
-invocation instead. Callbacks run on the host's serialized path before launch;
-the invocation ignores them after launch or close. Readiness and departure
-handling are proved in the unwired lifecycle against the shared-feed fake.
+invocation instead. The lifecycle applies notice departures before launch,
+including on its monitor routine; the invocation ignores them after launch or close. Readiness and departure
+handling are proved against the shared-feed fake and through the new interpreter.
 The invocation constructs the
 original input record from `ParsedStatement.Raw` only if delivery reaches someone;
 partial delivery preserves both routing metadata and the execution error.
@@ -191,11 +220,12 @@ replacement cannot complete the original invocation. Notice-discard callbacks
 also require the exact frozen alias. `/who` renders `.Name`; shell output uses
 a local zero-ID display alias, without claiming participant identity.
 The capability revalidates availability at delivery and owns causal session-event
-handling. No session adapter is implemented yet. Lifecycle staging can retain
-and release this invocation; publication ordering, admission and the adapter
-remain production integration work before registration or interpreter wiring.
+handling. The monolith supplies the serialized admission adapter and invocation-scoped
+routing; new-interpreter lifecycle tests prove waiting and causal publication.
+Public stage presentation and operations remain work before send registration.
 
-An unwired `InvocationLifecycle` is now a private-monitor concurrency prototype.
+`InvocationLifecycle` uses a private participant monitor and is now constructed
+and started by the new interpreter using monolith-supplied capabilities.
 It retains Context directly. Its unexported participantMonitor component owns
 subscription, collected state, initial merge, wake-up queue and stop/join mechanics;
 the lifecycle retains readiness/departure policy, launch and result settlement.
@@ -221,14 +251,14 @@ The worker owns waiting advancement, optional-recipient plan changes, launch and
 failure settlement. It stops monitoring and unsubscribes before calling the
 unchanged `Invocation.Go(complete)`. A nil Go result means admission, not delivery
 or participant completion. Completion callbacks still only enqueue results for
-host publication. The Session capability must admit work safely from the monitor
-while preserving the host's serialized native execution lane. The prototype does
+monolith publication. The Session capability must admit work safely from the monitor
+while preserving the monolith's serialized native execution lane. The prototype does
 not directly call raw Session or publish room records from the worker.
 
 Lifecycle state is protected separately from participant collection. Close signals
 cancellation before taking the lifecycle lock, then settles and joins monitoring.
 If launch has already committed, Close waits for Go to return admission; it cannot
-cancel native delivery itself. The host still owns admitted delivery cancellation,
+cancel native delivery itself. The monolith still owns admitted delivery cancellation,
 completion draining and public outcomes. A reader that blocks during initialization
 must return before Close can finish; no read-cancellation API is introduced.
 
@@ -298,14 +328,15 @@ once on the later native idle transition. Another preserves a native idle fact
 collected while the initial busy snapshot is returning. Source tests cover blocked
 callbacks,
 post-snapshot ordering, reads and unsubscribe from callbacks, startup readiness,
-removal/replacement identity and shutdown. Production admission, stage operations
-and transcript publication remain unwired.
+removal/replacement identity and shutdown. Admission and transcript publication
+now work through the new-interpreter lifecycle boundary; visible stage operations
+remain unwired.
 
 This is an explicit experiment with lifecycle-owned monitoring, departing from
 the production rule that workers only enqueue results and the coordinator advances
-workflows. Production CommandRunner, stage operations and workflow ownership are
-unchanged. The initial publication, shutdown and cancellation integration still
-needs separate review before wiring.
+workflows. Legacy CommandRunner and stage operations remain unchanged. The new interpreter
+now owns lifecycle construction, completion and cleanup; the monolith supplies
+ordered publication and a shutdown notification. Visible stage and interrupt integration remain pending.
 
 Invocation.Staging remains the sole frozen requirement description. Participant
 facts are progress state, not another delivery plan. /who and /shell return nil
@@ -321,7 +352,7 @@ replacement's state, and a replacement's readiness cannot satisfy an old wait.
 Required-instance departures fail staging; optional-instance departures exclude
 only that notice. Names are derived for diagnostics. This identity boundary does
 not establish snapshot/event ordering, Session membership, or completion of a
-specific invocation or turn. The staging prototype remains unwired.
+specific invocation or turn. Public staged sends remain on the legacy path.
 
 Runtime tests use local command and invocation fakes. Tests exercising real
 standard commands through the runner, registry, and lifecycle live in `std`,
@@ -348,8 +379,8 @@ are removed. Both commands report submission success when `Go` returns nil, befo
 queued completion records are published. Preparation or launch errors instead
 report submission failure. Completion reports execution errors separately.
 
-The executor assigns monotonically increasing invocation IDs and consumes each
-completion once. Failed launches invalidate queued callbacks. Shutdown drains
+The new interpreter assigns monotonically increasing invocation IDs and consumes
+each completion once. The legacy bridge retains its own tracking until removed. Failed launches invalidate queued callbacks. Shutdown drains
 completions retained while accepted operations finish, then settles unfinished
 execution with `ErrClosed`; late callbacks cannot mutate closed state.
 Commands transfer ownership of completion records and do not publish events.
@@ -418,7 +449,7 @@ Addressed send registers a continuation through `Context.Session.Subscribe`
 before `Execute(session.Command)`. Subscribe delivers the shared Session event
 feed through one immediate callback. Send guards callback state against racing
 Close calls, checks the primary recipient, self-unsubscribes and reports records
-through the host's completion queue. Send ignores unrelated events
+through the monolith's completion queue. Send ignores unrelated events
 and accepts `RoutingParticipantSend` only when its primary recipient matches
 `Plan.PrimaryParticipant()`. An alias appearing as a notice is insufficient.
 Tests deliver the same events to simultaneous subscriptions for different primary
@@ -433,11 +464,11 @@ monitor; ordinary participant inspection reads establish no collection ordering.
 Unsubscribe stops delivery without waiting for in-flight callbacks; callbacks
 must tolerate a racing Close. The lifecycle disables collection and joins its
 monitor, so captured callbacks cannot restore closed work.
-The capability's production adapter is still absent; raw `Session.Execute` does
-not provide asynchronous admission or a monitored subscription lifetime.
+The monolith adapter provides serialized asynchronous admission and scopes routing
+outcomes to the owning invocation; raw `Session.Execute` is not exposed.
 
 The native session command retains its frozen `ParticipantSendPlan`; no execution
 path reselects recipients. `Invocation.Close` releases send continuations on
-completion, failed admission or discard. Worker lifetime, actual input-record
-publication before causal output, submission milestones and stage presentation
-remain interpreter responsibilities to prove during later wiring.
+completion, failed admission or discard. The new-interpreter integration proves
+worker cleanup, input records before causal output and submission milestones.
+Visible stage ownership and atomic operations remain to be integrated.

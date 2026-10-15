@@ -15,7 +15,7 @@ type participantViews []participant.View
 
 func (views participantViews) Participants() []participant.View { return views }
 
-type invocationCompletedOperation struct {
+type invocationCompletion struct {
 	id         uint64
 	completion runtime.CommandResult
 	event      Event
@@ -48,7 +48,7 @@ func (e *interpreterExecutor) goInvocation(value goInvocationInstruction) instru
 	owned := &ownedCommand{Command: value.command}
 	delivery.invocation = owned
 	err := (runtime.CommandRunner{}).Go(owned, value.outcome.statement, value.context, func(completion runtime.CommandResult) {
-		delivery.complete(invocationCompletedOperation{id: id, completion: completion, event: launcher.completionEvent(value.outcome)})
+		delivery.complete(invocationCompletion{id: id, completion: completion, event: launcher.completionEvent(value.outcome)})
 	})
 	if err != nil {
 		delete(e.pendingInvocations, id)
@@ -61,11 +61,7 @@ func (e *interpreterExecutor) goInvocation(value goInvocationInstruction) instru
 	return withSubmissionSource(instructionSequence{publishEventInstruction{event: SubmissionSucceeded{Raw: value.outcome.raw}}}, value.outcome.statement)
 }
 
-func (op invocationCompletedOperation) apply(e *interpreterExecutor) {
-	e.runner.Run(e.settleInvocation(op))
-}
-
-func (e *interpreterExecutor) settleInvocation(op invocationCompletedOperation) instructionSequence {
+func (e *interpreterExecutor) settleInvocation(op invocationCompletion) instructionSequence {
 	outcome, ok := e.pendingInvocations[op.id]
 	if !ok {
 		return nil

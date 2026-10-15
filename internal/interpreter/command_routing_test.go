@@ -15,6 +15,7 @@ type routingProbe struct {
 	preparations atomic.Int32
 	readers      atomic.Int32
 	launches     atomic.Int32
+	closes       atomic.Int32
 }
 
 func (*routingProbe) Name() string                    { return "who" }
@@ -30,7 +31,7 @@ func (p *routingProbe) Prepare(_ promptlang.ParsedStatement, ctx runtime.Context
 	return p, nil
 }
 func (*routingProbe) Staging() *runtime.Staging { return nil }
-func (*routingProbe) Close()                    {}
+func (p *routingProbe) Close()                  { p.closes.Add(1) }
 func (p *routingProbe) Go(complete func(runtime.CommandResult)) error {
 	p.launches.Add(1)
 	result := runtime.CommandResult{Records: []room.Record{{Kind: room.KindSystem, Text: "modular who proof"}}}
@@ -56,8 +57,8 @@ func TestSubmit_ModularSelectionUsesSharedCoordinatorOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	interp.Close() // Accepted command and queued completion must survive shutdown.
-	if probe.preparations.Load() != 1 || probe.readers.Load() != 1 || probe.launches.Load() != 1 {
-		t.Fatal("selected command did not prepare and launch once with host participant reads")
+	if probe.preparations.Load() != 1 || probe.readers.Load() != 1 || probe.launches.Load() != 1 || probe.closes.Load() != 1 {
+		t.Fatal("selected command did not prepare, launch and close once with monolith participant reads")
 	}
 	records := interp.Snapshot().Room.Records
 	if len(records) != 2 || records[0].Text != "/who" || records[1].Text != "modular who proof" {

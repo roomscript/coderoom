@@ -60,6 +60,7 @@ type interpreterExecutor struct {
 	lifetime   context.Context
 	cancel     context.CancelFunc
 	closeOnce  sync.Once
+	onShutdown func()
 	enqueueMu  sync.Mutex
 	closed     bool
 	// Protected by enqueueMu; completion intake outlives submission admission.
@@ -280,6 +281,9 @@ func (shutdownOperation) apply(e *interpreterExecutor) {
 	e.cancel()
 	e.shellWG.Wait()
 	e.drainCompletions()
+	if e.onShutdown != nil {
+		e.onShutdown()
+	}
 	e.failPendingInvocations()
 	e.operations.Close()
 	e.refreshSnapshot()

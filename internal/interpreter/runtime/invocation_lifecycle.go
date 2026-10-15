@@ -37,8 +37,9 @@ type readinessDecision struct {
 }
 
 // InvocationLifecycle starts a prepared invocation once and settles its result
-// once. Staged work waits in a private participant monitor. The host owns result
-// publication and cancellation of admitted delivery. This prototype is unwired.
+// once. The new interpreter owns its construction, progress and cleanup. Staged
+// work waits in a private participant monitor; callbacks only queue completion
+// for the owner to accept on the serialized publication timeline.
 type InvocationLifecycle struct {
 	mu                sync.Mutex
 	closeOnce         sync.Once

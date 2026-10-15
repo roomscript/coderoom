@@ -124,14 +124,30 @@ The public interpreter now delegates to `internal/interpreter/monolith` during
 command migration. The monolith remains the single execution, transcript,
 publication and shutdown owner. Shared `internal/interpreter/api` contracts keep
 front-end methods, events and snapshots stable; `runtime` and `std` remain command
-contracts and modules. `/who` and `/shell` are selected in the facade and queued through a narrow
-`monolith.SubmitCommand` bridge; other commands use the existing fallback. The
-monolith's catalog and handlers remain intact, with no independent execution or
-publication pipeline. The bridge also supplies native addressed-send admission
-for module tests on that same serialized lane. Routing outcomes are scoped to
-the dispatch owner, with one pending modular send per primary. Delivery input
-records precede causal session events; settlement follows their projection.
-Public addressed sends and lifecycle staging still use the legacy path.
+contracts and modules. The new interpreter selects `/who` and `/shell` and owns
+preparation, lifecycle identity/state, readiness, completion acceptance and cleanup.
+It uses the monolith's `Schedule` to run its own algorithm on the shared lane,
+then calls `AdmitCommand` and `CommandSubmission` publication methods explicitly.
+The monolith supplies capabilities and canonical publication; it stores no
+migrated lifecycle and receives no command-orchestration callback.
+Other commands use fallback; `SubmitCommand` remains a legacy compatibility bridge.
+
+Native sends remain serialized, with routing scoped to the owning submission
+and one admitted modular send per primary. Queued completion work lets the new
+interpreter settle its lifecycle during the delivery burst. The monolith publishes
+accepted input records before causal Session events, then terminal outcomes.
+After admitted execution and queued results drain, a shutdown hook lets the new
+interpreter close its remaining lifecycles before publication closes. Context
+cancellation uses the same hook. Public sends and visible stage operations still
+use the legacy path; test-only send registration proves the new path.
+
+This arrangement is temporary. New invocation lifecycle and staging
+orchestration belong to `internal/interpreter` and its runtime components.
+The monolith exposes narrow admission, subscription, publication and lifetime
+capabilities while retaining unchanged legacy workflows as fallback. Migration
+should progressively transfer ownership to the new interpreter so the monolith
+and its compatibility bridge can be deprecated and removed, rather than becoming
+the permanent owner of modular commands.
 
 See [`pkg-interpreter.md`](pkg-interpreter.md).
 

@@ -42,8 +42,8 @@ type ShellLauncher interface {
 // The host owns the serialized session execution lane and worker lifetime.
 // A primary alias must have at most one admitted send awaiting its routing result;
 // alias matching cannot distinguish concurrent requests to the same primary.
-// The monolith adapter admits addressed sends only. Lifecycle staging remains
-// unwired; atomic subscriptions require a supporting Session controller.
+// The monolith adapter admits addressed sends only. Lifecycle readiness uses
+// atomic subscriptions; public send registration and stage operations remain legacy.
 type SessionExecution interface {
 	Subscribe(handle func(session.Event)) (unsubscribe func())
 	// SubscribeParticipants atomically returns initial state and subscribes to

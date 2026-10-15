@@ -27,7 +27,8 @@ Both groups gate idle, startup-ready readiness; `ToInform` also receives notices
 The command identifies its delivery targets; `WaitFor` does not imply delivery.
 The lifecycle fails staging if a `WaitFor` alias departs. For a departed `ToInform`
 alias it stops waiting and calls `DiscardInform`, which updates the delivery plan.
-Departures stay sticky. Staging is unwired; `/who` and `/shell` return nil.
+Departures stay sticky. Lifecycle readiness is integrated; public stage operations remain legacy.
+`/who` and `/shell` return nil.
 
 ## Capabilities and records
 
@@ -41,7 +42,7 @@ Staging uses `Session.SubscribeParticipants(handle)` instead: it atomically retu
 initial views and subscribes to subsequent lifecycle facts in mutation order.
 The lifecycle callback retains synchronized facts and wakes its private monitor.
 Send handles routing results with synchronized state, filters kind and primary
-alias, and self-unsubscribes on completion. Both keep publication in host callbacks.
+alias, and self-unsubscribes on completion. Both hand results to the monolith publication queue.
 `Close` releases subscriptions. Commands receive no raw model.
 
 **CommandResult** contains existing `room.Record` values and an error. Commands
@@ -57,8 +58,11 @@ and rejects late callbacks.
 ## Current proof and next step
 
 Contracts and `CommandRunner` live in `runtime`; commands live in `std`.
-The unwired `InvocationLifecycle` composes a prepared invocation with
-`Start`/`Complete`/`Close`; the interpreter still uses the stateless `Go` bridge.
+The new interpreter owns `InvocationLifecycle` construction, Start, Complete and
+Close, including its pending identity map. It schedules its own algorithm on the
+shared lane and calls monolith admission/capability/publication APIs explicitly.
+The monolith stores no migrated lifecycle. No Execution interface or execution
+wrapper is needed. Legacy callers retain the stateless runner.
 It keeps Context directly and delegates subscription, queue and worker lifetime
 to an unexported participantMonitor; readiness policy and launch stay in the lifecycle.
 For staged work, it atomically subscribes and captures initial views, collects
@@ -80,15 +84,22 @@ Both commands are registered. Unregistered `SendCommand` retains Session's send 
 derives staging from it and submits the native session command with that plan.
 It returns the original input record with actual routing.
 Lifecycle staging is proved with a shared-feed fake. Native send admission and
-causal publication are proved through the monolith bridge; public addressed sends and lifecycle staging remain on the legacy path.
+causal publication are proved through the monolith bridge; public addressed sends and stage operations remain on the legacy path.
 
-The public interpreter now selects `/who` and `/shell` in its runtime registry and queues it
-through `monolith.SubmitCommand`. The existing coordinator supplies participant
-reads and runs CommandRunner, preserving acknowledgement, completion identity,
-publication and shutdown. Unsupported input still uses legacy dispatch;
-the monolith's existing `/who` path remains available. The bridge now supplies
-native addressed-send admission on the same serialized lane. One modular send per primary can await routing; legacy and loop dispatches
-cannot settle its subscription. Completion records precede causal event projection,
-then execution outcomes publish. Shutdown drains admitted delivery and releases
-invocation subscriptions. Public send registration and lifecycle staging remain
-unwired.
+The new interpreter selects `/who` and `/shell` and executes them itself.
+`monolith.Schedule` supplies the shared serialized lane; `AdmitCommand` checks
+input admission and returns Context plus `CommandSubmission` publication methods.
+The new interpreter prepares and starts its lifecycle, queues raw completions,
+accepts them once, closes/joins monitoring and publishes accepted results.
+The monolith retains only capabilities and publication metadata. During native
+delivery, queued completion work runs before causal events; accepted input records
+publish before those events, terminal outcomes afterward. `WithShutdown` notifies
+the new interpreter after execution/results drain so it can close its remaining
+lifecycles. Explicit close and context cancellation follow the same path.
+`SubmitCommand` remains a legacy compatibility bridge, with unchanged handlers.
+
+Real-Session tests through the new interpreter prove busy/startup waiting,
+required departure, close while waiting, direct/partial delivery, causal ordering
+and subscription cleanup. Send registration remains test-only. Visible stage
+ownership and atomic edit/discard/interrupt are next, before public send wiring.
+The destination remains the new interpreter replacing the monolith.

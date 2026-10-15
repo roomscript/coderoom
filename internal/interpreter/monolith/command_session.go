@@ -12,14 +12,16 @@ import (
 // subscriptions are invocation-scoped: only this adapter's dispatch can deliver
 // a routing outcome, including when legacy work targets the same primary.
 type commandSession struct {
-	executor    *interpreterExecutor
-	invocation  *ownedCommand
-	mu          sync.Mutex
-	handle      func(session.Event)
-	admitted    bool
-	closed      bool
-	completion  *invocationCompletedOperation
-	dispatching bool
+	executor       *interpreterExecutor
+	invocation     *ownedCommand
+	mu             sync.Mutex
+	handle         func(session.Event)
+	admitted       bool
+	closed         bool
+	completionWork func()
+	publication    instructionSequence
+	recordCount    int
+	dispatching    bool
 }
 
 func (s *commandSession) ParticipantByName(name string) (participant.View, bool) {
@@ -40,7 +42,7 @@ func (s *commandSession) Subscribe(handle func(session.Event)) func() {
 	return s.close
 }
 
-// Lifecycle wiring is deferred. Delegate only to the atomic Session boundary;
+// Delegate only to the atomic Session boundary;
 // controllers without that boundary cannot be used for lifecycle staging.
 func (s *commandSession) SubscribeParticipants(handle func(session.Event)) ([]participant.View, func()) {
 	source, ok := s.executor.session.(interface {
@@ -96,17 +98,35 @@ func (s *commandSession) close() {
 	s.executor.enqueueMu.Unlock()
 }
 
-func (s *commandSession) complete(op invocationCompletedOperation) {
+func (s *commandSession) complete(completion invocationCompletion) {
+	s.queueCompletionWork(func() {
+		sequence := s.executor.settleInvocation(completion)
+		s.publishCompletion(sequence, len(completion.completion.Records))
+	})
+}
+
+func (s *commandSession) queueCompletionWork(work func()) {
 	s.mu.Lock()
 	if s.dispatching {
-		if s.completion == nil {
-			s.completion = &op
+		if s.completionWork == nil {
+			s.completionWork = work
 		}
 		s.mu.Unlock()
 		return
 	}
 	s.mu.Unlock()
-	s.executor.enqueueCompletion(op)
+	s.executor.enqueueCompletion(scheduledOperation{work: work})
+}
+
+func (s *commandSession) publishCompletion(sequence instructionSequence, recordCount int) {
+	s.mu.Lock()
+	if s.dispatching {
+		s.publication, s.recordCount = sequence, recordCount
+		s.mu.Unlock()
+		return
+	}
+	s.mu.Unlock()
+	s.executor.runner.Run(sequence)
 }
 
 type nativeSendOperation struct {
@@ -136,21 +156,32 @@ func (op nativeSendOperation) apply(e *interpreterExecutor) {
 	if handle != nil {
 		handle(session.RoutingCompleted{Result: routing})
 	}
+	s.publishDelivery(e, events)
+}
+
+// Publish caller-owned completion work, input records, causal events, then the
+// terminal outcome. Neither this adapter nor the runner owns the caller's workflow.
+func (s *commandSession) publishDelivery(e *interpreterExecutor, events []session.Event) {
 	s.mu.Lock()
-	completion := s.completion
-	s.completion = nil
+	work := s.completionWork
+	s.completionWork = nil
+	s.mu.Unlock()
+	if work != nil {
+		work() // The owning interpreter settles its result before publication.
+	}
+	s.mu.Lock()
+	publication, count := s.publication, s.recordCount
+	s.publication = nil
+	s.recordCount = 0
 	s.dispatching = false
 	s.mu.Unlock()
 	// Input records precede the events caused by delivery, as in legacy dispatch.
 	items := []runnerItem{}
 	var settlement instructionSequence
-	if completion != nil {
-		settlement = e.settleInvocation(*completion)
-		count := len(completion.completion.Records)
-		if len(settlement) != 0 {
-			items = append(items, instructionItems(settlement[:count])...)
-			settlement = settlement[count:]
-		}
+
+	if publication != nil {
+		items = append(items, instructionItems(publication[:count])...)
+		settlement = append(settlement, publication[count:]...)
 	}
 	items = append(items, sessionEventsItem{events: events})
 	items = append(items, instructionItems(settlement)...)

@@ -13,11 +13,15 @@ import (
 // Option configures an Interpreter before execution and publication start.
 type Option func(*Interpreter)
 
-// Interpreter selects migrated functionality and delegates remaining work to the
-// monolith. Both paths use the fallback's execution, publication and shutdown owner.
+// Interpreter executes registered commands and owns their lifecycles, delegating
+// other input to the monolith. Both paths share its serialized effect/publication
+// lane during migration.
 type Interpreter struct {
 	fallback *monolith.Interpreter
 	commands *runtime.Registry
+	// Accessed only on the shared serialized queue, including shutdown.
+	nextInvocationID uint64
+	invocations      map[uint64]pendingInvocation
 }
 
 // New starts one interpreter runtime backed by sess. Options are applied through
@@ -26,6 +30,7 @@ func New(ctx context.Context, sess SessionController, cwd string, opts ...Option
 	i := &Interpreter{commands: newCommandRegistry()}
 	i.fallback = monolith.New(ctx, sess, cwd, func(fallback *monolith.Interpreter) {
 		i.fallback = fallback
+		monolith.WithShutdown(i.closeInvocations)(fallback)
 		for _, option := range opts {
 			option(i)
 		}
