@@ -12,7 +12,7 @@ import (
 	"github.com/roomscript/coderoom/internal/session"
 )
 
-type monitorHost struct {
+type participantHost struct {
 	mu         sync.Mutex
 	handle     func(session.Event)
 	views      []participant.View
@@ -21,7 +21,7 @@ type monitorHost struct {
 	beforeRead func()
 }
 
-func (h *monitorHost) Subscribe(handle func(session.Event)) func() {
+func (h *participantHost) Subscribe(handle func(session.Event)) func() {
 	h.mu.Lock()
 	h.handle = handle
 	h.mu.Unlock()
@@ -32,7 +32,7 @@ func (h *monitorHost) Subscribe(handle func(session.Event)) func() {
 	}
 }
 
-func (h *monitorHost) Participants() []participant.View {
+func (h *participantHost) Participants() []participant.View {
 	if h.beforeRead != nil {
 		h.beforeRead()
 	}
@@ -43,12 +43,12 @@ func (h *monitorHost) Participants() []participant.View {
 	return slices.Clone(h.views)
 }
 
-func (h *monitorHost) SubscribeParticipants(handle func(session.Event)) ([]participant.View, func()) {
+func (h *participantHost) SubscribeParticipants(handle func(session.Event)) ([]participant.View, func()) {
 	unsubscribe := h.Subscribe(handle)
 	return h.Participants(), unsubscribe
 }
 
-func (h *monitorHost) ParticipantByName(name string) (participant.View, bool) {
+func (h *participantHost) ParticipantByName(name string) (participant.View, bool) {
 	for _, view := range h.views {
 		if view.Alias.Name == name {
 			return view, true
@@ -61,21 +61,21 @@ func newTestAlias(name string) participant.Alias {
 	return participant.New(name, "builder", participant.InitiativeManual).Alias
 }
 
-func (h *monitorHost) callback() func(session.Event) {
+func (h *participantHost) callback() func(session.Event) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return h.handle
 }
 
-func (*monitorHost) CreateParticipantSendPlan(participant.Alias) session.ParticipantSendPlan {
+func (*participantHost) CreateParticipantSendPlan(participant.Alias) session.ParticipantSendPlan {
 	return session.ParticipantSendPlan{}
 }
 
-func (*monitorHost) Execute(session.Command) error {
-	return errors.New("monitor fake does not deliver")
+func (*participantHost) Execute(session.Command) error {
+	return errors.New("participant fake does not deliver")
 }
 
-type monitorInvocation struct {
+type waitingInvocation struct {
 	staging   *Staging
 	started   chan struct{}
 	launches  atomic.Int32
@@ -83,21 +83,21 @@ type monitorInvocation struct {
 	launchErr error
 }
 
-func (i *monitorInvocation) Staging() *Staging { return i.staging }
-func (i *monitorInvocation) Close()            { i.closes.Add(1) }
-func (i *monitorInvocation) Go(func(CommandResult)) error {
+func (i *waitingInvocation) Staging() *Staging { return i.staging }
+func (i *waitingInvocation) Close()            { i.closes.Add(1) }
+func (i *waitingInvocation) Go(func(CommandResult)) error {
 	i.launches.Add(1)
 	i.started <- struct{}{}
 	return i.launchErr
 }
 
-func newWaitingMonitor() (*InvocationLifecycle, *monitorHost, *monitorInvocation) {
+func newWaitingLifecycle() (*InvocationLifecycle, *participantHost, *waitingInvocation) {
 	ada, tim := newTestAlias("ada"), newTestAlias("tim")
-	host := &monitorHost{views: []participant.View{
+	host := &participantHost{views: []participant.View{
 		{Alias: ada, Status: participant.StatusWorking, StartupReady: true},
 		{Alias: tim, Status: participant.StatusWorking, StartupReady: true},
 	}}
-	invocation := &monitorInvocation{
+	invocation := &waitingInvocation{
 		staging: &Staging{WaitFor: []participant.Alias{ada}, ToInform: []participant.Alias{tim}},
 		started: make(chan struct{}, 1),
 	}
@@ -105,21 +105,21 @@ func newWaitingMonitor() (*InvocationLifecycle, *monitorHost, *monitorInvocation
 	return lifecycle, host, invocation
 }
 
-func waitMonitorSignal(t *testing.T, signal <-chan struct{}) {
+func waitLifecycleSignal(t *testing.T, signal <-chan struct{}) {
 	t.Helper()
 	select {
 	case <-signal:
 	case <-time.After(3 * time.Second):
-		t.Fatal("monitor did not reach synchronization point")
+		t.Fatal("lifecycle did not reach synchronization point")
 	}
 }
 
 // Missing collection ordering is a host contract violation, not unsafe native
 // delivery: the execution guard rejects busy work, but staging fails to retain it.
-func TestInvocationMonitor_InitialBusySnapshotRequiresCollectedBusyFact(t *testing.T) {
+func TestInvocationLifecycle_InitialBusySnapshotRequiresCollectedBusyFact(t *testing.T) {
 	for _, ordered := range []bool{false, true} {
 		t.Run(map[bool]string{false: "busy fact pending upstream", true: "busy fact collected before read returns"}[ordered], func(t *testing.T) {
-			lifecycle, host, invocation := newWaitingMonitor()
+			lifecycle, host, invocation := newWaitingLifecycle()
 			defer lifecycle.Close(errors.New("cleanup"))
 			ada := invocation.staging.WaitFor[0]
 			invocation.staging.ToInform = nil
@@ -135,7 +135,7 @@ func TestInvocationMonitor_InitialBusySnapshotRequiresCollectedBusyFact(t *testi
 				}
 			}
 			results := make(chan CommandResult, 1)
-			err := lifecycle.Start(func(result CommandResult) { results <- result })
+			_, err := lifecycle.Start(func(result CommandResult) { results <- result })
 			if !ordered {
 				if !errors.Is(err, busyErr) || invocation.launches.Load() != 1 {
 					t.Fatalf("unordered initialization = %v, launches = %d; want execution rejection", err, invocation.launches.Load())
@@ -145,12 +145,12 @@ func TestInvocationMonitor_InitialBusySnapshotRequiresCollectedBusyFact(t *testi
 				}
 				return
 			}
-			assertInitialBusyMonitorResumes(t, lifecycle, host, invocation, err, results)
+			assertInitialBusyLifecycleResumes(t, lifecycle, host, invocation, err, results)
 		})
 	}
 }
 
-func assertInitialBusyMonitorResumes(t *testing.T, lifecycle *InvocationLifecycle, host *monitorHost, invocation *monitorInvocation, err error, results <-chan CommandResult) {
+func assertInitialBusyLifecycleResumes(t *testing.T, lifecycle *InvocationLifecycle, host *participantHost, invocation *waitingInvocation, err error, results <-chan CommandResult) {
 	t.Helper()
 	if err != nil || invocation.launches.Load() != 0 || host.callback() == nil {
 		t.Fatalf("ordered initialization did not retain waiting work: %v", err)
@@ -159,15 +159,15 @@ func assertInitialBusyMonitorResumes(t *testing.T, lifecycle *InvocationLifecycl
 	host.callback()(session.ParticipantStatusChanged{
 		Alias: invocation.staging.WaitFor[0], From: participant.StatusWorking, To: participant.StatusIdle,
 	})
-	waitMonitorSignal(t, invocation.started)
-	waitMonitorSignal(t, lifecycle.monitor.done)
+	lifecycle.Advance()
+	waitLifecycleSignal(t, invocation.started)
 	if invocation.launches.Load() != 1 || host.callback() != nil || len(results) != 0 {
-		t.Fatal("readiness did not launch exactly once and release monitoring")
+		t.Fatal("readiness did not launch exactly once and release subscription")
 	}
 }
 
-func TestInvocationMonitor_InitialBusySnapshotPreservesLaterReadyFact(t *testing.T) {
-	lifecycle, host, invocation := newWaitingMonitor()
+func TestInvocationLifecycle_InitialBusySnapshotPreservesLaterReadyFact(t *testing.T) {
+	lifecycle, host, invocation := newWaitingLifecycle()
 	defer lifecycle.Close(errors.New("cleanup"))
 	ada := invocation.staging.WaitFor[0]
 	invocation.staging.ToInform = nil
@@ -181,49 +181,19 @@ func TestInvocationMonitor_InitialBusySnapshotPreservesLaterReadyFact(t *testing
 			Alias: ada, From: participant.StatusWorking, To: participant.StatusIdle,
 		})
 	}
-	if err := lifecycle.Start(func(CommandResult) {}); err != nil {
+	if _, err := lifecycle.Start(func(CommandResult) {}); err != nil {
 		t.Fatal(err)
 	}
 	if invocation.launches.Load() != 1 || host.callback() != nil {
-		t.Fatal("older busy snapshot hid the collected readiness or retained monitoring")
+		t.Fatal("older busy snapshot hid the collected readiness or retained subscription")
 	}
 }
 
-func TestInvocationMonitor_CloseDuringInitialRead(t *testing.T) {
-	lifecycle, host, invocation := newWaitingMonitor()
-	host.views[0].Status, host.views[1].Status = participant.StatusIdle, participant.StatusIdle
-	host.entered, host.release = make(chan struct{}), make(chan struct{})
-	var releaseOnce sync.Once
-	defer releaseOnce.Do(func() { close(host.release) })
-	started := make(chan error, 1)
-	go func() { started <- lifecycle.Start(func(CommandResult) {}) }()
-	waitMonitorSignal(t, host.entered)
-	closed := make(chan struct{})
-	go func() {
-		lifecycle.Close(errors.New("shutdown"))
-		close(closed)
-	}()
-	waitMonitorSignal(t, lifecycle.monitor.cancelled)
-	select {
-	case <-closed:
-		t.Fatal("Close returned while initialization still owned the invocation")
-	default:
-	}
-	releaseOnce.Do(func() { close(host.release) })
-	waitMonitorSignal(t, closed)
-	if err := <-started; !errors.Is(err, ErrInvocationNotPrepared) {
-		t.Fatalf("cancelled initialization = %v", err)
-	}
-	if invocation.launches.Load() != 0 || invocation.closes.Load() != 1 || host.callback() != nil {
-		t.Fatal("cancelled initialization launched or retained resources")
-	}
-}
-
-func TestInvocationMonitor_CloseRacesWithReady(t *testing.T) {
+func TestInvocationLifecycle_CloseWhileFactsArrive(t *testing.T) {
 	for range 32 {
-		lifecycle, host, invocation := newWaitingMonitor()
+		lifecycle, host, invocation := newWaitingLifecycle()
 		ada, tim := invocation.staging.WaitFor[0], invocation.staging.ToInform[0]
-		if err := lifecycle.Start(func(CommandResult) {}); err != nil {
+		if _, err := lifecycle.Start(func(CommandResult) {}); err != nil {
 			t.Fatal(err)
 		}
 		handle := host.callback()
@@ -239,8 +209,8 @@ func TestInvocationMonitor_CloseRacesWithReady(t *testing.T) {
 			lifecycle.Close(errors.New("discard"))
 		}()
 		calls.Wait()
-		waitMonitorSignal(t, lifecycle.monitor.done)
-		if invocation.launches.Load() > 1 || invocation.closes.Load() != 1 || host.callback() != nil {
+		lifecycle.Advance() // A queued request after close must do nothing.
+		if invocation.launches.Load() != 0 || invocation.closes.Load() != 1 || host.callback() != nil {
 			t.Fatal("readiness/discard race duplicated launch or leaked resources")
 		}
 		count := invocation.launches.Load()
@@ -251,29 +221,28 @@ func TestInvocationMonitor_CloseRacesWithReady(t *testing.T) {
 	}
 }
 
-func TestInvocationMonitor_ProcessesCollectedDeparturesBeforeLaunch(t *testing.T) {
+func TestInvocationLifecycle_ProcessesCollectedDeparturesBeforeLaunch(t *testing.T) {
 	for _, name := range []string{"ada", "tim"} {
 		t.Run(name, func(t *testing.T) {
-			lifecycle, host, invocation := newWaitingMonitor()
+			lifecycle, host, invocation := newWaitingLifecycle()
 			view, _ := host.ParticipantByName(name)
 			alias, ada := view.Alias, invocation.staging.WaitFor[0]
 			defer lifecycle.Close(errors.New("cleanup"))
 			var discards atomic.Int32
 			invocation.staging.DiscardInform = func(participant.Alias) { discards.Add(1) }
 			results := make(chan CommandResult, 2)
-			if err := lifecycle.Start(func(result CommandResult) { results <- result }); err != nil {
+			if _, err := lifecycle.Start(func(result CommandResult) { results <- result }); err != nil {
 				t.Fatal(err)
 			}
 			handle := host.callback()
-			// Hold evaluation while the producer delivers these pending facts.
-			lifecycle.mu.Lock()
+			// Collect all facts before the owner advances the lifecycle.
 			handle(session.ParticipantStatusChanged{Alias: alias, From: participant.StatusWorking, To: participant.StatusIdle})
 			handle(session.AgentStopped{Alias: alias})
 			handle(session.AgentReady{Alias: alias})
 			handle(session.AgentReady{Alias: ada})
-			lifecycle.mu.Unlock()
+			lifecycle.Advance()
 			if alias.Name == "tim" {
-				waitMonitorSignal(t, invocation.started)
+				waitLifecycleSignal(t, invocation.started)
 				if discards.Load() != 1 {
 					t.Fatal("replacement optional recipient was not discarded once")
 				}
@@ -282,9 +251,10 @@ func TestInvocationMonitor_ProcessesCollectedDeparturesBeforeLaunch(t *testing.T
 			select {
 			case result := <-results:
 				accepted, ok := lifecycle.Complete(result)
-				if !ok || accepted.Err == nil || invocation.launches.Load() != 0 {
+				if !ok || invocation.launches.Load() != 0 {
 					t.Fatal("collected required departure was bypassed")
 				}
+				assertRequiredParticipantUnavailable(t, accepted.Err, alias)
 			case <-time.After(3 * time.Second):
 				t.Fatal("required departure did not settle")
 			}
@@ -292,10 +262,10 @@ func TestInvocationMonitor_ProcessesCollectedDeparturesBeforeLaunch(t *testing.T
 	}
 }
 
-func TestInvocationMonitor_DepartureDuringDiscardPreventsLaunch(t *testing.T) {
+func TestInvocationLifecycle_DepartureDuringDiscardPreventsLaunch(t *testing.T) {
 	for _, kind := range []string{"stopped", "crashed"} {
 		t.Run(kind, func(t *testing.T) {
-			lifecycle, host, invocation := newWaitingMonitor()
+			lifecycle, host, invocation := newWaitingLifecycle()
 			defer lifecycle.Close(errors.New("cleanup"))
 			ada := invocation.staging.WaitFor[0]
 			var event session.Event = session.AgentStopped{Alias: ada}
@@ -308,7 +278,7 @@ func TestInvocationMonitor_DepartureDuringDiscardPreventsLaunch(t *testing.T) {
 				discards.Add(1)
 				host.callback()(event)
 			}
-			err := lifecycle.Start(func(CommandResult) { t.Error("initial failure should return from Start") })
+			_, err := lifecycle.Start(func(CommandResult) { t.Error("initial failure should return from Start") })
 			if err == nil || invocation.launches.Load() != 0 {
 				t.Fatal("collected primary departure was lost during optional discard")
 			}
@@ -319,8 +289,8 @@ func TestInvocationMonitor_DepartureDuringDiscardPreventsLaunch(t *testing.T) {
 	}
 }
 
-func TestInvocationMonitor_OptionalDepartureDuringDiscardIsReevaluated(t *testing.T) {
-	lifecycle, host, invocation := newWaitingMonitor()
+func TestInvocationLifecycle_OptionalDepartureDuringDiscardIsReevaluated(t *testing.T) {
+	lifecycle, host, invocation := newWaitingLifecycle()
 	ada, tim, ben := invocation.staging.WaitFor[0], invocation.staging.ToInform[0], newTestAlias("ben")
 	defer lifecycle.Close(errors.New("cleanup"))
 	host.views = []participant.View{
@@ -335,7 +305,7 @@ func TestInvocationMonitor_OptionalDepartureDuringDiscardIsReevaluated(t *testin
 			host.callback()(session.AgentStopped{Alias: ben})
 		}
 	}
-	if err := lifecycle.Start(func(CommandResult) {}); err != nil {
+	if _, err := lifecycle.Start(func(CommandResult) {}); err != nil {
 		t.Fatal(err)
 	}
 	if !slices.Equal(discarded, []participant.Alias{tim, ben}) || invocation.launches.Load() != 1 {
@@ -343,8 +313,8 @@ func TestInvocationMonitor_OptionalDepartureDuringDiscardIsReevaluated(t *testin
 	}
 }
 
-func TestInvocationMonitor_BusyUpdateDuringDiscardRetainsWork(t *testing.T) {
-	lifecycle, host, invocation := newWaitingMonitor()
+func TestInvocationLifecycle_BusyUpdateDuringDiscardRetainsWork(t *testing.T) {
+	lifecycle, host, invocation := newWaitingLifecycle()
 	ada := invocation.staging.WaitFor[0]
 	defer lifecycle.Close(errors.New("cleanup"))
 	host.views = []participant.View{{Alias: ada, Status: participant.StatusIdle, StartupReady: true}}
@@ -355,15 +325,24 @@ func TestInvocationMonitor_BusyUpdateDuringDiscardRetainsWork(t *testing.T) {
 			Alias: ada, From: participant.StatusIdle, To: participant.StatusWorking,
 		})
 	}
-	if err := lifecycle.Start(func(CommandResult) {}); err != nil {
+	if _, err := lifecycle.Start(func(CommandResult) {}); err != nil {
 		t.Fatal(err)
 	}
 	if invocation.launches.Load() != 0 {
 		t.Fatal("busy update was lost before launch")
 	}
 	host.callback()(session.AgentReady{Alias: ada})
-	waitMonitorSignal(t, invocation.started)
+	lifecycle.Advance()
+	waitLifecycleSignal(t, invocation.started)
 	if discards.Load() != 1 || invocation.launches.Load() != 1 {
 		t.Fatal("reevaluation repeated discard or launch")
+	}
+}
+
+func assertRequiredParticipantUnavailable(t *testing.T, err error, alias participant.Alias) {
+	t.Helper()
+	var unavailable *RequiredParticipantUnavailableError
+	if !errors.As(err, &unavailable) || unavailable.Alias != alias {
+		t.Fatalf("required participant outcome = %v; want alias %#v", err, alias)
 	}
 }

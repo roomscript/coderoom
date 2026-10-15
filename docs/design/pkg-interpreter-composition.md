@@ -37,13 +37,13 @@ The monolith adapter retains completion work within a native routing burst. The
 new interpreter settles that work before the monolith projects causal events;
 input records publish before those events and terminal outcomes afterward.
 For other completions, work runs on the same queue. Callbacks only queue work,
-which avoids settling inline under Start/Go's lifecycle lock. Failed starts and
+which avoids reentering lifecycle transitions from Start/Go. Failed starts and
 late/duplicate results cannot publish because the new interpreter removes their
 pending identity. The monolith stores and invokes no migrated lifecycle.
 
 After execution and completion draining, `WithShutdown` invokes the new
 interpreter's cleanup hook on that lane, before publication closes. The new
-interpreter closes/joins remaining lifecycles and publishes their outcomes in
+interpreter closes remaining lifecycles and publishes their outcomes in
 submission order. This also handles parent-context cancellation. The monolith
 keeps worker cancellation and canonical projection until those move in a later
 checkpoint; it never adopts new lifecycle or stage policy.
@@ -53,8 +53,8 @@ execution; never retry fallback after selected execution starts. `SubmitCommand`
 remains a temporary legacy bridge. The destination is the new interpreter
 replacing and removing the monolith. Real-Session tests cover busy/startup
 waiting, departures, cleanup, direct/partial delivery and causal ordering. Public
-send remains unregistered until visible staging and atomic edit/discard/interrupt
-are integrated in the new interpreter.
+send remains unregistered while the new visible stage and atomic operations are
+reviewed before a separate public cutover.
 
 Existing implementation-file references below describe the `monolith` package
 unless qualified otherwise.
@@ -189,7 +189,7 @@ directories are candidates, not requirements to create in one change.
 ## Registered command launch and completion
 
 `std.SendCommand` is integrated through the new interpreter in tests; public
-registration awaits visible stage operations.
+registration awaits a separate public cutover after visible stage review.
 `SendCommand.Prepare` resolves the parsed name through
 `SessionExecution.ParticipantByName`, validates that view, and asks Session to
 create one policy-aware `ParticipantSendPlan` using the resolved alias. It does
@@ -210,7 +210,7 @@ Send uses `DiscardUnavailableNoticeRecipients` to update the plan. The lifecycle
 drops that alias from its waits and retains sticky departures, including same-name
 replacements. An unavailable `WaitFor` alias fails staging and closes the
 invocation instead. The lifecycle applies notice departures before launch,
-including on its monitor routine; the invocation ignores them after launch or close. Readiness and departure
+on the serialized lane; the invocation ignores them after launch or close. Readiness and departure
 handling are proved against the shared-feed fake and through the new interpreter.
 The invocation constructs the
 original input record from `ParsedStatement.Raw` only if delivery reaches someone;
@@ -224,57 +224,55 @@ handling. The monolith supplies the serialized admission adapter and invocation-
 routing; new-interpreter lifecycle tests prove waiting and causal publication.
 Public stage presentation and operations remain work before send registration.
 
-`InvocationLifecycle` uses a private participant monitor and is now constructed
-and started by the new interpreter using monolith-supplied capabilities.
-It retains Context directly. Its unexported participantMonitor component owns
-subscription, collected state, initial merge, wake-up queue and stop/join mechanics;
-the lifecycle retains readiness/departure policy, launch and result settlement.
-Start explicitly selects ordinary or staged execution. Staged preparation returns
-a readiness outcome without calling Go or changing lifecycle state. Starting
-execution and handling its failure are separate steps; resource cleanup closes
-once and never changes lifecycle state implicitly.
-`Start(complete)` uses `Session.SubscribeParticipants` to atomically capture initial
-views and subscribe to subsequent lifecycle facts. It collects updates into a
-synchronized alias-keyed readiness map and merges initial views only for missing
-aliases. Facts collected during initialization are necessarily after the snapshot
-boundary, so preserving them cannot restore an older ready state.
-An already-ready invocation starts immediately; otherwise the lifecycle starts
-one private monitoring routine. Its single subscription callback records facts
-and signals a buffered wake-up channel. Wake-ups coalesce; the worker evaluates
-the latest collected state. Evaluation reads a state revision; launch commits
-only if that revision is still current, freezing collection under its lock.
-Changed facts trigger reevaluation, including events collected during
-DiscardInform. Command callbacks and Go run outside the collector lock.
-No `Enqueue` capability is exposed.
+`InvocationLifecycle` is constructed and driven by the new interpreter on the
+shared serialized lane. It retains Context directly. Its participantSubscription
+collects facts under a collector lock and merges the atomic initial snapshot only
+for untouched aliases. Departures stay sticky and participant instance identity
+is preserved. Ordinary inspection reads are not an event-collection barrier.
 
-The worker owns waiting advancement, optional-recipient plan changes, launch and
-failure settlement. It stops monitoring and unsubscribes before calling the
-unchanged `Invocation.Go(complete)`. A nil Go result means admission, not delivery
-or participant completion. Completion callbacks still only enqueue results for
-monolith publication. The Session capability must admit work safely from the monitor
-while preserving the monolith's serialized native execution lane. The prototype does
-not directly call raw Session or publish room records from the worker.
+Participant callbacks never advance the lifecycle. They collect facts and invoke
+`RequestAdvance`, which only queues owner work. The new interpreter checks the
+pending invocation identity, calls `Advance`, then projects the visible stage.
+Start, Advance, Complete, Readiness, DiscardWaiting and Close all run on that same
+lane. There is no private monitor goroutine, lifecycle mutex, wake channel or join.
+The lane is supplied temporarily by the monolith; the new interpreter owns every
+advancement decision and no scheduling capability is exposed to commands.
 
-Lifecycle state is protected separately from participant collection. Close signals
-cancellation before taking the lifecycle lock, then settles and joins monitoring.
-If launch has already committed, Close waits for Go to return admission; it cannot
-cancel native delivery itself. The monolith still owns admitted delivery cancellation,
-completion draining and public outcomes. A reader that blocks during initialization
-must return before Close can finish; no read-cancellation API is introduced.
+`Start(complete)` subscribes and evaluates initial facts. An already-ready
+invocation launches immediately. Otherwise Start reports that it entered waiting,
+and the interpreter retains its stage before processing any queued advancement.
+Facts can arrive during subscription or before retention, but cannot launch or
+fail the invocation outside the lane. Advance evaluates the latest collected
+facts without rereading Session. Optional departures update the retained delivery
+plan before launch. Required unavailability reports a typed error carrying the
+alias. Launch commits only if the collector revision is still current, freezing
+collection under its lock. Facts arriving during DiscardInform force reevaluation;
+command callbacks and Go run outside the collector lock.
 
-A nil Start result means acceptance, possibly while waiting. Initial failures
-return from Start; failures on the monitoring timeline close and enqueue settlement.
-Complete accepts a result once, preserving delayed launch failure over an earlier
-callback emitted inside the failed Go. Tests use channels for asynchronous launch
-and failure, and cover initial merges, departure ordering, partial delivery,
-initialization cancellation, readiness/discard races and monitor cleanup.
+The lifecycle unsubscribes before calling the unchanged Invocation.Go(complete).
+A nil Go result means admission, not delivery or participant completion. Execution
+may finish asynchronously; completion callbacks only queue results for the owner
+to accept on the lane. Initial failures return from Start; later failures close
+resources and queue settlement. Complete preserves a delayed launch failure over
+an earlier callback emitted inside the failed Go, and accepts settlement once.
 
-The queue can only account for facts already received by its callback. Tests prove
-that collected departures precede evaluation, including ready/stop/rejoin ordering.
-The worker cannot see facts still queued for its callback. The atomic subscription
-settles snapshot/event ordering, but does not guarantee availability after launch
-commits. The future production adapter must preserve this subscription boundary
-and serialize admission; this prototype does not validate that adapter.
+Close runs on the lane, stops collection, unsubscribes and closes unfinished
+invocations. It does not interrupt Start or Go from another goroutine. Those
+operations must return promptly; admitted execution and worker cancellation remain
+with their capabilities. The monolith drains admitted execution and completion
+work before invoking the new interpreter's cleanup hook. Late facts and already
+queued advancement or completion cannot revive removed invocation identities.
+
+DiscardWaiting shares the lane with launch and also checks collected facts:
+collected readiness or failure defeats removal even before Advance runs. Blocked
+work is removed only after committing the collector revision. This preserves the
+existing edit/discard behavior without an independent advancement timeline.
+Tests cover initialization merging, sticky departures, same-name replacement,
+partial delivery, discard arbitration, late queued work and shutdown cleanup.
+
+Collection accounts only for facts already delivered to its callback. Atomic
+subscription orders the snapshot and later facts; it cannot guarantee availability
+after launch commits. Session remains the final readiness and membership guard.
 
 **Snapshot/event ordering boundary.**
 
@@ -291,7 +289,7 @@ routing completion once. Session checks membership and readiness at execution;
 the retained-send replacement regression proves rejection despite an uncollected
 old departure. Partial delivery is reported through the existing routing result.
 
-`TestInvocationMonitor_InitialBusySnapshotRequiresCollectedBusyFact` reproduces
+`TestInvocationLifecycle_InitialBusySnapshotRequiresCollectedBusyFact` reproduces
 the lifecycle consequence with a narrow fake: an older collected ready fact hides
 a newer busy snapshot when the busy notification is pending upstream. The lifecycle
 attempts launch, and the fake execution guard rejects it; initial submission fails
@@ -300,10 +298,10 @@ retains waiting work, which launches once when a later idle fact arrives.
 
 This negative fixture violates the lifecycle subscription boundary. Snapshot
 precedence is not a safe local fix:
-`TestInvocationMonitor_InitialBusySnapshotPreservesLaterReadyFact` covers a busy
+`TestInvocationLifecycle_InitialBusySnapshotPreservesLaterReadyFact` covers a busy
 snapshot captured before a newer collected idle event. That event must win to
 avoid retaining ready work indefinitely. Neither snapshots nor lifecycle events
-carry a comparable source revision, so the monitor cannot distinguish these
+carry a comparable source revision, so the collector cannot distinguish these
 histories from the conflicting statuses alone.
 
 Session now provides `SubscribeParticipants(handle) -> (initialViews, unsubscribe)`.
@@ -321,7 +319,7 @@ observer notifications. Each subscriber serializes its own drain without a new
 worker goroutine. Unsubscribe drops queued facts, permits an in-flight callback
 to finish, and can be called from a callback. Session shutdown releases subscriptions.
 
-The monitor uses this capability directly rather than combining `Subscribe` with
+The lifecycle uses this capability directly rather than combining `Subscribe` with
 `ParticipantReader.Participants()`. A real-Session lifecycle regression keeps work
 waiting on a busy snapshot despite a delayed ordinary `AgentReady`, then launches
 once on the later native idle transition. Another preserves a native idle fact
@@ -330,22 +328,21 @@ callbacks,
 post-snapshot ordering, reads and unsubscribe from callbacks, startup readiness,
 removal/replacement identity and shutdown. Admission and transcript publication
 now work through the new-interpreter lifecycle boundary; visible stage operations
-remain unwired.
+are also integrated with test-only send registration.
 
-This is an explicit experiment with lifecycle-owned monitoring, departing from
-the production rule that workers only enqueue results and the coordinator advances
-workflows. Legacy CommandRunner and stage operations remain unchanged. The new interpreter
-now owns lifecycle construction, completion and cleanup; the monolith supplies
-ordered publication and a shutdown notification. Visible stage and interrupt integration remain pending.
+The private-monitor experiment has been replaced with owner-lane advancement.
+Legacy CommandRunner and stage operations remain unchanged. The new interpreter
+owns lifecycle advancement, completion and cleanup; the monolith supplies ordered
+scheduling/publication and a shutdown notification. Public send cutover remains pending.
 
 Invocation.Staging remains the sole frozen requirement description. Participant
 facts are progress state, not another delivery plan. /who and /shell return nil
-staging and create no monitor.
+staging and create no participant subscription.
 
 Runtime's `SessionExecution.ParticipantByName` resolves an input name through
 Session before a command retains work. `CreateParticipantSendPlan` accepts the
 resolved `participant.Alias`; `Staging.WaitFor`, `ToInform`, and `DiscardInform`
-carry that same value. The monitor filters events by the full alias, and both
+carry that same value. The subscription filters events by the full alias, and both
 collected state and discarded-notice state are keyed by alias. Snapshot merging
 fills only untouched instance entries: an old departure cannot overwrite a
 replacement's state, and a replacement's readiness cannot satisfy an old wait.
@@ -460,10 +457,10 @@ routing outcome.
 The lifecycle uses the separate atomic `SubscribeParticipants` boundary for
 readiness and departures before execution. It returns initial views and only
 post-snapshot lifecycle facts. Its callback records facts and wakes the private
-monitor; ordinary participant inspection reads establish no collection ordering.
+collector; ordinary participant inspection reads establish no collection ordering.
 Unsubscribe stops delivery without waiting for in-flight callbacks; callbacks
-must tolerate a racing Close. The lifecycle disables collection and joins its
-monitor, so captured callbacks cannot restore closed work.
+must tolerate a racing Close. The lifecycle disables collection and unsubscribes on the lane, so captured
+callbacks and queued advancement cannot restore closed work.
 The monolith adapter provides serialized asynchronous admission and scopes routing
 outcomes to the owning invocation; raw `Session.Execute` is not exposed.
 
@@ -472,3 +469,43 @@ path reselects recipients. `Invocation.Close` releases send continuations on
 completion, failed admission or discard. The new-interpreter integration proves
 worker cleanup, input records before causal output and submission milestones.
 Visible stage ownership and atomic operations remain to be integrated.
+
+## Visible stage ownership during migration
+
+The new interpreter retains one waiting invocation as its visible stage. It owns
+source, frozen presentation routing, interruption state and input admission. The
+monolith's `WithStageSnapshot` hook projects the detached stage into the existing
+snapshot/event stream; it does not decide stage policy. When there is no new
+stage, legacy stage operations and projection remain available. The new
+interpreter checks stage admission before routing any input, including fallback
+or invalid input; presentation-only debug commands remain available.
+
+Send-stage routing presentation is derived from `Staging.WaitFor` followed by
+`Staging.ToInform`; the retained Session plan remains the delivery authority.
+Lifecycle `Readiness` exposes only collected facts for frozen requirements;
+`RequestAdvance` queues lifecycle advancement and stage projection on the owner lane. Departures remain sticky, optional
+recipients disappear from routing, and joins cannot expand the retained plan.
+Runtime reports required-participant unavailability as a typed error carrying the
+alias. The interpreter translates that outcome into a visible discard notice;
+it does not infer the failure cause from readiness views.
+
+`DiscardWaiting` runs on the owner lane and commits the collector revision:
+committed Go or collected readiness/failure defeats removal. Otherwise it freezes
+collection and closes the invocation. The new interpreter
+revokes the submission scope, removes stage/identity and publishes the cleared
+snapshot without an input record or extra completion. It does not return a draft
+that can still deliver. Only queued Advance calls progress waiting work.
+
+Interrupt selects frozen active/cancellable blockers from those same facts. The
+monolith executes cancellation on the shared lane and projects its causal facts;
+the new interpreter owns successful-acknowledgement tracking, retry and notices.
+Acknowledgement is not idle, startup waits are not cancelled, successful aliases
+are not cancelled again, and failed aliases remain eligible for retry. Required
+departures produce the legacy discard notice rather than a duplicate execution
+failure. Actual delivery publishes routing and a staged-dispatch semantic event.
+
+Real-Session and lifecycle tests cover snapshots, cross-path admission, manual
+removal, readiness races, resubmission, partial cancellation/delivery, startup,
+departures, frozen joins and shutdown cleanup. Send registration stays test-only
+for this checkpoint; public cutover must separately preserve direct/queued
+submission milestones and legacy workflow interactions.

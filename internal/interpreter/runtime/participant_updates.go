@@ -48,23 +48,24 @@ func (u *participantUpdates) stop() {
 	u.active = false
 }
 
-func (u *participantUpdates) collect(event session.Event) {
+func (u *participantUpdates) collect(event session.Event) bool {
 	alias, ok := parseParticipantAlias(event)
 	if !ok {
-		return
+		return false
 	}
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	if !u.active {
-		return
+		return false
 	}
 	state := u.states[alias]
 	if state.departed {
-		return
+		return false
 	}
 	applyParticipantUpdate(&state, event)
 	u.states[alias] = state
 	u.revision++
+	return true
 }
 
 func applyParticipantUpdate(state *participantState, event session.Event) {

@@ -23,8 +23,10 @@ import (
 // Hold the first turn's output so the real Session supplies a busy snapshot.
 type lifecycleAgent struct {
 	*echo.Client
-	release chan struct{}
-	once    sync.Once
+	release          chan struct{}
+	once             sync.Once
+	interrupts       atomic.Int32
+	interruptFailure atomic.Bool
 }
 
 func (a *lifecycleAgent) Read() (agent.Message, error) {
@@ -38,6 +40,14 @@ func (a *lifecycleAgent) Read() (agent.Message, error) {
 	return message, nil
 }
 func (a *lifecycleAgent) unblock() { a.once.Do(func() { close(a.release) }) }
+func (a *lifecycleAgent) Interrupt() error {
+	a.interrupts.Add(1)
+	if a.interruptFailure.Load() {
+		return errors.New("test interruption failed")
+	}
+	return nil
+}
+
 func (a *lifecycleAgent) Stop() error {
 	a.unblock()
 	if err := a.Client.Stop(); err != nil {
@@ -123,7 +133,13 @@ func finishWaitingLifecycle(t *testing.T, interp *Interpreter, sess *lifecycleSe
 		if err := sess.Execute(session.RemoveCommand{Alias: alias}); err != nil {
 			t.Fatal(err)
 		}
-		awaitLifecycleFailure(t, events)
+		awaitLifecycleEvent(t, events, func(event Event) bool {
+			if _, failed := event.(OperationFailed); failed {
+				t.Fatal("waiting departure reported an execution failure")
+			}
+			discarded, ok := event.(StagedInputDiscarded)
+			return ok && discarded.Raw == "@ada work"
+		})
 		interp.Close()
 		assertLifecycleSendCount(t, interp, 0)
 	case "close":
@@ -233,6 +249,7 @@ func TestCommandLifecycle_waitsForStartup(t *testing.T) {
 	assertLifecycleStartupView(t, sess)
 	submitLifecycleSend(t, interp, events)
 	assertLifecycleSendCount(t, interp, 0)
+	assertStartupStage(t, interp)
 	if sess.subscriptions.Load() != 1 {
 		t.Fatal("startup wait has no participant subscription")
 	}

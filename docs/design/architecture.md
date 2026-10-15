@@ -138,8 +138,17 @@ interpreter settle its lifecycle during the delivery burst. The monolith publish
 accepted input records before causal Session events, then terminal outcomes.
 After admitted execution and queued results drain, a shutdown hook lets the new
 interpreter close its remaining lifecycles before publication closes. Context
-cancellation uses the same hook. Public sends and visible stage operations still
-use the legacy path; test-only send registration proves the new path.
+cancellation uses the same hook. The new interpreter now owns visible stage
+retention, admission and atomic edit/discard/interrupt. The lifecycle supplies
+collected readiness facts and an atomic discard boundary. Participant callbacks
+collect facts and queue advancement; the new interpreter advances runtime on the
+same serialized lane as stage retention, removal, settlement and shutdown. Runtime
+has no private advancement worker or lifecycle mutex. The monolith only
+projects the detached stage into canonical snapshots, executes cancellation and
+falls back to its existing stage operations when the new interpreter has none.
+Successful cancellation does not imply readiness, and retries target only failed
+aliases. Public sends still use the legacy path; test-only registration proves
+these new stage operations before the separate public cutover.
 
 This arrangement is temporary. New invocation lifecycle and staging
 orchestration belong to `internal/interpreter` and its runtime components.

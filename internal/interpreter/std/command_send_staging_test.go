@@ -23,7 +23,7 @@ func TestSendLifecycle_ImmediatelyReady(t *testing.T) {
 	lifecycle, _ := prepareSendLifecycle(t, delivery)
 	defer lifecycle.Close(errors.New("cleanup"))
 	queue := make(chan runtime.CommandResult, 2)
-	if err := lifecycle.Start(func(result runtime.CommandResult) { queue <- result }); err != nil {
+	if _, err := lifecycle.Start(func(result runtime.CommandResult) { queue <- result }); err != nil {
 		t.Fatal(err)
 	}
 	waitForSendLaunch(t, delivery)
@@ -32,6 +32,7 @@ func TestSendLifecycle_ImmediatelyReady(t *testing.T) {
 	}
 	delivery.emit(sendOutcome{Delivered: []string{"ada"}})
 	delivery.drain()
+	lifecycle.Advance()
 	result, ok := lifecycle.Complete(receiveSendCompletion(t, queue))
 	if !ok {
 		t.Fatal("completion rejected")
@@ -52,7 +53,7 @@ func TestSendLifecycle_WaitsForParticipantUpdates(t *testing.T) {
 			delivery.views[0].Status, delivery.views[0].StartupReady = status, false
 			lifecycle, _ := prepareSendLifecycle(t, delivery)
 			defer lifecycle.Close(errors.New("cleanup"))
-			if err := lifecycle.Start(func(runtime.CommandResult) { t.Error("unexpected completion") }); err != nil {
+			if _, err := lifecycle.Start(func(runtime.CommandResult) { t.Error("unexpected completion") }); err != nil {
 				t.Fatal(err)
 			}
 			if delivery.launches != 0 {
@@ -60,6 +61,7 @@ func TestSendLifecycle_WaitsForParticipantUpdates(t *testing.T) {
 			}
 			delivery.queue = append(delivery.queue, session.AgentReady{Alias: delivery.frozenAlias("ada")})
 			delivery.drain()
+			lifecycle.Advance()
 			waitForSendLaunch(t, delivery)
 			if delivery.launches != 1 {
 				t.Fatal("ready state did not launch once")
@@ -86,11 +88,12 @@ func TestSendLifecycle_OptionalDepartureIsSticky(t *testing.T) {
 			discards := 0
 			invocation.Staging().DiscardInform = func(alias participant.Alias) { discards++; discard(alias) }
 			defer lifecycle.Close(errors.New("cleanup"))
-			if err := lifecycle.Start(func(runtime.CommandResult) { t.Error("unexpected completion") }); err != nil {
+			if _, err := lifecycle.Start(func(runtime.CommandResult) { t.Error("unexpected completion") }); err != nil {
 				t.Fatal(err)
 			}
 			delivery.queue = append(delivery.queue, session.AgentReady{Alias: delivery.frozenAlias("ada")})
 			delivery.drain()
+			lifecycle.Advance()
 			waitForSendLaunch(t, delivery)
 			assertDiscardedNoticePlan(t, delivery, []string{"ada"})
 			if discards != 1 || !slices.Equal(invocation.Staging().ToInform, []participant.Alias{delivery.frozenAlias("tim")}) {
@@ -112,11 +115,12 @@ func TestSendLifecycle_RequiredDepartureFails(t *testing.T) {
 			lifecycle, _ := prepareSendLifecycle(t, delivery)
 			defer lifecycle.Close(errors.New("cleanup"))
 			queue := make(chan runtime.CommandResult, 2)
-			if err := lifecycle.Start(func(result runtime.CommandResult) { queue <- result }); err != nil {
+			if _, err := lifecycle.Start(func(result runtime.CommandResult) { queue <- result }); err != nil {
 				t.Fatal(err)
 			}
 			delivery.queue = append(delivery.queue, event, session.AgentReady{Alias: delivery.frozenAlias("ada")})
 			delivery.drain()
+			lifecycle.Advance()
 			result, ok := lifecycle.Complete(receiveSendCompletion(t, queue))
 			if !ok || result.Err == nil || len(result.Records) != 0 || delivery.launches != 0 {
 				t.Fatalf("required departure = %#v, accepted = %v", result, ok)
@@ -156,7 +160,7 @@ func TestSendLifecycle_InitialUnavailableParticipants(t *testing.T) {
 					}
 				}
 			}
-			err := lifecycle.Start(func(runtime.CommandResult) { t.Error("unexpected completion") })
+			_, err := lifecycle.Start(func(runtime.CommandResult) { t.Error("unexpected completion") })
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("start = %v", err)
 			}
@@ -172,13 +176,13 @@ func TestSendLifecycle_CloseWhileWaitingPreventsLaunch(t *testing.T) {
 	delivery := newSendDelivery(t, false)
 	delivery.views[0].Status = participant.StatusWorking
 	lifecycle, _ := prepareSendLifecycle(t, delivery)
-	if err := lifecycle.Start(func(runtime.CommandResult) { t.Error("unexpected completion") }); err != nil {
+	if _, err := lifecycle.Start(func(runtime.CommandResult) { t.Error("unexpected completion") }); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := lifecycle.Complete(runtime.CommandResult{}); ok {
 		t.Fatal("completion accepted before launch")
 	}
-	if err := lifecycle.Start(func(runtime.CommandResult) {}); !errors.Is(err, runtime.ErrInvocationNotPrepared) {
+	if _, err := lifecycle.Start(func(runtime.CommandResult) {}); !errors.Is(err, runtime.ErrInvocationNotPrepared) {
 		t.Fatalf("repeated start = %v", err)
 	}
 	reason := errors.New("discarded")
@@ -188,6 +192,7 @@ func TestSendLifecycle_CloseWhileWaitingPreventsLaunch(t *testing.T) {
 	}
 	delivery.queue = append(delivery.queue, session.AgentReady{Alias: delivery.frozenAlias("ada")})
 	delivery.drain()
+	lifecycle.Advance()
 	if delivery.launches != 0 || len(delivery.handlers) != 0 {
 		t.Fatal("closed monitor launched or retained its subscription")
 	}
@@ -199,13 +204,14 @@ func TestSendLifecycle_DelayedLaunchFailure(t *testing.T) {
 	lifecycle, _ := prepareSendLifecycle(t, delivery)
 	defer lifecycle.Close(errors.New("cleanup"))
 	queue := make(chan runtime.CommandResult, 2)
-	if err := lifecycle.Start(func(result runtime.CommandResult) { queue <- result }); err != nil {
+	if _, err := lifecycle.Start(func(result runtime.CommandResult) { queue <- result }); err != nil {
 		t.Fatal(err)
 	}
 	failure := errors.New("admission failed")
 	delivery.err = failure
 	delivery.queue = append(delivery.queue, session.AgentReady{Alias: delivery.frozenAlias("ada")})
 	delivery.drain()
+	lifecycle.Advance()
 	result, ok := lifecycle.Complete(receiveSendCompletion(t, queue))
 	if !ok || !errors.Is(result.Err, failure) || len(result.Records) != 0 {
 		t.Fatalf("launch failure = %#v, accepted = %v", result, ok)
@@ -229,17 +235,19 @@ func TestSendLifecycle_PreservesPartialDelivery(t *testing.T) {
 			lifecycle, _ := prepareSendLifecycle(t, delivery)
 			defer lifecycle.Close(errors.New("cleanup"))
 			queue := make(chan runtime.CommandResult, 2)
-			if err := lifecycle.Start(func(result runtime.CommandResult) { queue <- result }); err != nil {
+			if _, err := lifecycle.Start(func(result runtime.CommandResult) { queue <- result }); err != nil {
 				t.Fatal(err)
 			}
 			if wait {
 				delivery.queue = append(delivery.queue, session.AgentReady{Alias: delivery.frozenAlias("tim")})
 				delivery.drain()
+				lifecycle.Advance()
 			}
 			waitForSendLaunch(t, delivery)
 			outcome := sendOutcome{Delivered: []string{"ada"}, Failed: []string{"tim"}, Err: errors.New("notice failed")}
 			delivery.emit(outcome)
 			delivery.drain()
+			lifecycle.Advance()
 			result, ok := lifecycle.Complete(receiveSendCompletion(t, queue))
 			if !ok {
 				t.Fatal("partial delivery rejected")
@@ -270,11 +278,12 @@ func TestSendLifecycle_FailedDelayedLaunchRejectsEarlierCallback(t *testing.T) {
 	lifecycle := runtime.NewInvocationLifecycle(wrapped, runtime.Context{Participants: delivery, Session: delivery})
 	defer lifecycle.Close(errors.New("cleanup"))
 	queue := make(chan runtime.CommandResult, 2)
-	if err := lifecycle.Start(func(result runtime.CommandResult) { queue <- result }); err != nil {
+	if _, err := lifecycle.Start(func(result runtime.CommandResult) { queue <- result }); err != nil {
 		t.Fatal(err)
 	}
 	delivery.queue = append(delivery.queue, session.AgentReady{Alias: delivery.frozenAlias("ada")})
 	delivery.drain()
+	lifecycle.Advance()
 	earlier := receiveSendCompletion(t, queue)
 	receiveSendCompletion(t, queue) // Failure is recorded before consuming either result.
 	result, ok := lifecycle.Complete(earlier)
@@ -307,13 +316,14 @@ func TestSendLifecycle_InitialListDoesNotOverwriteCollectedChanges(t *testing.T)
 			delivery.duringParticipants = []session.Event{tt.event(delivery)}
 			lifecycle, _ := prepareSendLifecycle(t, delivery)
 			defer lifecycle.Close(errors.New("cleanup"))
-			err := lifecycle.Start(func(runtime.CommandResult) { t.Error("unexpected completion") })
+			_, err := lifecycle.Start(func(runtime.CommandResult) { t.Error("unexpected completion") })
 			if (err != nil) != tt.wantErr || delivery.launches != 0 {
 				t.Fatalf("update overwritten: %v", err)
 			}
 			if !tt.wantErr {
 				delivery.queue = append(delivery.queue, session.AgentReady{Alias: delivery.frozenAlias("ada")})
 				delivery.drain()
+				lifecycle.Advance()
 				waitForSendLaunch(t, delivery)
 			}
 		})
@@ -333,7 +343,7 @@ func TestSendLifecycle_QueuedDeparturePrecedesEvaluation(t *testing.T) {
 			}
 			lifecycle, _ := prepareSendLifecycle(t, delivery)
 			defer lifecycle.Close(errors.New("cleanup"))
-			err := lifecycle.Start(func(runtime.CommandResult) { t.Error("unexpected completion") })
+			_, err := lifecycle.Start(func(runtime.CommandResult) { t.Error("unexpected completion") })
 			if alias == "ada" {
 				if err == nil || delivery.launches != 0 {
 					t.Fatal("required departure was bypassed")

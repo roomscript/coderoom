@@ -2,7 +2,10 @@ package monolith
 
 import (
 	"github.com/roomscript/coderoom/internal/interpreter/runtime"
+	"github.com/roomscript/coderoom/internal/participant"
 	"github.com/roomscript/coderoom/internal/promptlang"
+	"github.com/roomscript/coderoom/internal/room"
+	"github.com/roomscript/coderoom/internal/session"
 )
 
 // Schedule queues work on the single execution/publication lane. The caller owns
@@ -66,7 +69,7 @@ func (s *CommandSubmission) PublishSubmission(err error) {
 	outcome := s.outcome
 	outcome.err = err
 	if err != nil {
-		s.session.close()
+		s.Close()
 		s.executor.runner.Run(submissionResultSequence(outcome))
 		return
 	}
@@ -84,8 +87,73 @@ func (s *CommandSubmission) QueueCompletion(work func()) {
 
 // PublishCompletion publishes an already-settled result. The caller consumes
 // duplicate/late results and closes its lifecycle before calling this method.
-func (s *CommandSubmission) PublishCompletion(result runtime.CommandResult) {
-	s.session.close()
+func (s *CommandSubmission) PublishCompletion(result runtime.CommandResult, events ...Event) {
+	s.Close()
 	sequence := invocationCompletionSequence(s.outcome, result, s.shell.completionEvent(s.outcome))
+	for _, event := range events {
+		sequence = append(sequence, publishEventInstruction{event: event})
+	}
 	s.session.publishCompletion(sequence, len(result.Records))
+}
+
+// Close revokes native admission and routing subscriptions without publishing an
+// outcome. The new interpreter uses it when a waiting invocation is edited or
+// discarded. Lifecycle-owned participant subscriptions are closed by its owner.
+func (s *CommandSubmission) Close() { s.session.close() }
+
+// ExecuteInput executes legacy input on the shared lane, after the new
+// interpreter has applied its admission policy. Call only from Schedule.
+func (i *Interpreter) ExecuteInput(raw string) { i.executor.handleInput(raw) }
+
+// PublishState refreshes and publishes the single canonical snapshot on the lane.
+func (i *Interpreter) PublishState() {
+	i.executor.runner.Run(instructionSequence{publishSnapshotInstruction{}})
+}
+
+// Publish queues a semantic application event on the serialized lane.
+func (i *Interpreter) Publish(event Event) {
+	i.executor.runner.Run(instructionSequence{publishEventInstruction{event: event}})
+}
+
+// AppendRecord publishes a canonical record on the serialized lane.
+func (i *Interpreter) AppendRecord(record room.Record) {
+	i.executor.runner.Run(instructionSequence{appendRecordInstruction{record: record}})
+}
+
+// WithStageSnapshot installs a detached stage projection owned by the new
+// interpreter. It runs on the shared lane; nil preserves the legacy projection.
+func WithStageSnapshot(snapshot func() *StagedSubmission) Option {
+	return func(i *Interpreter) { i.executor.stageSnapshot = snapshot }
+}
+
+// CancelParticipant executes cancellation on the shared lane. Its causal facts
+// are projected before the caller handles the result; success does not mean idle.
+func (s *CommandSubmission) CancelParticipant(alias participant.Alias) error {
+	err := s.executor.executeCommand(session.CancelCommand{Alias: alias})
+	s.executor.applySessionEvents()
+	return err //nolint:wrapcheck // Preserve cancellation error identity.
+}
+
+// The following legacy stage operations run on the shared lane. The new
+// interpreter calls them only when it has no stage of its own.
+
+// TakeLegacyStageForEdit removes the monolith's retained draft.
+func (i *Interpreter) TakeLegacyStageForEdit() (string, bool) {
+	sequence, raw, ok := i.executor.model.TakeStageForEdit()
+	i.executor.runner.Run(sequence)
+	return raw, ok
+}
+
+// DiscardLegacyStage abandons the monolith's retained draft.
+func (i *Interpreter) DiscardLegacyStage() bool {
+	sequence, ok := i.executor.model.DiscardStage()
+	i.executor.runner.Run(sequence)
+	return ok
+}
+
+// InterruptLegacyStage requests cancellation for the monolith's current stage.
+func (i *Interpreter) InterruptLegacyStage() bool {
+	sequence, ok := i.executor.model.InterruptAndDispatchStage()
+	i.executor.runner.Run(sequence)
+	return ok
 }

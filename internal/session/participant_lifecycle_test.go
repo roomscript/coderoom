@@ -64,8 +64,10 @@ func TestParticipantLifecycle_busySnapshotIgnoresDelayedOrdinaryReady(t *testing
 	probe := &readinessProbe{session: s, staging: &runtime.Staging{WaitFor: []participant.Alias{alias}}, started: make(chan struct{}, 1)}
 	host := &participantLifecycleHost{Session: s}
 	lifecycle := runtime.NewInvocationLifecycle(probe, runtime.Context{Session: host})
+	advances := make(chan struct{}, 16)
+	lifecycle.RequestAdvance = func() { advances <- struct{}{} }
 	defer lifecycle.Close(errors.New("cleanup"))
-	if err := lifecycle.Start(func(runtime.CommandResult) { t.Error("unexpected completion") }); err != nil {
+	if _, err := lifecycle.Start(func(runtime.CommandResult) { t.Error("unexpected completion") }); err != nil {
 		t.Fatalf("busy snapshot caused premature launch failure: %v", err)
 	}
 	if probe.launches.Load() != 0 {
@@ -74,11 +76,13 @@ func TestParticipantLifecycle_busySnapshotIgnoresDelayedOrdinaryReady(t *testing
 	release() // Old ordinary AgentReady must not advance the ordered subscription.
 	a.ch <- agent.Message{StreamID: mockTurnAnchor, Mode: agent.ModeFlush, Content: agent.Output{}}
 	select {
-	case <-probe.started:
+	case <-advances:
+		lifecycle.Advance()
 	case <-time.After(time.Second):
-		t.Fatal("later native idle transition did not release waiting work")
+		t.Fatal("later native idle transition did not request advancement")
 	}
-	lifecycle.Close(errors.New("cleanup")) // Join before checking launch count.
+	waitParticipantLifecycleSignal(t, probe.started)
+	lifecycle.Close(errors.New("cleanup"))
 	if probe.launches.Load() != 1 {
 		t.Fatal("waiting work did not launch exactly once")
 	}
@@ -130,7 +134,10 @@ func TestParticipantLifecycle_idleFactDuringInitialReturnWins(t *testing.T) {
 	unblock := func() { once.Do(func() { close(host.release) }) }
 	defer func() { unblock(); lifecycle.Close(errors.New("cleanup")) }()
 	started := make(chan error, 1)
-	go func() { started <- lifecycle.Start(func(runtime.CommandResult) { t.Error("unexpected completion") }) }()
+	go func() {
+		_, err := lifecycle.Start(func(runtime.CommandResult) { t.Error("unexpected completion") })
+		started <- err
+	}()
 	waitParticipantLifecycleSignal(t, host.entered)
 	a.ch <- agent.Message{StreamID: mockTurnAnchor, Mode: agent.ModeFlush, Content: agent.Output{}}
 	waitParticipantLifecycleSignal(t, host.idleCollected)

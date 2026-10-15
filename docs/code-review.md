@@ -150,6 +150,27 @@ Live transcript scenarios report their current scenario and action.
 
 ---
 
+## Structural Review Expectations
+
+Review findings should include unnecessary complexity and redundant representations,
+even when behavior is correct and tests pass. For each new field or abstraction,
+ask whether a current consumer needs information that existing state cannot supply.
+Flag duplicated state or decisions that can be derived from an existing owner:
+they add synchronization obligations and opportunities for representations to diverge.
+
+A hypothetical future requirement is not sufficient justification for introducing
+a distinction today. Prefer deriving what current behavior needs and introducing
+the distinction when a concrete use case requires it. Explain the maintenance or
+correctness consequence in the finding; this is substantive design feedback, not
+a cosmetic preference.
+
+For example, if a send's delivery recipients are exactly `WaitFor + ToInform`,
+adding a separate `Routing` field duplicates the recipient description. Derive
+stage presentation from the existing fields until a concrete workflow, such as
+handoff, requires delivery recipients to differ from readiness prerequisites.
+
+---
+
 ## Notes
 
 - This document will grow as more patterns are established. Add entries when a review surfaces a recurring style issue not already captured here.

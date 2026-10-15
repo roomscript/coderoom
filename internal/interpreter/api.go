@@ -22,6 +22,7 @@ type Interpreter struct {
 	// Accessed only on the shared serialized queue, including shutdown.
 	nextInvocationID uint64
 	invocations      map[uint64]pendingInvocation
+	stage            *stagedInvocation
 }
 
 // New starts one interpreter runtime backed by sess. Options are applied through
@@ -31,6 +32,7 @@ func New(ctx context.Context, sess SessionController, cwd string, opts ...Option
 	i.fallback = monolith.New(ctx, sess, cwd, func(fallback *monolith.Interpreter) {
 		i.fallback = fallback
 		monolith.WithShutdown(i.closeInvocations)(fallback)
+		monolith.WithStageSnapshot(i.stageSnapshot)(fallback)
 		for _, option := range opts {
 			option(i)
 		}

@@ -5,6 +5,16 @@ serialized ordering guarantees. The responsibility decomposition and staged
 submission migration are complete; normal package-graph tests enforce the
 interpreter/UI boundary.
 
+During the command-module migration, the new `internal/interpreter` also owns a
+single retained stage for its registered invocations. Its atomic operations use
+the lifecycle's collected readiness and discard boundary. Snapshot projection,
+canonical publication and cancellation execution still use monolith capabilities;
+legacy stage operations are fallback when there is no new-interpreter stage.
+Addressed send uses this path only in tests until its separate public cutover.
+See [composition](pkg-interpreter-composition.md#visible-stage-ownership-during-migration)
+for ownership and race guarantees; the model entry points below remain the legacy
+implementation for unmigrated commands.
+
 ## Entry-point map for the core model (#55)
 
 Start with [interpreter concepts](../../internal/interpreter/CONCEPTS.md), then

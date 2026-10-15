@@ -37,7 +37,7 @@ func TestParticipantUpdates_mergeKeepsSameNameInstancesSeparate(t *testing.T) {
 	}
 }
 
-func TestParticipantMonitor_ignoresEventsFromSameNamePredecessor(t *testing.T) {
+func TestParticipantSubscription_ignoresEventsFromSameNamePredecessor(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
 		event func(participant.Alias) session.Event
@@ -51,65 +51,66 @@ func TestParticipantMonitor_ignoresEventsFromSameNamePredecessor(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			old, current := newTestAlias("ada"), newTestAlias("ada")
-			host := &monitorHost{views: []participant.View{{Alias: current, Status: participant.StatusWorking, StartupReady: true}}}
-			monitor := newParticipantMonitor()
-			monitor.initialize(Context{Participants: host, Session: host}, func(alias participant.Alias) bool { return alias == current })
-			defer monitor.stop()
-			before := monitor.readSnapshot()
+			host := &participantHost{views: []participant.View{{Alias: current, Status: participant.StatusWorking, StartupReady: true}}}
+			var requests int
+			subscription := &participantSubscription{requestAdvance: func() { requests++ }}
+			subscription.initialize(Context{Participants: host, Session: host}, func(alias participant.Alias) bool { return alias == current })
+			defer subscription.stop()
+			before := subscription.readSnapshot()
 			host.callback()(tc.event(old))
-			after := monitor.readSnapshot()
-			if after.revision != before.revision || len(after.states) != 1 || after.states[current] != before.states[current] || len(monitor.wake) != 0 {
-				t.Fatal("predecessor event changed or woke replacement monitoring")
+			after := subscription.readSnapshot()
+			if after.revision != before.revision || len(after.states) != 1 || after.states[current] != before.states[current] || requests != 0 {
+				t.Fatal("predecessor event changed or requested replacement advancement")
 			}
 			host.callback()(session.AgentReady{Alias: current})
-			if !monitor.readSnapshot().states[current].isReadyForWork() || len(monitor.wake) != 1 {
+			if !subscription.readSnapshot().states[current].isReadyForWork() || requests != 1 {
 				t.Fatal("replacement's own readiness was not collected")
 			}
 		})
 	}
 }
 
-func TestInvocationMonitor_replacementReadinessCannotReleaseOriginalWait(t *testing.T) {
+func TestInvocationLifecycle_replacementReadinessCannotReleaseOriginalWait(t *testing.T) {
 	for _, index := range []int{0, 1} {
 		t.Run([]string{"required", "notice"}[index], func(t *testing.T) {
-			lifecycle, host, invocation := newWaitingMonitor()
+			lifecycle, host, invocation := newWaitingLifecycle()
 			defer lifecycle.Close(errors.New("cleanup"))
 			original := host.views[index].Alias
 			replacement := newTestAlias(original.Name)
 			host.views[1-index].Status = participant.StatusIdle
 			var discarded []participant.Alias
 			invocation.staging.DiscardInform = func(alias participant.Alias) { discarded = append(discarded, alias) }
-			if err := lifecycle.Start(func(CommandResult) { t.Error("unexpected failure") }); err != nil {
+			if _, err := lifecycle.Start(func(CommandResult) { t.Error("unexpected failure") }); err != nil {
 				t.Fatal(err)
 			}
 			handle := host.callback()
-			before := lifecycle.monitor.readSnapshot()
+			before := lifecycle.subscription.readSnapshot()
 			handle(session.AgentReady{Alias: replacement})
 			handle(session.AgentStopped{Alias: replacement})
-			if after := lifecycle.monitor.readSnapshot(); after.revision != before.revision || after.states[original] != before.states[original] || invocation.launches.Load() != 0 {
+			if after := lifecycle.subscription.readSnapshot(); after.revision != before.revision || after.states[original] != before.states[original] || invocation.launches.Load() != 0 {
 				t.Fatal("replacement events advanced retained work for the original")
 			}
 			handle(session.AgentReady{Alias: original})
-			waitMonitorSignal(t, invocation.started)
-			waitMonitorSignal(t, lifecycle.monitor.done)
+			lifecycle.Advance()
+			waitLifecycleSignal(t, invocation.started)
 			if invocation.launches.Load() != 1 || len(discarded) != 0 || host.callback() != nil {
-				t.Fatal("original readiness failed to launch once and release the monitor")
+				t.Fatal("original readiness failed to launch once and release the subscription")
 			}
 		})
 	}
 }
 
-func TestInvocationMonitor_initialReplacementDoesNotInheritRequirements(t *testing.T) {
+func TestInvocationLifecycle_initialReplacementDoesNotInheritRequirements(t *testing.T) {
 	for _, index := range []int{0, 1} {
 		t.Run([]string{"required", "notice"}[index], func(t *testing.T) {
-			lifecycle, host, invocation := newWaitingMonitor()
+			lifecycle, host, invocation := newWaitingLifecycle()
 			defer lifecycle.Close(errors.New("cleanup"))
 			original := host.views[index].Alias
 			host.views[index].Alias = newTestAlias(original.Name)
 			host.views[0].Status, host.views[1].Status = participant.StatusIdle, participant.StatusIdle
 			var discarded []participant.Alias
 			invocation.staging.DiscardInform = func(alias participant.Alias) { discarded = append(discarded, alias) }
-			err := lifecycle.Start(func(CommandResult) { t.Error("initial failure must return from Start") })
+			_, err := lifecycle.Start(func(CommandResult) { t.Error("initial failure must return from Start") })
 			if index == 0 {
 				if err == nil || invocation.launches.Load() != 0 || invocation.closes.Load() != 1 {
 					t.Fatal("replacement satisfied the missing original primary")
@@ -124,8 +125,8 @@ func TestInvocationMonitor_initialReplacementDoesNotInheritRequirements(t *testi
 	}
 }
 
-func TestInvocationMonitor_departureCollectedDuringReadSurvivesReplacementSnapshot(t *testing.T) {
-	lifecycle, host, invocation := newWaitingMonitor()
+func TestInvocationLifecycle_departureCollectedDuringReadSurvivesReplacementSnapshot(t *testing.T) {
+	lifecycle, host, invocation := newWaitingLifecycle()
 	defer lifecycle.Close(errors.New("cleanup"))
 	original := invocation.staging.WaitFor[0]
 	replacement := newTestAlias(original.Name)
@@ -136,9 +137,10 @@ func TestInvocationMonitor_departureCollectedDuringReadSurvivesReplacementSnapsh
 	defer release()
 	started := make(chan error, 1)
 	go func() {
-		started <- lifecycle.Start(func(CommandResult) { t.Error("initial failure must return from Start") })
+		_, err := lifecycle.Start(func(CommandResult) { t.Error("initial failure must return from Start") })
+		started <- err
 	}()
-	waitMonitorSignal(t, host.entered)
+	waitLifecycleSignal(t, host.entered)
 	handle := host.callback()
 	handle(session.AgentStopped{Alias: original})
 	handle(session.AgentReady{Alias: replacement})

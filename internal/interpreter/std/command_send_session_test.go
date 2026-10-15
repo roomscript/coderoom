@@ -26,7 +26,7 @@ func TestSendLifecycle_RejectsReplacementDespiteUncollectedDeparture(t *testing.
 			lifecycle := runtime.NewInvocationLifecycle(invocation, runtime.Context{Participants: host, Session: host})
 			t.Cleanup(func() { lifecycle.Close(errors.New("cleanup")) })
 			completion := make(chan runtime.CommandResult, 1)
-			err := lifecycle.Start(func(result runtime.CommandResult) { completion <- result })
+			_, err := lifecycle.Start(func(result runtime.CommandResult) { completion <- result })
 			if err == nil {
 				t.Fatal("retained send accepted replacement")
 			}

@@ -42,7 +42,7 @@ func (h *prototypeInterpreter) submit(command runtime.Command, statement promptl
 	}
 	lifecycle := runtime.NewInvocationLifecycle(invocation, ctx)
 	h.pending[lifecycle] = struct{}{}
-	err = lifecycle.Start(func(completion runtime.CommandResult) {
+	_, err = lifecycle.Start(func(completion runtime.CommandResult) {
 		// Capture the lifecycle to correlate this callback with its own invocation.
 		h.queue <- queuedInvocationCompletion{lifecycle: lifecycle, completion: completion}
 	})
@@ -163,10 +163,10 @@ func TestInvocationLifecycle_StartOnceAndClose(t *testing.T) {
 	if _, ok := lifecycle.Complete(runtime.CommandResult{}); ok {
 		t.Fatal("completion accepted before launch")
 	}
-	if err := lifecycle.Start(func(runtime.CommandResult) {}); err != nil {
+	if _, err := lifecycle.Start(func(runtime.CommandResult) {}); err != nil {
 		t.Fatal(err)
 	}
-	if err := lifecycle.Start(func(runtime.CommandResult) {}); !errors.Is(err, runtime.ErrInvocationNotPrepared) || i.launches != 1 {
+	if _, err := lifecycle.Start(func(runtime.CommandResult) {}); !errors.Is(err, runtime.ErrInvocationNotPrepared) || i.launches != 1 {
 		t.Fatalf("repeated launch = %v, launches = %d", err, i.launches)
 	}
 	reason := errors.New("closed")
@@ -192,7 +192,7 @@ func TestInvocationLifecycle_ReleasesInvocation(t *testing.T) {
 				i.err = failure
 			}
 			if mode != "close prepared" {
-				err := l.Start(func(runtime.CommandResult) {})
+				_, err := l.Start(func(runtime.CommandResult) {})
 				if (err != nil) != (mode == "launch failure") {
 					t.Fatalf("start: %v", err)
 				}

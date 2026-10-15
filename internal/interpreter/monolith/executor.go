@@ -53,16 +53,17 @@ type interpreterExecutor struct {
 	runShell  ShellRunner
 	shellWG   sync.WaitGroup
 
-	operations *queue.Queue[operation]
-	dispatcher *eventDispatcher
-	inbox      sessionEventInbox
-	done       chan struct{}
-	lifetime   context.Context
-	cancel     context.CancelFunc
-	closeOnce  sync.Once
-	onShutdown func()
-	enqueueMu  sync.Mutex
-	closed     bool
+	operations    *queue.Queue[operation]
+	dispatcher    *eventDispatcher
+	inbox         sessionEventInbox
+	done          chan struct{}
+	lifetime      context.Context
+	cancel        context.CancelFunc
+	closeOnce     sync.Once
+	onShutdown    func()
+	stageSnapshot func() *StagedSubmission
+	enqueueMu     sync.Mutex
+	closed        bool
 	// Protected by enqueueMu; completion intake outlives submission admission.
 	shutdownCompletions []operation
 	completionsClosed   bool
@@ -307,6 +308,11 @@ func (e *interpreterExecutor) refreshSnapshot() Snapshot {
 		Participants: append([]participant.View(nil), e.session.Participants()...),
 		Approval:     model.approval,
 		Stage:        model.stage,
+	}
+	if e.stageSnapshot != nil {
+		if stage := e.stageSnapshot(); stage != nil {
+			snapshot.Stage = stage
+		}
 	}
 	e.snapshots.Store(snapshot)
 	return cloneSnapshot(snapshot)

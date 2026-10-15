@@ -44,7 +44,7 @@ func (h *prototypeInterpreter) submit(command runtime.Command, statement promptl
 	}
 	lifecycle := runtime.NewInvocationLifecycle(invocation, ctx)
 	h.pending[lifecycle] = struct{}{}
-	err = lifecycle.Start(func(completion runtime.CommandResult) {
+	_, err = lifecycle.Start(func(completion runtime.CommandResult) {
 		// Capture the lifecycle to correlate this callback with its own invocation.
 		h.queue <- queuedInvocationCompletion{lifecycle: lifecycle, completion: completion}
 	})

@@ -13,7 +13,9 @@ the issue is complete.
 The new `internal/interpreter` selects `/who` and `/shell` and executes them
 itself. It schedules `executeCommand` on the shared serialized lane, asks the
 monolith to admit input, then prepares, starts, tracks, completes and closes its
-own `runtime.InvocationLifecycle`. Unrecognized commands use monolith fallback.
+own `runtime.InvocationLifecycle`. It also owns one retained visible stage and
+its admission/edit/discard/interrupt policy. Unrecognized commands use monolith
+fallback after the new interpreter checks its stage admission rule.
 There is no Execution interface, execution wrapper or SubmitInvocation callback.
 
 The monolith supplies only infrastructure for this path: `Schedule`,
@@ -24,6 +26,9 @@ methods. The submission is metadata/capabilities, not a lifecycle owner.
 before publication shuts down. No migrated lifecycle is stored, started,
 completed or closed by the monolith. `SubmitCommand` remains a compatibility
 bridge for legacy callers and direct-delivery proofs. Existing handlers stay intact.
+`WithStageSnapshot` projects the new interpreter's stage into the same detached
+snapshot/event stream; legacy stage operations are called only when there is no
+new-interpreter stage.
 
 The migration destination is the new interpreter replacing the monolith. Move
 command and stage policy into the new interpreter; expose only the monolith
@@ -45,7 +50,7 @@ Current invariants and proof:
   plan, not the readiness description. Instance references reject replacements
   even before their departures reach the lifecycle.
 - `SubscribeParticipants` atomically captures state and subscribes to later facts
-  in mutation order. The lifecycle's private participantMonitor merges initial
+  in mutation order. The lifecycle's participantSubscription merges initial
   state only for untouched aliases, retains sticky departures and validates the
   state revision before launch. Ordinary inspection is not an event barrier.
 - Participant Group owns membership, snapshots and ordered change subscriptions
@@ -56,7 +61,7 @@ Current invariants and proof:
   Input records precede causal delivery events; terminal publication follows projection.
 - Lifecycle identity, pending state, acceptance and cleanup belong to the new
   interpreter. Completion callbacks only queue work. The new interpreter consumes
-  results on the shared lane, closes/joins monitoring and publishes accepted
+  results on the shared lane, closes resources and publishes accepted
   results. During native delivery the monolith runs queued result work before
   causal event projection, then publishes terminal outcomes after those events.
   Duplicate/failed-start/late results are rejected by the new interpreter.
@@ -68,14 +73,45 @@ Current invariants and proof:
   record ordering and subscription cleanup. Send is registered only in tests.
   `/who` and `/shell` use this lifecycle path with nil staging.
 
-Next: integrate retained invocations with visible stage ownership and atomic
-edit/discard/interrupt in the new interpreter, then register addressed send.
-Keep `/who`, `/shell`, broadcast, handoff and loop behavior unchanged. Loop
-coexistence policy remains a separate design checkpoint.
+Lifecycle advancement checkpoint:
 
-Validation: `go test ./...`, `go test -race ./internal/interpreter/... -count=1`
-and `make lint` passed for this ownership change. Public stage operations remain
-unvalidated here.
+- Participant callbacks collect facts and queue advancement. The new interpreter
+  calls runtime Advance on the shared lane, alongside retention, stage operations,
+  completion and shutdown. Runtime retains readiness policy and transitions.
+- Removed the private monitor goroutine, lifecycle mutex and stop/join machinery.
+  The collector lock and revision commit still arbitrate against concurrent facts.
+- Start reports initial waiting before queued advancement can run. Readiness or
+  departure during retention cannot bypass visible-stage ownership.
+
+Current visible-stage checkpoint:
+
+- A waiting invocation retains its source and immutable stage description. Routing
+  presentation for send is derived from `WaitFor` followed by `ToInform`.
+  Lifecycle `Readiness` supplies detached collected facts; `RequestAdvance` only
+  queues advancement and projection on the shared lane, never rereads Session.
+- The stage stays visible until delivery settles. It blocks new work, including
+  fallback commands and malformed input; presentation-only debug commands remain
+  available. A legacy stage still blocks migrated commands at admission.
+- `DiscardWaiting` shares the advancement lane and uses the collector revision boundary
+  to prevent edit/discard after committed delivery or collected readiness. A
+  successful removal stops collection, closes resources and revokes native admission, with
+  no input record or completion notice. Ready/failure progress runs only through queued Advance calls.
+- Interrupt cancels only frozen active, cancellable blockers. Failed aliases can
+  be retried; successful cancellations are remembered but do not imply readiness.
+  Startup/maintenance waits are not cancelled. Required departures publish the
+  legacy discard notice; partial delivery preserves actual routing and failure.
+- New-interpreter tests cover detached/published snapshots, both submission orders
+  with legacy staging, admission, editing/resubmission, discard, retry/partial
+  cancellation, startup, departures, frozen joins and shutdown. Runtime tests prove
+  late readiness cannot revive discard and collected readiness wins over removal.
+
+Next: register addressed send in a separate public cutover. Review initial/direct
+versus queued submission milestones, semantic-event ordering and interaction with
+legacy workflows before changing public routing. Broadcast, handoff and loops
+remain fallback. Loop coexistence policy remains a separate design checkpoint.
+
+Validation: `go test ./...`, `go test -race ./internal/interpreter/... -count=3`
+and `make lint` passed. Public send registration remains outside this checkpoint.
 
 ## Scope assessment
 
@@ -177,33 +213,22 @@ the current package until a real consumer demonstrates a useful boundary.
   The monolith has no migrated lifecycle references or orchestration callback.
   Tests cover failure/duplicate/late results, shutdown/context cancellation,
   real-Session readiness, departure and partial delivery with causal publication.
-- [ ] 2a. Addressed-send preparation and direct delivery:
-  Standalone `std.SendCommand` retains Session's frozen `ParticipantSendPlan`,
-  deriving `Staging.WaitFor` and `ToInform` from it for readiness. It submits the
-  native session command with that same plan and drafts
-  original input records and partial delivery through queued shared-feed
-  session continuations with explicit primary matching, registered before
-  asynchronous admission. Invocation cleanup releases subscriptions on completion, failure or discard. It is
-  not registered; the native Session adapter is now supplied by the monolith
-  bridge for direct-delivery tests. Lifecycle readiness is now integrated through
-  the new interpreter; public stage operations remain unwired.
-  Start with the standalone `Invocation.Staging() *Staging` draft: frozen aliases
-  or nil, with existing commands returning nil. The draft is not execution wiring.
-  Every send should use one staging path, immediately releasing ready work or
-  retaining it until ready. Preserve sticky departures and frozen recipients.
-  Retain Session's send plan as the delivery authority, derive staging readiness
-  from its aliases, and correlate delivery outcomes as the module needs them.
-  Prove direct delivery and partial results with a narrow fake
-  adapter. Preserve submission milestones and keep existing staged sends working
-  through the bridge. Review this boundary before wiring staging.
-- [ ] 2b. Addressed-send staged delivery: the lifecycle proves
-  direct/staged delivery against the same shared-feed fake adapter from 2a.
-  Production wiring is still pending. The
-  `Staging.DiscardInform(alias)` draft lets send filter its retained Session plan
-  before launch; primary departures fail staging. Tracking and readiness are
-  proved through the new interpreter; public stage operations remain unwired. Preserve user admission, startup readiness, atomic edit/discard/interrupt, cancellation
-  retry, partial delivery and submission milestones. Review separately from 2a;
-  do not combine both sub-checkpoints into one implementation pass.
+- [x] 2a. Addressed-send preparation and direct delivery: SendCommand retains
+  Session's frozen ParticipantSendPlan and derives readiness and presentation
+  aliases from it. The same plan drives native delivery. Invocation-scoped routing
+  and queued completion preserve original input, partial routing, causal ordering
+  and cleanup. Direct and waiting paths are proved through the new interpreter;
+  public registration remains a separate cutover.
+- [x] 2b-i. Addressed-send visible staging with test-only registration: the new
+  interpreter owns one stage, detached readiness presentation and single-stage
+  admission across migrated and fallback input. Atomic edit/discard revoke scope
+  and prevent late delivery. Interrupt retains failed aliases for retry and waits
+  for causal readiness. Tests cover startup, partial cancellation, departures,
+  frozen recipients, resubmission and joined shutdown.
+- [ ] 2b-ii. Public addressed-send cutover: register SendCommand after comparing
+  legacy direct/queued submission milestones, semantic events, cancellation retry,
+  partial delivery and interaction with existing workflows. Keep other commands
+  on fallback. No loop staging behavior change in this checkpoint.
 - [ ] 3. Migrate broadcast: extend the proven delivery capability for frozen
   optional recipients, departures and partial results. Joins must not expand a
   retained plan. Preserve existing behavior and cover its complete command path.

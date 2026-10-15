@@ -15,11 +15,6 @@ type pendingInvocation struct {
 	submission *monolith.CommandSubmission
 }
 
-func (i *Interpreter) submitCommand(command runtime.Command, statement promptlang.ParsedStatement) error {
-	//nolint:wrapcheck // Preserve admission error identity.
-	return i.fallback.Schedule(func() { i.executeCommand(command, statement) })
-}
-
 // The new interpreter owns this algorithm and all lifecycle state. The monolith
 // supplies only admission, capabilities and ordered publication on the shared lane.
 func (i *Interpreter) executeCommand(command runtime.Command, statement promptlang.ParsedStatement) {
@@ -38,11 +33,14 @@ func (i *Interpreter) executeCommand(command runtime.Command, statement promptla
 	i.nextInvocationID++
 	id := i.nextInvocationID
 	lifecycle := runtime.NewInvocationLifecycle(invocation, submission.Context)
+	lifecycle.RequestAdvance = func() {
+		_ = i.fallback.Schedule(func() { i.advanceCommand(id) })
+	}
 	if i.invocations == nil {
 		i.invocations = make(map[uint64]pendingInvocation)
 	}
 	i.invocations[id] = pendingInvocation{lifecycle: lifecycle, submission: submission}
-	err = lifecycle.Start(func(result runtime.CommandResult) {
+	enteredWaiting, err := lifecycle.Start(func(result runtime.CommandResult) {
 		submission.QueueCompletion(func() { i.completeCommand(id, result) })
 	})
 	if err != nil {
@@ -51,7 +49,19 @@ func (i *Interpreter) executeCommand(command runtime.Command, statement promptla
 		submission.PublishSubmission(fmt.Errorf("start command lifecycle: %w", err))
 		return
 	}
+	if enteredWaiting {
+		i.retainStage(id, statement, invocation.Staging())
+	}
 	submission.PublishSubmission(nil)
+}
+
+func (i *Interpreter) advanceCommand(id uint64) {
+	pending, ok := i.invocations[id]
+	if !ok {
+		return
+	}
+	pending.lifecycle.Advance()
+	i.updateStage(id)
 }
 
 func (i *Interpreter) completeCommand(id uint64, result runtime.CommandResult) {
@@ -63,12 +73,13 @@ func (i *Interpreter) completeCommand(id uint64, result runtime.CommandResult) {
 	if !accepted {
 		return
 	}
+	result, events := i.finishStage(id, result)
 	delete(i.invocations, id)
-	pending.lifecycle.Close(ErrClosed) // Join monitoring after settlement.
-	pending.submission.PublishCompletion(result)
+	pending.submission.PublishCompletion(result, events...)
 }
 
 func (i *Interpreter) closeInvocations() {
+	i.stage = nil
 	for _, id := range slices.Sorted(maps.Keys(i.invocations)) {
 		pending := i.invocations[id]
 		delete(i.invocations, id)

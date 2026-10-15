@@ -82,7 +82,7 @@ type Invocation interface {
 	Staging() *Staging
 	Go(complete func(CommandResult)) error
 	// Close releases invocation-owned subscriptions; it is idempotent and runs
-	// after the lifecycle stops its monitor. Implementations must tolerate racing
+	// after the lifecycle stops collecting participant facts. Implementations must tolerate racing
 	// callbacks. Cancellation of admitted delivery remains the host's job.
 	Close()
 }
@@ -93,7 +93,7 @@ type Invocation interface {
 // The invocation owns this description; callers must treat it as read-only.
 // WaitFor gates execution; ToInform describes frozen contextual notice recipients, which
 // also gate readiness. WaitFor does not imply delivery. Departure handling is
-// command policy; the lifecycle tracks sticky departures. This draft is unwired.
+// command policy; the lifecycle tracks sticky departures.
 type Staging struct {
 	WaitFor  []participant.Alias
 	ToInform []participant.Alias
