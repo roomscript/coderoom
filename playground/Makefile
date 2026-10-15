@@ -52,3 +52,37 @@ pg-sandbox-bwrap-home-read-only:
 
 pg-sandbox-bwrap-keyring-proxy:
 	python3 sandbox-bwrap/session_auth.py keyring-proxy
+
+.PHONY: pg-claude-stream-json pg-claude-stream-json-e1 pg-claude-stream-json-e2 pg-claude-stream-json-e3 pg-claude-stream-json-e4 pg-claude-stream-json-e5 pg-claude-stream-json-e6 pg-claude-stream-json-e7 pg-claude-stream-json-e8 pg-claude-stream-json-e9 pg-claude-stream-json-e10
+pg-claude-stream-json:
+	cd claude-stream-json && go run . -exp all
+
+pg-claude-stream-json-e1:
+	cd claude-stream-json && go run . -exp e1
+
+pg-claude-stream-json-e2:
+	cd claude-stream-json && go run . -exp e2
+
+pg-claude-stream-json-e3:
+	cd claude-stream-json && go run . -exp e3
+
+pg-claude-stream-json-e4:
+	cd claude-stream-json && go run . -exp e4
+
+pg-claude-stream-json-e5:
+	cd claude-stream-json && go run . -exp e5
+
+pg-claude-stream-json-e6:
+	cd claude-stream-json && go run . -exp e6
+
+pg-claude-stream-json-e7:
+	cd claude-stream-json && go run . -exp e7
+
+pg-claude-stream-json-e8:
+	cd claude-stream-json && go run . -exp e8
+
+pg-claude-stream-json-e9:
+	cd claude-stream-json && go run . -exp e9
+
+pg-claude-stream-json-e10:
+	cd claude-stream-json && go run . -exp e10
