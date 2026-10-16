@@ -8,16 +8,30 @@ This repo is **coderoom**: a CLI-native multi-agent coding workspace. Agents col
 - System architecture: `docs/design/architecture.md`
 - Coding + review style guide (authoritative): `docs/code-review.md`
 
+## Commands
+
+```
+make build              # build ./cmd/coderoom
+make lint               # run golangci-lint
+make test               # unit tests
+make test-integration   # integration tests (requires Codex and Claude Code installed)
+make test-integration-codex   # Codex adapter integration tests only
+make test-integration-claude  # Claude adapter integration tests only (live, uses quota)
+make pre-commit         # lint + test
+make test-all           # lint + test + test-integration
+make upgrade-codex      # advance pinned Codex version to latest
+make install-hooks      # install pre-commit hook
+```
+
 ## Experiments / Playground
 
 We keep research notes in `docs/playground/` and runnable prototypes in `playground/`.
 
 - Synthesis doc: `docs/playground/research-llm-cli.md`
-- Run a POC: `cd playground && make pg-…` (see `playground/Makefile`)
+- Run a POC from the repo root: `make pg-codex-stdio`, etc. (targets in `playground/Makefile`)
 
 Key findings to keep in mind when implementing:
-- **Claude Code** and **Codex CLI** often require a **PTY** when driven as subprocesses (their normal CLI modes assume a TTY).
-- For Codex, prefer `app-server` over stdio for a persistent managed-process integration (see `docs/playground/poc-codex-stdio.md`).
+- Both agent CLIs are driven over stdio pipes, with no PTY: Codex through `app-server` (see `docs/playground/poc-codex-stdio.md`), Claude Code through bidirectional stream-json (see `docs/playground/poc-claude-stream-json.md`). Their interactive modes assume a TTY; these machine modes do not.
 
 ## Code Style (follow `docs/code-review.md`)
 

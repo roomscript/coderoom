@@ -1,0 +1,368 @@
+package claude
+
+import (
+	"encoding/json"
+	"errors"
+	"slices"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/roomscript/coderoom/internal/agent"
+)
+
+const lineInitOK = `{"type":"control_response","response":{"subtype":"success","request_id":"coderoom-init","response":{}}}`
+
+// peerScript returns a shell script for a fake claude process. Each step
+// reads one line from stdin, then prints its lines. After the last step the
+// peer drains stdin, so it exits when the client closes stdin.
+func peerScript(steps ...[]string) string {
+	var sb strings.Builder
+	for _, step := range steps {
+		sb.WriteString("read -r _; ")
+		for _, l := range step {
+			sb.WriteString("printf '%s\\n' '" + l + "'; ")
+		}
+	}
+	sb.WriteString("cat >/dev/null")
+	return sb.String()
+}
+
+// startPeer starts a Client against a fake peer and stops it at test end.
+func startPeer(t *testing.T, script string, opts ...Option) *Client {
+	t.Helper()
+	opts = append([]Option{WithCommand("sh", "-c", script)}, opts...)
+	c := New(t.TempDir(), opts...)
+	if err := c.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(func() { _ = c.Stop() })
+	return c
+}
+
+// readUntil reads messages until stop returns true, failing after a timeout.
+func readUntil(t *testing.T, c *Client, stop func(agent.Message) bool) []agent.Message {
+	t.Helper()
+	type result struct {
+		msgs []agent.Message
+		err  error
+	}
+	done := make(chan result, 1)
+	go func() {
+		var msgs []agent.Message
+		for {
+			m, err := c.Read()
+			if err != nil {
+				done <- result{msgs, err}
+				return
+			}
+			msgs = append(msgs, m)
+			if stop(m) {
+				done <- result{msgs, nil}
+				return
+			}
+		}
+	}()
+	select {
+	case r := <-done:
+		if r.err != nil {
+			t.Fatalf("Read: %v (after %+v)", r.err, r.msgs)
+		}
+		return r.msgs
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for message")
+		return nil
+	}
+}
+
+func isAnchorFlush(m agent.Message) bool {
+	return m.StreamID == turnStreamID && m.Mode == agent.ModeFlush
+}
+
+func isLog(m agent.Message) bool {
+	_, ok := m.Content.(agent.Log)
+	return ok
+}
+
+// recordingObserver keeps every line sent to the peer.
+type recordingObserver struct {
+	mu   sync.Mutex
+	sent []string
+}
+
+func (o *recordingObserver) OnSend(msg string) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.sent = append(o.sent, msg)
+}
+
+func (o *recordingObserver) OnReceive(string) {}
+
+func (o *recordingObserver) sentLines() []string {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return slices.Clone(o.sent)
+}
+
+func TestStart_handshake(t *testing.T) {
+	obs := &recordingObserver{}
+	startPeer(t, peerScript([]string{lineInitOK}), WithObserver(obs))
+
+	sent := obs.sentLines()
+	if len(sent) != 1 {
+		t.Fatalf("sent %d lines, want the initialize request", len(sent))
+	}
+	var req struct {
+		Type      string `json:"type"`
+		RequestID string `json:"request_id"`
+		Request   struct {
+			Subtype string `json:"subtype"`
+		} `json:"request"`
+	}
+	if err := json.Unmarshal([]byte(sent[0]), &req); err != nil {
+		t.Fatal(err)
+	}
+	if req.Type != "control_request" || req.RequestID != initRequestID || req.Request.Subtype != "initialize" {
+		t.Errorf("initialize request = %+v", req)
+	}
+}
+
+func TestStart_failures(t *testing.T) {
+	tests := []struct {
+		name   string
+		script string
+	}{
+		{"process exits", "echo 'Not logged in' >&2; exit 1"},
+		{"error response", peerScript([]string{
+			`{"type":"control_response","response":{"subtype":"error","request_id":"coderoom-init","error":"bad"}}`,
+		})},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := New(t.TempDir(), WithCommand("sh", "-c", tt.script))
+			if err := c.Start(); err == nil {
+				_ = c.Stop()
+				t.Fatal("expected error")
+			}
+		})
+	}
+}
+
+func TestStart_timeout(t *testing.T) {
+	c := New(t.TempDir(), WithCommand("sh", "-c", "cat >/dev/null"))
+	c.startTimeout = 50 * time.Millisecond
+	if err := c.Start(); err == nil {
+		_ = c.Stop()
+		t.Fatal("expected error")
+	}
+}
+
+func TestSend_turn(t *testing.T) {
+	c := startPeer(t, peerScript(
+		[]string{lineInitOK},
+		[]string{lineSystemInit, lineMessageStart, lineTextStart, textDeltaLine("ok"), lineBlockStop, lineResultOK},
+	))
+
+	anchor, err := c.Send("Reply with just: ok")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if anchor != turnStreamID {
+		t.Errorf("anchor = %q, want %q", anchor, turnStreamID)
+	}
+	msgs := readUntil(t, c, isAnchorFlush)
+	if out, _ := accumulate(t, msgs[:len(msgs)-1]).Content.(agent.Output); out.Text != "ok" {
+		t.Errorf("output = %q, want ok", out.Text)
+	}
+}
+
+func TestSend_turnInProgress(t *testing.T) {
+	c := startPeer(t, peerScript(
+		[]string{lineInitOK},
+		[]string{lineSystemInit, lineResultOK},
+	))
+
+	if _, err := c.Send("first"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Send("second"); !errors.Is(err, agent.ErrTurnInProgress) {
+		t.Fatalf("second Send error = %v, want ErrTurnInProgress", err)
+	}
+	readUntil(t, c, isAnchorFlush)
+	if _, err := c.Send("after the turn"); err != nil {
+		t.Fatalf("Send after turn end: %v", err)
+	}
+}
+
+func TestSend_beforeStart(t *testing.T) {
+	if _, err := New(t.TempDir()).Send("hi"); err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestRead_turnErrorLoggedBeforeAnchorFlush(t *testing.T) {
+	failed := `{"type":"result","subtype":"error_during_execution","is_error":true,"terminal_reason":"api_error","errors":["overloaded"]}`
+	c := startPeer(t, peerScript([]string{lineInitOK}, []string{lineSystemInit, failed}))
+
+	if _, err := c.Send("hi"); err != nil {
+		t.Fatal(err)
+	}
+	msgs := readUntil(t, c, isAnchorFlush)
+	if len(msgs) != 2 || !isLog(msgs[0]) {
+		t.Fatalf("messages = %+v, want a log then the anchor flush", msgs)
+	}
+}
+
+func TestRead_stderrAsLog(t *testing.T) {
+	c := startPeer(t, "read -r _; echo 'warning: something' >&2; printf '%s\\n' '"+lineInitOK+"'; cat >/dev/null")
+
+	msgs := readUntil(t, c, isLog)
+	if log, _ := msgs[len(msgs)-1].Content.(agent.Log); log.Text != "warning: something" {
+		t.Errorf("log = %q", log.Text)
+	}
+}
+
+func TestRead_selfStartedTurnSummarisedAsLog(t *testing.T) {
+	// After the handshake the peer starts a turn on its own (as a finished
+	// background task or a cron prompt would), then waits for the test prompt.
+	script := "read -r _; printf '%s\\n' '" + lineInitOK + "' '" + lineSystemInit + "' '" + lineMessageStart + "' '" +
+		lineTextStart + "' '" + textDeltaLine("tick") + "' '" + lineBlockStop + "' '" + lineResultOK + "'; cat >/dev/null"
+	c := startPeer(t, script)
+
+	msgs := readUntil(t, c, isLog)
+	if len(msgs) != 1 {
+		t.Fatalf("messages = %+v, want only the summary log", msgs)
+	}
+	if log, _ := msgs[0].Content.(agent.Log); !strings.Contains(log.Text, "tick") {
+		t.Errorf("summary = %q, want it to include the turn output", log.Text)
+	}
+	if _, err := c.Send("hi"); err != nil {
+		t.Fatalf("Send after self-started turn: %v", err)
+	}
+}
+
+func TestPermissionRequestDeniedWithoutListener(t *testing.T) {
+	canUseTool := `{"type":"control_request","request_id":"perm-1","request":{"subtype":"can_use_tool","tool_name":"Write","input":{"file_path":"/w/x"},"tool_use_id":"toolu_1"}}`
+	obs := &recordingObserver{}
+	c := startPeer(t, peerScript(
+		[]string{lineInitOK},
+		[]string{lineSystemInit, canUseTool},
+		[]string{lineResultOK},
+	), WithObserver(obs))
+
+	if _, err := c.Send("write x"); err != nil {
+		t.Fatal(err)
+	}
+	readUntil(t, c, isAnchorFlush)
+
+	var resp struct {
+		Response struct {
+			Subtype   string `json:"subtype"`
+			RequestID string `json:"request_id"`
+			Response  struct {
+				Behavior string `json:"behavior"`
+			} `json:"response"`
+		} `json:"response"`
+	}
+	sent := obs.sentLines()
+	if err := json.Unmarshal([]byte(sent[len(sent)-1]), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.Response.RequestID != "perm-1" || resp.Response.Response.Behavior != "deny" {
+		t.Errorf("permission response = %+v, want deny for perm-1", resp.Response)
+	}
+}
+
+func TestInterrupt(t *testing.T) {
+	obs := &recordingObserver{}
+	c := startPeer(t, peerScript(
+		[]string{lineInitOK},
+		[]string{lineSystemInit},
+		[]string{`{"type":"result","subtype":"error_during_execution","is_error":true,"terminal_reason":"aborted_streaming"}`},
+	), WithObserver(obs))
+
+	if err := c.Interrupt(); err != nil {
+		t.Fatalf("Interrupt while idle: %v", err)
+	}
+	if n := len(obs.sentLines()); n != 1 {
+		t.Fatalf("idle Interrupt wrote to the peer: %d lines sent", n)
+	}
+	if _, err := c.Send("count to 400"); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Interrupt(); err != nil {
+		t.Fatal(err)
+	}
+	msgs := readUntil(t, c, isAnchorFlush)
+	if !strings.Contains(obs.sentLines()[2], `"subtype":"interrupt"`) {
+		t.Errorf("interrupt request not sent: %v", obs.sentLines())
+	}
+	if len(msgs) != 2 || !isLog(msgs[0]) {
+		t.Errorf("messages = %+v, want an interrupted log then the anchor flush", msgs)
+	}
+}
+
+func TestStop_unblocksRead(t *testing.T) {
+	c := startPeer(t, peerScript([]string{lineInitOK}))
+
+	errc := make(chan error, 1)
+	go func() {
+		_, err := c.Read()
+		errc <- err
+	}()
+	if err := c.Stop(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-errc:
+		if err == nil {
+			t.Fatal("expected Read error after Stop")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Read still blocked after Stop")
+	}
+}
+
+func TestStop_escalatesWhenStdinIgnored(t *testing.T) {
+	// The peer ignores stdin EOF; Stop must fall back to signals.
+	c := startPeer(t, "read -r _; printf '%s\\n' '"+lineInitOK+"'; exec sleep 60")
+	c.stopGrace = 100 * time.Millisecond
+	start := time.Now()
+	if err := c.Stop(); err != nil {
+		t.Fatal(err)
+	}
+	if elapsed := time.Since(start); elapsed > 2*time.Second {
+		t.Errorf("Stop took %s", elapsed)
+	}
+}
+
+func TestClaudeArgs(t *testing.T) {
+	args := claudeArgs("haiku", "You are ada.")
+
+	for _, want := range [][]string{
+		{"--input-format", "stream-json"},
+		{"--permission-prompt-tool", "stdio"},
+		{"--thinking-display", "summarized"},
+		{"--model", "haiku"},
+		{"--append-system-prompt", "You are ada."},
+		{"--disallowedTools", strings.Join(disallowedTools, ",")},
+	} {
+		i := slices.Index(args, want[0])
+		if i < 0 || i+1 >= len(args) || args[i+1] != want[1] {
+			t.Errorf("args missing %v: %v", want, args)
+		}
+	}
+	if args := claudeArgs("", ""); slices.Contains(args, "--model") || slices.Contains(args, "--append-system-prompt") {
+		t.Errorf("empty options produced flags: %v", args)
+	}
+}
+
+func TestChildEnv(t *testing.T) {
+	env := childEnv([]string{"HOME=/h", "CLAUDECODE=1", "CLAUDE_CODE_SESSION_ID=x", "CLAUDE_PID=9", "CLAUDE_EFFORT=high", "CLAUDE_CONFIG_DIR=/c"})
+
+	want := append([]string{"HOME=/h", "CLAUDE_CONFIG_DIR=/c"}, addedEnv...)
+	if !slices.Equal(env, want) {
+		t.Errorf("env = %v, want %v", env, want)
+	}
+}

@@ -115,7 +115,7 @@ Stream IDs are built from Claude ids and are opaque to consumers.
 | `content_block_stop` of a text block | `Output` `ModeFlush`, same ID |
 | `thinking_delta` (needs `--thinking-display summarized`) | `Reasoning` `ModeStream` on `claude:reasoning:<message_id>:<index>`, flushed on block stop. Empty deltas (no summary) are dropped |
 | `assistant` `tool_use{name: Bash}` | `Command{Command: input.command}` `ModeStream` on `claude:command:<tool_use_id>` |
-| `user` `tool_result` for that Bash call | `CommandWithOverrideOutput(stdout + stderr)` `ModeStream`, then `Command` `ModeFlush`. **Gap:** no exit code (E5); `ExitCode` stays nil. `is_error` is the only failure signal. `Cwd` is not reported |
+| `user` `tool_result` for that Bash call | `CommandWithOverrideOutput(output)` with `ExitCode` `ModeStream`, then `Command` `ModeFlush`. `Cwd` is not reported. Exit code: see below |
 | `assistant` `tool_use{name: Write\|Edit\|NotebookEdit}` | `FileChangeSet{Status: inProgress}` `ModeStream` on `claude:filechange:<tool_use_id>` |
 | `user` `tool_result` + `tool_use_result.structuredPatch` | `FileChangeSet{Status: completed\|failed, Changes: [{Path, Diff, ChangeKind}]}` then `ModeFlush`. Write: `type: create` gives `add`; Edit gives `update`. `Diff` is rendered as unified diff text from the hunks (Write: all `+` lines). Denied: `declined` |
 | other `tool_use` (Read, Grep, Glob, WebFetch, Task, MCP tools, …) | **not mapped** in the first version, as Codex drops minor items. Option: a one-line `Log` per tool call for visibility |
@@ -123,6 +123,20 @@ Stream IDs are built from Claude ids and are opaque to consumers.
 | `result{is_error: false}` | flush open streams, then the anchor flush |
 | `result{is_error: true}` | `Log` with `errors[]` / `terminal_reason` (as `pkg-agent-codex-turn-errors.md`), then the anchor flush |
 | `system/init`, `system/status`, `rate_limit_event`, `system/thinking_tokens` | dropped (observer only) |
+
+### Bash results and exit codes
+
+Claude reports a Bash result in one of two shapes (recorded on 2.1.301):
+
+| Outcome | `is_error` | `tool_use_result` | Output | `ExitCode` |
+|---|---|---|---|---|
+| exit 0 | false | `{stdout, stderr, interrupted, ...}` | stdout and stderr joined | 0 |
+| non-zero exit Claude reads as success (`grep` with no match, `diff` with differences) | false | object plus `returnCodeInterpretation` (`"No matches found"`) | stdout and stderr, then `[<interpretation>]` | nil: the code is non-zero but not reported |
+| non-zero exit | true | a string, `"Error: Exit code N\n<stdout>\n<stderr>"` | the text after the `Exit code N` line; stdout and stderr arrive merged | N |
+| failed without an exit code (denied, blocked by settings, interrupted) or an unparsable `Exit code` line | true | a string, `"Error: <reason>"` | the text | -1 (`unknownExitCode`, as `os.ProcessState.ExitCode` for no normal exit) |
+
+The code comes from human-readable text in the `tool_result` content, not a
+protocol field. A format change falls back to -1, never to a wrong code.
 | `system/permission_denied` | dropped; the decline already shows as a `declined` item |
 | stderr line | `Log` `ModeSingle` |
 | process exit | `Read()` error |
@@ -229,8 +243,10 @@ cheap; none of these has a role in a room. Broader isolation stays with #59.
 
 ## Remaining gaps and risks
 
-1. **Bash exit code:** not available; `ExitCode` nil. Anything that renders or
-   branches on agent command exit codes shows "unknown". (Open question 4.)
+1. **Bash exit code:** parsed from the `Exit code N` text of failed results,
+   not from a structured field. Non-zero exits that Claude interprets as
+   success have no code (nil). On failure stdout and stderr arrive merged.
+   See "Bash results and exit codes".
 2. **Notice reliability:** prompt-only acknowledgement; expect more
    non-compliant notices than with Codex. They surface as reasoning, which is
    already the designed fallback.
@@ -257,7 +273,6 @@ Not part of the current step. Listed because they are needed for the phase 3
 | Generic transcript recorder | rename `cmd/codex-record` to `cmd/agent-record`; `internal/transcript` (backend-neutral `Config` and version field, existing Codex fixtures stay readable) | phase 3 replay fixtures. The actions, expectations, observer and record loop are already backend-neutral; only config, version field, client construction and a hard-coded notice anchor are Codex-specific. Replay peers stay per backend. **Decided:** `agent-record`. Discuss the concrete changes when it is needed | a test helper inside the package |
 | Question approvals (free-form options, answers in the decision) | `agent` (`ApprovalRequest`/`ApprovalDecision`), `session`, `ui` | structured `AskUserQuestion` (later, optional) | disallowed; the model asks in its reply (above) |
 | Agent-initiated turns | `agent` (a way to signal one), `session` (accept output while idle, mark the participant working) | background work and cron | prevent + defend (above) |
-| Optional exit code display | `ui` | Claude has no exit code | nil `ExitCode` |
 
 The first row is the only one the current step cannot do without. Proposal:
 implement and test the adapter in isolation, then make the `/invite` change as a

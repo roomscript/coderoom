@@ -116,7 +116,7 @@ One turn with reasoning, Bash, Write, Edit and Bash again. Fixtures: `e5-partial
 - **Reasoning:** by default, `thinking_delta` events arrive with **empty text** (only `estimated_tokens`), and the `thinking` block has only a `signature`. With the hidden flag `--thinking-display summarized` (an SDK option; values `summarized` and `omitted`), the reasoning text streams (a few hundred characters per run).
 - **Tool call:** `content_block_start/tool_use`, `input_json_delta` chunks, then an `assistant` `tool_use` block with `id`, `name` and `input`.
 - **Tool result:** a `user` message with a `tool_result` block (`tool_use_id`, `content`, `is_error`) plus a structured `tool_use_result`:
-  - Bash: `{stdout, stderr, interrupted, isImage, noOutputExpected}`. There is **no exit code**; failure shows only as `is_error`. Output keeps ANSI colour codes (`ls` colours).
+  - Bash: `{stdout, stderr, interrupted, isImage, noOutputExpected}`. Output keeps ANSI colour codes (`ls` colours). This run had no failing command. **Correction (later probe):** a failing command has `is_error: true` and `tool_use_result` is a string, `"Error: Exit code N\n<stdout>\n<stderr>"`, so the exit code is in the text. See "Bash results and exit codes" in `docs/design/pkg-agent-claude.md`.
   - Write: `{type: "create", filePath, content, structuredPatch: [], originalFile: null}`.
   - Edit: `{filePath, oldString, newString, originalFile, structuredPatch: [{oldStart, oldLines, newStart, newLines, lines: ["-hello", "+hello world"]}]}`.
 
@@ -126,7 +126,7 @@ Mapping to coderoom content types (details left for phase 2):
 |---|---|
 | `text_delta` / `assistant` text | `Output` |
 | `thinking_delta` (needs `--thinking-display summarized`) | `Reasoning` |
-| `tool_use` Bash + its `tool_result` | `Command` (no exit code available) |
+| `tool_use` Bash + its `tool_result` | `Command` (exit code parsed from failure text) |
 | `tool_use` Write/Edit + `tool_use_result.structuredPatch` | `FileChangeSet` |
 | `can_use_tool` | `ApprovalRequest` |
 | `result` | turn end / flush |
@@ -231,7 +231,7 @@ Tools that never prompt (`ListAgents`, `CronCreate`, `ToolSearch`, the plan file
 1. `AskUserQuestion` and `ExitPlanMode` as new approval kinds: how do they extend `ApprovalRequest` and `ApprovalDecision` (a decision that carries answers, or a plan to approve)?
 2. Self-started turns (background tasks, cron): coderoom's turn model expects output only after a `Send`. Options: surface them as unsolicited participant output, disable the tools (`--disallowedTools CronCreate,…`), or decide per tool. What does Codex do with background work, if anything?
 3. Reaching outside the room: `ListAgents` sees your other sessions without a prompt, and `SendMessage` is untested. Should room participants run with `--disallowedTools ListAgents,SendMessage,PushNotification,RemoteTrigger`, or is this part of the sandbox work (#59)?
-4. Bash has no exit code in tool results (only `is_error`; the background notification has it in text). Is that enough for coderoom's `Command`?
+4. Bash has no exit code in tool results (only `is_error`; the background notification has it in text). Is that enough for coderoom's `Command`? **Resolved:** failed results carry `Exit code N` in their text; see the correction under E5.
 5. Why the project allow rule did not apply (path check under `/tmp`?). Retry with a project dir outside `/tmp`.
 6. `--json-schema` is per process and not enforced, so `/decide` needs its own process and a check for a missing `structured_output`.
 7. `SendNotice` (a minimal acknowledgment, suppressed from `Read`) has no protocol equivalent. It must be a normal turn whose output is filtered, as with Codex.

@@ -1,0 +1,211 @@
+package claude
+
+import "encoding/json"
+
+// Wire types for the stream-json protocol. Only the fields the adapter uses
+// are declared. Lines are decoded in two steps: envelope first, then the
+// type-specific struct, because field shapes differ by type (for example,
+// "message" is an object on user/assistant lines and a string on
+// system/permission_denied).
+
+// Message types on stdout.
+const (
+	typeStreamEvent     = "stream_event"
+	typeAssistant       = "assistant"
+	typeUser            = "user"
+	typeSystem          = "system"
+	typeResult          = "result"
+	typeControlRequest  = "control_request"
+	typeControlResponse = "control_response"
+
+	subtypeInit = "init"
+)
+
+// Stream event types inside stream_event lines.
+const (
+	eventMessageStart      = "message_start"
+	eventContentBlockStart = "content_block_start"
+	eventContentBlockDelta = "content_block_delta"
+	eventContentBlockStop  = "content_block_stop"
+
+	blockText     = "text"
+	blockThinking = "thinking"
+	blockToolUse  = "tool_use"
+
+	deltaText     = "text_delta"
+	deltaThinking = "thinking_delta"
+)
+
+// Control request subtypes.
+const (
+	controlInitialize = "initialize"
+	controlInterrupt  = "interrupt"
+	controlCanUseTool = "can_use_tool"
+)
+
+type envelope struct {
+	Type    string `json:"type"`
+	Subtype string `json:"subtype"`
+}
+
+type streamEventLine struct {
+	Event streamEvent `json:"event"`
+}
+
+type streamEvent struct {
+	Type    string `json:"type"`
+	Index   int    `json:"index"`
+	Message struct {
+		ID string `json:"id"`
+	} `json:"message"`
+	ContentBlock struct {
+		Type string `json:"type"`
+	} `json:"content_block"`
+	Delta struct {
+		Type     string `json:"type"`
+		Text     string `json:"text"`
+		Thinking string `json:"thinking"`
+	} `json:"delta"`
+}
+
+type assistantLine struct {
+	Message struct {
+		Content []contentBlock `json:"content"`
+	} `json:"message"`
+}
+
+type contentBlock struct {
+	Type  string          `json:"type"`
+	ID    string          `json:"id"`
+	Name  string          `json:"name"`
+	Input json.RawMessage `json:"input"`
+}
+
+// userLine is either a replayed prompt (string content) or tool results
+// (array content).
+type userLine struct {
+	Message struct {
+		Content json.RawMessage `json:"content"`
+	} `json:"message"`
+	ToolUseResult json.RawMessage `json:"tool_use_result"`
+}
+
+type toolResultBlock struct {
+	Type      string          `json:"type"`
+	ToolUseID string          `json:"tool_use_id"`
+	Content   json.RawMessage `json:"content"`
+	IsError   bool            `json:"is_error"`
+}
+
+type resultLine struct {
+	Subtype        string   `json:"subtype"`
+	IsError        bool     `json:"is_error"`
+	Result         string   `json:"result"`
+	Errors         []string `json:"errors"`
+	TerminalReason string   `json:"terminal_reason"`
+}
+
+type controlRequestLine struct {
+	RequestID string          `json:"request_id"`
+	Request   json.RawMessage `json:"request"`
+}
+
+type controlResponseLine struct {
+	Response struct {
+		Subtype   string `json:"subtype"`
+		RequestID string `json:"request_id"`
+		Error     string `json:"error"`
+	} `json:"response"`
+}
+
+// Tool inputs and results the decoder maps.
+
+type bashInput struct {
+	Command string `json:"command"`
+}
+
+type fileInput struct {
+	FilePath     string `json:"file_path"`
+	NotebookPath string `json:"notebook_path"`
+}
+
+type bashResult struct {
+	Stdout                   string `json:"stdout"`
+	Stderr                   string `json:"stderr"`
+	ReturnCodeInterpretation string `json:"returnCodeInterpretation"`
+}
+
+type fileResult struct {
+	Type            string  `json:"type"`
+	FilePath        string  `json:"filePath"`
+	Content         string  `json:"content"`
+	StructuredPatch []hunk  `json:"structuredPatch"`
+	OriginalFile    *string `json:"originalFile"`
+}
+
+type hunk struct {
+	OldStart int      `json:"oldStart"`
+	OldLines int      `json:"oldLines"`
+	NewStart int      `json:"newStart"`
+	NewLines int      `json:"newLines"`
+	Lines    []string `json:"lines"`
+}
+
+// Outgoing messages on stdin.
+
+type userMessage struct {
+	Type            string          `json:"type"`
+	Message         userMessageBody `json:"message"`
+	ParentToolUseID *string         `json:"parent_tool_use_id"`
+	SessionID       string          `json:"session_id"`
+}
+
+type userMessageBody struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
+func newUserMessage(text string) userMessage {
+	return userMessage{
+		Type:      typeUser,
+		Message:   userMessageBody{Role: "user", Content: text},
+		SessionID: "default",
+	}
+}
+
+type controlRequest struct {
+	Type      string `json:"type"`
+	RequestID string `json:"request_id"`
+	Request   any    `json:"request"`
+}
+
+type controlResponse struct {
+	Type     string              `json:"type"`
+	Response controlResponseBody `json:"response"`
+}
+
+type controlResponseBody struct {
+	Subtype   string `json:"subtype"`
+	RequestID string `json:"request_id"`
+	Response  any    `json:"response,omitempty"`
+	Error     string `json:"error,omitempty"`
+}
+
+func newControlSuccess(requestID string, response any) controlResponse {
+	return controlResponse{Type: typeControlResponse, Response: controlResponseBody{
+		Subtype: "success", RequestID: requestID, Response: response,
+	}}
+}
+
+func newControlError(requestID, msg string) controlResponse {
+	return controlResponse{Type: typeControlResponse, Response: controlResponseBody{
+		Subtype: "error", RequestID: requestID, Error: msg,
+	}}
+}
+
+// permissionDeny is the can_use_tool response that refuses a tool call.
+type permissionDeny struct {
+	Behavior  string `json:"behavior"`
+	Message   string `json:"message"`
+	Interrupt bool   `json:"interrupt,omitempty"`
+}

@@ -1,0 +1,310 @@
+// Package claude implements the Agent interface for Claude Code, driving one
+// long-running claude process over the bidirectional stream-json protocol.
+// See docs/design/pkg-agent-claude.md for the full design rationale.
+package claude
+
+import (
+	"bufio"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"strings"
+	"sync"
+	"syscall"
+	"time"
+
+	"github.com/roomscript/coderoom/internal/agent"
+)
+
+const (
+	// turnStreamID is the anchor returned by Send and flushed on result.
+	turnStreamID = agent.StreamID("claude:turn")
+	logStreamID  = agent.StreamID("claude:log")
+
+	initRequestID = "coderoom-init"
+
+	defaultStartTimeout = 60 * time.Second
+	stopGracePeriod     = 5 * time.Second
+	stderrTailLines     = 20
+)
+
+type turnKind int
+
+const (
+	turnIdle   turnKind = iota
+	turnPrompt          // started by Send
+	turnSelf            // started by Claude with no user message
+)
+
+// Client implements agent.Agent for Claude Code. Calls must not be made
+// concurrently, except Stop() which may be called from another goroutine to
+// interrupt a blocked Read().
+type Client struct {
+	proc *process
+	obs  ProtocolObserver
+
+	startTimeout time.Duration
+	stopGrace    time.Duration
+	queue        *messageQueue
+	dec          *decoder // stdout reader goroutine only
+
+	writeMu sync.Mutex
+	reqSeq  int // guarded by writeMu
+
+	turn struct {
+		mu   sync.Mutex
+		kind turnKind
+	}
+
+	// selfTurnText collects the output of a self-started turn for its
+	// summary. Stdout reader goroutine only.
+	selfTurnText strings.Builder
+
+	stderrTail struct {
+		mu    sync.Mutex
+		lines []string
+	}
+
+	initDone chan error
+	exited   chan struct{}
+
+	lifecycle struct {
+		ctx      context.Context
+		cancelFn context.CancelFunc
+		readers  sync.WaitGroup
+		stopOnce sync.Once
+	}
+}
+
+// Option configures a Client at construction time.
+type Option func(*Client)
+
+// WithObserver attaches a ProtocolObserver that receives every raw JSON line.
+func WithObserver(obs ProtocolObserver) Option {
+	return func(c *Client) { c.obs = obs }
+}
+
+// WithContext sets the parent context for the client's worker lifecycle.
+func WithContext(ctx context.Context) Option {
+	return func(c *Client) {
+		c.lifecycle.ctx, c.lifecycle.cancelFn = context.WithCancel(ctx) //nolint:gosec // cancel stored in cancelFn, called in Stop()
+	}
+}
+
+// WithModel sets the model passed to --model. If not set, Claude Code uses
+// its configured default.
+func WithModel(model string) Option {
+	return func(c *Client) { c.proc.model = model }
+}
+
+// WithSystemPrompt appends participant instructions to Claude Code's own
+// system prompt (--append-system-prompt).
+func WithSystemPrompt(prompt string) Option {
+	return func(c *Client) { c.proc.systemPrompt = prompt }
+}
+
+// WithCommand overrides the subprocess command, ignoring the generated claude
+// arguments. Used to run fake peers in tests.
+func WithCommand(name string, args ...string) Option {
+	return func(c *Client) { c.proc.command = append([]string{name}, args...) }
+}
+
+// New returns a Client that will run Claude Code in the given working
+// directory.
+func New(cwd string, opts ...Option) *Client {
+	c := &Client{proc: newProc(cwd), obs: noopObserver{}, startTimeout: defaultStartTimeout, stopGrace: stopGracePeriod}
+	for _, o := range opts {
+		o(c)
+	}
+	if c.lifecycle.ctx == nil {
+		c.lifecycle.ctx, c.lifecycle.cancelFn = context.WithCancel(context.Background()) // #nosec G118 -- cancel called in Stop()
+	}
+	return c
+}
+
+// Start launches the process and completes the initialize handshake.
+func (c *Client) Start() error {
+	if err := c.proc.start(); err != nil {
+		return err
+	}
+	c.queue = newMessageQueue()
+	c.dec = newDecoder()
+	c.initDone = make(chan error, 1)
+	c.exited = make(chan struct{})
+	c.startWorkers()
+
+	if err := c.initialize(); err != nil {
+		_ = c.Stop()
+		return c.withStderrTail(fmt.Errorf("claude initialize: %w", err))
+	}
+	return nil
+}
+
+func (c *Client) initialize() error {
+	err := c.writeJSON(controlRequest{
+		Type:      typeControlRequest,
+		RequestID: initRequestID,
+		Request:   map[string]any{"subtype": controlInitialize, "hooks": nil},
+	})
+	if err != nil {
+		return err
+	}
+	timer := time.NewTimer(c.startTimeout)
+	defer timer.Stop()
+	select {
+	case err := <-c.initDone:
+		return err
+	case <-c.exited:
+		return errors.New("process exited during handshake")
+	case <-timer.C:
+		return fmt.Errorf("no initialize response after %s", c.startTimeout)
+	}
+}
+
+// Send writes a prompt and returns the turn anchor immediately.
+func (c *Client) Send(prompt string) (agent.StreamID, error) {
+	if err := c.beginTurn(turnPrompt); err != nil {
+		return "", err
+	}
+	if err := c.writeJSON(newUserMessage(prompt)); err != nil {
+		c.setTurn(turnIdle)
+		return "", err
+	}
+	return turnStreamID, nil
+}
+
+// SendNotice is not supported yet.
+func (c *Client) SendNotice(string) (agent.StreamID, error) {
+	return "", errors.New("claude: SendNotice not implemented")
+}
+
+// Read blocks until the next message. It returns an error once the process
+// has exited and all queued messages have been read.
+func (c *Client) Read() (agent.Message, error) {
+	if c.queue == nil {
+		return agent.Message{}, errors.New("claude: client not started")
+	}
+	msg, ok := c.queue.pop()
+	if !ok {
+		return agent.Message{}, errors.New("claude: process exited")
+	}
+	return msg, nil
+}
+
+// Interrupt asks Claude to stop the turn in flight. The turn then ends with a
+// result like any other. It is a no-op when no turn is in flight.
+func (c *Client) Interrupt() error {
+	if c.queue == nil || c.currentTurn() == turnIdle {
+		return nil
+	}
+	return c.writeJSON(controlRequest{
+		Type:      typeControlRequest,
+		RequestID: c.nextRequestID("interrupt"),
+		Request:   map[string]any{"subtype": controlInterrupt},
+	})
+}
+
+// Stop closes stdin and waits for the process to exit, escalating to SIGTERM
+// and then SIGKILL if it does not. May be called from a different goroutine
+// to interrupt a blocked Read().
+func (c *Client) Stop() error {
+	if c.proc.cmd == nil {
+		return nil
+	}
+	c.lifecycle.stopOnce.Do(func() {
+		c.lifecycle.cancelFn()
+		_ = c.proc.stdin.Close()
+		if c.waitExited(c.stopGrace) {
+			return
+		}
+		_ = c.proc.cmd.Process.Signal(syscall.SIGTERM)
+		if c.waitExited(c.stopGrace) {
+			return
+		}
+		_ = c.proc.cmd.Process.Kill()
+		<-c.exited
+	})
+	return nil
+}
+
+func (c *Client) waitExited(d time.Duration) bool {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-c.exited:
+		return true
+	case <-timer.C:
+		return false
+	}
+}
+
+func (c *Client) beginTurn(kind turnKind) error {
+	if c.queue == nil {
+		return errors.New("claude: client not started")
+	}
+	c.turn.mu.Lock()
+	defer c.turn.mu.Unlock()
+	if c.turn.kind != turnIdle {
+		return agent.ErrTurnInProgress
+	}
+	c.turn.kind = kind
+	return nil
+}
+
+func (c *Client) setTurn(kind turnKind) {
+	c.turn.mu.Lock()
+	c.turn.kind = kind
+	c.turn.mu.Unlock()
+}
+
+func (c *Client) currentTurn() turnKind {
+	c.turn.mu.Lock()
+	defer c.turn.mu.Unlock()
+	return c.turn.kind
+}
+
+// swapTurn sets the turn kind and returns the previous one.
+func (c *Client) swapTurn(kind turnKind) turnKind {
+	c.turn.mu.Lock()
+	defer c.turn.mu.Unlock()
+	prev := c.turn.kind
+	c.turn.kind = kind
+	return prev
+}
+
+func (c *Client) writeJSON(v any) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return fmt.Errorf("claude encode: %w", err)
+	}
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
+	c.obs.OnSend(string(b))
+	if _, err := c.proc.stdin.Write(append(b, '\n')); err != nil {
+		return fmt.Errorf("claude write: %w", err)
+	}
+	return nil
+}
+
+func (c *Client) nextRequestID(prefix string) string {
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
+	c.reqSeq++
+	return fmt.Sprintf("coderoom-%s-%d", prefix, c.reqSeq)
+}
+
+func (c *Client) withStderrTail(err error) error {
+	c.stderrTail.mu.Lock()
+	defer c.stderrTail.mu.Unlock()
+	if len(c.stderrTail.lines) == 0 {
+		return err
+	}
+	return fmt.Errorf("%w; stderr: %s", err, strings.Join(c.stderrTail.lines, "\n"))
+}
+
+func newScanner(r interface{ Read([]byte) (int, error) }) *bufio.Scanner {
+	sc := bufio.NewScanner(r)
+	sc.Buffer(make([]byte, 0, 64*1024), 64<<20)
+	return sc
+}

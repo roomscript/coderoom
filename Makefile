@@ -26,9 +26,19 @@ test:
 test-race:
 	CGO_ENABLED=1 go test -race ./...
 
+INTEGRATION_TEST := go test -tags integration -p 1 -v -count=1 -timeout=$(INTEGRATION_TEST_TIMEOUT)
+
 .PHONY: test-integration
 test-integration:
-	go test -tags integration -p 1 -v -count=1 -timeout=$(INTEGRATION_TEST_TIMEOUT) ./...
+	$(INTEGRATION_TEST) ./...
+
+.PHONY: test-integration-codex
+test-integration-codex:
+	$(INTEGRATION_TEST) ./internal/agent/codex/...
+
+.PHONY: test-integration-claude
+test-integration-claude:
+	$(INTEGRATION_TEST) ./internal/agent/claude/...
 
 .PHONY: test-all
 test-all: lint test-race test-integration
