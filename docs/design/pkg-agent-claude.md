@@ -83,7 +83,7 @@ ListAgents,SendMessage,PushNotification,RemoteTrigger
 |---|---|---|
 | `Start()` | fits | spawn; send `control_request{subtype: initialize}`; block until the matching `control_response` (under 3 s in E1). Unlike Codex, there is no thread to create: the session id appears only with the first turn's `system/init` |
 | `Send(prompt)` | fits | write `{"type":"user","message":{"role":"user","content":prompt},…}`; return the turn anchor (below). `ErrTurnInProgress` while a turn is in flight, as codex |
-| `SendNotice(prompt)` | fits with a weaker guarantee | same prompt wrapper and `{` heuristic as codex. **Gap:** Codex also sends a per-turn output schema; Claude's `--json-schema` is per process and not enforced (E7), so the instruction is prompt-only. Acknowledgement filtering logic can be the same |
+| `SendNotice(prompt)` | fits with a weaker guarantee | same prompt prefix and `{` heuristic as codex: reply text starting with `{` is held until the turn ends and dropped if it is a JSON object with `"acknowledge": true`; any other reply is relayed as `Reasoning` on `claude:notice-relay`. Thinking is dropped; tool calls, approvals and logs pass through, as with Codex delivery notices. **Gap:** Codex also sends a per-turn output schema; Claude's `--json-schema` is per process and not enforced (E7), so the instruction is prompt-only. Haiku complied in the live test |
 | `Read()` | fits | translate stdout lines (mapping below); stderr lines as `Log`; error only when the process exits. Lines have no length limit (one line can carry a whole file); a read error is logged and the process killed, so `Read()` returns an error instead of hanging |
 | `Interrupt()` | fits | `control_request{subtype: interrupt}`. The turn then ends with `result{subtype: error_during_execution, terminal_reason: aborted_streaming}`, or `aborted_tools` when interrupted during an approval; the adapter treats it as a normal turn end (Log + anchor flush), not a `Read()` error. No-op when idle |
 | `Stop()` | fits | close stdin (exits in about 1 s, E8); after a grace period SIGTERM, then kill; always reap. After the kill, our pipe ends are closed too, so a child that inherited them (a wrapper, an MCP server) cannot keep `Stop()` waiting |
@@ -99,7 +99,7 @@ The adapter owns the turn boundary: every turn ends with exactly one `result`.
 - `SendNotice` returns `claude:notice-turn`, flushed the same way, as codex.
 - The replayed user message (`isReplay`, about 1 s after the write) decides
   whose turn it is: a turn is ours once Claude replays the exact prompt `Send`
-  wrote. Recordings show the order `system/init`, replay, first output in
+  or `SendNotice` wrote. Recordings show the order `system/init`, replay, first output in
   every turn, so output before the replay belongs to a turn Claude started on
   its own (see [Self-started turns](#self-started-turns)). A turn that ends
   before any replay or output is ours only if it failed while our prompt was
@@ -284,10 +284,10 @@ cheap; none of these has a role in a room. Broader isolation stays with #59.
 2. **Notice reliability:** prompt-only acknowledgement; expect more
    non-compliant notices than with Codex. They surface as reasoning, which is
    already the designed fallback.
-3. **Tools during notices:** Codex auto-declines approvals during notice turns
-   and treats tool items as violations. The same applies here, but read-only
-   tools (Read, Grep, `ls`) never prompt, so they cannot be blocked per turn;
-   the adapter can only suppress and report them.
+3. **Tools during notices:** as in Codex delivery notices, tool calls and
+   approvals during a notice turn pass through to `Read()` and the approval
+   listener. (Codex treats tools as violations only in keepalive turns, which
+   this adapter does not have.)
 4. **Version drift:** Claude Code auto-updates (2.1.300 → 2.1.301 overnight).
    Record the version in transcripts; replay tests catch shape changes.
 5. **Permission behaviour differs:** read-only commands auto-approve; path

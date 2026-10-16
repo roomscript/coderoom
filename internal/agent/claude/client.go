@@ -66,10 +66,17 @@ type Client struct {
 	turn struct {
 		mu    sync.Mutex
 		owner turnOwner
-		// prompt is the prompt Send wrote, until Claude replays it.
+		// prompt is the prompt Send or SendNotice wrote, until Claude
+		// replays it.
 		prompt        string
 		promptPending bool
+		pendingNotice bool // the pending prompt is a notice
+		notice        bool // the running turn answers a notice
 	}
+
+	// notice filters the reply of a notice turn. Stdout reader goroutine
+	// only.
+	notice noticeFilter
 
 	// selfTurnText collects the output of a self-started turn for its
 	// summary. Stdout reader goroutine only.
@@ -189,19 +196,31 @@ func (c *Client) initialize() error {
 
 // Send writes a prompt and returns the turn anchor immediately.
 func (c *Client) Send(prompt string) (agent.StreamID, error) {
-	if err := c.admitPrompt(prompt); err != nil {
-		return "", err
-	}
-	if err := c.writeJSON(newUserMessage(prompt)); err != nil {
-		c.dropPrompt()
+	if err := c.writePrompt(prompt, false); err != nil {
 		return "", err
 	}
 	return turnStreamID, nil
 }
 
-// SendNotice is not supported yet.
-func (c *Client) SendNotice(string) (agent.StreamID, error) {
-	return "", errors.New("claude: SendNotice not implemented")
+// SendNotice delivers context and asks for a bare acknowledgement, which is
+// kept out of Read(). A reply that is not one surfaces as reasoning. The
+// instruction is prompt-only: Claude has no per-turn output schema.
+func (c *Client) SendNotice(prompt string) (agent.StreamID, error) {
+	if err := c.writePrompt(noticeContextPrefix+prompt, true); err != nil {
+		return "", err
+	}
+	return noticeTurnStreamID, nil
+}
+
+func (c *Client) writePrompt(prompt string, notice bool) error {
+	if err := c.admitPrompt(prompt, notice); err != nil {
+		return err
+	}
+	if err := c.writeJSON(newUserMessage(prompt)); err != nil {
+		c.dropPrompt()
+		return err
+	}
+	return nil
 }
 
 // Read blocks until the next message. It returns an error once the process
@@ -270,9 +289,9 @@ func (c *Client) waitExited(d time.Duration) bool {
 	}
 }
 
-// admitPrompt records the prompt Send is about to write. Only one prompt
+// admitPrompt records the prompt about to be written. Only one prompt
 // can be waiting or running, and none while Claude runs a turn of its own.
-func (c *Client) admitPrompt(prompt string) error {
+func (c *Client) admitPrompt(prompt string, notice bool) error {
 	if c.queue == nil {
 		return errors.New("claude: client not started")
 	}
@@ -281,7 +300,7 @@ func (c *Client) admitPrompt(prompt string) error {
 	if c.turn.owner != ownerNone || c.turn.promptPending {
 		return agent.ErrTurnInProgress
 	}
-	c.turn.prompt, c.turn.promptPending = prompt, true
+	c.turn.prompt, c.turn.promptPending, c.turn.pendingNotice = prompt, true, notice
 	return nil
 }
 

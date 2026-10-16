@@ -161,38 +161,50 @@ func (c *Client) notePromptReplayed(text string) {
 	c.turn.mu.Lock()
 	defer c.turn.mu.Unlock()
 	if c.turn.owner == ownerUnknown && c.turn.promptPending && text == c.turn.prompt {
-		c.turn.owner = ownerPrompt
-		c.turn.prompt, c.turn.promptPending = "", false
+		c.claimPromptLocked()
 	}
 }
 
-// deliver queues messages for Read(), except during a self-started turn,
-// whose output is summarised at its end instead: the session drops stream
-// fragments for idle participants. Output before our prompt is replayed
-// means Claude started the turn on its own.
+// claimPromptLocked makes the running turn the answer to the pending
+// prompt. c.turn.mu must be held.
+func (c *Client) claimPromptLocked() {
+	c.turn.owner = ownerPrompt
+	c.turn.notice = c.turn.pendingNotice
+	c.turn.prompt, c.turn.promptPending, c.turn.pendingNotice = "", false, false
+	c.notice.reset()
+}
+
+// deliver queues messages for Read(). A notice turn's reply goes through
+// the notice filter. A self-started turn's output is summarised at its end
+// instead: the session drops stream fragments for idle participants. Output
+// before our prompt is replayed means Claude started the turn on its own.
 func (c *Client) deliver(msgs []agent.Message) {
 	if len(msgs) == 0 {
 		return
 	}
-	if c.claimOutput() != ownerSelf {
-		c.queue.push(msgs...)
-		return
-	}
-	for _, m := range msgs {
-		if out, ok := m.Content.(agent.Output); ok {
-			c.selfTurnText.WriteString(out.Text)
+	owner, notice := c.claimOutput()
+	switch {
+	case owner == ownerSelf:
+		for _, m := range msgs {
+			if out, ok := m.Content.(agent.Output); ok {
+				c.selfTurnText.WriteString(out.Text)
+			}
 		}
+	case notice:
+		c.queue.push(c.notice.filter(msgs)...)
+	default:
+		c.queue.push(msgs...)
 	}
 }
 
-func (c *Client) claimOutput() turnOwner {
+func (c *Client) claimOutput() (turnOwner, bool) {
 	c.turn.mu.Lock()
 	defer c.turn.mu.Unlock()
 	if c.turn.owner == ownerUnknown {
 		c.turn.owner = ownerSelf
 		c.selfTurnText.Reset()
 	}
-	return c.turn.owner
+	return c.turn.owner, c.turn.owner == ownerPrompt && c.turn.notice
 }
 
 // endTurn closes the turn and withdraws its pending approvals. The turn is
@@ -200,12 +212,18 @@ func (c *Client) claimOutput() turnOwner {
 // reaction to the flush is accepted.
 func (c *Client) endTurn(result resultLine) {
 	c.endApprovalTurn()
-	switch c.closeTurn(result) {
+	owner, notice := c.closeTurn(result)
+	switch owner {
 	case ownerPrompt:
+		anchor := turnStreamID
+		if notice {
+			anchor = noticeTurnStreamID
+			c.queue.push(c.notice.finish()...)
+		}
 		if result.IsError {
 			c.queue.push(logMessage(describeTurnError(result)))
 		}
-		c.queue.push(agent.Message{StreamID: turnStreamID, Mode: agent.ModeFlush, Content: agent.Output{}})
+		c.queue.push(agent.Message{StreamID: anchor, Mode: agent.ModeFlush, Content: agent.Output{}})
 	case ownerSelf:
 		c.queue.push(logMessage(describeSelfTurn(c.selfTurnText.String(), result)))
 	case ownerNone, ownerUnknown:
@@ -217,20 +235,20 @@ func (c *Client) endTurn(result resultLine) {
 // any replay or output is ours only if it failed while our prompt was
 // pending: Claude replays a prompt before answering it, so a failure is the
 // only way our turn ends without one.
-func (c *Client) closeTurn(result resultLine) turnOwner {
+func (c *Client) closeTurn(result resultLine) (owner turnOwner, notice bool) {
 	c.turn.mu.Lock()
 	defer c.turn.mu.Unlock()
-	owner := c.turn.owner
-	c.turn.owner = ownerNone
-	if owner != ownerUnknown {
-		return owner
+	if c.turn.owner == ownerUnknown {
+		if c.turn.promptPending && result.IsError {
+			c.claimPromptLocked()
+		} else {
+			c.turn.owner = ownerSelf
+			c.selfTurnText.Reset()
+		}
 	}
-	if c.turn.promptPending && result.IsError {
-		c.turn.prompt, c.turn.promptPending = "", false
-		return ownerPrompt
-	}
-	c.selfTurnText.Reset()
-	return ownerSelf
+	owner, notice = c.turn.owner, c.turn.notice
+	c.turn.owner, c.turn.notice = ownerNone, false
+	return owner, notice
 }
 
 func describeTurnError(r resultLine) string {

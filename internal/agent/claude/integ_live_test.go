@@ -187,6 +187,34 @@ func TestClientLiveInterruptPendingApproval(t *testing.T) {
 	readTurn(t, c, send(t, c, `Reply "hi" only.`))
 }
 
+// TestClientLiveNotice checks that a notice reaches the model's context and
+// that its acknowledgement stays out of Read(). The instruction is
+// prompt-only, so a non-compliant reply is tolerated as reasoning and logged.
+func TestClientLiveNotice(t *testing.T) {
+	c, _, _ := startLiveClient(t)
+	anchor, err := c.SendNotice("The deploy code word for this room is PELICAN.")
+	if err != nil {
+		t.Fatalf("SendNotice: %v", err)
+	}
+	res := readTurn(t, c, anchor)
+	for id, m := range res.streams {
+		switch content := m.Content.(type) {
+		case agent.Output:
+			t.Errorf("notice reply delivered as output on %s: %q", id, content.Text)
+		case agent.Reasoning:
+			t.Logf("non-compliant notice reply relayed as reasoning: %q", content.Text)
+		}
+	}
+
+	reply, err := agent.SendAndWait(c, "What is the deploy code word for this room? Reply with the word only.")
+	if err != nil {
+		t.Fatalf("SendAndWait: %v", err)
+	}
+	if !strings.Contains(reply, "PELICAN") {
+		t.Errorf("reply = %q, want the code word from the notice", reply)
+	}
+}
+
 func send(t *testing.T, c interface {
 	Send(string) (agent.StreamID, error)
 }, prompt string,
