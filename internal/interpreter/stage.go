@@ -96,11 +96,15 @@ func (i *Interpreter) finishStage(id uint64, result runtime.CommandResult) (runt
 		}
 	}
 	var unavailable *runtime.RequiredParticipantUnavailableError
-	if !errors.As(result.Err, &unavailable) {
+	if !errors.As(result.Err, &unavailable) && !errors.Is(result.Err, runtime.ErrNoActiveTargets) {
 		return result, nil
 	}
 	views, _ := i.invocations[id].lifecycle.Readiness()
-	message, reason := unavailableStageMessages(unavailable.Alias, views)
+	var alias participant.Alias
+	if unavailable != nil {
+		alias = unavailable.Alias
+	}
+	message, reason := unavailableStageMessages(alias, views)
 	i.fallback.AppendRecord(room.Record{Kind: room.KindSystem, Text: message})
 	// Departure discards already-accepted waiting work; it is not a second
 	// submission failure or an execution failure after actual delivery.

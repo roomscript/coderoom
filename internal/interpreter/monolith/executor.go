@@ -68,9 +68,8 @@ type interpreterExecutor struct {
 	shutdownCompletions []operation
 	completionsClosed   bool
 
-	commandFeed        commandEventFeed
-	nativeSends        map[participant.Alias]*commandSession // protected by enqueueMu
-	nativeDeliveries   []nativeSendOperation                 // protected by enqueueMu
+	legacySends        map[participant.Alias]*legacyCommandSession // protected by enqueueMu
+	nativeDeliveries   []nativeDeliveryOperation                   // protected by enqueueMu
 	sessionDown        bool
 	nextInvocationID   uint64
 	pendingInvocations map[uint64]submissionOutcome
@@ -190,7 +189,6 @@ func (drainSessionEventsOperation) apply(e *interpreterExecutor) {
 }
 
 func (e *interpreterExecutor) recordSessionEvent(event session.Event) {
-	e.commandFeed.deliver(event)
 	if e.inbox.Record(event) {
 		e.enqueue(drainSessionEventsOperation{})
 	}

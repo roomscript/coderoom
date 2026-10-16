@@ -124,19 +124,27 @@ The public interpreter now delegates to `internal/interpreter/monolith` during
 command migration. The monolith remains the single execution, transcript,
 publication and shutdown owner. Shared `internal/interpreter/api` contracts keep
 front-end methods, events and snapshots stable; `runtime` and `std` remain command
-contracts and modules. The new interpreter selects `/who`, `/shell` and addressed sends and owns
+contracts and modules. The new interpreter selects `/who`, `/shell`, addressed sends and broadcasts and owns
 preparation, lifecycle identity/state, readiness, completion acceptance and cleanup.
 It uses the monolith's `Schedule` to run its own algorithm on the shared lane,
 then calls `AdmitCommand` and `CommandSubmission` publication methods explicitly.
 The new interpreter also selects accepted-input routing and submission versus
 operation failure events. The monolith publishes those supplied outcomes in causal
 order without send-specific acknowledgement policy.
-The monolith supplies capabilities and canonical publication; it stores no
+Command invocations compose `runtime.Delivery` for subscription, launch, single
+terminal-event acceptance and cleanup. Commands retain construction, departure
+policy, validation and formatting. `SessionExecution.Subscribe` observes only its
+invocation; `Execute` accepts the actual opaque Session command. The stream emits
+DeliveryCompleted with actual routing or ExecutionFailed without invented routing.
+No routing template or alias correlation is required. The monolith supplies
+capabilities and canonical publication; it stores no
 migrated lifecycle and receives no command-orchestration callback.
 Other commands use fallback; `SubmitCommand` remains a legacy compatibility bridge.
 
-Native sends remain serialized, with routing scoped to the owning submission
-and one admitted modular send per primary. Queued completion work lets the new
+Native sends remain serialized, with terminal events scoped to the owning
+invocation. Session owns participant availability; only the private SubmitCommand
+compatibility wrapper retains queued-send early rejection for the same primary.
+Queued completion work lets the new
 interpreter settle its lifecycle during the delivery burst. The monolith publishes
 accepted input records before causal Session events, then terminal outcomes.
 After admitted execution and queued results drain, a shutdown hook lets the new
@@ -152,7 +160,7 @@ falls back to its existing stage operations when the new interpreter has none.
 Successful cancellation does not imply readiness, and retries target only failed
 aliases. Public addressed sends now use this path. Direct sends report their submission
 outcome after delivery and dispatch publication; waiting sends acknowledge on
-retention and report later failures separately. Broadcast, handoff and loops
+retention and report later failures separately. Handoff and loops
 remain fallback, with unchanged loop delivery behavior.
 
 This arrangement is temporary. New invocation lifecycle and staging
@@ -161,7 +169,10 @@ The monolith exposes narrow admission, subscription, publication and lifetime
 capabilities while retaining unchanged legacy workflows as fallback. Migration
 should progressively transfer ownership to the new interpreter so the monolith
 and its compatibility bridge can be deprecated and removed, rather than becoming
-the permanent owner of modular commands.
+the permanent owner of modular commands. Once fallback workflows and legacy
+`SubmitCommand` callers are gone, transfer execution/publication capability
+implementations to the new interpreter and remove the bridge and monolith
+(checkpoint 9). Runtime mechanics remain driven by the interpreter throughout.
 
 See [`pkg-interpreter.md`](pkg-interpreter.md).
 

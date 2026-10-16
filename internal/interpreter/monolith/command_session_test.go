@@ -90,7 +90,7 @@ func TestNativeSendBridge_shutdownDrainsAdmittedDelivery(t *testing.T) {
 	if len(records) != 1 || records[0].Text != "@ada work" || !slices.Equal(records[0].Routing, []string{"ada"}) {
 		t.Fatalf("shutdown lost admitted delivery: %#v", records)
 	}
-	if len(interp.executor.commandSessions) != 0 || len(interp.executor.nativeSends) != 0 || len(interp.executor.commandFeed.subscribers) != 0 {
+	if len(interp.executor.commandSessions) != 0 || len(interp.executor.legacySends) != 0 {
 		t.Fatal("shutdown retained send ownership or subscriptions")
 	}
 }

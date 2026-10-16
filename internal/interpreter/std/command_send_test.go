@@ -20,9 +20,10 @@ import (
 	"github.com/roomscript/coderoom/internal/session"
 )
 
-// The fake delivers one shared session feed to all active subscriptions. Events
-// are queued until the host drains them, including events emitted by Execute.
+// Participant facts and invocation-scoped terminal events are queued separately.
 type sendDelivery struct {
+	terminal           func(runtime.ExecutionEvent)
+	deliveries         []func()
 	notices            bool
 	planner            *session.Session
 	plans              []session.ParticipantSendPlan
@@ -85,7 +86,7 @@ func initializeSendPlanner(t *testing.T, d *sendDelivery) {
 	}
 }
 
-func (d *sendDelivery) Subscribe(handler func(session.Event)) func() {
+func (d *sendDelivery) subscribeParticipants(handler func(session.Event)) func() {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.order = append(d.order, "subscribe")
@@ -114,17 +115,17 @@ func (d *sendDelivery) Participants() []participant.View {
 }
 
 func (d *sendDelivery) SubscribeParticipants(handle func(session.Event)) ([]participant.View, func()) {
-	unsubscribe := d.Subscribe(handle)
+	unsubscribe := d.subscribeParticipants(handle)
 	return d.Participants(), unsubscribe
 }
 
-func (d *sendDelivery) Execute(command session.Command) error {
-	request := command.(session.SendToParticipantCommand)
+func (d *sendDelivery) Execute(native session.Command) error {
+	command := native.(session.SendToParticipantCommand)
 	d.mu.Lock()
-	d.command = request
+	d.command = command
 	d.order = append(d.order, "execute")
 	d.launches++
-	d.message, d.notice = request.Message, request.Notice
+	d.message, d.notice = command.Message, command.Notice
 	during, err := d.duringExecute, d.err
 	d.mu.Unlock()
 	if during != nil {
@@ -152,10 +153,22 @@ func (d *sendDelivery) emit(outcome sendOutcome) {
 			result.Recipients = append(result.Recipients, session.RecipientResult{Alias: d.frozenAlias(alias), Role: role, Status: group.status})
 		}
 	}
-	d.queue = append(d.queue, session.RoutingCompleted{Result: result})
+	handle := d.terminal
+	if handle != nil {
+		d.deliveries = append(d.deliveries, func() { handle(runtime.DeliveryCompleted{Result: result}) })
+	}
 }
 
 func (d *sendDelivery) deliverEvents() {
+	defer func() {
+		d.mu.Lock()
+		deliveries := d.deliveries
+		d.deliveries = nil
+		d.mu.Unlock()
+		for _, deliver := range deliveries {
+			deliver()
+		}
+	}()
 	for {
 		event, handlers := d.takeEvent()
 		if event == nil {
@@ -412,7 +425,7 @@ func TestSendCommand_LaunchFailure(t *testing.T) {
 	}
 }
 
-func TestSendCommand_ContinuationIsRegisteredBeforeExecute(t *testing.T) {
+func TestSendCommand_TerminalEventIsRetainedUntilDrained(t *testing.T) {
 	delivery := &sendDelivery{duringExecute: &sendOutcome{Delivered: []string{"ada"}}}
 	invocation := prepareSendInvocation(t, delivery, "@ada work")
 	completions := 0
@@ -420,7 +433,7 @@ func TestSendCommand_ContinuationIsRegisteredBeforeExecute(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !slices.Equal(delivery.order, []string{"subscribe", "execute"}) || completions != 0 {
-		t.Fatal("continuation was not registered before admission, or ran inline")
+		t.Fatal("completion was not retained for its owner")
 	}
 	delivery.drain()
 	if completions != 1 || len(delivery.handlers) != 0 {
@@ -430,40 +443,6 @@ func TestSendCommand_ContinuationIsRegisteredBeforeExecute(t *testing.T) {
 	delivery.drain()
 	if completions != 1 {
 		t.Fatal("duplicate event completed invocation twice")
-	}
-}
-
-func TestSendCommand_ContinuationUsesSharedFeed(t *testing.T) {
-	delivery := &sendDelivery{}
-	a := prepareSendInvocation(t, delivery, "@ada first")
-	b := prepareSendInvocation(t, delivery, "@tim second")
-	defer a.Close()
-	defer b.Close()
-	counts := [2]int{}
-	if err := a.Go(func(runtime.CommandResult) { counts[0]++ }); err != nil {
-		t.Fatal(err)
-	}
-	if err := b.Go(func(runtime.CommandResult) { counts[1]++ }); err != nil {
-		t.Fatal(err)
-	}
-	delivery.queue = append(delivery.queue, session.AgentReady{Alias: delivery.frozenAlias("ada")},
-		session.RoutingCompleted{Result: session.RoutingResult{Kind: session.RoutingBroadcast}})
-	delivery.drain()
-	if counts != [2]int{} {
-		t.Fatal("unrelated events completed an invocation")
-	}
-	delivery.emit(sendOutcome{Delivered: []string{"tim", "ada"}})
-	delivery.drain()
-	if counts != [2]int{0, 1} || len(delivery.handlers) != 1 {
-		t.Fatal("routing completed the wrong primary or released the wrong subscription")
-	}
-	delivery.queue = append(delivery.queue, session.RoutingCompleted{Result: session.RoutingResult{
-		Kind:       session.RoutingParticipantSend,
-		Recipients: []session.RecipientResult{{Alias: delivery.frozenAlias("ada"), Role: session.RecipientPrimary, Status: session.DeliveryDelivered}},
-	}})
-	delivery.drain()
-	if counts != [2]int{1, 1} || len(delivery.handlers) != 0 {
-		t.Fatal("remaining primary did not complete once and release its subscription")
 	}
 }
 
@@ -494,7 +473,7 @@ func otherPrimaryRoutingCases() []otherPrimaryRoutingCase {
 	}
 }
 
-func TestSendCommand_IgnoresOtherPrimaryRouting(t *testing.T) {
+func TestSendCommand_InvalidTerminalRoutingFails(t *testing.T) {
 	for _, tt := range otherPrimaryRoutingCases() {
 		t.Run(tt.name, func(t *testing.T) {
 			delivery := &sendDelivery{}
@@ -506,24 +485,16 @@ func TestSendCommand_IgnoresOtherPrimaryRouting(t *testing.T) {
 			}); err != nil {
 				t.Fatal(err)
 			}
-			delivery.queue = append(delivery.queue, session.RoutingCompleted{Result: session.RoutingResult{
-				Kind: session.RoutingParticipantSend, Recipients: tt.recipients(delivery),
-			}})
-			delivery.drain()
-			if len(completions) != 0 || len(delivery.handlers) == 0 {
-				t.Fatal("another primary's routing result completed or closed our invocation")
+			delivery.complete(session.RoutingResult{Kind: session.RoutingParticipantSend, Recipients: tt.recipients(delivery)}, nil)
+			if len(completions) != 1 || !errors.Is(completions[0].Err, runtime.ErrInvalidDeliveryOutcome) || len(completions[0].Records) != 0 {
+				t.Fatalf("invalid terminal outcome = %#v", completions)
 			}
-			delivery.queue = append(delivery.queue, session.RoutingCompleted{Result: session.RoutingResult{
-				Kind: session.RoutingParticipantSend,
-				Recipients: []session.RecipientResult{
-					{Alias: delivery.frozenAlias("ada"), Role: session.RecipientPrimary, Status: session.DeliveryDelivered},
-				},
-			}})
+			delivery.emit(sendOutcome{Delivered: []string{"ada"}})
 			delivery.drain()
-			if len(completions) != 1 || len(delivery.handlers) != 0 {
-				t.Fatal("our primary's routing result did not complete and release the invocation")
+			if len(completions) != 1 {
+				t.Fatal("invalid outcome left invocation waiting for another result")
 			}
-			assertSendResult(t, completions[0], sendOutcome{Delivered: []string{"ada"}}, "@ada work", 1)
+
 		})
 	}
 }
@@ -616,4 +587,26 @@ func TestSendCommand_DiscardInformAfterLaunchOrCloseIsIgnored(t *testing.T) {
 			}
 		})
 	}
+}
+
+func (d *sendDelivery) Subscribe(handle func(runtime.ExecutionEvent)) func() {
+	d.mu.Lock()
+	d.order = append(d.order, "subscribe")
+	d.terminal = handle
+	d.mu.Unlock()
+	return func() { d.mu.Lock(); d.terminal = nil; d.mu.Unlock() }
+}
+
+func (d *sendDelivery) complete(result session.RoutingResult, err error) {
+	d.mu.Lock()
+	handle := d.terminal
+	d.mu.Unlock()
+	if handle == nil {
+		return
+	}
+	if err != nil {
+		handle(runtime.ExecutionFailed{Err: err})
+		return
+	}
+	handle(runtime.DeliveryCompleted{Result: result})
 }

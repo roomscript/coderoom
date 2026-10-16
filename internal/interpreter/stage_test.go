@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/roomscript/coderoom/internal/interpreter/runtime"
+	"github.com/roomscript/coderoom/internal/interpreter/std"
 	"github.com/roomscript/coderoom/internal/session"
 )
 
@@ -100,6 +101,12 @@ func TestStage_editAndResubmitHasNoStaleDelivery(t *testing.T) {
 
 func TestStage_legacyCoexistence(t *testing.T) {
 	interp, sess, _, events, alias := newLifecycleInterpreter(t)
+	// Keep broadcast on fallback to prove coexistence with an unmigrated stage.
+	interp.commands = runtime.NewRegistry()
+	if err := interp.commands.Register(std.SendCommand{}); err != nil {
+		t.Fatal(err)
+	}
+
 	if err := sess.Execute(session.SendToParticipantCommand{Plan: sess.CreateParticipantSendPlan(alias), Message: "busy"}); err != nil {
 		t.Fatal(err)
 	}

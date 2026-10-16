@@ -1,6 +1,7 @@
 package std_test
 
 import (
+	"errors"
 	"slices"
 	"testing"
 
@@ -35,7 +36,7 @@ func TestSendCommand_resolvesTargetThroughSession(t *testing.T) {
 	}
 }
 
-func TestSendCommand_ignoresRoutingForSameNameReplacement(t *testing.T) {
+func TestSendCommand_rejectsTerminalRoutingForSameNameReplacement(t *testing.T) {
 	delivery := newSendDelivery(t, false)
 	invocation := prepareSendInvocation(t, delivery, "@ada work")
 	defer invocation.Close()
@@ -48,18 +49,16 @@ func TestSendCommand_ignoresRoutingForSameNameReplacement(t *testing.T) {
 	result := session.RoutingResult{Kind: session.RoutingParticipantSend, Recipients: []session.RecipientResult{
 		{Alias: replacement, Role: session.RecipientPrimary, Status: session.DeliveryDelivered},
 	}}
-	delivery.queue = append(delivery.queue, session.RoutingCompleted{Result: result})
-	delivery.drain()
-	if len(completions) != 0 || len(delivery.handlers) != 1 {
-		t.Fatal("replacement's result completed or closed the original invocation")
+	delivery.complete(result, nil)
+	if len(completions) != 1 || !errors.Is(completions[0].Err, runtime.ErrInvalidDeliveryOutcome) || len(completions[0].Records) != 0 {
+		t.Fatalf("replacement outcome = %#v", completions)
 	}
 	result.Recipients[0].Alias = original
-	delivery.queue = append(delivery.queue, session.RoutingCompleted{Result: result})
-	delivery.drain()
-	if len(completions) != 1 || len(delivery.handlers) != 0 {
-		t.Fatal("original's result did not settle once and release its subscription")
+	delivery.complete(result, nil)
+	if len(completions) != 1 {
+		t.Fatal("invalid outcome left invocation waiting")
 	}
-	assertSendResult(t, completions[0], sendOutcome{Delivered: []string{"ada"}}, "@ada work", 1)
+
 }
 
 func TestSendCommand_discardRequiresExactNoticeInstance(t *testing.T) {

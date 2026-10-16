@@ -3,7 +3,7 @@
 Working agreement for [#61](https://github.com/roomscript/coderoom/issues/61).
 Keep this document roughly one page; details belong in code or
 [design docs](../../../docs/design/pkg-interpreter-composition.md).
-`/who`, `/shell` and addressed sends use registry dispatch and lifecycle execution.
+`/who`, `/shell`, addressed sends and broadcasts use registry dispatch and lifecycle execution.
 
 ## Command and invocation
 
@@ -25,7 +25,8 @@ submission.
 There is no `Init`, `Next`, polling, or generic fact/expectation contract.
 
 **Staging** holds frozen `WaitFor` and `ToInform` aliases, or nil for no waiting.
-Both groups gate idle, startup-ready readiness; `ToInform` also receives notices.
+Both groups gate idle, startup-ready readiness. `ToInform` holds optional
+recipients: contextual notices for send, work recipients for broadcast.
 The command identifies its delivery targets; `WaitFor` does not imply delivery.
 The lifecycle fails staging if a `WaitFor` alias departs. For a departed `ToInform`
 alias it stops waiting and calls `DiscardInform`, which updates the delivery plan.
@@ -38,16 +39,28 @@ addressed sends are publicly registered.
 **Context** supplies narrow capabilities. `ParticipantReader` exposes participant
 information through detached reads without session execution access.
 `ShellLauncher` starts shell work using executor-owned workers and lifetime.
-`Session.Subscribe(handle)` delivers events to one callback. The native send
-adapter scopes routing outcomes to the invocation that owns the dispatch;
-lifecycle facts still use the shared interpreter observer.
-Staging uses `Session.SubscribeParticipants(handle)` instead: it atomically returns
-initial views and subscribes to subsequent lifecycle facts in mutation order.
-The lifecycle callback retains synchronized facts and requests advancement on the
-new interpreter's serialized lane.
-Send handles routing results with synchronized state, filters kind and primary
-alias, and self-unsubscribes on completion. Both hand results to the monolith publication queue.
-`Close` releases subscriptions. Commands receive no raw model.
+`Session.Subscribe(handle)` installs an invocation-scoped terminal-event listener
+before `Session.Execute(command)` starts delivery. `runtime.DeliveryCompleted`
+carries the actual Session routing outcome; `runtime.ExecutionFailed` carries an
+execution/protocol failure without fabricated routing. Other invocations and
+legacy dispatch never reach this stream, even with identical recipients.
+`runtime.ExecutionEvent` is separate from Session's participant events so host
+protocol failures do not become invented Session facts.
+Staging uses `Session.SubscribeParticipants(handle)` separately: it atomically
+returns initial views and subscribes to later participant facts in mutation order.
+The lifecycle callback collects facts and queues advancement on the interpreter's
+serialized lane.
+
+`runtime.Delivery` supplies subscribe-before-launch, single-terminal-event
+acceptance and subscription cleanup. Each std invocation owns its retained
+command, departure policy, semantic validation and record formatting. It passes
+only the actual Session command. An invalid terminal outcome fails the invocation
+instead of waiting for another event. There is no routing template or shared
+reservation. Only the temporary SubmitCommand bridge retains its private early
+rejection of queued sends to the same primary; Session owns actual availability.
+Completion only queues owner work; the interpreter still drives lifecycle and
+final settlement. Close releases the terminal subscription; lifecycle close also
+releases participant subscriptions. Commands receive no raw model.
 
 **CommandResult** contains existing `room.Record` values and an error. Commands
 construct records and transfer ownership when calling `complete`; they must not
@@ -89,13 +102,13 @@ shell capability retains `ShellCompleted` for compatibility. Execution failures
 are separate from submission success; user commands and loops remain legacy.
 `runtime.Registry.Register(command)` indexes the type returned by `Statement()`.
 `Lookup(parsed)` selects the command; metadata comes from the command itself.
-All three commands are registered. `SendCommand` retains Session's send plan,
+All four commands are registered. `SendCommand` retains Session's send plan,
 derives staging from it and submits the native session command with that plan.
 It returns the original input record with actual routing.
 Lifecycle staging is proved with a shared-feed fake. Native send admission and
 causal publication are proved through the monolith bridge; public addressed sends use the same stage operations.
 
-The new interpreter selects `/who`, `/shell` and addressed sends and executes them itself.
+The new interpreter selects `/who`, `/shell`, addressed sends and broadcasts and executes them itself.
 `monolith.Schedule` supplies the shared serialized lane; `AdmitCommand` checks
 input admission and returns Context plus `CommandSubmission` publication methods.
 The new interpreter prepares and starts its lifecycle, queues raw completions,
@@ -127,3 +140,11 @@ notices and actual partial routing survive completion. Legacy operations remain
 fallback when the new interpreter owns no stage. Direct sends settle submission
 after delivery and dispatch; waiting sends
 acknowledge retention and report later failures without a second submission event.
+
+Broadcast and send have command-specific invocations that compose the same
+`runtime.Delivery` mechanics and native adapter. Preparation
+freezes non-crashed participant instances into `ToInform`; departed instances are
+removed from the delivery command without changing the readiness description.
+All recipients departing returns `runtime.ErrNoActiveTargets`, which discards a
+retained stage with the existing notice. Direct and waiting broadcasts use the
+same submission milestones and partial-routing publication as addressed sends.

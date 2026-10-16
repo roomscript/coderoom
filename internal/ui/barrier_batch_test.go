@@ -258,7 +258,7 @@ func TestBarrierBatch_stagesThenDispatchesWhenIdle(t *testing.T) {
 	// Submit a broadcast; should stage, not dispatch.
 	next = submitThroughInterpreter(t, m, "next turn")
 	m = next.(Model)
-	m = consumeInterpreterStateChange(t, m)
+	// Retained broadcast state is published before its queued acknowledgement.
 	if m.interpreter.Snapshot().Stage == nil || !m.room.IsComposerStaged() {
 		t.Fatalf("expected interpreter-owned stage and staged composer")
 	}
@@ -363,7 +363,7 @@ func TestBarrierBatch_autoDispatchPreservesFirstOutputRecord(t *testing.T) {
 		t.Fatalf("make ada busy: %v", err)
 	}
 	m = submitThroughInterpreter(t, m, "next turn")
-	m = consumeInterpreterStateChange(t, m)
+	// Retained broadcast state is published before its queued acknowledgement.
 	if m.interpreter.Snapshot().Stage == nil || !m.room.IsComposerStaged() {
 		t.Fatal("expected interpreter-owned stage before ada becomes idle")
 	}

@@ -1,7 +1,8 @@
 # Interpreter composition: discussion draft
 
-Status: incremental migration. The facade selects `/who`, `/shell` and addressed
-sends through its registry and owns their lifecycles. The monolith supplies
+Status: incremental migration. The facade selects `/who`, `/shell`, addressed
+sends and broadcasts through its registry and owns their lifecycles. The monolith
+supplies
 serialized Session execution and canonical publication.
 
 This follows [#55](https://github.com/roomscript/coderoom/issues/55) and considers
@@ -13,7 +14,7 @@ This follows [#55](https://github.com/roomscript/coderoom/issues/55) and conside
 
 The current interpreter implementation has moved to `internal/interpreter/monolith`
 behind its existing interface. The public `internal/interpreter` facade initially
-delegates unsupported requests to one instance. `/who`, `/shell` and addressed sends are selected in the facade
+delegates unsupported requests to one instance. `/who`, `/shell`, addressed sends and broadcasts are selected in the facade
 and admitted through the shared coordinator bridge. Shared `api` contracts keep front-end
 imports stable and let both implementations publish identical event and snapshot
 types without importing the parent package. `runtime` and `std` remain separate.
@@ -53,7 +54,7 @@ submission order. This also handles parent-context cancellation. The monolith
 keeps worker cancellation and canonical projection until those move in a later
 checkpoint; it never adopts new lifecycle or stage policy.
 
-`/who`, `/shell` and addressed sends use this path. Other commands delegate to the monolith before
+`/who`, `/shell`, addressed sends and broadcasts use this path. Other commands delegate to the monolith before
 execution; never retry fallback after selected execution starts. `SubmitCommand`
 remains a temporary legacy bridge. The destination is the new interpreter
 replacing and removing the monolith. Real-Session tests cover busy/startup
@@ -208,7 +209,7 @@ snapshot/event collection boundary supplied separately by atomic subscriptions.
 
 `Staging` derives `WaitFor` from `PrimaryParticipant()` and `ToInform`
 from the remaining `Targets()`. Staging does not select delivery recipients.
-`Context.Session` supplies shared-feed `SessionExecution`; `Go(complete)` submits the native
+`Context.Session` supplies invocation-scoped `SessionExecution`; `Go(complete)` submits the native
 `session.SendToParticipantCommand` with its retained plan. `Staging.DiscardInform`
 lets the lifecycle tell the invocation about a departed notice recipient before Go.
 Send uses `DiscardUnavailableNoticeRecipients` to update the plan. The lifecycle
@@ -220,8 +221,8 @@ handling are proved against the shared-feed fake and through the new interpreter
 The invocation constructs the
 original input record from `ParsedStatement.Raw` only if delivery reaches someone;
 partial delivery preserves both routing metadata and the execution error.
-Routing completion matches the full primary alias, so an outcome for a same-name
-replacement cannot complete the original invocation. Notice-discard callbacks
+Terminal validation checks the full primary alias; an outcome for a same-name
+replacement fails the original invocation without recording delivery. Notice-discard callbacks
 also require the exact frozen alias. `/who` renders `.Name`; shell output uses
 a local zero-ID display alias, without claiming participant identity.
 The capability revalidates availability at delivery and owns causal session-event
@@ -445,35 +446,38 @@ startup readiness, partial delivery, cancellation retry and atomic stage tests.
 Add capability tests proving direct and staged delivery against the same fake
 adapter, and loop tests against fake delivery/shell ports without a fake Session.
 
-### Session continuation prototype
+### Invocation-scoped terminal events
 
-Addressed send registers a continuation through `Context.Session.Subscribe`
-before `Execute(session.Command)`. Subscribe delivers the shared Session event
-feed through one immediate callback. Send guards callback state against racing
-Close calls, checks the primary recipient, self-unsubscribes and reports records
-through the monolith's completion queue. Send ignores unrelated events
-and accepts `RoutingParticipantSend` only when its primary recipient matches
-`Plan.PrimaryParticipant()`. An alias appearing as a notice is insufficient.
-Tests deliver the same events to simultaneous subscriptions for different primary
-aliases. Primary-alias matching does not distinguish overlapping requests to the
-same primary; the production adapter must keep at most one such send awaiting a
-routing outcome.
+`Context.Session.Subscribe(handle)` installs the invocation's terminal-event
+listener before `Execute(command)` admits its native command. The stream emits
+`runtime.DeliveryCompleted` with the actual Session routing outcome, including
+partial/failure delivery in Result.Err, or `runtime.ExecutionFailed` with an
+execution/protocol error. Missing, empty or multiple outcomes produce failure
+without synthesized recipients or a routing kind. These runtime execution events
+are distinct from Session's participant events and canonical publication.
+Command-specific semantic validation fails an invalid terminal event instead of
+ignoring it. A legacy or another invocation's outcome cannot reach this listener,
+including concurrent broadcasts with identical recipients.
 
 The lifecycle uses the separate atomic `SubscribeParticipants` boundary for
 readiness and departures before execution. It returns initial views and only
-post-snapshot lifecycle facts. Its callback records facts and wakes the private
-collector; ordinary participant inspection reads establish no collection ordering.
-Unsubscribe stops delivery without waiting for in-flight callbacks; callbacks
-must tolerate a racing Close. The lifecycle disables collection and unsubscribes on the lane, so captured
-callbacks and queued advancement cannot restore closed work.
-The monolith adapter provides serialized asynchronous admission and scopes routing
-outcomes to the owning invocation; raw `Session.Execute` is not exposed.
+post-snapshot lifecycle facts. Its callback collects facts and queues advancement;
+ordinary participant inspection reads establish no collection ordering.
+Unsubscribe stops delivery without waiting for in-flight callbacks. The lifecycle
+disables collection and unsubscribes on the lane, so captured callbacks and queued
+advancement cannot restore closed work.
 
-The native session command retains its frozen `ParticipantSendPlan`; no execution
-path reselects recipients. `Invocation.Close` releases send continuations on
-completion, failed admission or discard. The new-interpreter integration proves
-worker cleanup, input records before causal output and submission milestones.
-Visible stage ownership and atomic operations remain to be integrated.
+The native command retains its frozen plan; no execution path reselects
+recipients. Runtime Delivery suppresses duplicate and late terminal events, while the
+interpreter retains lifecycle identity and final settlement authority. Native
+execution drains on the shared lane before later input inspects readiness.
+Session's locked participant transitions decide actual availability.
+
+The SubmitCommand compatibility bridge alone preserves early rejection of two
+queued addressed sends to the same primary. Its private `legacyCommandSession`
+wrapper reserves until completion/close; this is neither correlation nor general
+participant-availability policy. Remove the wrapper and its reservations with the
+bridge at checkpoint 9.
 
 ## Visible stage ownership during migration
 
@@ -514,5 +518,48 @@ removal, readiness races, resubmission, partial cancellation/delivery, startup,
 departures, frozen joins and shutdown cleanup. Public send registration preserves
 direct versus queued submission milestones: direct sends settle after causal delivery and dispatch publication;
 queued sends acknowledge retention and publish later failures separately. Both
-paths publish dispatch before partial-delivery failure. Broadcast, handoff and
+paths publish dispatch before partial-delivery failure. Handoff and
 loops remain fallback; stage admission works in both submission orders.
+
+## Delivery responsibility boundary
+
+Commands in `std` own validation, frozen recipient selection, native command
+construction, departure policy, terminal-result validation and record formatting.
+Their invocations compose `runtime.Delivery`, a helper for subscription, launch,
+single-terminal-event acceptance and cleanup. Delivery has no command-type
+switches, routing predicates, stage, identity or publication. `InvocationLifecycle`
+provides readiness/transitions; the interpreter constructs it and decides when to
+advance, settle or close it, owning identity, stage operations and shutdown.
+
+A command subscribes to its execution's terminal events and supplies only the
+actual Session command. The capability emits its actual routing outcome or an
+execution-failed event with no routing. No synthetic routing template is needed
+to terminate missing outcomes. Session owns actual routing and participant state.
+Semantic validation may reject an invalid terminal event, but must report failure
+rather than leave the invocation waiting for another result.
+
+The retained delivery command and Staging have different consumers: delivery and
+readiness respectively. Handoff prerequisites can differ from its recipients.
+Departures may update the command while the readiness description remains frozen
+for stage presentation. Neither representation is an error-routing template.
+
+Common native admission imposes no alias reservation. Scheduled execution drains
+before subsequent input inspects readiness, and Session's locked transitions
+remain the participant-availability authority. The private SubmitCommand wrapper
+preserves only that bridge's historical queued-send early rejection. It is not
+part of the reusable capability contract.
+
+To add a delivery command, implement its command and invocation policy in `std`,
+compose Delivery, and validate/format its terminal result. Use Staging and
+Delivery.UpdatePrepared for frozen departure changes. Register the command and
+test the complete path. Runtime mechanics and the execution host need no routing
+metadata or command-specific branches; introduce new capabilities only for
+information or effects a command actually requires.
+
+The monolith remains a temporary host for serialized execution, scoped terminal
+events, canonical projection/publication and draining. As remaining fallback
+workflows migrate (checkpoints 4–9 in PLAN.md), transfer those implementations to
+the new interpreter's execution/publication owner while retaining the runtime
+contract. At checkpoint 9, once no fallback handlers or SubmitCommand callers
+remain, remove the bridge, its private reservation wrapper and the monolith.
+Runtime mechanics remain driven by the interpreter throughout.

@@ -90,7 +90,7 @@ func (s *CommandSubmission) PublishCompletion(result runtime.CommandResult, even
 	s.session.publishCompletion(withSubmissionSource(sequence, s.Statement), len(result.Records))
 }
 
-// Close revokes native admission and routing subscriptions without publishing an
+// Close revokes native admission without publishing an
 // outcome. The new interpreter uses it when a waiting invocation is edited or
 // discarded. Lifecycle-owned participant subscriptions are closed by its owner.
 func (s *CommandSubmission) Close() { s.session.close() }

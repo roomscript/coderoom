@@ -422,7 +422,7 @@ Correlated shared-send planning and participant-state completions provide
 frozen routing and readiness inputs to the implemented stage workflow.
 
 `submissionOutcome` retains legacy execution results. Registered commands use
-an interpreter-owned `runtime.Registry`; currently `/who`, `/shell` and addressed sends are registered there.
+an interpreter-owned `runtime.Registry`; currently `/who`, `/shell`, addressed sends and broadcasts are registered there.
 The shared dispatch path emits `goInvocationInstruction` with the original source,
 then the executor supplies detached participant reads and owned shell execution.
 `CommandRunner.Go` returning nil reports submission success; preparation or launch
@@ -1110,5 +1110,30 @@ the same record/event ordering, with `OperationFailed` for delivery failure and
 no repeated submission outcome. Required departure instead publishes the existing
 discard notice. Edit/discard and interrupt retain their atomic removal and retry
 rules. Legacy stages block modular sends; modular stages block fallback work.
-Broadcast, handoff, user commands and loops remain fallback. Loop admission and
+Handoff, user commands and loops remain fallback. Loop admission and
 delivery policy are unchanged; staged loop coexistence remains a later decision.
+
+### Broadcast public cutover
+
+Public broadcasts now use `std.BroadcastCommand` and the same interpreter-owned
+lifecycle, visible stage and native delivery publication lane as addressed sends.
+Preparation freezes non-crashed participant instances in alias order, including
+participants still starting. Every recipient is optional (`Staging.ToInform`):
+departures remove only that instance from delivery; joins and replacements never
+expand the frozen plan. Losing every recipient discards waiting input with the
+existing no-active-targets notice. An empty room rejects preparation without
+accepting or recording input.
+
+Send and broadcast compose `runtime.Delivery` for subscription, launch, single
+terminal-event acceptance and cleanup. Each command retains construction,
+departure policy, terminal validation and record formatting. Execution receives only the actual Session command. Its
+invocation-scoped subscription emits DeliveryCompleted with the actual routing
+outcome or ExecutionFailed with a protocol error. Missing or invalid outcomes
+fail work without invented routing; common admission has no alias reservation. Only the
+private SubmitCommand bridge retains historical queued-send early rejection.
+Direct broadcasts settle submission after actual input records, causal Session
+events and dispatch
+publication. Waiting broadcasts acknowledge stage retention and publish later
+failures as operation failures. Partial delivery retains actual and failed
+routing; total failure records no user input. Existing edit/discard, interrupt
+retry, startup waiting and shutdown rules apply without another stage owner.

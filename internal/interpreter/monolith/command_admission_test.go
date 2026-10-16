@@ -25,18 +25,13 @@ func TestCommandSubmission_nativeCausalPublication(t *testing.T) {
 				}
 				submission.Publish(InputAccepted{Raw: statement.Raw, Routing: []string{"ada"}})
 				execution := submission.Context.Session
-				unsubscribe := execution.Subscribe(func(event session.Event) {
-					routed, ok := event.(session.RoutingCompleted)
-					if !ok {
-						return
-					}
-					result := deriveAdmissionTestCompletion(statement.Raw, routed.Result)
+				command := session.SendToParticipantCommand{Plan: execution.CreateParticipantSendPlan(testAlias("ada")), Message: "work", Notice: "@ada: work"}
+				execution.Subscribe(func(event runtime.ExecutionEvent) {
+					result := deriveAdmissionEventCompletion(statement.Raw, event)
 					submission.QueueCompletion(func() { publishAdmissionTestCompletion(submission, result) })
 				})
-				command := session.SendToParticipantCommand{Plan: execution.CreateParticipantSendPlan(testAlias("ada")), Message: "work", Notice: "@ada: work"}
 				err := execution.Execute(command)
 				if err != nil {
-					unsubscribe()
 					t.Error(err)
 					return
 				}
@@ -95,4 +90,15 @@ func publishAdmissionTestCompletion(submission *CommandSubmission, result runtim
 	}
 	result.Err = nil
 	submission.PublishCompletion(result, terminal...)
+}
+
+func deriveAdmissionEventCompletion(raw string, event runtime.ExecutionEvent) runtime.CommandResult {
+	switch event := event.(type) {
+	case runtime.DeliveryCompleted:
+		return deriveAdmissionTestCompletion(raw, event.Result)
+	case runtime.ExecutionFailed:
+		return runtime.CommandResult{Err: event.Err}
+	default:
+		return runtime.CommandResult{Err: runtime.ErrInvalidDeliveryOutcome}
+	}
 }

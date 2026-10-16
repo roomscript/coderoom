@@ -51,6 +51,9 @@ func newCommandRegistry() *runtime.Registry {
 	if err := registry.Register(std.SendCommand{}); err != nil {
 		panic(err)
 	}
+	if err := registry.Register(std.BroadcastCommand{}); err != nil {
+		panic(err)
+	}
 	return registry
 }
 

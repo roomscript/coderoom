@@ -4,18 +4,19 @@ import (
 	"errors"
 	"sync"
 
+	"github.com/roomscript/coderoom/internal/interpreter/runtime"
 	"github.com/roomscript/coderoom/internal/participant"
 	"github.com/roomscript/coderoom/internal/session"
 )
 
-// commandSession admits native sends onto the existing execution lane. Routing
-// subscriptions are invocation-scoped: only this adapter's dispatch can deliver
-// a routing outcome, including when legacy work targets the same primary.
+// commandSession admits opaque Session commands on the shared lane and reports
+// terminal events only to its owner before causal publication.
 type commandSession struct {
 	executor       *interpreterExecutor
 	invocation     *ownedCommand
 	mu             sync.Mutex
-	handle         func(session.Event)
+	onClose        func()
+	handle         func(runtime.ExecutionEvent)
 	admitted       bool
 	closed         bool
 	completionWork func()
@@ -32,11 +33,10 @@ func (s *commandSession) CreateParticipantSendPlan(alias participant.Alias) sess
 	return s.executor.session.CreateParticipantSendPlan(alias)
 }
 
-func (s *commandSession) Subscribe(handle func(session.Event)) func() {
+func (s *commandSession) Subscribe(handle func(runtime.ExecutionEvent)) func() {
 	s.mu.Lock()
 	if !s.closed {
 		s.handle = handle
-		s.executor.commandFeed.add(s)
 	}
 	s.mu.Unlock()
 	return s.close
@@ -55,14 +55,13 @@ func (s *commandSession) SubscribeParticipants(handle func(session.Event)) ([]pa
 }
 
 func (s *commandSession) Execute(command session.Command) error {
-	send, ok := command.(session.SendToParticipantCommand)
-	if !ok {
-		return errors.New("command adapter supports addressed sends only")
+	if command == nil {
+		return errors.New("delivery requires a command")
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.closed || s.admitted {
-		return errors.New("send adapter is closed or already admitted")
+	if s.closed || s.admitted || s.handle == nil {
+		return errors.New("delivery adapter is closed, already admitted or has no subscriber")
 	}
 	e := s.executor
 	e.enqueueMu.Lock()
@@ -70,15 +69,7 @@ func (s *commandSession) Execute(command session.Command) error {
 	if e.closed {
 		return ErrClosed
 	}
-	primary := send.Plan.PrimaryParticipant()
-	if e.nativeSends == nil {
-		e.nativeSends = make(map[participant.Alias]*commandSession)
-	}
-	if e.nativeSends[primary] != nil {
-		return errors.New("primary already has an admitted send")
-	}
-	e.nativeSends[primary] = s
-	e.nativeDeliveries = append(e.nativeDeliveries, nativeSendOperation{session: s, command: send})
+	e.nativeDeliveries = append(e.nativeDeliveries, nativeDeliveryOperation{session: s, command: command})
 	e.operations.Push(drainNativeDeliveriesOperation{})
 	s.admitted = true
 	return nil
@@ -89,14 +80,9 @@ func (s *commandSession) close() {
 	s.closed = true
 	s.handle = nil
 	s.mu.Unlock()
-	s.executor.commandFeed.remove(s)
-	s.executor.enqueueMu.Lock()
-	for alias, owner := range s.executor.nativeSends {
-		if owner == s {
-			delete(s.executor.nativeSends, alias)
-		}
+	if s.onClose != nil {
+		s.onClose()
 	}
-	s.executor.enqueueMu.Unlock()
 }
 
 func (s *commandSession) complete(completion invocationCompletion) {
@@ -147,12 +133,12 @@ func (e *interpreterExecutor) dispatchNativeDeliveries() {
 	}
 }
 
-type nativeSendOperation struct {
+type nativeDeliveryOperation struct {
 	session *commandSession
-	command session.SendToParticipantCommand
+	command session.Command
 }
 
-func (op nativeSendOperation) apply(e *interpreterExecutor) {
+func (op nativeDeliveryOperation) apply(e *interpreterExecutor) {
 	s := op.session
 	s.mu.Lock()
 	if s.closed {
@@ -164,15 +150,8 @@ func (op nativeSendOperation) apply(e *interpreterExecutor) {
 	s.mu.Unlock()
 	err := e.executeCommand(op.command)
 	events := e.takeSessionEvents()
-	routing := routingResultFromEvents(events)
-	if routing.Kind == "" {
-		// A broken controller must not leave accepted work waiting forever.
-		routing = session.RoutingResult{Kind: session.RoutingParticipantSend,
-			Recipients: []session.RecipientResult{{Alias: op.command.Plan.PrimaryParticipant(), Role: session.RecipientPrimary}},
-			Err:        errors.Join(errMissingRoutingOutcome, err)}
-	}
 	if handle != nil {
-		handle(session.RoutingCompleted{Result: routing})
+		handle(nativeDeliveryEvent(events, err))
 	}
 	s.publishDelivery(e, events)
 }
@@ -206,44 +185,24 @@ func (s *commandSession) publishDelivery(e *interpreterExecutor, events []sessio
 	e.runner.runItems(items)
 }
 
-// commandEventFeed shares the interpreter's existing observer. Routing results
-// are delivered separately by the dispatch owner, never by primary alias alone.
-type commandEventFeed struct {
-	mu          sync.Mutex
-	subscribers map[*commandSession]struct{}
-}
-
-func (f *commandEventFeed) add(s *commandSession) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.subscribers == nil {
-		f.subscribers = make(map[*commandSession]struct{})
-	}
-	f.subscribers[s] = struct{}{}
-}
-func (f *commandEventFeed) remove(s *commandSession) {
-	f.mu.Lock()
-	delete(f.subscribers, s)
-	f.mu.Unlock()
-}
-func (f *commandEventFeed) deliver(event session.Event) {
-	if _, routing := event.(session.RoutingCompleted); routing {
-		return
-	}
-	f.mu.Lock()
-	subscribers := make([]*commandSession, 0, len(f.subscribers))
-	for s := range f.subscribers {
-		subscribers = append(subscribers, s)
-	}
-	f.mu.Unlock()
-	for _, s := range subscribers {
-		s.mu.Lock()
-		handle := s.handle
-		s.mu.Unlock()
-		if handle != nil {
-			handle(event)
+// A terminal execution failure belongs to the invocation, not to an invented
+// Session routing event. Actual outcomes are forwarded unchanged.
+func nativeDeliveryEvent(events []session.Event, executionErr error) runtime.ExecutionEvent {
+	var routing session.RoutingResult
+	count := 0
+	for _, event := range events {
+		if result, ok := event.(session.RoutingCompleted); ok {
+			routing = result.Result
+			count++
 		}
 	}
+	if count == 0 {
+		return runtime.ExecutionFailed{Err: errors.Join(errMissingRoutingOutcome, executionErr)}
+	}
+	if count != 1 || routing.Kind == "" {
+		return runtime.ExecutionFailed{Err: errors.Join(runtime.ErrInvalidDeliveryOutcome, executionErr)}
+	}
+	return runtime.DeliveryCompleted{Result: routing}
 }
 
 func (s *commandSession) release() {

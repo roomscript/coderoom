@@ -17,7 +17,11 @@ import (
 // readiness at launch; it neither admits Session work nor consumes routing events.
 type participantLifecycleHost struct{ *session.Session }
 
-func (*participantLifecycleHost) Subscribe(func(session.Event)) func() { return func() {} }
+func (*participantLifecycleHost) Subscribe(func(runtime.ExecutionEvent)) func() { return func() {} }
+
+func (*participantLifecycleHost) Execute(session.Command) error {
+	return errors.New("participant lifecycle fixture does not deliver")
+}
 
 type readinessProbe struct {
 	session  *session.Session

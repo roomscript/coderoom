@@ -11,6 +11,9 @@ import (
 // ErrInvocationNotPrepared rejects repeated starts and starts after close.
 var ErrInvocationNotPrepared = errors.New("invocation is no longer prepared")
 
+// ErrNoActiveTargets reports a delivery whose frozen optional recipients all departed.
+var ErrNoActiveTargets = errors.New("no active targets")
+
 // RequiredParticipantUnavailableError reports a frozen prerequisite that departed
 // or was missing when the lifecycle evaluated readiness. It prevents launch.
 type RequiredParticipantUnavailableError struct {

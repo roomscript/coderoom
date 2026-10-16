@@ -10,7 +10,7 @@ the issue is complete.
 
 ## Resume here
 
-The new `internal/interpreter` selects `/who`, `/shell` and addressed sends and executes them
+The new `internal/interpreter` selects `/who`, `/shell`, addressed sends and broadcasts and executes them
 itself. It schedules `executeCommand` on the shared serialized lane, asks the
 monolith to admit input, then prepares, starts, tracks, completes and closes its
 own `runtime.InvocationLifecycle`. It also owns one retained visible stage and
@@ -57,7 +57,8 @@ Current invariants and proof:
   under the Session state lock; `changeParticipants` owns transition capture and
   post-unlock delivery. Existing source tests cover ordering and replacement.
 - Native send admission remains on the monolith's serialized lane. Routing
-  outcomes are invocation-scoped, with one pending modular send per primary.
+  terminal events are invocation-scoped. Same-primary early rejection is private to
+  SubmitCommand compatibility; native availability remains Session-owned.
   Input records precede causal delivery events; terminal publication follows projection.
 - Lifecycle identity, pending state, acceptance and cleanup belong to the new
   interpreter. Completion callbacks only queue work. The new interpreter consumes
@@ -108,7 +109,7 @@ Current visible-stage checkpoint:
 Public addressed-send cutover checkpoint:
 
 - SendCommand is publicly registered; lifecycle and stage regressions use production
-  registration. Broadcast, handoff, definitions and loops remain fallback.
+  registration. Handoff, definitions and loops remain fallback.
 - Preparation publishes frozen InputAccepted routing only after validating the
   target. Missing/crashed targets retain participant-unavailable classification.
 - The new interpreter owns send acceptance routing, unavailable-target error
@@ -124,11 +125,46 @@ Public addressed-send cutover checkpoint:
 - UI tests consume the stage snapshot published before queued acknowledgement.
   Loop staging and coexistence remain separate design checkpoints.
 
-Next: migrate broadcast (checkpoint 3), preserving frozen optional recipients,
-departures, partial results and the complete existing command path.
+Broadcast cutover checkpoint:
 
-Validation: `make test`, `make test-race`, `make lint` and
-`go test -race ./internal/interpreter/... -count=3` passed.
+- BroadcastCommand is publicly registered and composes the same runtime delivery
+  mechanics, lifecycle and visible stage as send. Preparation freezes non-crashed
+  instances, including startup waits; optional departures cannot add joins or replacement instances.
+- Std owns construction, frozen departure policy, terminal validation and formatting.
+  Runtime Delivery supplies subscription, launch, single terminal-event acceptance
+  and cleanup.
+- SessionExecution retains Subscribe/Execute: subscribe to invocation-scoped
+  runtime.ExecutionEvent before executing the actual Session command.
+  DeliveryCompleted forwards actual routing; ExecutionFailed terminates protocol
+  failures without invented recipients or kind. Missing, empty and multiple
+  outcomes fail rather than stall. There is no DeliveryRequest, routing template
+  or ownership-matching predicate; runtime owns terminal subscription mechanics.
+- Common native admission has no alias reservation; Session's locked transitions
+  own availability. Only the private SubmitCommand compatibility wrapper preserves
+  historical early rejection of queued addressed sends to the same primary.
+- Capability regressions cover identical-recipient ownership, native same-primary
+  admission, protocol failures without routing metadata and private bridge behavior.
+  Interpreter identity, lifecycle driving, staging, settlement and shutdown stay put.
+- Transfer execution/publication capability implementations when fallback work
+  migrates; remove the monolith and SubmitCommand bridge once no consumers remain
+  at checkpoint 9. Keep runtime mechanics driven by the interpreter.
+- Empty rooms fail before acceptance. All frozen recipients departing discard
+  waiting input with the existing notice. Partial delivery preserves actual and
+  failed routing; total failure creates no input record.
+- Regressions cover direct success/partial/total/missing results, publication
+  order, waiting stage operations, startup, departures, replacements, joins and
+  cleanup. UI tests consume retained state before queued acknowledgement.
+
+Next: migrate handoff (checkpoint 4), adding detached canonical source reads and
+preserving required departures, source selection and active-source waits.
+
+Validation: `go test ./...`, `go test -race ./...` and
+`go test -race ./internal/interpreter/... -count=3` passed. The interrupted
+publication-test check also passed with `go test -race ./internal/interpreter/monolith`.
+The updated `golangci-lint run ./...` passes on the current Go toolchain. Local
+G703 annotations document intentionally caller-selected paths in the replay and
+upgrade-comparison CLI utilities; G703 remains enabled globally. Relevant CLI and
+transcript tests pass.
 
 ## Scope assessment
 
@@ -246,7 +282,7 @@ the current package until a real consumer demonstrates a useful boundary.
   legacy direct/queued submission milestones, semantic events, cancellation retry,
   partial delivery and interaction with existing workflows. Keep other commands
   on fallback. No loop staging behavior change in this checkpoint.
-- [ ] 3. Migrate broadcast: extend the proven delivery capability for frozen
+- [x] 3. Migrate broadcast: extend the proven delivery capability for frozen
   optional recipients, departures and partial results. Joins must not expand a
   retained plan. Preserve existing behavior and cover its complete command path.
 - [ ] 4. Migrate handoff: add detached canonical source reads to the command

@@ -23,35 +23,30 @@ type ShellLauncher interface {
 	Go(program string, complete func(shell.Result)) error
 }
 
-// SessionExecution is a host admission and shared event capability, not raw Session.
-// ParticipantByName resolves input names to current Session-owned identities.
-// CreateParticipantSendPlan delegates recipient selection to Session.
-// Subscribe receives session events, including participant lifecycle facts
-// before execution. A host may scope routing outcomes to the invocation whose
-// native dispatch produced them; unrelated routing outcomes are not required.
-// Lifecycle callbacks run immediately; routing callbacks run within the owning
-// dispatch burst, before projection. Callbacks may run on a producer
-// goroutine; it must be concurrency-safe. Subscribe itself does not invoke the
-// callback inline. Subscribe always returns a non-nil unsubscribe function.
-// Unsubscribe is safe from a callback and prevents further
-// delivery without waiting for in-flight callbacks. Consumers own their queues.
-// Execute must support admission from an invocation's worker while the host
-// continues to serialize actual Session execution.
-// Execute admits work without waiting for delivery; admission failures return an
-// error, while delivery outcomes arrive as session.RoutingCompleted events.
-// The host owns the serialized session execution lane and worker lifetime.
-// A primary alias must have at most one admitted send awaiting its routing result;
-// alias matching cannot distinguish concurrent requests to the same primary.
-// The monolith adapter admits addressed sends only. Lifecycle readiness uses
-// atomic subscriptions; public send registration and stage operations remain legacy.
+// SessionExecution supplies invocation-scoped terminal events and participant
+// capabilities, not raw Session. Subscribe observes only this instance's execution:
+// other invocations and legacy dispatch must never deliver terminal events here,
+// even with identical routing kinds and recipients. Subscribe does not call inline
+// and returns a non-nil, non-blocking unsubscribe function, safe from a callback.
+// Unsubscribe prevents future delivery; already-running callbacks may finish.
+// Execute admits one command without waiting for delivery. Admission errors return
+// directly. Accepted execution emits DeliveryCompleted with the actual Session
+// outcome, or ExecutionFailed for a missing/invalid outcome or protocol failure.
+// Terminal events run within the owning dispatch burst before projection and may
+// race launch/close; handlers must only queue owner work. The host serializes
+// Session execution, supports worker admission and owns admitted work lifetime.
+// Commands supply only the actual command. Session owns availability and routing.
 type SessionExecution interface {
-	Subscribe(handle func(session.Event)) (unsubscribe func())
+	Subscribe(handle func(ExecutionEvent)) (unsubscribe func())
 	// SubscribeParticipants atomically returns initial state and subscribes to
 	// subsequent lifecycle facts in mutation order. It never replays facts from
 	// before that snapshot. Callbacks may race its return, but are not inline;
-	// unsubscribe has the same non-blocking semantics as Subscribe.
+	// unsubscribe is non-blocking, safe from a callback, and prevents future
+	// callbacks without waiting for those already in flight.
 	SubscribeParticipants(handle func(session.Event)) (initial []participant.View, unsubscribe func())
+	// ParticipantByName resolves input names to current Session-owned instances.
 	ParticipantByName(name string) (participant.View, bool)
+	// CreateParticipantSendPlan delegates policy-aware recipient selection to Session.
 	CreateParticipantSendPlan(alias participant.Alias) session.ParticipantSendPlan
 	Execute(command session.Command) error
 }
@@ -91,13 +86,14 @@ type Invocation interface {
 // Aliases retain instance identity; replacement participants cannot inherit waits.
 // All listed aliases use the shared readiness rule: idle and startup-ready.
 // The invocation owns this description; callers must treat it as read-only.
-// WaitFor gates execution; ToInform describes frozen contextual notice recipients, which
-// also gate readiness. WaitFor does not imply delivery. Departure handling is
+// WaitFor gates execution; ToInform describes frozen optional recipients, which
+// also gate readiness (send notices or broadcast work). WaitFor does not imply
+// delivery. Departure handling is
 // command policy; the lifecycle tracks sticky departures.
 type Staging struct {
 	WaitFor  []participant.Alias
 	ToInform []participant.Alias
-	// DiscardInform removes an unavailable notice recipient from the command's
+	// DiscardInform removes an unavailable optional recipient from the command's
 	// retained delivery plan. The lifecycle calls it before Go,
 	// while removing that alias from its own waits. Nil means no update is needed.
 	// Departures are sticky: rejoining cannot restore a discarded recipient.

@@ -33,6 +33,10 @@ func (s *initialStateSession) ParticipantByName(name string) (participant.View, 
 }
 func (*initialStateSession) Shutdown() {}
 
+func (s *initialStateSession) SubscribeParticipants(func(session.Event)) ([]participant.View, func()) {
+	return s.Participants(), func() {}
+}
+
 func TestNew_consumesEventsQueuedBeforeUIConstruction(t *testing.T) {
 	sess := &initialStateSession{}
 	observer := NewObserver()

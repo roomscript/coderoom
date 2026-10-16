@@ -142,7 +142,7 @@ func (h *sendSessionHost) Execute(command session.Command) error {
 	return nil
 }
 
-func (h *sendSessionHost) Subscribe(handle func(session.Event)) func() {
+func (h *sendSessionHost) Subscribe(handle func(runtime.ExecutionEvent)) func() {
 	return h.subscriptions.Subscribe(handle)
 }
 
@@ -161,7 +161,7 @@ func (h *sendSessionHost) Participants() []participant.View {
 // This negative fixture deliberately violates the atomic boundary, preserving
 // the stale snapshot/final Session guard cases independently of the real API.
 func (h *sendSessionHost) SubscribeParticipants(handle func(session.Event)) ([]participant.View, func()) {
-	unsubscribe := h.Subscribe(handle)
+	unsubscribe := h.subscriptions.subscribeParticipants(handle)
 	return h.Participants(), unsubscribe
 }
 
@@ -172,6 +172,7 @@ func (h *sendSessionHost) OnEvent(event session.Event) {
 	h.subscriptions.deliverEvents()
 	if routed, ok := event.(session.RoutingCompleted); ok {
 		h.routing <- routed.Result
+		h.subscriptions.complete(routed.Result, nil)
 	}
 	if _, ok := event.(session.AgentReady); ok {
 		h.ready <- struct{}{}

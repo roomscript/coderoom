@@ -24,7 +24,7 @@ func (i *Interpreter) executeCommand(command runtime.Command, statement promptla
 	if submission == nil {
 		return
 	}
-	_, send := statement.Value.(promptlang.Send)
+	send := isDeliveryStatement(statement)
 	if !send {
 		i.publishCommandInput(submission, nil)
 	}
@@ -62,7 +62,7 @@ func (i *Interpreter) startCommand(invocation runtime.Invocation, submission *mo
 		i.publishCommandSubmission(submission, fmt.Errorf("start command lifecycle: %w", err))
 		return
 	}
-	_, send := statement.Value.(promptlang.Send)
+	send := isDeliveryStatement(statement)
 	pending := i.invocations[id]
 	pending.submissionPending = send && !enteredWaiting
 	i.invocations[id] = pending

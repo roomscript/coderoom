@@ -21,7 +21,7 @@ type participantHost struct {
 	beforeRead func()
 }
 
-func (h *participantHost) Subscribe(handle func(session.Event)) func() {
+func (h *participantHost) subscribeParticipants(handle func(session.Event)) func() {
 	h.mu.Lock()
 	h.handle = handle
 	h.mu.Unlock()
@@ -44,7 +44,7 @@ func (h *participantHost) Participants() []participant.View {
 }
 
 func (h *participantHost) SubscribeParticipants(handle func(session.Event)) ([]participant.View, func()) {
-	unsubscribe := h.Subscribe(handle)
+	unsubscribe := h.subscribeParticipants(handle)
 	return h.Participants(), unsubscribe
 }
 
@@ -346,3 +346,5 @@ func assertRequiredParticipantUnavailable(t *testing.T, err error, alias partici
 		t.Fatalf("required participant outcome = %v; want alias %#v", err, alias)
 	}
 }
+
+func (*participantHost) Subscribe(func(ExecutionEvent)) func() { return func() {} }
