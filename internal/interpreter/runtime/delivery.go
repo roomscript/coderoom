@@ -43,8 +43,10 @@ func (d *Delivery) UpdatePrepared(update func()) {
 }
 
 // Go subscribes before admitting one command. Terminal events may race launch;
+// The callback receives the full delivery event, including its execution ID.
+// Execution/protocol failures provide a zero event and a non-nil error.
 // InvocationLifecycle rejects results from failed starts and owns final settlement.
-func (d *Delivery) Go(execution SessionExecution, command session.Command, complete func(session.RoutingResult, error)) error {
+func (d *Delivery) Go(execution SessionExecution, command session.Command, complete func(DeliveryCompleted, error)) error {
 	if err := d.subscribe(execution, complete); err != nil {
 		return err
 	}
@@ -55,7 +57,7 @@ func (d *Delivery) Go(execution SessionExecution, command session.Command, compl
 	return nil
 }
 
-func (d *Delivery) subscribe(execution SessionExecution, complete func(session.RoutingResult, error)) error {
+func (d *Delivery) subscribe(execution SessionExecution, complete func(DeliveryCompleted, error)) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if d.state != deliveryPrepared {
@@ -74,16 +76,16 @@ func (d *Delivery) subscribe(execution SessionExecution, complete func(session.R
 	return nil
 }
 
-func executionOutcome(event ExecutionEvent) (session.RoutingResult, error) {
+func executionOutcome(event ExecutionEvent) (DeliveryCompleted, error) {
 	switch event := event.(type) {
 	case DeliveryCompleted:
-		return event.Result, nil
+		return event, nil
 	case ExecutionFailed:
 		if event.Err != nil {
-			return session.RoutingResult{}, event.Err
+			return DeliveryCompleted{}, event.Err
 		}
 	}
-	return session.RoutingResult{}, ErrInvalidDeliveryOutcome
+	return DeliveryCompleted{}, ErrInvalidDeliveryOutcome
 }
 
 func (d *Delivery) acceptOutcome() func() {

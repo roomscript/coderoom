@@ -98,8 +98,8 @@ func (i *handoffInvocation) Go(complete func(runtime.CommandResult)) error {
 		return errors.New("handoff source has no completed room-visible output")
 	}
 	i.command.Source = source
-	if err := i.delivery.Go(i.ctx.Session, i.command, func(outcome session.RoutingResult, executionErr error) {
-		complete(i.completion(outcome, executionErr))
+	if err := i.delivery.Go(i.ctx.Session, i.command, func(outcome runtime.DeliveryCompleted, executionErr error) {
+		complete(i.completion(outcome.Result, executionErr))
 	}); err != nil {
 		return fmt.Errorf("handoff delivery: %w", err)
 	}

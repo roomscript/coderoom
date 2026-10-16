@@ -186,3 +186,8 @@ The interpreter drains already-queued synchronous results after lifecycle Start
 and submission bookkeeping, before admitting the next queued input. The producer
 callback never settles a lifecycle. This preserves definition confirmation before
 an immediately queued invocation and still rejects duplicate or stale results.
+
+Delivery.Go passes the full DeliveryCompleted event to its callback, preserving
+ExecutionID alongside Result. Actual delivery failures remain in Result.Err;
+execution/protocol failures pass a zero event and a separate error. Commands that
+only format routing outcomes read Result; future loop execution can retain the ID.

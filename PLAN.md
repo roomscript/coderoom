@@ -235,8 +235,9 @@ Next: migrate loop with its current delivery behavior (checkpoint 6).
 Checkpoint 6, first agreed substep: runtime.DeliveryCompleted now carries the
 ExecutionID returned by Session.Execute alongside the actual routing outcome,
 including failed delivery. Subscribe/Execute and loop behavior remain unchanged.
-The Delivery.Go callback still exposes only RoutingResult and an error; agree on
-how to expose execution identity through that helper before building loop consumers.
+By subsequent agreement, Delivery.Go passes the full DeliveryCompleted event
+and a separate execution/protocol error to its callback. Execution identity now
+reaches helper consumers without a second subscription or additional result type.
 Repeated execution scopes, interpreter-driven loop advancement and intermediate
 publication also require agreement before changing runtime contracts.
 Future handoff history selectors (latest, earlier, all) remain a separate feature;

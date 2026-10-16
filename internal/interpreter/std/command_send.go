@@ -116,7 +116,8 @@ func (i *sendInvocation) discardInform(alias participant.Alias) {
 
 func (i *sendInvocation) Go(complete func(runtime.CommandResult)) error {
 	primary := i.command.Plan.PrimaryParticipant()
-	if err := i.delivery.Go(i.session, i.command, func(result session.RoutingResult, err error) {
+	if err := i.delivery.Go(i.session, i.command, func(outcome runtime.DeliveryCompleted, err error) {
+		result := outcome.Result
 		if err == nil && !validSendOutcome(primary, result) {
 			err = runtime.ErrInvalidDeliveryOutcome
 		}
