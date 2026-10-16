@@ -4,7 +4,6 @@
 package claude
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -29,12 +28,16 @@ const (
 	stderrTailLines     = 20
 )
 
-type turnKind int
+// turnOwner says whose turn Claude is running. A turn is ours once Claude
+// replays the prompt Send wrote; output before that replay belongs to a turn
+// Claude started on its own.
+type turnOwner int
 
 const (
-	turnIdle   turnKind = iota
-	turnPrompt          // started by Send
-	turnSelf            // started by Claude with no user message
+	ownerNone    turnOwner = iota // no turn running
+	ownerUnknown                  // started, owner not known yet
+	ownerPrompt                   // answering the prompt from Send
+	ownerSelf                     // started by Claude on its own
 )
 
 // Client implements agent.Agent for Claude Code. Calls must not be made
@@ -53,14 +56,19 @@ type Client struct {
 		listener agent.ApprovalListener
 		queue    *queue[permissionRequest]
 		done     chan struct{} // closed when the approval worker exits
+		denied   *deniedTools
+		turn     approvalTurn // stdout reader goroutine only
 	}
 
 	writeMu sync.Mutex
 	reqSeq  int // guarded by writeMu
 
 	turn struct {
-		mu   sync.Mutex
-		kind turnKind
+		mu    sync.Mutex
+		owner turnOwner
+		// prompt is the prompt Send wrote, until Claude replays it.
+		prompt        string
+		promptPending bool
 	}
 
 	// selfTurnText collects the output of a self-started turn for its
@@ -141,9 +149,12 @@ func (c *Client) Start() error {
 		return err
 	}
 	c.queue = newQueue[agent.Message]()
+	c.dec = newDecoder()
 	c.approvals.queue = newQueue[permissionRequest]()
 	c.approvals.done = make(chan struct{})
-	c.dec = newDecoder()
+	c.approvals.denied = newDeniedTools()
+	c.dec.declined = c.approvals.denied.take
+	c.newApprovalTurn()
 	c.initDone = make(chan error, 1)
 	c.exited = make(chan struct{})
 	c.startWorkers()
@@ -178,11 +189,11 @@ func (c *Client) initialize() error {
 
 // Send writes a prompt and returns the turn anchor immediately.
 func (c *Client) Send(prompt string) (agent.StreamID, error) {
-	if err := c.beginTurn(turnPrompt); err != nil {
+	if err := c.admitPrompt(prompt); err != nil {
 		return "", err
 	}
 	if err := c.writeJSON(newUserMessage(prompt)); err != nil {
-		c.setTurn(turnIdle)
+		c.dropPrompt()
 		return "", err
 	}
 	return turnStreamID, nil
@@ -209,7 +220,7 @@ func (c *Client) Read() (agent.Message, error) {
 // Interrupt asks Claude to stop the turn in flight. The turn then ends with a
 // result like any other. It is a no-op when no turn is in flight.
 func (c *Client) Interrupt() error {
-	if c.queue == nil || c.currentTurn() == turnIdle {
+	if c.queue == nil || c.isIdle() {
 		return nil
 	}
 	return c.writeJSON(controlRequest{
@@ -238,6 +249,10 @@ func (c *Client) Stop() error {
 			return
 		}
 		_ = c.proc.cmd.Process.Kill()
+		// A child that inherited the pipes can outlive the kill and keep
+		// them open. Closing our ends makes the readers return.
+		_ = c.proc.stdout.Close()
+		_ = c.proc.stderr.Close()
 		<-c.exited
 	})
 	<-c.approvals.done
@@ -255,38 +270,31 @@ func (c *Client) waitExited(d time.Duration) bool {
 	}
 }
 
-func (c *Client) beginTurn(kind turnKind) error {
+// admitPrompt records the prompt Send is about to write. Only one prompt
+// can be waiting or running, and none while Claude runs a turn of its own.
+func (c *Client) admitPrompt(prompt string) error {
 	if c.queue == nil {
 		return errors.New("claude: client not started")
 	}
 	c.turn.mu.Lock()
 	defer c.turn.mu.Unlock()
-	if c.turn.kind != turnIdle {
+	if c.turn.owner != ownerNone || c.turn.promptPending {
 		return agent.ErrTurnInProgress
 	}
-	c.turn.kind = kind
+	c.turn.prompt, c.turn.promptPending = prompt, true
 	return nil
 }
 
-func (c *Client) setTurn(kind turnKind) {
-	c.turn.mu.Lock()
-	c.turn.kind = kind
-	c.turn.mu.Unlock()
-}
-
-func (c *Client) currentTurn() turnKind {
+func (c *Client) dropPrompt() {
 	c.turn.mu.Lock()
 	defer c.turn.mu.Unlock()
-	return c.turn.kind
+	c.turn.prompt, c.turn.promptPending = "", false
 }
 
-// swapTurn sets the turn kind and returns the previous one.
-func (c *Client) swapTurn(kind turnKind) turnKind {
+func (c *Client) isIdle() bool {
 	c.turn.mu.Lock()
 	defer c.turn.mu.Unlock()
-	prev := c.turn.kind
-	c.turn.kind = kind
-	return prev
+	return c.turn.owner == ownerNone && !c.turn.promptPending
 }
 
 func (c *Client) writeJSON(v any) error {
@@ -317,10 +325,4 @@ func (c *Client) withStderrTail(err error) error {
 		return err
 	}
 	return fmt.Errorf("%w; stderr: %s", err, strings.Join(c.stderrTail.lines, "\n"))
-}
-
-func newScanner(r interface{ Read([]byte) (int, error) }) *bufio.Scanner {
-	sc := bufio.NewScanner(r)
-	sc.Buffer(make([]byte, 0, 64*1024), 64<<20)
-	return sc
 }

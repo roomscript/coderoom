@@ -1,6 +1,7 @@
 package claude
 
 import (
+	"encoding/json"
 	"strconv"
 	"testing"
 
@@ -26,6 +27,12 @@ func textDeltaLine(text string) string {
 
 func thinkingDeltaLine(text string) string {
 	return `{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"` + text + `"}}}`
+}
+
+// replayLine is Claude echoing a prompt back (--replay-user-messages).
+func replayLine(prompt string) string {
+	b, _ := json.Marshal(prompt)
+	return `{"type":"user","message":{"role":"user","content":` + string(b) + `},"isReplay":true}`
 }
 
 func toolUseLine(id, name, input string) string {
@@ -242,6 +249,35 @@ func TestDecode_editUpdatesFile(t *testing.T) {
 	}
 }
 
+// NotebookEdit result recorded from Claude Code 2.1.301, trimmed.
+func TestDecode_notebookEditUpdatesCell(t *testing.T) {
+	msgs := decodeAll(t, newDecoder(),
+		toolUseLine("toolu_7", "NotebookEdit", `{"notebook_path":"/w/n.ipynb","cell_id":"c1","new_source":"print('new')"}`),
+		toolResultLine("toolu_7", `"Updated cell c1 with print('new')"`, false,
+			`{"new_source":"print('new')","old_source":"print('old')","cell_type":"code","language":"python",`+
+				`"edit_mode":"replace","cell_id":"c1","error":"","notebook_path":"/w/n.ipynb","original_file":"{}"}`),
+	)
+
+	set, _ := accumulate(t, msgs).Content.(agent.FileChangeSet)
+	want := agent.FileChange{Path: "/w/n.ipynb", Diff: "@@ cell c1 (replace) @@\n-print('old')\n+print('new')\n", ChangeKind: "update"}
+	if set.Status != agent.ToolStatusCompleted || len(set.Changes) != 1 || set.Changes[0] != want {
+		t.Errorf("file change set = %+v, want completed %+v", set, want)
+	}
+}
+
+func TestDecode_unknownFileResultIsUpdate(t *testing.T) {
+	msgs := decodeAll(t, newDecoder(),
+		toolUseLine("toolu_8", "Edit", `{"file_path":"/w/notes.txt"}`),
+		toolResultLine("toolu_8", `"done"`, false, `{"somethingNew":true}`),
+	)
+
+	set, _ := accumulate(t, msgs).Content.(agent.FileChangeSet)
+	want := agent.FileChange{Path: "/w/notes.txt", ChangeKind: "update"}
+	if len(set.Changes) != 1 || set.Changes[0] != want {
+		t.Errorf("changes = %+v, want %+v", set.Changes, want)
+	}
+}
+
 func TestDecode_fileChangeStatus(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -257,9 +293,7 @@ func TestDecode_fileChangeStatus(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			d := newDecoder()
-			if tt.denied {
-				d.denied.add("toolu_4")
-			}
+			d.declined = func(string) bool { return tt.denied }
 			msgs := decodeAll(t, d,
 				toolUseLine("toolu_4", "Write", `{"file_path":"/w/denied.txt","content":"no\n"}`),
 				toolResultLine("toolu_4", tt.content, true, `"Error: denied"`),
@@ -286,29 +320,26 @@ func TestDecode_unmappedToolEmitsNothing(t *testing.T) {
 	}
 }
 
-func TestDecode_resultFlushesOpenStreams(t *testing.T) {
-	d := newDecoder()
-	decodeAll(t, d, lineMessageStart, lineTextStart, textDeltaLine("partial"),
-		toolUseLine("toolu_6", "Bash", `{"command":"sleep 100"}`))
+func TestDecode_resultClosesOpenStreams(t *testing.T) {
+	aborted := `{"type":"result","subtype":"error_during_execution","is_error":true,"terminal_reason":"aborted_streaming"}`
+	msgs := decodeAll(t, newDecoder(), lineMessageStart, lineTextStart, textDeltaLine("partial"),
+		toolUseLine("toolu_6", "Bash", `{"command":"sleep 100"}`),
+		toolUseLine("toolu_9", "Write", `{"file_path":"/w/a.txt","content":"a"}`),
+		aborted)
 
-	out, err := d.decode([]byte(`{"type":"result","subtype":"error_during_execution","is_error":true,"terminal_reason":"aborted_streaming"}`))
-	if err != nil {
-		t.Fatal(err)
+	streams := map[agent.StreamID][]agent.Message{}
+	for _, m := range msgs {
+		streams[m.StreamID] = append(streams[m.StreamID], m)
 	}
-	if out.signal != signalResult || !out.result.IsError {
-		t.Errorf("signal = %v, result = %+v", out.signal, out.result)
+	if out, _ := accumulate(t, streams["claude:output:msg_1:0"]).Content.(agent.Output); out.Text != "partial" {
+		t.Errorf("output = %q", out.Text)
 	}
-	want := []agent.Message{
-		{StreamID: "claude:output:msg_1:0", Mode: agent.ModeFlush, Content: agent.Output{}},
-		{StreamID: "claude:command:toolu_6", Mode: agent.ModeFlush, Content: agent.Command{}},
+	cmd, _ := accumulate(t, streams["claude:command:toolu_6"]).Content.(agent.Command)
+	if cmd.ExitCode == nil || *cmd.ExitCode != unknownExitCode {
+		t.Errorf("cut-off command exit code = %v, want %d", fmtIntPtr(cmd.ExitCode), unknownExitCode)
 	}
-	if len(out.msgs) != len(want) {
-		t.Fatalf("got %+v, want %+v", out.msgs, want)
-	}
-	for i := range want {
-		if out.msgs[i].StreamID != want[i].StreamID || out.msgs[i].Mode != want[i].Mode {
-			t.Errorf("msg %d = %+v, want %+v", i, out.msgs[i], want[i])
-		}
+	if set, _ := accumulate(t, streams["claude:filechange:toolu_9"]).Content.(agent.FileChangeSet); set.Status != agent.ToolStatusFailed {
+		t.Errorf("cut-off file change status = %q, want failed", set.Status)
 	}
 }
 
@@ -320,7 +351,7 @@ func TestDecode_lifecycleAndIgnoredLines(t *testing.T) {
 	}{
 		{"system init", lineSystemInit, signalInit},
 		{"result", lineResultOK, signalResult},
-		{"replayed prompt", `{"type":"user","message":{"role":"user","content":"hi"},"isReplay":true}`, signalNone},
+		{"replayed prompt", replayLine("hi"), signalReplay},
 		{"permission denied with string message", `{"type":"system","subtype":"permission_denied","tool_name":"Write","message":"denied"}`, signalNone},
 		{"rate limit", `{"type":"rate_limit_event"}`, signalNone},
 	}
@@ -334,6 +365,16 @@ func TestDecode_lifecycleAndIgnoredLines(t *testing.T) {
 				t.Errorf("signal = %v, msgs = %+v; want signal %v and no messages", out.signal, out.msgs, tt.signal)
 			}
 		})
+	}
+}
+
+func TestDecode_replayCarriesPrompt(t *testing.T) {
+	out, err := newDecoder().decode([]byte(replayLine("it's \"quoted\"")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.replay != `it's "quoted"` {
+		t.Errorf("replay = %q", out.replay)
 	}
 }
 
@@ -352,6 +393,13 @@ func TestDecode_controlLines(t *testing.T) {
 	}
 	if resp.controlResponse == nil || resp.controlResponse.Response.RequestID != initRequestID {
 		t.Errorf("control response = %+v", resp.controlResponse)
+	}
+	cancel, err := d.decode([]byte(`{"type":"control_cancel_request","request_id":"r1"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cancel.controlCancel == nil || cancel.controlCancel.RequestID != "r1" {
+		t.Errorf("control cancel = %+v", cancel.controlCancel)
 	}
 }
 

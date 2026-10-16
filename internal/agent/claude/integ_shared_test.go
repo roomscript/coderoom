@@ -121,6 +121,19 @@ func (l *fixedListener) requests() []agent.ApprovalRequest {
 	return slices.Clone(l.reqs)
 }
 
+// waitingListener blocks until its request is withdrawn.
+type waitingListener struct {
+	called   chan struct{}
+	released chan struct{}
+}
+
+func (l *waitingListener) Decide(ctx context.Context, _ agent.ApprovalRequest) (agent.ApprovalDecision, error) {
+	close(l.called)
+	<-ctx.Done()
+	close(l.released)
+	return agent.ApprovalDecision{}, fmt.Errorf("decide: %w", ctx.Err())
+}
+
 // turnResult holds one turn's output, each stream accumulated to its final
 // message.
 type turnResult struct {

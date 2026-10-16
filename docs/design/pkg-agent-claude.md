@@ -84,9 +84,9 @@ ListAgents,SendMessage,PushNotification,RemoteTrigger
 | `Start()` | fits | spawn; send `control_request{subtype: initialize}`; block until the matching `control_response` (under 3 s in E1). Unlike Codex, there is no thread to create: the session id appears only with the first turn's `system/init` |
 | `Send(prompt)` | fits | write `{"type":"user","message":{"role":"user","content":prompt},…}`; return the turn anchor (below). `ErrTurnInProgress` while a turn is in flight, as codex |
 | `SendNotice(prompt)` | fits with a weaker guarantee | same prompt wrapper and `{` heuristic as codex. **Gap:** Codex also sends a per-turn output schema; Claude's `--json-schema` is per process and not enforced (E7), so the instruction is prompt-only. Acknowledgement filtering logic can be the same |
-| `Read()` | fits | translate stdout lines (mapping below); stderr lines as `Log`; error only when the process exits |
-| `Interrupt()` | fits | `control_request{subtype: interrupt}`. The turn then ends with `result{subtype: error_during_execution, terminal_reason: aborted_streaming}`; the adapter treats it as a normal turn end (Log + anchor flush), not a `Read()` error. No-op when idle |
-| `Stop()` | fits | close stdin (exits in about 1 s, E8); after a grace period SIGTERM, then kill; always reap |
+| `Read()` | fits | translate stdout lines (mapping below); stderr lines as `Log`; error only when the process exits. Lines have no length limit (one line can carry a whole file); a read error is logged and the process killed, so `Read()` returns an error instead of hanging |
+| `Interrupt()` | fits | `control_request{subtype: interrupt}`. The turn then ends with `result{subtype: error_during_execution, terminal_reason: aborted_streaming}`, or `aborted_tools` when interrupted during an approval; the adapter treats it as a normal turn end (Log + anchor flush), not a `Read()` error. No-op when idle |
+| `Stop()` | fits | close stdin (exits in about 1 s, E8); after a grace period SIGTERM, then kill; always reap. After the kill, our pipe ends are closed too, so a child that inherited them (a wrapper, an MCP server) cannot keep `Stop()` waiting |
 | `Keepaliver` | **postponed** | `Keepaliver` exists to keep a backend warm (Codex takes about 5 min from cold to warm). No equivalent cold state has been seen for Claude: the session lives in the process and the local transcript. The only idle effect observed is prompt-cache expiry (1 h cache in the E1 to E10 runs): the first turn after a long idle re-reads the context uncached, costing seconds and money, not minutes. Not measured on a large context. If Claude turns out to have a pause or cold mode, or cache misses hurt, implement it (for the cache, a minimal turn every ~50 min). The session treats `Keepaliver` as optional, so nothing breaks meanwhile |
 
 ### Turn anchor
@@ -97,8 +97,13 @@ The adapter owns the turn boundary: every turn ends with exactly one `result`.
   `{StreamID: "claude:turn", Mode: ModeFlush, Content: Output{}}` after
   flushing any open item streams.
 - `SendNotice` returns `claude:notice-turn`, flushed the same way, as codex.
-- The replayed user message (`isReplay`, about 1.5 s after the write) is used
-  only to confirm the turn started; it is not needed for the anchor.
+- The replayed user message (`isReplay`, about 1 s after the write) decides
+  whose turn it is: a turn is ours once Claude replays the exact prompt `Send`
+  wrote. Recordings show the order `system/init`, replay, first output in
+  every turn, so output before the replay belongs to a turn Claude started on
+  its own (see [Self-started turns](#self-started-turns)). A turn that ends
+  before any replay or output is ours only if it failed while our prompt was
+  pending (an API error can end it before the replay).
 
 This answers open question 8: the anchor is adapter-local and needs no protocol
 id.
@@ -117,11 +122,13 @@ Stream IDs are built from Claude ids and are opaque to consumers.
 | `assistant` `tool_use{name: Bash}` | `Command{Command: input.command}` `ModeStream` on `claude:command:<tool_use_id>` |
 | `user` `tool_result` for that Bash call | `CommandWithOverrideOutput(output)` with `ExitCode` `ModeStream`, then `Command` `ModeFlush`. `Cwd` is not reported. Exit code: see below |
 | `assistant` `tool_use{name: Write\|Edit\|NotebookEdit}` | `FileChangeSet{Status: inProgress}` `ModeStream` on `claude:filechange:<tool_use_id>` |
-| `user` `tool_result` + `tool_use_result.structuredPatch` | `FileChangeSet{Status: completed\|failed, Changes: [{Path, Diff, ChangeKind}]}` then `ModeFlush`. Write: `type: create` gives `add`; Edit gives `update`. `Diff` is rendered as unified diff text from the hunks (Write: all `+` lines). Denied: `declined` |
+| `user` `tool_result` + `tool_use_result.structuredPatch` | `FileChangeSet{Status: completed\|failed, Changes: [{Path, Diff, ChangeKind}]}` then `ModeFlush`. Write: `type: create` gives `add`, with the content as `Diff`; anything else gives `update`, with unified diff text from the hunks. An unrecognised shape is an `update` without a diff, never an `add`. Denied by coderoom: `declined` |
+| `user` `tool_result` for NotebookEdit | `update`. Its result has its own snake_case shape (`notebook_path`, `cell_id`, `edit_mode`, `old_source`, `new_source`) and no hunks; `Diff` is the cell source rendered as `-` and `+` lines under `@@ cell <id> (<edit_mode>) @@` |
 | other `tool_use` (Read, Grep, Glob, WebFetch, Task, MCP tools, …) | **not mapped** in the first version, as Codex drops minor items. Option: a one-line `Log` per tool call for visibility |
 | `control_request{can_use_tool}` | `ApprovalListener`, see below; not a `Read()` message |
 | `result{is_error: false}` | flush open streams, then the anchor flush |
-| `result{is_error: true}` | `Log` with `errors[]` / `terminal_reason` (as `pkg-agent-codex-turn-errors.md`), then the anchor flush |
+| `result{is_error: true}` | `Log` with `errors[]` / `terminal_reason` (as `pkg-agent-codex-turn-errors.md`), then the anchor flush. `aborted_streaming` and `aborted_tools` (interrupted during an approval) log "turn interrupted" |
+| tool call still open at `result` (cut off by an interrupt) | file change: `failed`; command: `ExitCode` -1; then the flush |
 | `system/init`, `system/status`, `rate_limit_event`, `system/thinking_tokens` | dropped (observer only) |
 
 ### Bash results and exit codes
@@ -193,12 +200,19 @@ is written under the project's `.claude/`.
 - The stdout reader only parses `can_use_tool` and queues it. A separate
   worker asks the listener and writes the response, one request at a time, so
   a pending human decision never stalls `Read()`, stderr or `Stop()`.
-- The listener's context is the client lifecycle context, cancelled by
-  `Stop()` and on process exit. `Stop()` waits for the worker.
+- Each request gets its own context, derived from a per-turn context, derived
+  from the client lifecycle context. Claude withdraws a pending request with
+  `control_cancel_request` when the turn is interrupted (verified live); that
+  cancels the request's context. The end of the turn cancels whatever is
+  left, and `Stop()` and process exit cancel everything. A withdrawn request
+  is not answered (Claude ignores late answers), is not logged as declined,
+  and is dropped without asking the listener if it was still queued.
+  `Stop()` waits for the worker.
 - A denied file change is reported as `declined`, not `failed`. The adapter
   records each tool call it denies before answering; the tool result cannot
   tell, because its text is our message on deny and Claude's own wording on
-  cancel.
+  cancel. Claude emits no `system/permission_denied` for host denials
+  (checked live), so this cannot be derived from the stream.
 
 ### AskUserQuestion
 
@@ -232,13 +246,19 @@ session changes.
 Adapter-only approach:
 
 1. **Prevent:** start the process with `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1`
-   and `CLAUDE_CODE_DISABLE_CRON=1` (both present in the binary; behaviour to
-   verify), and add `CronCreate`, `CronDelete`, `CronList`, `ScheduleWakeup`,
-   `Monitor` to `--disallowedTools`.
-2. **Defend:** if a `system/init` arrives with no turn in flight, the adapter
-   marks a self-started turn, suppresses its stream messages, emits one `Log`
-   summarising it ("agent started a turn on its own: …" with the final text),
-   and returns `ErrTurnInProgress` from `Send*` until its `result`.
+   and `CLAUDE_CODE_DISABLE_CRON=1`, and add `CronCreate`, `CronDelete`,
+   `CronList`, `ScheduleWakeup`, `Monitor` to `--disallowedTools`. Verified on
+   2.1.301: the cron switch removes the three cron tools from `system/init`;
+   the background switch removes `run_in_background` from Bash, so the call
+   fails validation. The model may then fall back to a shell `(...) &`, which
+   Claude does not track and cannot start a turn from.
+2. **Defend:** a turn whose first output arrives before our prompt is
+   replayed is self-started (see [Turn anchor](#turn-anchor)). The adapter
+   suppresses its stream messages, emits one `Log` summarising it ("agent
+   started a turn on its own: …" with the final text), and returns
+   `ErrTurnInProgress` from `Send*` until it ends. Ownership is decided from
+   the replay, not from local state, so a self-started turn that begins just
+   after `Send` is not mistaken for the reply.
 
 **Decided:** prevent + defend for now. Self-started turns as a real feature are
 a later session change.

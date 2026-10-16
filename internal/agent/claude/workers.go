@@ -1,9 +1,12 @@
 package claude
 
 import (
+	"bufio"
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/roomscript/coderoom/internal/agent"
@@ -30,22 +33,49 @@ func (c *Client) startWorkers() {
 
 func (c *Client) readStdout() {
 	defer c.lifecycle.readers.Done()
-	sc := newScanner(c.proc.stdout)
-	for sc.Scan() {
-		line := sc.Bytes()
+	err := readLines(c.proc.stdout, func(line []byte) {
 		c.obs.OnReceive(string(line))
 		c.handleLine(line)
-	}
+	})
+	c.readFailed("stdout", err)
 }
 
 func (c *Client) readStderr() {
 	defer c.lifecycle.readers.Done()
-	sc := newScanner(c.proc.stderr)
-	for sc.Scan() {
-		text := sc.Text()
-		c.recordStderr(text)
-		c.queue.push(logMessage(text))
+	err := readLines(c.proc.stderr, func(line []byte) {
+		c.recordStderr(string(line))
+		c.queue.push(logMessage(string(line)))
+	})
+	c.readFailed("stderr", err)
+}
+
+// readLines calls handle for each non-empty line, with no length limit: a
+// single line can carry a whole file. It returns nil at EOF.
+func readLines(r io.Reader, handle func([]byte)) error {
+	br := bufio.NewReader(r)
+	for {
+		line, err := br.ReadBytes('\n')
+		if line = bytes.TrimSuffix(line, []byte("\n")); len(line) > 0 {
+			handle(line)
+		}
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("read: %w", err)
+		}
 	}
+}
+
+// readFailed handles a reader that stopped before EOF. Claude would block
+// on the unread pipe, so the process is killed and Read() returns an error
+// instead of hanging. Errors after Stop come from closing the pipes.
+func (c *Client) readFailed(stream string, err error) {
+	if err == nil || c.lifecycle.ctx.Err() != nil {
+		return
+	}
+	c.queue.push(logMessage(fmt.Sprintf("claude: %s %v; stopping the process", stream, err)))
+	_ = c.proc.cmd.Process.Kill()
 }
 
 func (c *Client) recordStderr(line string) {
@@ -65,18 +95,29 @@ func (c *Client) handleLine(line []byte) {
 		c.queue.push(logMessage("claude: " + err.Error()))
 		return
 	}
+	c.handleControl(d)
+	switch d.signal {
+	case signalInit:
+		c.noteTurnStart()
+	case signalReplay:
+		c.notePromptReplayed(d.replay)
+	case signalNone, signalResult:
+	}
+	c.deliver(d.msgs)
+	if d.signal == signalResult {
+		c.endTurn(d.result)
+	}
+}
+
+func (c *Client) handleControl(d decoded) {
 	if d.controlResponse != nil {
 		c.handleControlResponse(d.controlResponse)
 	}
 	if d.controlRequest != nil {
 		c.handleControlRequest(d.controlRequest)
 	}
-	if d.signal == signalInit {
-		c.noteTurnStart()
-	}
-	c.deliver(d.msgs)
-	if d.signal == signalResult {
-		c.endTurn(d.result)
+	if d.controlCancel != nil {
+		c.withdrawPermission(d.controlCancel.RequestID)
 	}
 }
 
@@ -106,22 +147,34 @@ func (c *Client) handleControlRequest(line *controlRequestLine) {
 	c.queuePermission(line.RequestID, tool)
 }
 
-// noteTurnStart marks a turn Claude started on its own: system/init with no
-// turn in flight.
+// noteTurnStart marks a turn as started. Whose it is becomes known later.
 func (c *Client) noteTurnStart() {
 	c.turn.mu.Lock()
 	defer c.turn.mu.Unlock()
-	if c.turn.kind == turnIdle {
-		c.turn.kind = turnSelf
-		c.selfTurnText.Reset()
+	if c.turn.owner == ownerNone {
+		c.turn.owner = ownerUnknown
+	}
+}
+
+// notePromptReplayed claims the turn when Claude replays our prompt.
+func (c *Client) notePromptReplayed(text string) {
+	c.turn.mu.Lock()
+	defer c.turn.mu.Unlock()
+	if c.turn.owner == ownerUnknown && c.turn.promptPending && text == c.turn.prompt {
+		c.turn.owner = ownerPrompt
+		c.turn.prompt, c.turn.promptPending = "", false
 	}
 }
 
 // deliver queues messages for Read(), except during a self-started turn,
 // whose output is summarised at its end instead: the session drops stream
-// fragments for idle participants.
+// fragments for idle participants. Output before our prompt is replayed
+// means Claude started the turn on its own.
 func (c *Client) deliver(msgs []agent.Message) {
-	if c.currentTurn() != turnSelf {
+	if len(msgs) == 0 {
+		return
+	}
+	if c.claimOutput() != ownerSelf {
 		c.queue.push(msgs...)
 		return
 	}
@@ -132,24 +185,56 @@ func (c *Client) deliver(msgs []agent.Message) {
 	}
 }
 
-// endTurn closes the turn. The turn is marked idle before the anchor flush is
-// queued, so a Send issued in reaction to the flush is accepted.
+func (c *Client) claimOutput() turnOwner {
+	c.turn.mu.Lock()
+	defer c.turn.mu.Unlock()
+	if c.turn.owner == ownerUnknown {
+		c.turn.owner = ownerSelf
+		c.selfTurnText.Reset()
+	}
+	return c.turn.owner
+}
+
+// endTurn closes the turn and withdraws its pending approvals. The turn is
+// marked over before the anchor flush is queued, so a Send issued in
+// reaction to the flush is accepted.
 func (c *Client) endTurn(result resultLine) {
-	switch c.swapTurn(turnIdle) {
-	case turnPrompt:
+	c.endApprovalTurn()
+	switch c.closeTurn(result) {
+	case ownerPrompt:
 		if result.IsError {
 			c.queue.push(logMessage(describeTurnError(result)))
 		}
 		c.queue.push(agent.Message{StreamID: turnStreamID, Mode: agent.ModeFlush, Content: agent.Output{}})
-	case turnSelf:
+	case ownerSelf:
 		c.queue.push(logMessage(describeSelfTurn(c.selfTurnText.String(), result)))
-	case turnIdle:
+	case ownerNone, ownerUnknown:
 		// A result with no turn in flight; nothing to close.
 	}
 }
 
+// closeTurn ends the turn and returns its owner. A turn that ends before
+// any replay or output is ours only if it failed while our prompt was
+// pending: Claude replays a prompt before answering it, so a failure is the
+// only way our turn ends without one.
+func (c *Client) closeTurn(result resultLine) turnOwner {
+	c.turn.mu.Lock()
+	defer c.turn.mu.Unlock()
+	owner := c.turn.owner
+	c.turn.owner = ownerNone
+	if owner != ownerUnknown {
+		return owner
+	}
+	if c.turn.promptPending && result.IsError {
+		c.turn.prompt, c.turn.promptPending = "", false
+		return ownerPrompt
+	}
+	c.selfTurnText.Reset()
+	return ownerSelf
+}
+
 func describeTurnError(r resultLine) string {
-	if r.TerminalReason == "aborted_streaming" {
+	if r.TerminalReason == "aborted_streaming" || r.TerminalReason == "aborted_tools" {
 		return "claude: turn interrupted"
 	}
 	text := fmt.Sprintf("claude: turn failed (%s", r.Subtype)

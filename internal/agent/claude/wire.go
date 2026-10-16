@@ -17,6 +17,9 @@ const (
 	typeResult          = "result"
 	typeControlRequest  = "control_request"
 	typeControlResponse = "control_response"
+	// typeControlCancel withdraws a control request Claude sent, for example
+	// a pending permission request when the turn is interrupted.
+	typeControlCancel = "control_cancel_request"
 
 	subtypeInit = "init"
 )
@@ -119,6 +122,10 @@ type canUseTool struct {
 	ToolUseID             string            `json:"tool_use_id"`
 }
 
+type controlCancelLine struct {
+	RequestID string `json:"request_id"`
+}
+
 type controlResponseLine struct {
 	Response struct {
 		Subtype   string `json:"subtype"`
@@ -146,11 +153,20 @@ type bashResult struct {
 }
 
 type fileResult struct {
-	Type            string  `json:"type"`
-	FilePath        string  `json:"filePath"`
-	Content         string  `json:"content"`
-	StructuredPatch []hunk  `json:"structuredPatch"`
-	OriginalFile    *string `json:"originalFile"`
+	Type            string `json:"type"`
+	FilePath        string `json:"filePath"`
+	Content         string `json:"content"`
+	StructuredPatch []hunk `json:"structuredPatch"`
+}
+
+// notebookResult is the NotebookEdit tool result. Its fields are snake_case,
+// unlike Write and Edit.
+type notebookResult struct {
+	NotebookPath string `json:"notebook_path"`
+	CellID       string `json:"cell_id"`
+	EditMode     string `json:"edit_mode"` // replace, insert or delete
+	OldSource    string `json:"old_source"`
+	NewSource    string `json:"new_source"`
 }
 
 type hunk struct {

@@ -9,7 +9,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"sync"
 
 	"github.com/roomscript/coderoom/internal/agent"
 )
@@ -20,6 +19,7 @@ type turnSignal int
 const (
 	signalNone   turnSignal = iota
 	signalInit              // system/init: a turn is starting
+	signalReplay            // a prompt replayed back: the turn answers it
 	signalResult            // result: the turn is over
 )
 
@@ -27,9 +27,11 @@ const (
 type decoded struct {
 	msgs            []agent.Message
 	signal          turnSignal
+	replay          string // the replayed prompt, with signalReplay
 	result          resultLine
 	controlRequest  *controlRequestLine
 	controlResponse *controlResponseLine
+	controlCancel   *controlCancelLine
 }
 
 type blockKind int
@@ -55,58 +57,29 @@ const (
 
 // toolCall is a mapped tool_use waiting for its tool_result.
 type toolCall struct {
-	id   agent.StreamID
-	kind toolKind
-	path string
+	id       agent.StreamID
+	kind     toolKind
+	path     string
+	notebook bool // NotebookEdit, whose result has its own shape
 }
 
 // decoder translates stdout lines into agent messages. It is owned by the
-// stdout reader goroutine and is not safe for concurrent use, except denied,
-// which the approval worker writes.
+// stdout reader goroutine and is not safe for concurrent use.
 type decoder struct {
 	messageID string
 	blocks    map[int]*openBlock
 	tools     map[string]toolCall
-	denied    *deniedTools
+	// declined reports, and forgets, a tool call coderoom denied. The
+	// approval state behind it is safe for concurrent use.
+	declined func(toolUseID string) bool
 }
 
 func newDecoder() *decoder {
 	return &decoder{
-		blocks: map[int]*openBlock{},
-		tools:  map[string]toolCall{},
-		denied: &deniedTools{ids: map[string]bool{}},
+		blocks:   map[int]*openBlock{},
+		tools:    map[string]toolCall{},
+		declined: func(string) bool { return false },
 	}
-}
-
-// deniedTools holds the tool calls coderoom denied, so their results read as
-// declined rather than failed. The tool result cannot tell: its text is our
-// deny message, or Claude's own wording when the deny interrupts the turn.
-type deniedTools struct {
-	mu  sync.Mutex
-	ids map[string]bool
-}
-
-// add records a denial. The approval worker calls it before writing the
-// response, so it always precedes the tool result.
-func (t *deniedTools) add(toolUseID string) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.ids[toolUseID] = true
-}
-
-// take reports whether the call was denied and forgets it.
-func (t *deniedTools) take(toolUseID string) bool {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	denied := t.ids[toolUseID]
-	delete(t.ids, toolUseID)
-	return denied
-}
-
-func (t *deniedTools) clear() {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	clear(t.ids)
 }
 
 func (d *decoder) decode(raw []byte) (decoded, error) {
@@ -128,28 +101,31 @@ func (d *decoder) decode(raw []byte) (decoded, error) {
 		return decoded{}, nil
 	case typeResult:
 		return d.decodeResult(raw)
-	case typeControlRequest:
-		return decodeControlRequest(raw)
-	case typeControlResponse:
-		return decodeControlResponse(raw)
+	case typeControlRequest, typeControlResponse, typeControlCancel:
+		return decodeControl(env.Type, raw)
 	}
 	return decoded{}, nil
 }
 
-func decodeControlRequest(raw []byte) (decoded, error) {
-	var line controlRequestLine
-	if err := json.Unmarshal(raw, &line); err != nil {
-		return decoded{}, fmt.Errorf("decode control request: %w", err)
+// decodeControl passes control traffic to the client, which answers it.
+func decodeControl(lineType string, raw []byte) (decoded, error) {
+	var d decoded
+	var target any
+	switch lineType {
+	case typeControlRequest:
+		d.controlRequest = &controlRequestLine{}
+		target = d.controlRequest
+	case typeControlResponse:
+		d.controlResponse = &controlResponseLine{}
+		target = d.controlResponse
+	default:
+		d.controlCancel = &controlCancelLine{}
+		target = d.controlCancel
 	}
-	return decoded{controlRequest: &line}, nil
-}
-
-func decodeControlResponse(raw []byte) (decoded, error) {
-	var line controlResponseLine
-	if err := json.Unmarshal(raw, &line); err != nil {
-		return decoded{}, fmt.Errorf("decode control response: %w", err)
+	if err := json.Unmarshal(raw, target); err != nil {
+		return decoded{}, fmt.Errorf("decode %s: %w", lineType, err)
 	}
-	return decoded{controlResponse: &line}, nil
+	return d, nil
 }
 
 func (d *decoder) decodeStreamEvent(raw []byte) (decoded, error) {
@@ -252,7 +228,10 @@ func (d *decoder) startTool(block contentBlock) []agent.Message {
 		if path == "" {
 			path = in.NotebookPath
 		}
-		tc := toolCall{id: agent.StreamID("claude:filechange:" + block.ID), kind: toolKindFileChange, path: path}
+		tc := toolCall{
+			id: agent.StreamID("claude:filechange:" + block.ID), kind: toolKindFileChange,
+			path: path, notebook: block.Name == "NotebookEdit",
+		}
 		d.tools[block.ID] = tc
 		return []agent.Message{{StreamID: tc.id, Mode: agent.ModeStream, Content: agent.FileChangeSet{Status: agent.ToolStatusInProgress}}}
 	}
@@ -264,9 +243,9 @@ func (d *decoder) decodeUser(raw []byte) (decoded, error) {
 	if err := json.Unmarshal(raw, &line); err != nil {
 		return decoded{}, fmt.Errorf("decode user message: %w", err)
 	}
-	if isJSONString(line.Message.Content) {
-		// Our own prompt replayed back. Nothing to emit.
-		return decoded{}, nil
+	var prompt string
+	if json.Unmarshal(line.Message.Content, &prompt) == nil {
+		return decoded{signal: signalReplay, replay: prompt}, nil
 	}
 	var blocks []toolResultBlock
 	if err := json.Unmarshal(line.Message.Content, &blocks); err != nil {
@@ -288,7 +267,7 @@ func (d *decoder) finishTool(block toolResultBlock, toolUseResult json.RawMessag
 		return nil
 	}
 	delete(d.tools, block.ToolUseID)
-	declined := d.denied.take(block.ToolUseID)
+	declined := d.declined(block.ToolUseID)
 
 	if tc.kind == toolKindCommand {
 		return commandResultMessages(tc, block, toolUseResult)
@@ -367,22 +346,55 @@ func fileChangeResultMessages(tc toolCall, block toolResultBlock, toolUseResult 
 	}
 }
 
-// parseFileChanges maps a Write/Edit structured result to file changes. A
-// created file carries its content as the diff, as the Codex adapter does; an
-// update carries unified diff hunks.
+// parseFileChanges maps a completed tool result to file changes. A created
+// file carries its content as the diff, as the Codex adapter does; an update
+// carries unified diff hunks. Anything unrecognised is an update without a
+// diff, never a created file.
 func parseFileChanges(tc toolCall, toolUseResult json.RawMessage, status agent.ToolStatus) []agent.FileChange {
-	var r fileResult
-	if status != agent.ToolStatusCompleted || json.Unmarshal(toolUseResult, &r) != nil {
+	if status != agent.ToolStatusCompleted {
 		return []agent.FileChange{{Path: tc.path}}
 	}
+	if tc.notebook {
+		var r notebookResult
+		_ = json.Unmarshal(toolUseResult, &r)
+		return []agent.FileChange{{Path: tc.path, Diff: renderCellEdit(r), ChangeKind: "update"}}
+	}
+	var r fileResult
+	_ = json.Unmarshal(toolUseResult, &r)
 	path := r.FilePath
 	if path == "" {
 		path = tc.path
 	}
-	if r.Type == "create" || (r.OriginalFile == nil && len(r.StructuredPatch) == 0) {
+	if r.Type == "create" {
 		return []agent.FileChange{{Path: path, Diff: r.Content, ChangeKind: "add"}}
 	}
 	return []agent.FileChange{{Path: path, Diff: renderHunks(r.StructuredPatch), ChangeKind: "update"}}
+}
+
+// renderCellEdit renders a notebook cell edit as a diff of the cell source.
+// NotebookEdit reports whole sources, not hunks.
+func renderCellEdit(r notebookResult) string {
+	if r.CellID == "" && r.OldSource == "" && r.NewSource == "" {
+		return ""
+	}
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "@@ cell %s (%s) @@\n", r.CellID, r.EditMode)
+	if r.EditMode != "insert" {
+		writePrefixedLines(&sb, "-", r.OldSource)
+	}
+	if r.EditMode != "delete" {
+		writePrefixedLines(&sb, "+", r.NewSource)
+	}
+	return sb.String()
+}
+
+func writePrefixedLines(sb *strings.Builder, prefix, text string) {
+	if text == "" {
+		return
+	}
+	for line := range strings.SplitSeq(text, "\n") {
+		sb.WriteString(prefix + line + "\n")
+	}
 }
 
 func renderHunks(hunks []hunk) string {
@@ -406,7 +418,7 @@ func (d *decoder) decodeResult(raw []byte) (decoded, error) {
 }
 
 // flushOpen closes every stream still open at the end of a turn, for example
-// after an interrupt.
+// after an interrupt. A tool call without a result is reported as cut off.
 func (d *decoder) flushOpen() []agent.Message {
 	var msgs []agent.Message
 	for _, index := range slices.Sorted(maps.Keys(d.blocks)) {
@@ -415,12 +427,21 @@ func (d *decoder) flushOpen() []agent.Message {
 		}
 	}
 	for _, id := range slices.Sorted(maps.Keys(d.tools)) {
-		msgs = append(msgs, toolFlush(d.tools[id]))
+		tc := d.tools[id]
+		msgs = append(msgs, toolCutOff(tc), toolFlush(tc))
 	}
 	clear(d.blocks)
 	clear(d.tools)
-	d.denied.clear()
 	return msgs
+}
+
+// toolCutOff marks a tool call whose result never arrived: a failed file
+// change, or a command without an exit code.
+func toolCutOff(tc toolCall) agent.Message {
+	if tc.kind == toolKindCommand {
+		return agent.Message{StreamID: tc.id, Mode: agent.ModeStream, Content: agent.Command{ExitCode: intPtr(unknownExitCode)}}
+	}
+	return agent.Message{StreamID: tc.id, Mode: agent.ModeStream, Content: agent.FileChangeSet{Status: agent.ToolStatusFailed}}
 }
 
 func toolFlush(tc toolCall) agent.Message {
@@ -459,11 +480,6 @@ func isJSONNull(raw json.RawMessage) bool {
 }
 
 func intPtr(v int) *int { return &v }
-
-func isJSONString(raw json.RawMessage) bool {
-	trimmed := bytes.TrimSpace(raw)
-	return len(trimmed) > 0 && trimmed[0] == '"'
-}
 
 func joinNonEmpty(parts ...string) string {
 	var out []string

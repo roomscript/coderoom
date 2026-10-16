@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -14,6 +15,11 @@ import (
 
 const lineInitOK = `{"type":"control_response","response":{"subtype":"success","request_id":"coderoom-init","response":{}}}`
 
+// peerPause, as a step line, makes the peer wait before the next line, for
+// tests that need the client to act first (an approval reaching the
+// listener).
+const peerPause = "!pause"
+
 // peerScript returns a shell script for a fake claude process. Each step
 // reads one line from stdin, then prints its lines. After the last step the
 // peer drains stdin, so it exits when the client closes stdin.
@@ -22,6 +28,10 @@ func peerScript(steps ...[]string) string {
 	for _, step := range steps {
 		sb.WriteString("read -r _; ")
 		for _, l := range step {
+			if l == peerPause {
+				sb.WriteString("sleep 0.3; ")
+				continue
+			}
 			sb.WriteString("printf '%s\\n' '" + l + "'; ")
 		}
 	}
@@ -161,7 +171,7 @@ func TestStart_timeout(t *testing.T) {
 func TestSend_turn(t *testing.T) {
 	c := startPeer(t, peerScript(
 		[]string{lineInitOK},
-		[]string{lineSystemInit, lineMessageStart, lineTextStart, textDeltaLine("ok"), lineBlockStop, lineResultOK},
+		[]string{lineSystemInit, replayLine("Reply with just: ok"), lineMessageStart, lineTextStart, textDeltaLine("ok"), lineBlockStop, lineResultOK},
 	))
 
 	anchor, err := c.Send("Reply with just: ok")
@@ -180,7 +190,7 @@ func TestSend_turn(t *testing.T) {
 func TestSend_turnInProgress(t *testing.T) {
 	c := startPeer(t, peerScript(
 		[]string{lineInitOK},
-		[]string{lineSystemInit, lineResultOK},
+		[]string{lineSystemInit, replayLine("first"), lineResultOK},
 	))
 
 	if _, err := c.Send("first"); err != nil {
@@ -201,6 +211,7 @@ func TestSend_beforeStart(t *testing.T) {
 	}
 }
 
+// The turn fails before Claude replays the prompt, as an API error can.
 func TestRead_turnErrorLoggedBeforeAnchorFlush(t *testing.T) {
 	failed := `{"type":"result","subtype":"error_during_execution","is_error":true,"terminal_reason":"api_error","errors":["overloaded"]}`
 	c := startPeer(t, peerScript([]string{lineInitOK}, []string{lineSystemInit, failed}))
@@ -239,6 +250,50 @@ func TestRead_selfStartedTurnSummarisedAsLog(t *testing.T) {
 	}
 	if _, err := c.Send("hi"); err != nil {
 		t.Fatalf("Send after self-started turn: %v", err)
+	}
+}
+
+func TestRead_selfStartedTurnAfterSend(t *testing.T) {
+	// Claude starts a turn of its own just after Send, then answers the
+	// prompt. Only the second turn is the reply.
+	c := startPeer(t, peerScript(
+		[]string{lineInitOK},
+		[]string{
+			lineSystemInit, lineMessageStart, lineTextStart, textDeltaLine("tick"), lineBlockStop, lineResultOK,
+			lineSystemInit, replayLine("hi"), lineMessageStart, lineTextStart, textDeltaLine("ok"), lineBlockStop, lineResultOK,
+		},
+	))
+
+	if _, err := c.Send("hi"); err != nil {
+		t.Fatal(err)
+	}
+	msgs := readUntil(t, c, isAnchorFlush)
+	if !isLog(msgs[0]) || !strings.Contains(msgs[0].Content.(agent.Log).Text, "tick") {
+		t.Fatalf("first message = %+v, want the self-started turn summary", msgs[0])
+	}
+	if out, _ := accumulate(t, msgs[1:len(msgs)-1]).Content.(agent.Output); out.Text != "ok" {
+		t.Errorf("reply = %q, want ok", out.Text)
+	}
+	if _, err := c.Send("next"); err != nil {
+		t.Errorf("Send after the reply: %v", err)
+	}
+}
+
+func TestRead_lineLongerThanReadBuffer(t *testing.T) {
+	const n = 200_000
+	longDelta := "printf '%s' '{\"type\":\"stream_event\",\"event\":{\"type\":\"content_block_delta\",\"index\":0," +
+		"\"delta\":{\"type\":\"text_delta\",\"text\":\"'; head -c " + strconv.Itoa(n) + " /dev/zero | tr '\\0' a; printf '\"}}}\\n'; "
+	script := "read -r _; printf '%s\\n' '" + lineInitOK + "'; read -r _; printf '%s\\n' '" + lineSystemInit + "' '" +
+		replayLine("hi") + "' '" + lineMessageStart + "' '" + lineTextStart + "'; " + longDelta +
+		"printf '%s\\n' '" + lineBlockStop + "' '" + lineResultOK + "'; cat >/dev/null"
+	c := startPeer(t, script)
+
+	if _, err := c.Send("hi"); err != nil {
+		t.Fatal(err)
+	}
+	msgs := readUntil(t, c, isAnchorFlush)
+	if out, _ := accumulate(t, msgs[:len(msgs)-1]).Content.(agent.Output); len(out.Text) != n {
+		t.Errorf("output length = %d, want %d", len(out.Text), n)
 	}
 }
 
@@ -292,16 +347,29 @@ func TestStop_unblocksRead(t *testing.T) {
 	}
 }
 
-func TestStop_escalatesWhenStdinIgnored(t *testing.T) {
-	// The peer ignores stdin EOF; Stop must fall back to signals.
-	c := startPeer(t, "read -r _; printf '%s\\n' '"+lineInitOK+"'; exec sleep 60")
-	c.stopGrace = 100 * time.Millisecond
-	start := time.Now()
-	if err := c.Stop(); err != nil {
-		t.Fatal(err)
+func TestStop_escalates(t *testing.T) {
+	tests := []struct {
+		name   string
+		script string
+	}{
+		// The peer ignores stdin EOF; Stop must fall back to signals.
+		{"stdin ignored", "read -r _; printf '%s\\n' '" + lineInitOK + "'; exec sleep 60"},
+		// A child inherits the pipes and outlives the peer; Stop must not
+		// wait for it to close them.
+		{"pipes held by a child", "read -r _; printf '%s\\n' '" + lineInitOK + "'; sleep 5 & exec sleep 60"},
 	}
-	if elapsed := time.Since(start); elapsed > 2*time.Second {
-		t.Errorf("Stop took %s", elapsed)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := startPeer(t, tt.script)
+			c.stopGrace = 100 * time.Millisecond
+			start := time.Now()
+			if err := c.Stop(); err != nil {
+				t.Fatal(err)
+			}
+			if elapsed := time.Since(start); elapsed > 2*time.Second {
+				t.Errorf("Stop took %s", elapsed)
+			}
+		})
 	}
 }
 

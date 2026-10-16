@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/roomscript/coderoom/internal/agent"
 	"github.com/roomscript/coderoom/internal/agent/claude"
@@ -150,6 +151,39 @@ func TestClientLiveInterrupt(t *testing.T) {
 	}
 
 	// The client accepts the next turn.
+	readTurn(t, c, send(t, c, `Reply "hi" only.`))
+}
+
+// TestClientLiveInterruptPendingApproval interrupts while the listener
+// waits. Claude withdraws the request, so the listener must stop waiting, and
+// the client must accept the next turn.
+func TestClientLiveInterruptPendingApproval(t *testing.T) {
+	l := &waitingListener{called: make(chan struct{}), released: make(chan struct{})}
+	c, _, cwd := startLiveClient(t, claude.WithApprovalListener(l))
+	anchor := send(t, c, "Create the file note.txt containing `hello` with the Write tool. Do not retry.")
+
+	turn := make(chan turnResult, 1)
+	go func() { turn <- readTurn(t, c, anchor) }()
+	select {
+	case <-l.called:
+	case <-time.After(liveTurnTimeout):
+		t.Fatal("no approval request")
+	}
+	if err := c.Interrupt(); err != nil {
+		t.Fatalf("Interrupt: %v", err)
+	}
+	select {
+	case <-l.released:
+	case <-time.After(30 * time.Second):
+		t.Fatal("listener still waiting after the interrupt")
+	}
+	res := <-turn
+	if len(res.logs) == 0 {
+		t.Error("interrupted turn produced no log")
+	}
+	if _, err := os.Stat(filepath.Join(cwd, "note.txt")); err == nil {
+		t.Error("note.txt was written")
+	}
 	readTurn(t, c, send(t, c, `Reply "hi" only.`))
 }
 
