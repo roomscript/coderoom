@@ -13,8 +13,7 @@ import (
 	"github.com/roomscript/coderoom/internal/session"
 )
 
-// SendCommand prepares addressed sends. This prototype remains unregistered;
-// production delivery and staging still use the legacy workflow.
+// SendCommand prepares addressed sends with frozen delivery recipients.
 type SendCommand struct{}
 
 var _ runtime.Command = SendCommand{}
@@ -71,10 +70,10 @@ func validateSendInput(parsed promptlang.ParsedStatement, ctx runtime.Context) (
 func resolveSendTarget(name string, execution runtime.SessionExecution) (participant.Alias, error) {
 	view, ok := execution.ParticipantByName(name)
 	if !ok {
-		return participant.Alias{}, fmt.Errorf("participant %q not found", name)
+		return participant.Alias{}, fmt.Errorf("participant %q not found: %w", name, &runtime.RequiredParticipantUnavailableError{Alias: participant.Alias{Name: name}})
 	}
 	if view.Status == participant.StatusCrashed {
-		return participant.Alias{}, fmt.Errorf("participant %q is unavailable", name)
+		return participant.Alias{}, fmt.Errorf("participant %q is unavailable: %w", name, &runtime.RequiredParticipantUnavailableError{Alias: view.Alias})
 	}
 	return view.Alias, nil
 }

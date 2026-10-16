@@ -97,7 +97,7 @@ func retainBeforeQueuedAdvancement(interp *Interpreter, sess *lifecycleSession, 
 			return errors.New("participant callback advanced lifecycle outside owner lane")
 		}
 		interp.retainStage(1, parsed, invocation.Staging())
-		submission.PublishSubmission(nil)
+		interp.publishCommandSubmission(submission, nil)
 		return nil
 	case <-time.After(3 * time.Second):
 		return errors.New("handoff did not request advancement")

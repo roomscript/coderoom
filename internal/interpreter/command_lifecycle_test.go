@@ -13,7 +13,6 @@ import (
 	"github.com/roomscript/coderoom/internal/agent"
 	"github.com/roomscript/coderoom/internal/agent/echo"
 	roomconfig "github.com/roomscript/coderoom/internal/config"
-	"github.com/roomscript/coderoom/internal/interpreter/std"
 	"github.com/roomscript/coderoom/internal/participant"
 	"github.com/roomscript/coderoom/internal/policy"
 	"github.com/roomscript/coderoom/internal/room"
@@ -85,10 +84,6 @@ func newLifecycleInterpreter(t *testing.T) (*Interpreter, *lifecycleSession, *li
 	interp := New(context.Background(), sess, t.TempDir(), WithObserver(routingObserver{events}))
 	t.Cleanup(interp.Close)
 	t.Cleanup(backend.unblock)
-	// Test-only registration: public addressed send remains on the legacy path.
-	if err := interp.commands.Register(std.SendCommand{}); err != nil {
-		t.Fatal(err)
-	}
 	if err := sess.Execute(session.InviteCommand{Alias: "ada"}); err != nil {
 		t.Fatal(err)
 	}
@@ -166,11 +161,11 @@ func awaitLifecycleEvent(t *testing.T, events <-chan Event, matches func(Event) 
 	for {
 		select {
 		case event := <-events:
-			if failed, ok := event.(SubmissionFailed); ok {
-				t.Fatalf("submission failed: %v", failed.Err)
-			}
 			if matches(event) {
 				return
+			}
+			if failed, ok := event.(SubmissionFailed); ok {
+				t.Fatalf("submission failed: %v", failed.Err)
 			}
 		case <-timeout:
 			t.Fatal("timed out waiting for lifecycle event")
@@ -235,9 +230,6 @@ func TestCommandLifecycle_waitsForStartup(t *testing.T) {
 	interp := New(context.Background(), sess, t.TempDir(), WithObserver(routingObserver{events}))
 	t.Cleanup(interp.Close)
 	t.Cleanup(gate.unblock)
-	if err := interp.commands.Register(std.SendCommand{}); err != nil {
-		t.Fatal(err)
-	}
 	if err := sess.Execute(session.InviteCommand{Alias: "ada"}); err != nil {
 		t.Fatal(err)
 	}
@@ -290,8 +282,10 @@ func TestCommandLifecycle_delivery(t *testing.T) {
 	for _, partial := range []bool{false, true} {
 		t.Run(fmt.Sprintf("partial=%t", partial), func(t *testing.T) {
 			interp, sess, events := newNoticeLifecycleInterpreter(t, partial)
-			submitLifecycleSend(t, interp, events)
-			awaitLifecycleDelivery(t, events, partial)
+			if err := interp.Submit("@ada work"); err != nil {
+				t.Fatal(err)
+			}
+			awaitDirectSendDelivery(t, events, partial)
 			interp.Close()
 			assertLifecycleDelivery(t, interp, partial)
 			if sess.subscriptions.Load() != 0 {
@@ -314,9 +308,6 @@ func newNoticeLifecycleInterpreter(t *testing.T, partial bool) (*Interpreter, *l
 	events := make(chan Event, 128)
 	interp := New(context.Background(), sess, t.TempDir(), WithObserver(routingObserver{events}))
 	t.Cleanup(interp.Close)
-	if err := interp.commands.Register(std.SendCommand{}); err != nil {
-		t.Fatal(err)
-	}
 	if err := sess.Execute(session.EnablePolicyCommand{Name: policy.SendNotices}); err != nil {
 		t.Fatal(err)
 	}
@@ -392,5 +383,115 @@ func assertLifecycleStartupView(t *testing.T, sess *lifecycleSession) {
 	view, ok := sess.ParticipantByName("ada")
 	if !ok || view.Status != participant.StatusIdle || view.StartupReady {
 		t.Fatalf("startup state = %#v", view)
+	}
+}
+
+// Direct delivery reports its terminal submission outcome after causal projection
+// and the dispatch event; queued sends instead acknowledge before delivery.
+func awaitDirectSendDelivery(t *testing.T, events <-chan Event, partial bool) {
+	t.Helper()
+	var publications []string
+	awaitLifecycleEvent(t, events, func(event Event) bool {
+		publication := directSendPublication(t, event, partial)
+		if publication != "" {
+			publications = append(publications, publication)
+		}
+		return publication == "success" || publication == "failure"
+	})
+	outcome := "success"
+	if partial {
+		outcome = "failure"
+	}
+	if !slices.Equal(publications, []string{"accepted", "input", "dispatch", outcome}) {
+		t.Fatalf("direct send publications = %v", publications)
+	}
+}
+
+func directSendPublication(t *testing.T, event Event, partial bool) string {
+	t.Helper()
+	switch value := event.(type) {
+	case InputAccepted:
+		assertSendEventRouting(t, value.Routing, false)
+		return "accepted"
+	case TranscriptChanged:
+		if isLifecycleInput(event) {
+			return "input"
+		}
+	case StagedInputDispatched:
+		assertSendEventRouting(t, value.Routing, partial)
+		return "dispatch"
+	case SubmissionSucceeded:
+		return "success"
+	case SubmissionFailed:
+		return "failure"
+	case OperationFailed:
+		t.Fatalf("direct send published operation failure: %#v", value)
+	}
+	return ""
+}
+
+func assertSendEventRouting(t *testing.T, routing []string, partial bool) {
+	t.Helper()
+	want := []string{"ada", "ben"}
+	if partial {
+		want = []string{"ada"}
+	}
+	if !slices.Equal(routing, want) {
+		t.Fatalf("routing = %v, want %v", routing, want)
+	}
+}
+
+func TestSend_unavailableTargetFailsBeforeAcceptance(t *testing.T) {
+	interp, _, _, events, _ := newLifecycleInterpreter(t)
+	if err := interp.Submit("@missing work"); err != nil {
+		t.Fatal(err)
+	}
+	awaitLifecycleEvent(t, events, func(event Event) bool {
+		switch value := event.(type) {
+		case InputAccepted:
+			t.Fatalf("unavailable send was accepted: %#v", value)
+		case SubmissionFailed:
+			if value.Code != ErrorParticipantUnavailable || value.Raw != "@missing work" {
+				t.Fatalf("failure = %#v", value)
+			}
+			return true
+		}
+		return false
+	})
+	snapshot := interp.Snapshot()
+	if snapshot.Stage != nil || slices.ContainsFunc(snapshot.Room.Records, func(record room.Record) bool { return record.Text == "@missing work" }) {
+		t.Fatal("unavailable send retained work")
+	}
+}
+
+func TestSend_queuedInputCannotOvertakeAdmittedDelivery(t *testing.T) {
+	for _, next := range []string{"@ada work", "hello"} {
+		t.Run(next, func(t *testing.T) {
+			interp, _, backend, events, _ := newLifecycleInterpreter(t)
+			entered, release := make(chan struct{}), make(chan struct{})
+			if err := interp.fallback.Schedule(func() { close(entered); <-release }); err != nil {
+				t.Fatal(err)
+			}
+			<-entered
+			firstErr := interp.Submit("@ada busy")
+			nextErr := interp.Submit(next)
+			close(release)
+			if firstErr != nil || nextErr != nil {
+				t.Fatalf("submit errors: %v, %v", firstErr, nextErr)
+			}
+			awaitLifecycleEvent(t, events, func(event Event) bool {
+				succeeded, ok := event.(SubmissionSucceeded)
+				return ok && succeeded.Raw == next
+			})
+			stage := interp.Snapshot().Stage
+			if stage == nil || stage.Raw != next {
+				t.Fatalf("queued input did not wait for preceding delivery: %#v", stage)
+			}
+			backend.unblock()
+			awaitLifecycleEvent(t, events, func(event Event) bool {
+				dispatched, ok := event.(StagedInputDispatched)
+				return ok && dispatched.Raw == next
+			})
+		})
 	}
 }

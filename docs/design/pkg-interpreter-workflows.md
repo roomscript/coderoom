@@ -422,7 +422,7 @@ Correlated shared-send planning and participant-state completions provide
 frozen routing and readiness inputs to the implemented stage workflow.
 
 `submissionOutcome` retains legacy execution results. Registered commands use
-an interpreter-owned `runtime.Registry`; currently `/who` and `/shell` are registered there.
+an interpreter-owned `runtime.Registry`; currently `/who`, `/shell` and addressed sends are registered there.
 The shared dispatch path emits `goInvocationInstruction` with the original source,
 then the executor supplies detached participant reads and owned shell execution.
 `CommandRunner.Go` returning nil reports submission success; preparation or launch
@@ -1094,3 +1094,21 @@ readability review: follow addressed send, broadcast, handoff, loop and shell
 paths from the API/core files, opening supporting files only for details. Existing
 behavior regressions protect causal order, stale outcomes, partial delivery,
 startup readiness and cancellation races; they do not replace that review.
+
+### Addressed-send public cutover
+
+Public addressed sends now use the new interpreter's lifecycle and visible stage.
+Preparation publishes `InputAccepted` with frozen routing only after resolving a
+valid target. Missing or crashed targets fail with `ErrorParticipantUnavailable`.
+Direct delivery publishes the actual input record before causal Session events,
+then `StagedInputDispatched` when anyone received delivery, then one
+`SubmissionSucceeded` or `SubmissionFailed`. Partial delivery retains actual,
+failed and unsent routing and reports submission failure after dispatch.
+
+Waiting sends publish submission success when retained. Delivery later publishes
+the same record/event ordering, with `OperationFailed` for delivery failure and
+no repeated submission outcome. Required departure instead publishes the existing
+discard notice. Edit/discard and interrupt retain their atomic removal and retry
+rules. Legacy stages block modular sends; modular stages block fallback work.
+Broadcast, handoff, user commands and loops remain fallback. Loop admission and
+delivery policy are unchanged; staged loop coexistence remains a later decision.

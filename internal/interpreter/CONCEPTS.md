@@ -1,33 +1,34 @@
 # Interpreter migration boundary
 
 `interpreter.Interpreter` is the public entry point. Its existing methods and
-options remain available to the CLI and front ends. The current implementation
-lives in `monolith`, preserving its interface and behavior.
+options remain available to the CLI and front ends. The facade selects `/who`,
+`/shell` and addressed sends through its runtime registry. Broadcast, handoff,
+user definitions and loops continue through monolith fallback.
 
-The facade selects `/who` and `/shell` through its own runtime registry. It submits the selected
-command through the additive `monolith.SubmitCommand` bridge, which queues it on
-the existing coordinator and uses `runtime.CommandRunner`. Other statements and
-parse failures delegate to the original `Submit` interface before execution.
-The monolith's command handlers and registry remain intact. The monolith remains the sole
-owner of Session execution, canonical room state, ordered publication, admitted
-workers and shutdown. The facade adds no observer, execution queue or transcript.
+The new interpreter owns command preparation, invocation identity, lifecycle
+advancement, completion acceptance, visible staging and stage operations. It
+runs that algorithm through `monolith.Schedule` on the shared serialized lane.
+The monolith supplies admission, invocation-scoped capabilities, canonical room
+projection, ordered publication and shutdown draining. It owns no migrated
+lifecycle. The facade adds no Session observer, execution queue or transcript.
 
-`api` contains the shared events, snapshots, submission errors and detached record
-inspection helpers. Both the facade and monolith alias these contracts, so the
-monolith never imports its parent package and event types need no conversion.
-`runtime` and `std` stay independent command contracts and modules.
+The new interpreter selects acceptance records/routing and send failure events.
+Monolith admission publishes no acceptance, and its publication methods carry
+caller-supplied events in causal order without send acknowledgement policy.
 
-The shared bridge owns stage admission, detached participant reads, invocation
-identity, launch acknowledgement, queued completion publication and shutdown.
-The facade adds only command selection; it never retries through fallback after a
-selected command fails. Unsupported input is parsed again by the unchanged legacy
-Submit path, preserving its admission-before-syntax-error behavior.
+Addressed sends publish frozen routing on acceptance and delivered input before
+causal Session events. Direct sends report submission success or failure after
+delivery and `StagedInputDispatched`. Waiting sends acknowledge when retained;
+later failures use `OperationFailed`, without a second submission outcome.
+Successful partial delivery still publishes its actual routing and dispatch
+before failure. Required departures discard retained work with the existing
+notice. Both legacy and modular stages block competing work.
 
-Native asynchronous send admission and same-primary result ownership remain the
-next capability. Session delivery and InvocationLifecycle staging are unwired;
-the bridge currently supplies participant reads and the existing shell launcher.
+`api` contains shared events, snapshots, submission errors and detached record
+inspection helpers. Both facade and monolith alias these contracts. `runtime`
+and `std` contain command contracts and modules. `SubmitCommand` remains a
+compatibility bridge for legacy callers and direct-delivery proofs.
 
-Start at `api.go` and `api_requests.go` for the facade; see
-[monolith concepts](monolith/CONCEPTS.md) for current execution algorithms and
+Start at `api.go` and `api_requests.go`; see
 [composition design](../../docs/design/pkg-interpreter-composition.md) for the
-migration agreement.
+migration agreement. Loop staging and coexistence policy remain deferred.

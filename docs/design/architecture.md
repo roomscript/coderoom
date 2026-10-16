@@ -124,10 +124,13 @@ The public interpreter now delegates to `internal/interpreter/monolith` during
 command migration. The monolith remains the single execution, transcript,
 publication and shutdown owner. Shared `internal/interpreter/api` contracts keep
 front-end methods, events and snapshots stable; `runtime` and `std` remain command
-contracts and modules. The new interpreter selects `/who` and `/shell` and owns
+contracts and modules. The new interpreter selects `/who`, `/shell` and addressed sends and owns
 preparation, lifecycle identity/state, readiness, completion acceptance and cleanup.
 It uses the monolith's `Schedule` to run its own algorithm on the shared lane,
 then calls `AdmitCommand` and `CommandSubmission` publication methods explicitly.
+The new interpreter also selects accepted-input routing and submission versus
+operation failure events. The monolith publishes those supplied outcomes in causal
+order without send-specific acknowledgement policy.
 The monolith supplies capabilities and canonical publication; it stores no
 migrated lifecycle and receives no command-orchestration callback.
 Other commands use fallback; `SubmitCommand` remains a legacy compatibility bridge.
@@ -147,8 +150,10 @@ has no private advancement worker or lifecycle mutex. The monolith only
 projects the detached stage into canonical snapshots, executes cancellation and
 falls back to its existing stage operations when the new interpreter has none.
 Successful cancellation does not imply readiness, and retries target only failed
-aliases. Public sends still use the legacy path; test-only registration proves
-these new stage operations before the separate public cutover.
+aliases. Public addressed sends now use this path. Direct sends report their submission
+outcome after delivery and dispatch publication; waiting sends acknowledge on
+retention and report later failures separately. Broadcast, handoff and loops
+remain fallback, with unchanged loop delivery behavior.
 
 This arrangement is temporary. New invocation lifecycle and staging
 orchestration belong to `internal/interpreter` and its runtime components.

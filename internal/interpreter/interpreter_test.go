@@ -70,6 +70,11 @@ func (*recordingSession) CreateParticipantSendPlan(alias participant.Alias) sess
 	return planner.CreateParticipantSendPlan(alias)
 }
 
+// This fixed-state fake does not produce participant transitions.
+func (s *recordingSession) SubscribeParticipants(func(session.Event)) ([]participant.View, func()) {
+	return s.Participants(), func() {}
+}
+
 func (s *recordingSession) Participants() []participant.View {
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -1,7 +1,8 @@
 # Interpreter composition: discussion draft
 
-Status: incremental migration. The facade selects `/who` and `/shell` through its
-registry; the monolith retains execution and publication ownership.
+Status: incremental migration. The facade selects `/who`, `/shell` and addressed
+sends through its registry and owns their lifecycles. The monolith supplies
+serialized Session execution and canonical publication.
 
 This follows [#55](https://github.com/roomscript/coderoom/issues/55) and considers
 [#39](https://github.com/roomscript/coderoom/issues/39). The existing contracts in
@@ -12,7 +13,7 @@ This follows [#55](https://github.com/roomscript/coderoom/issues/55) and conside
 
 The current interpreter implementation has moved to `internal/interpreter/monolith`
 behind its existing interface. The public `internal/interpreter` facade initially
-delegates unsupported requests to one instance. `/who` and `/shell` are selected in the facade
+delegates unsupported requests to one instance. `/who`, `/shell` and addressed sends are selected in the facade
 and admitted through the shared coordinator bridge. Shared `api` contracts keep front-end
 imports stable and let both implementations publish identical event and snapshot
 types without importing the parent package. `runtime` and `std` remain separate.
@@ -27,10 +28,14 @@ identity and cleanup all belong to the new interpreter. No Execution interface
 or command execution wrapper is involved.
 
 `AdmitCommand` returns a `CommandSubmission` containing invocation-scoped Context
-and publication methods, or nil after publishing rejection. Its methods run on
+and publication methods, or nil after publishing rejection. Admission publishes
+no accepted input. The new interpreter chooses acceptance records/routing, error
+classification and direct versus queued terminal events; the monolith publishes
+the supplied events in causal order and attaches source diagnostics. Its methods run on
 the shared lane; only `QueueCompletion` is producer-safe. The new interpreter
-explicitly publishes submission acceptance/failure after Start, and accepted
-completion records/outcomes after it settles the lifecycle. Work running on the
+explicitly publishes queued acceptance after Start and direct-send submission
+results after delivery. It publishes completion records/outcomes after settling
+the lifecycle. Work running on the
 lane must not call blocking queue methods such as Snapshot or Close.
 
 The monolith adapter retains completion work within a native routing burst. The
@@ -48,13 +53,14 @@ submission order. This also handles parent-context cancellation. The monolith
 keeps worker cancellation and canonical projection until those move in a later
 checkpoint; it never adopts new lifecycle or stage policy.
 
-`/who` and `/shell` use this path. Other commands delegate to the monolith before
+`/who`, `/shell` and addressed sends use this path. Other commands delegate to the monolith before
 execution; never retry fallback after selected execution starts. `SubmitCommand`
 remains a temporary legacy bridge. The destination is the new interpreter
 replacing and removing the monolith. Real-Session tests cover busy/startup
-waiting, departures, cleanup, direct/partial delivery and causal ordering. Public
-send remains unregistered while the new visible stage and atomic operations are
-reviewed before a separate public cutover.
+waiting, departures, cleanup, direct/partial delivery and causal ordering.
+Scheduled turns drain their admitted native deliveries before the next queued
+input can inspect readiness. This preserves submission order across modular
+sends and fallback work without adding an execution lane.
 
 Existing implementation-file references below describe the `monolith` package
 unless qualified otherwise.
@@ -188,8 +194,7 @@ directories are candidates, not requirements to create in one change.
 
 ## Registered command launch and completion
 
-`std.SendCommand` is integrated through the new interpreter in tests; public
-registration awaits a separate public cutover after visible stage review.
+`std.SendCommand` is publicly registered through the new interpreter.
 `SendCommand.Prepare` resolves the parsed name through
 `SessionExecution.ParticipantByName`, validates that view, and asks Session to
 create one policy-aware `ParticipantSendPlan` using the resolved alias. It does
@@ -222,7 +227,7 @@ a local zero-ID display alias, without claiming participant identity.
 The capability revalidates availability at delivery and owns causal session-event
 handling. The monolith supplies the serialized admission adapter and invocation-scoped
 routing; new-interpreter lifecycle tests prove waiting and causal publication.
-Public stage presentation and operations remain work before send registration.
+Public stage presentation and operations use the new interpreter.
 
 `InvocationLifecycle` is constructed and driven by the new interpreter on the
 shared serialized lane. It retains Context directly. Its participantSubscription
@@ -328,12 +333,12 @@ callbacks,
 post-snapshot ordering, reads and unsubscribe from callbacks, startup readiness,
 removal/replacement identity and shutdown. Admission and transcript publication
 now work through the new-interpreter lifecycle boundary; visible stage operations
-are also integrated with test-only send registration.
+are also integrated with public addressed-send registration.
 
 The private-monitor experiment has been replaced with owner-lane advancement.
 Legacy CommandRunner and stage operations remain unchanged. The new interpreter
 owns lifecycle advancement, completion and cleanup; the monolith supplies ordered
-scheduling/publication and a shutdown notification. Public send cutover remains pending.
+scheduling/publication and a shutdown notification. Public addressed-send cutover is complete.
 
 Invocation.Staging remains the sole frozen requirement description. Participant
 facts are progress state, not another delivery plan. /who and /shell return nil
@@ -349,7 +354,7 @@ replacement's state, and a replacement's readiness cannot satisfy an old wait.
 Required-instance departures fail staging; optional-instance departures exclude
 only that notice. Names are derived for diagnostics. This identity boundary does
 not establish snapshot/event ordering, Session membership, or completion of a
-specific invocation or turn. Public staged sends remain on the legacy path.
+specific invocation or turn. Public staged sends use the new interpreter.
 
 Runtime tests use local command and invocation fakes. Tests exercising real
 standard commands through the runner, registry, and lifecycle live in `std`,
@@ -506,6 +511,8 @@ failure. Actual delivery publishes routing and a staged-dispatch semantic event.
 
 Real-Session and lifecycle tests cover snapshots, cross-path admission, manual
 removal, readiness races, resubmission, partial cancellation/delivery, startup,
-departures, frozen joins and shutdown cleanup. Send registration stays test-only
-for this checkpoint; public cutover must separately preserve direct/queued
-submission milestones and legacy workflow interactions.
+departures, frozen joins and shutdown cleanup. Public send registration preserves
+direct versus queued submission milestones: direct sends settle after causal delivery and dispatch publication;
+queued sends acknowledge retention and publish later failures separately. Both
+paths publish dispatch before partial-delivery failure. Broadcast, handoff and
+loops remain fallback; stage admission works in both submission orders.

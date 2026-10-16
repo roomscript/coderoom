@@ -70,6 +70,7 @@ type interpreterExecutor struct {
 
 	commandFeed        commandEventFeed
 	nativeSends        map[participant.Alias]*commandSession // protected by enqueueMu
+	nativeDeliveries   []nativeSendOperation                 // protected by enqueueMu
 	sessionDown        bool
 	nextInvocationID   uint64
 	pendingInvocations map[uint64]submissionOutcome

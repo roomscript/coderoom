@@ -78,7 +78,8 @@ func (s *commandSession) Execute(command session.Command) error {
 		return errors.New("primary already has an admitted send")
 	}
 	e.nativeSends[primary] = s
-	e.operations.Push(nativeSendOperation{session: s, command: send})
+	e.nativeDeliveries = append(e.nativeDeliveries, nativeSendOperation{session: s, command: send})
+	e.operations.Push(drainNativeDeliveriesOperation{})
 	s.admitted = true
 	return nil
 }
@@ -127,6 +128,23 @@ func (s *commandSession) publishCompletion(sequence instructionSequence, recordC
 	}
 	s.mu.Unlock()
 	s.executor.runner.Run(sequence)
+}
+
+// Admitted delivery belongs to the current scheduled turn. Drain it before the
+// next user operation can inspect readiness or compete with its native scope.
+// The queued drain also wakes the lane for legacy worker admission.
+type drainNativeDeliveriesOperation struct{}
+
+func (drainNativeDeliveriesOperation) apply(e *interpreterExecutor) { e.dispatchNativeDeliveries() }
+
+func (e *interpreterExecutor) dispatchNativeDeliveries() {
+	e.enqueueMu.Lock()
+	deliveries := e.nativeDeliveries
+	e.nativeDeliveries = nil
+	e.enqueueMu.Unlock()
+	for _, delivery := range deliveries {
+		delivery.apply(e)
+	}
 }
 
 type nativeSendOperation struct {

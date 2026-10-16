@@ -11,7 +11,8 @@ import (
 // Schedule queues work on the single execution/publication lane. The caller owns
 // that work's orchestration. Accepted work runs before shutdown; new work returns
 // ErrClosed once shutdown starts. Work must not call blocking queue APIs such as
-// Snapshot or Close on this interpreter.
+// Snapshot or Close on this interpreter. Native sends admitted by the work
+// dispatch before the next scheduled turn inspects participant readiness.
 func (i *Interpreter) Schedule(work func()) error {
 	if !i.executor.enqueue(scheduledOperation{work: work}) {
 		return ErrClosed
@@ -21,7 +22,10 @@ func (i *Interpreter) Schedule(work func()) error {
 
 type scheduledOperation struct{ work func() }
 
-func (op scheduledOperation) apply(*interpreterExecutor) { op.work() }
+func (op scheduledOperation) apply(e *interpreterExecutor) {
+	op.work()
+	e.dispatchNativeDeliveries()
+}
 
 // WithShutdown installs a cleanup hook on the serialized lane after admitted
 // execution and queued completions drain, before publication closes. The caller
@@ -34,48 +38,37 @@ func WithShutdown(closeWork func()) Option {
 // not a lifecycle. Its publication methods run only on the serialized lane.
 // QueueCompletion is safe for producer goroutines.
 type CommandSubmission struct {
-	Context  runtime.Context
-	executor *interpreterExecutor
-	outcome  submissionOutcome
-	session  *commandSession
-	shell    *userShellLauncher
+	Context   runtime.Context
+	executor  *interpreterExecutor
+	Statement promptlang.ParsedStatement
+	Name      string
+	session   *commandSession
+	shell     *userShellLauncher
 }
 
-// AdmitCommand checks admission and publishes accepted input. Call only from
-// Schedule. Nil means rejection was published; the caller must not execute.
+// AdmitCommand checks admission and supplies invocation-scoped capabilities.
+// Call only from Schedule. Nil means rejection was published; the caller must
+// not execute. The caller owns input acceptance and outcome policy.
 func (i *Interpreter) AdmitCommand(name string, statement promptlang.ParsedStatement) *CommandSubmission {
 	e := i.executor
 	if rejection := e.model.CheckInputAllowed(statement.Raw); len(rejection) != 0 {
 		e.runner.Run(rejection)
 		return nil
 	}
-	sequence := acceptedInputSequence(statement.Raw)
-	if _, send := statement.Value.(promptlang.Send); send {
-		sequence = instructionSequence{publishEventInstruction{event: InputAccepted{Raw: statement.Raw}}}
-	}
-	e.runner.Run(withSubmissionSource(sequence, statement))
 	delivery := &commandSession{executor: e}
 	launcher := &userShellLauncher{executor: e}
 	return &CommandSubmission{
 		Context:  runtime.Context{Participants: participantViews(e.participants()), Session: delivery, Shell: launcher},
-		executor: e, outcome: submissionOutcome{raw: statement.Raw, operation: name, statement: statement},
+		executor: e, Statement: statement, Name: name,
 		session: delivery, shell: launcher,
 	}
 }
 
-// PublishSubmission reports preparation/launch failure or acceptance. Call after
-// Start returns, before processing completion work, even for immediate callbacks.
-func (s *CommandSubmission) PublishSubmission(err error) {
-	outcome := s.outcome
-	outcome.err = err
-	if err != nil {
-		s.Close()
-		s.executor.runner.Run(submissionResultSequence(outcome))
-		return
-	}
+// Publish publishes a caller-selected event with the submission's source metadata.
+func (s *CommandSubmission) Publish(event Event) {
 	s.executor.runner.Run(withSubmissionSource(instructionSequence{
-		publishEventInstruction{event: SubmissionSucceeded{Raw: outcome.raw}},
-	}, outcome.statement))
+		publishEventInstruction{event: event},
+	}, s.Statement))
 }
 
 // QueueCompletion schedules caller-owned result handling, including during
@@ -89,11 +82,12 @@ func (s *CommandSubmission) QueueCompletion(work func()) {
 // duplicate/late results and closes its lifecycle before calling this method.
 func (s *CommandSubmission) PublishCompletion(result runtime.CommandResult, events ...Event) {
 	s.Close()
-	sequence := invocationCompletionSequence(s.outcome, result, s.shell.completionEvent(s.outcome))
+	outcome := submissionOutcome{raw: s.Statement.Raw, operation: s.Name, statement: s.Statement}
+	sequence := invocationCompletionSequence(outcome, result, s.shell.completionEvent(outcome))
 	for _, event := range events {
 		sequence = append(sequence, publishEventInstruction{event: event})
 	}
-	s.session.publishCompletion(sequence, len(result.Records))
+	s.session.publishCompletion(withSubmissionSource(sequence, s.Statement), len(result.Records))
 }
 
 // Close revokes native admission and routing subscriptions without publishing an

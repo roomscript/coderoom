@@ -10,7 +10,7 @@ the issue is complete.
 
 ## Resume here
 
-The new `internal/interpreter` selects `/who` and `/shell` and executes them
+The new `internal/interpreter` selects `/who`, `/shell` and addressed sends and executes them
 itself. It schedules `executeCommand` on the shared serialized lane, asks the
 monolith to admit input, then prepares, starts, tracks, completes and closes its
 own `runtime.InvocationLifecycle`. It also owns one retained visible stage and
@@ -70,7 +70,7 @@ Current invariants and proof:
   its remaining lifecycles in submission order. The monolith knows no lifecycle.
 - Real-Session tests through the new interpreter prove busy/startup waiting,
   required departure, close while waiting, direct/partial delivery, causal
-  record ordering and subscription cleanup. Send is registered only in tests.
+  record ordering and subscription cleanup. Send is publicly registered.
   `/who` and `/shell` use this lifecycle path with nil staging.
 
 Lifecycle advancement checkpoint:
@@ -105,13 +105,30 @@ Current visible-stage checkpoint:
   cancellation, startup, departures, frozen joins and shutdown. Runtime tests prove
   late readiness cannot revive discard and collected readiness wins over removal.
 
-Next: register addressed send in a separate public cutover. Review initial/direct
-versus queued submission milestones, semantic-event ordering and interaction with
-legacy workflows before changing public routing. Broadcast, handoff and loops
-remain fallback. Loop coexistence policy remains a separate design checkpoint.
+Public addressed-send cutover checkpoint:
 
-Validation: `go test ./...`, `go test -race ./internal/interpreter/... -count=3`
-and `make lint` passed. Public send registration remains outside this checkpoint.
+- SendCommand is publicly registered; lifecycle and stage regressions use production
+  registration. Broadcast, handoff, definitions and loops remain fallback.
+- Preparation publishes frozen InputAccepted routing only after validating the
+  target. Missing/crashed targets retain participant-unavailable classification.
+- The new interpreter owns send acceptance routing, unavailable-target error
+  classification and direct/queued outcome selection. Monolith admission only
+  checks input and supplies capabilities; publication adds source metadata and
+  preserves causal order for caller-supplied events.
+- Direct sends settle submission after actual delivery and dispatch publication.
+  Waiting sends acknowledge retention; later failures do not repeat submission
+  outcomes. Partial routing and causal record ordering are preserved.
+- Scheduled turns drain admitted native delivery before the next queued operation
+  can inspect readiness. Regressions cover consecutive modular sends and fallback
+  broadcast behind a direct send, alongside both stage submission orders.
+- UI tests consume the stage snapshot published before queued acknowledgement.
+  Loop staging and coexistence remain separate design checkpoints.
+
+Next: migrate broadcast (checkpoint 3), preserving frozen optional recipients,
+departures, partial results and the complete existing command path.
+
+Validation: `make test`, `make test-race`, `make lint` and
+`go test -race ./internal/interpreter/... -count=3` passed.
 
 ## Scope assessment
 
@@ -225,7 +242,7 @@ the current package until a real consumer demonstrates a useful boundary.
   and prevent late delivery. Interrupt retains failed aliases for retry and waits
   for causal readiness. Tests cover startup, partial cancellation, departures,
   frozen recipients, resubmission and joined shutdown.
-- [ ] 2b-ii. Public addressed-send cutover: register SendCommand after comparing
+- [x] 2b-ii. Public addressed-send cutover: register SendCommand after comparing
   legacy direct/queued submission milestones, semantic events, cancellation retry,
   partial delivery and interaction with existing workflows. Keep other commands
   on fallback. No loop staging behavior change in this checkpoint.

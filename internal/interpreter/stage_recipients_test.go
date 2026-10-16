@@ -9,7 +9,6 @@ import (
 	"github.com/roomscript/coderoom/internal/agent"
 	"github.com/roomscript/coderoom/internal/agent/echo"
 	roomconfig "github.com/roomscript/coderoom/internal/config"
-	"github.com/roomscript/coderoom/internal/interpreter/std"
 	"github.com/roomscript/coderoom/internal/participant"
 	"github.com/roomscript/coderoom/internal/policy"
 	"github.com/roomscript/coderoom/internal/session"
@@ -30,9 +29,6 @@ func newMultiRecipientStage(t *testing.T) (*Interpreter, *lifecycleSession, map[
 	t.Cleanup(interp.Close)
 	for _, backend := range agents {
 		t.Cleanup(backend.unblock)
-	}
-	if err := interp.commands.Register(std.SendCommand{}); err != nil {
-		t.Fatal(err)
 	}
 	if err := sess.Execute(session.EnablePolicyCommand{Name: policy.SendNotices}); err != nil {
 		t.Fatal(err)

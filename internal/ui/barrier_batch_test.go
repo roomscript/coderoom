@@ -339,7 +339,7 @@ func TestBarrierBatch_sendNoticesPolicyIncludesBusyListener(t *testing.T) {
 
 	next = submitThroughInterpreter(t, m, "@ada do it")
 	m = next.(Model)
-	m = consumeInterpreterStateChange(t, m)
+	// Queued send acknowledgement follows publication of its retained stage.
 
 	if m.interpreter.Snapshot().Stage == nil || !m.room.IsComposerStaged() {
 		t.Fatal("direct send should wait for a listener when send-notices is enabled")
@@ -518,7 +518,7 @@ func TestBarrierBatch_discardedTargetRestoresDraft(t *testing.T) {
 	}
 	next = submitThroughInterpreter(t, m, "@ada hi")
 	m = next.(Model)
-	m = consumeInterpreterStateChange(t, m)
+	// Queued send acknowledgement follows publication of its retained stage.
 	if m.interpreter.Snapshot().Stage == nil || !m.room.IsComposerStaged() {
 		t.Fatal("expected staged batch before target disappears")
 	}

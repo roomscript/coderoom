@@ -3,7 +3,7 @@
 Working agreement for [#61](https://github.com/roomscript/coderoom/issues/61).
 Keep this document roughly one page; details belong in code or
 [design docs](../../../docs/design/pkg-interpreter-composition.md).
-`/who` and `/shell` use the same registry dispatch and launch workflow.
+`/who`, `/shell` and addressed sends use registry dispatch and lifecycle execution.
 
 ## Command and invocation
 
@@ -18,8 +18,10 @@ complete(result) -> final records and execution error
 ```
 
 `Go` returns control after initiating work. Completion may happen immediately
-(`/who`) or later. A nil launch error publishes submission success before any
-completion records; preparation or launch errors fail the submission.
+(`/who`) or later. `/who` and `/shell` acknowledge launch before completion
+records. Addressed sends acknowledge waiting when retained, or report direct
+submission results after actual delivery. Preparation or launch errors fail the
+submission.
 There is no `Init`, `Next`, polling, or generic fact/expectation contract.
 
 **Staging** holds frozen `WaitFor` and `ToInform` aliases, or nil for no waiting.
@@ -28,7 +30,7 @@ The command identifies its delivery targets; `WaitFor` does not imply delivery.
 The lifecycle fails staging if a `WaitFor` alias departs. For a departed `ToInform`
 alias it stops waiting and calls `DiscardInform`, which updates the delivery plan.
 Departures stay sticky. Lifecycle readiness and new-interpreter stage operations are integrated;
-public send registration remains separate.
+addressed sends are publicly registered.
 `/who` and `/shell` return nil.
 
 ## Capabilities and records
@@ -87,14 +89,13 @@ shell capability retains `ShellCompleted` for compatibility. Execution failures
 are separate from submission success; user commands and loops remain legacy.
 `runtime.Registry.Register(command)` indexes the type returned by `Statement()`.
 `Lookup(parsed)` selects the command; metadata comes from the command itself.
-Both commands are registered. Unregistered `SendCommand` retains Session's send plan,
+All three commands are registered. `SendCommand` retains Session's send plan,
 derives staging from it and submits the native session command with that plan.
 It returns the original input record with actual routing.
 Lifecycle staging is proved with a shared-feed fake. Native send admission and
-causal publication are proved through the monolith bridge; public addressed sends remain on the legacy path while new stage operations are
-proved through test-only send registration.
+causal publication are proved through the monolith bridge; public addressed sends use the same stage operations.
 
-The new interpreter selects `/who` and `/shell` and executes them itself.
+The new interpreter selects `/who`, `/shell` and addressed sends and executes them itself.
 `monolith.Schedule` supplies the shared serialized lane; `AdmitCommand` checks
 input admission and returns Context plus `CommandSubmission` publication methods.
 The new interpreter prepares and starts its lifecycle, queues raw completions,
@@ -108,8 +109,8 @@ lifecycles. Explicit close and context cancellation follow the same path.
 
 Real-Session tests through the new interpreter prove busy/startup waiting,
 required departure, close while waiting, direct/partial delivery, causal ordering
-and subscription cleanup. Send registration remains test-only. Visible stage ownership and atomic
-edit/discard/interrupt are proved; public send cutover is next.
+and subscription cleanup. Send registration is public. Visible stage ownership and atomic
+edit/discard/interrupt use the same path.
 The destination remains the new interpreter replacing the monolith.
 
 The new interpreter now retains one visible stage for waiting work. Lifecycle
@@ -123,4 +124,6 @@ stops collection, closes resources and revokes native scope. Interrupt cancels f
 blockers, remembers successful cancellation and retries only failures. Actual
 readiness still gates delivery, including startup. Semantic dispatch/discard
 notices and actual partial routing survive completion. Legacy operations remain
-fallback when the new interpreter owns no stage. Public send cutover is next.
+fallback when the new interpreter owns no stage. Direct sends settle submission
+after delivery and dispatch; waiting sends
+acknowledge retention and report later failures without a second submission event.
