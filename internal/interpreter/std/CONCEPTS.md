@@ -45,7 +45,7 @@ information through detached reads without session execution access.
 `ShellLauncher` starts shell work using executor-owned workers and lifetime.
 `Session.Subscribe(handle)` installs an invocation-scoped terminal-event listener
 before `Session.Execute(command)` starts delivery. `runtime.DeliveryCompleted`
-carries the actual Session routing outcome; `runtime.ExecutionFailed` carries an
+carries the execution ID returned by Session.Execute and the actual routing outcome; `runtime.ExecutionFailed` carries an
 execution/protocol failure without fabricated routing. Other invocations and
 legacy dispatch never reach this stream, even with identical recipients.
 `runtime.ExecutionEvent` is separate from Session's participant events so host

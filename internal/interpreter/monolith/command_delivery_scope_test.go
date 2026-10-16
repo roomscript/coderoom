@@ -1,7 +1,9 @@
 package monolith
 
 import (
+	"context"
 	"errors"
+	"sync/atomic"
 	"testing"
 
 	"github.com/roomscript/coderoom/internal/interpreter/runtime"
@@ -122,5 +124,53 @@ func TestDeliveryCapability_NoSharedPrimaryReservation(t *testing.T) {
 	}
 	if sess.maxActive.Load() != 1 {
 		t.Fatal("native commands executed concurrently")
+	}
+}
+
+// Use different returned IDs even for deliveries to identical recipients. The
+// adapter must forward the actual execution identity, including failed delivery.
+type identifiedDeliverySession struct {
+	*submitContractSession
+	next atomic.Uint64
+}
+
+func (s *identifiedDeliverySession) Execute(command session.Command) (session.ExecutionID, error) {
+	id := session.ExecutionID(s.next.Add(1))
+	_, err := s.submitContractSession.Execute(command)
+	return id, err
+}
+
+func TestDeliveryCapability_ForwardsExecutionID(t *testing.T) {
+	for _, failed := range []bool{false, true} {
+		t.Run(map[bool]string{false: "delivered", true: "failed"}[failed], func(t *testing.T) {
+			sess := &identifiedDeliverySession{submitContractSession: newSubmitContractSession()}
+			sess.next.Store(40)
+			if failed {
+				sess.executeErr = errors.New("delivery rejected")
+			}
+			interp := New(context.Background(), sess, t.TempDir())
+			t.Cleanup(interp.Close)
+			results := make(chan runtime.ExecutionEvent, 2)
+			mustSubmit(t, interp.Schedule(func() {
+				for _, text := range []string{"first", "second"} {
+					submission := interp.AdmitCommand("broadcast", parseSourceStatement(t, text))
+					submission.Context.Session.Subscribe(func(event runtime.ExecutionEvent) { results <- event; submission.Close() })
+					if err := submission.Context.Session.Execute(session.BroadcastCommand{Aliases: []participant.Alias{testAlias("ada")}, Text: text}); err != nil {
+						t.Error(err)
+					}
+				}
+			}))
+			interp.Snapshot() // Drain scheduled admission and native dispatch before shutdown.
+			interp.Close()
+			if len(results) != 2 {
+				t.Fatalf("terminal events=%d", len(results))
+			}
+			for _, id := range []session.ExecutionID{41, 42} {
+				result, ok := (<-results).(runtime.DeliveryCompleted)
+				if !ok || result.ExecutionID != id || !errors.Is(result.Result.Err, sess.executeErr) {
+					t.Fatalf("result=%#v, want execution=%d", result, id)
+				}
+			}
+		})
 	}
 }

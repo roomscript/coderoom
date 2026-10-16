@@ -148,10 +148,10 @@ func (op nativeDeliveryOperation) apply(e *interpreterExecutor) {
 	s.dispatching = true
 	handle := s.handle
 	s.mu.Unlock()
-	err := e.executeCommand(op.command)
+	executionID, err := e.session.Execute(op.command)
 	events := e.takeSessionEvents()
 	if handle != nil {
-		handle(nativeDeliveryEvent(events, err))
+		handle(nativeDeliveryEvent(executionID, events, err))
 	}
 	s.publishDelivery(e, events)
 }
@@ -187,7 +187,7 @@ func (s *commandSession) publishDelivery(e *interpreterExecutor, events []sessio
 
 // A terminal execution failure belongs to the invocation, not to an invented
 // Session routing event. Actual outcomes are forwarded unchanged.
-func nativeDeliveryEvent(events []session.Event, executionErr error) runtime.ExecutionEvent {
+func nativeDeliveryEvent(executionID session.ExecutionID, events []session.Event, executionErr error) runtime.ExecutionEvent {
 	var routing session.RoutingResult
 	count := 0
 	for _, event := range events {
@@ -202,7 +202,7 @@ func nativeDeliveryEvent(events []session.Event, executionErr error) runtime.Exe
 	if count != 1 || routing.Kind == "" {
 		return runtime.ExecutionFailed{Err: errors.Join(runtime.ErrInvalidDeliveryOutcome, executionErr)}
 	}
-	return runtime.DeliveryCompleted{Result: routing}
+	return runtime.DeliveryCompleted{ExecutionID: executionID, Result: routing}
 }
 
 func (s *commandSession) release() {

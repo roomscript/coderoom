@@ -31,7 +31,7 @@ type ShellLauncher interface {
 // Unsubscribe prevents future delivery; already-running callbacks may finish.
 // Execute admits one command without waiting for delivery. Admission errors return
 // directly. Accepted execution emits DeliveryCompleted with the actual Session
-// outcome, or ExecutionFailed for a missing/invalid outcome or protocol failure.
+// execution ID and routing outcome, or ExecutionFailed for a missing/invalid outcome or protocol failure.
 // Terminal events run within the owning dispatch burst before projection and may
 // race launch/close; handlers must only queue owner work. The host serializes
 // Session execution, supports worker admission and owns admitted work lifetime.

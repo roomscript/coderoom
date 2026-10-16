@@ -231,6 +231,14 @@ User command checkpoint:
   at checkpoint 9. Registry ownership and public command execution have moved out.
 
 Next: migrate loop with its current delivery behavior (checkpoint 6).
+
+Checkpoint 6, first agreed substep: runtime.DeliveryCompleted now carries the
+ExecutionID returned by Session.Execute alongside the actual routing outcome,
+including failed delivery. Subscribe/Execute and loop behavior remain unchanged.
+The Delivery.Go callback still exposes only RoutingResult and an error; agree on
+how to expose execution identity through that helper before building loop consumers.
+Repeated execution scopes, interpreter-driven loop advancement and intermediate
+publication also require agreement before changing runtime contracts.
 Future handoff history selectors (latest, earlier, all) remain a separate feature;
 this checkpoint adds only the latest-output read required by current syntax.
 
@@ -244,15 +252,13 @@ transcript tests pass.
 
 ## Scope assessment
 
-The goal, invariants, acceptance criteria and non-goals are clear. The principal
-behavior change is loop sends waiting for frozen recipients through staging.
-The command/module refactor should otherwise preserve behavior and the public
-facade. #39 is closed; the current parser already supplies parsed statements,
-source spans and diagnostics. #55's decision/effect boundary is the starting point.
-
-Loop staging is deliberately underspecified. Settle the questions below before
-implementing that behavior. Package names and exact interface shapes are design
-choices to prove incrementally, not requirements to decide up front.
+Loop staging is deferred to [#65](https://github.com/roomscript/coderoom/issues/65)
+as a separate feature. This migration preserves existing loop delivery behavior,
+then proceeds to remaining handlers and monolith removal. The former checkpoints
+7–8 are outside this migration; their design decisions and acceptance criteria
+are recorded in #65. Existing send, broadcast and handoff staging remains in scope.
+#39 is closed; the parser already supplies parsed statements, source spans and
+diagnostics. #55's decision/effect boundary is the starting point.
 
 Relevant starting points:
 
@@ -268,33 +274,12 @@ Relevant starting points:
 - `core_input.go`, `core_stage_operations.go`: current admission and atomic stage
   operations to preserve or deliberately extend.
 
-## Decisions needed before loop staging
+## Deferred feature: loop staging
 
-Record an explicit policy and examples in the composition/workflow docs:
-
-1. Does a pending loop delivery occupy the single visible stage, or retain work
-   separately? How does the user see its owner and waiting reason?
-2. Can user work be accepted while the loop waits? If user and loop deliveries
-   compete, who proceeds first, and how is starvation avoided?
-3. What happens when a loop needs its next delivery while a user stage exists?
-   Define coexistence during participant work and condition evaluation too.
-4. What does editing a loop-owned stage return and do to the loop? Does discard
-   stop the loop or only cancel the pending iteration? What does interrupt target,
-   and how do cancellation failure/retry and startup waits behave?
-5. When does the initial queued loop submission report success, and how are later
-   cancellation/failure outcomes presented without repeating submission events?
-6. Which participant-instance and delivered-turn identities establish completion?
-   An alias becoming idle is insufficient when user work can coexist. Specify
-   cancellation behavior, ignore unrelated turns and same-alias replacements,
-   and define departure during condition evaluation.
-
-These are unresolved product decisions, not implied defaults. A useful design
-review is a transition table covering both submission orders, each loop phase,
-stage operations, departure (including during condition evaluation), shutdown
-and partial delivery, especially primary delivery succeeding while an optional
-notice fails. These decisions can wait until we approach loop staging; they
-do not block earlier command migrations. Establish completion identity during
-the loop migration, before adding staged delivery or new coexistence behavior.
+[#65](https://github.com/roomscript/coderoom/issues/65) owns the policy decisions,
+transition table, UX and implementation of staged loop delivery. Establish correct
+participant-instance and ExecutionID correlation during loop migration, preserving
+current delivery behavior. Resolve coexistence and staged delivery in the follow-up.
 
 ## Small implementation checkpoints
 
@@ -374,17 +359,9 @@ the current package until a real consumer demonstrates a useful boundary.
   completion identity. Cover unrelated idle/turn events, cancellation, same-alias
   replacement and departure during condition evaluation. Document any necessary
   completion-correlation correction explicitly; do not introduce staged sends yet.
-- [ ] 7. Design loop staging: settle the policy questions above and record the
-  transition table in composition/workflow docs. Define admission, visible stage
-  ownership, edit/discard/interrupt, coexistence, partial delivery and submission
-  milestones before changing runtime behavior.
-- [ ] 8. Add staged loop delivery: first prove one iteration, then repeated turns
-  and user coexistence in separate diffs. Count only actual delivery; evaluate
-  conditions only after completion of the identified turn on the same participant
-  instance. Cover both submission orders, cancellation retry, startup, departures,
-  stale outcomes and primary success with optional-notice failure. Nested sends
-  must not duplicate input records or terminal submission outcomes. Update UX and
-  workflow docs with the agreed behavior.
+- Deferred 7–8. Loop-staging design and implementation moved to
+  [#65](https://github.com/roomscript/coderoom/issues/65); they do not block this
+  migration. After checkpoint 6, continue with checkpoint 9.
 - [ ] 9. Migrate remaining handlers and remove the temporary bridge and monolith
   fallback. Transfer the remaining monolith responsibilities to the new interpreter;
   deprecate and remove the monolith once no consumers remain. Confirm new
@@ -426,8 +403,8 @@ the touched path. Use table-driven variants and narrow fakes; assert observable
 behavior rather than error text. Run `make test`, `make test-race` and `make lint`
 at cross-cutting checkpoints and at completion. Existing startup, causal ordering,
 partial delivery, stale completion, cancellation retry and atomic stage tests
-must remain green. Changed expectations require either agreed loop staging behavior
-or an explicitly reviewed and documented completion-correlation fix from step 6.
+must remain green. Changed expectations require an explicitly reviewed and documented
+completion-correlation fix from step 6. Loop staging remains deferred to #65.
 Run external CLI integration tests separately if a backend integration boundary
 changes. No tests are needed for this planning-only change.
 
