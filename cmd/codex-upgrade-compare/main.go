@@ -26,11 +26,11 @@ func run() error {
 	previousPath := filepath.Clean(os.Args[1])
 	currentPath := filepath.Clean(os.Args[2])
 
-	previousInfo, err := os.Stat(previousPath)
+	previousInfo, err := os.Stat(previousPath) // #nosec G703 -- This local CLI intentionally inspects the transcript file or directory selected by its caller.
 	if err != nil {
 		return fmt.Errorf("stat %q: %w", previousPath, err)
 	}
-	currentInfo, err := os.Stat(currentPath)
+	currentInfo, err := os.Stat(currentPath) // #nosec G703 -- This local CLI intentionally inspects the transcript file or directory selected by its caller.
 	if err != nil {
 		return fmt.Errorf("stat %q: %w", currentPath, err)
 	}
@@ -103,7 +103,7 @@ func listCaseDirs(root string) ([]string, error) {
 }
 
 func readOutput(path string) (transcript.Output, error) {
-	file, err := os.Open(filepath.Clean(path))
+	file, err := os.Open(filepath.Clean(path)) // #nosec G703 -- This local CLI intentionally reads the transcript path selected by its caller.
 	if err != nil {
 		return transcript.Output{}, fmt.Errorf("open %q: %w", path, err)
 	}

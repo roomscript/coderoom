@@ -46,7 +46,7 @@ func resolveTranscriptPath(args []string) (string, error) {
 }
 
 func openTranscript(path string) (*os.File, error) {
-	file, err := os.Open(filepath.Clean(path))
+	file, err := os.Open(filepath.Clean(path)) // #nosec G703 -- This local CLI intentionally reads the transcript path selected by its caller.
 	if err != nil {
 		return nil, fmt.Errorf("open transcript: %w", err)
 	}
