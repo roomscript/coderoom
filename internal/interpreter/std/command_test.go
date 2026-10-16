@@ -14,6 +14,10 @@ func TestCommands_PrepareRejectsIncompatibleStatements(t *testing.T) {
 		command   runtime.Command
 		statement promptlang.Statement
 	}{
+		{name: "definition with shell", command: std.DefineCommand{}, statement: promptlang.Shell{}},
+		{name: "named command with shell", command: std.UserCommand{}, statement: promptlang.Shell{}},
+		{name: "definition without registry", command: std.DefineCommand{}, statement: promptlang.UserDefinition{}},
+		{name: "named command without registry", command: std.UserCommand{}, statement: promptlang.UserCommand{}},
 		{name: "who with shell", command: std.WhoCommand{}, statement: promptlang.Shell{}},
 		{name: "shell with who", command: std.ShellCommand{}, statement: promptlang.Who{}},
 		{name: "who without input", command: std.WhoCommand{}},

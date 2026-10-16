@@ -36,7 +36,7 @@ func commandSubmissionEvent(submission *monolith.CommandSubmission, err error) E
 	if err == nil {
 		return SubmissionSucceeded{Raw: submission.Statement.Raw}
 	}
-	code := ErrorExecutionFailed
+	code := commandErrorCode(err)
 	var unavailable *runtime.RequiredParticipantUnavailableError
 	if errors.As(err, &unavailable) {
 		code = ErrorParticipantUnavailable
@@ -44,17 +44,19 @@ func commandSubmissionEvent(submission *monolith.CommandSubmission, err error) E
 	return SubmissionFailed{Raw: submission.Statement.Raw, Operation: commandOperation(submission), Code: code, Err: err}
 }
 
-// Direct deliveries settle submission after dispatch. Queued deliveries have already
-// acknowledged retention, so their later delivery failures are operation failures.
+// Definitions settle after their confirmation record; direct deliveries settle
+// after dispatch. Queued deliveries already acknowledged retention, so their later
+// delivery failures are operation failures.
 func (i *Interpreter) publishCommandCompletion(pending pendingInvocation, result runtime.CommandResult, events ...Event) {
 	submission := pending.submission
-	if isDeliveryStatement(submission.Statement) {
+	_, definition := submission.Statement.Value.(promptlang.UserDefinition)
+	if isDeliveryStatement(submission.Statement) || definition {
 		if pending.submissionPending {
 			events = append(events, commandSubmissionEvent(submission, result.Err))
 		} else if result.Err != nil {
 			events = append(events, OperationFailed{Raw: submission.Statement.Raw, Operation: commandOperation(submission), Err: result.Err})
 		}
-		result.Err = nil // The supplied events carry the delivery's terminal outcome.
+		result.Err = nil // The supplied events carry the terminal submission outcome.
 	}
 	submission.PublishCompletion(result, events...)
 }
@@ -71,13 +73,29 @@ func isDeliveryStatement(statement promptlang.ParsedStatement) bool {
 }
 
 func commandOperation(submission *monolith.CommandSubmission) string {
-	switch submission.Statement.Value.(type) {
+	switch statement := submission.Statement.Value.(type) {
 	case promptlang.Broadcast, promptlang.Handoff:
 		return "staged dispatch"
+	case promptlang.UserDefinition:
+		return "define /" + statement.Name.Value
+	case promptlang.UserCommand:
+		return "/" + statement.Name.Value
 	}
 	return submission.Name
 }
 
 func stagingRouting(staging *runtime.Staging) []participant.Alias {
 	return append(append([]participant.Alias(nil), staging.WaitFor...), staging.ToInform...)
+}
+
+func commandErrorCode(err error) ErrorCode {
+	var reserved promptlang.ReservedCommandNameError
+	if errors.As(err, &reserved) {
+		return ErrorReservedCommand
+	}
+	var exists promptlang.CommandAlreadyDefinedError
+	if errors.As(err, &exists) {
+		return ErrorCommandExists
+	}
+	return ErrorExecutionFailed
 }

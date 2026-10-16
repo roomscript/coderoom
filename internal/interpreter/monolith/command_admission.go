@@ -58,7 +58,10 @@ func (i *Interpreter) AdmitCommand(name string, statement promptlang.ParsedState
 	delivery := &commandSession{executor: e}
 	launcher := &userShellLauncher{executor: e}
 	return &CommandSubmission{
-		Context:  runtime.Context{Participants: participantViews(e.participants()), Session: delivery, Shell: launcher, History: e.model, CompletedExecutions: e.model.Room()},
+		Context: runtime.Context{
+			Participants: participantViews(e.participants()), Session: delivery, Shell: launcher,
+			History: e.model, CompletedExecutions: e.model.Room(), UserCommands: i.model.commands,
+		},
 		executor: e, Statement: statement, Name: name,
 		session: delivery, shell: launcher,
 	}
@@ -83,7 +86,7 @@ func (s *CommandSubmission) QueueCompletion(work func()) {
 func (s *CommandSubmission) PublishCompletion(result runtime.CommandResult, events ...Event) {
 	s.Close()
 	outcome := submissionOutcome{raw: s.Statement.Raw, operation: s.Name, statement: s.Statement}
-	sequence := invocationCompletionSequence(outcome, result, s.shell.completionEvent(outcome))
+	sequence := invocationCompletionSequence(outcome, result, s.shell.completionEvent(outcome, result.Records))
 	for _, event := range events {
 		sequence = append(sequence, publishEventInstruction{event: event})
 	}
@@ -150,4 +153,10 @@ func (i *Interpreter) InterruptLegacyStage() bool {
 	sequence, ok := i.executor.model.InterruptAndDispatchStage()
 	i.executor.runner.Run(sequence)
 	return ok
+}
+
+// WithUserCommands shares the interpreter-owned definition registry with legacy
+// loop and resolution callers. Remove this bridge when those consumers migrate.
+func WithUserCommands(commands *promptlang.Registry) Option {
+	return func(i *Interpreter) { i.model.commands = commands }
 }

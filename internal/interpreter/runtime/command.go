@@ -64,8 +64,16 @@ type CompletedExecutionIDReader interface {
 	LastCompletedExecutionID(participant.Alias) participant.ExecutionID
 }
 
+// UserCommandRegistry stores and resolves shell-backed definitions on the
+// interpreter lane. promptlang.Registry implements this capability.
+type UserCommandRegistry interface {
+	Define(promptlang.UserDefinition) error
+	Resolve(promptlang.UserCommand) (promptlang.Located[promptlang.Shell], error)
+}
+
 // Context supplies capabilities for preparation and Go on the serialized coordinator.
 type Context struct {
+	UserCommands        UserCommandRegistry
 	Participants        ParticipantReader
 	Shell               ShellLauncher
 	Session             SessionExecution

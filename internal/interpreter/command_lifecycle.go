@@ -1,6 +1,7 @@
 package interpreter
 
 import (
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -25,7 +26,8 @@ func (i *Interpreter) executeCommand(command runtime.Command, statement promptla
 		return
 	}
 	send := isDeliveryStatement(statement)
-	if !send {
+	_, named := statement.Value.(promptlang.UserCommand)
+	if !send && !named {
 		i.publishCommandInput(submission, nil)
 	}
 	invocation, err := command.Prepare(statement, submission.Context)
@@ -33,10 +35,16 @@ func (i *Interpreter) executeCommand(command runtime.Command, statement promptla
 		if invocation != nil {
 			invocation.Close()
 		}
+		var undefined promptlang.UndefinedCommandError
+		if named && errors.As(err, &undefined) {
+			submission.Close()
+			submission.Publish(UnknownCommand{Raw: statement.Raw, Name: statement.Value.(promptlang.UserCommand).Name.Value, Err: err})
+			return
+		}
 		i.publishCommandSubmission(submission, fmt.Errorf("prepare command: %w", err))
 		return
 	}
-	if send {
+	if send || named {
 		i.publishCommandInput(submission, invocation.Staging())
 	}
 	i.startCommand(invocation, submission, statement)
@@ -53,8 +61,13 @@ func (i *Interpreter) startCommand(invocation runtime.Invocation, submission *mo
 		i.invocations = make(map[uint64]pendingInvocation)
 	}
 	i.invocations[id] = pendingInvocation{lifecycle: lifecycle, submission: submission}
+	results := make(chan runtime.CommandResult, 1)
 	enteredWaiting, err := lifecycle.Start(func(result runtime.CommandResult) {
-		submission.QueueCompletion(func() { i.completeCommand(id, result) })
+		select {
+		case results <- result:
+			submission.QueueCompletion(func() { i.completeQueuedCommand(id, results) })
+		default: // A duplicate callback cannot block the producer.
+		}
 	})
 	if err != nil {
 		delete(i.invocations, id)
@@ -64,13 +77,25 @@ func (i *Interpreter) startCommand(invocation runtime.Invocation, submission *mo
 	}
 	send := isDeliveryStatement(statement)
 	pending := i.invocations[id]
-	pending.submissionPending = send && !enteredWaiting
+	_, definition := statement.Value.(promptlang.UserDefinition)
+	pending.submissionPending = definition || (send && !enteredWaiting)
 	i.invocations[id] = pending
 	if enteredWaiting {
 		i.retainStage(id, statement, invocation.Staging())
 	}
 	if !pending.submissionPending {
 		i.publishCommandSubmission(submission, nil)
+	}
+	// Settle already-queued synchronous results before another input is admitted.
+	// Start and acknowledgement still precede settlement; callbacks never settle work.
+	i.completeQueuedCommand(id, results)
+}
+
+func (i *Interpreter) completeQueuedCommand(id uint64, results <-chan runtime.CommandResult) {
+	select {
+	case result := <-results:
+		i.completeCommand(id, result)
+	default:
 	}
 }
 

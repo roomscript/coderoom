@@ -50,7 +50,7 @@ func (e *interpreterExecutor) goInvocation(value goInvocationInstruction) instru
 	owned := &ownedCommand{Command: value.command}
 	delivery.invocation = owned
 	err := (runtime.CommandRunner{}).Go(owned, value.outcome.statement, value.context, func(completion runtime.CommandResult) {
-		delivery.complete(invocationCompletion{id: id, completion: completion, event: launcher.completionEvent(value.outcome)})
+		delivery.complete(invocationCompletion{id: id, completion: completion, event: launcher.completionEvent(value.outcome, completion.Records)})
 	})
 	if err != nil {
 		delete(e.pendingInvocations, id)

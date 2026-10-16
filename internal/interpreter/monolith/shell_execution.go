@@ -89,12 +89,21 @@ type workflowShellCompletedOperation struct {
 
 // completionEvent preserves the shell compatibility event without command routing.
 // Called by the command callback after the owned worker has set its result.
-func (l *userShellLauncher) completionEvent(outcome submissionOutcome) Event {
+func (l *userShellLauncher) completionEvent(outcome submissionOutcome, records []room.Record) Event {
 	if l.result == nil {
 		return nil
 	}
+	command := l.program
+	for _, record := range records {
+		if record.Msg != nil {
+			if content, ok := record.Msg.Content.(agent.Command); ok {
+				command = content.Command
+				break
+			}
+		}
+	}
 	return eventWithSubmissionSource(ShellCompleted{
-		Raw: outcome.raw, Command: l.program, Cwd: l.executor.cwd,
+		Raw: outcome.raw, Command: command, Cwd: l.executor.cwd,
 		Result: *l.result, Output: formatShellResult(*l.result),
 	}, outcome.statement)
 }

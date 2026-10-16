@@ -38,7 +38,7 @@ execution capability retains its admission-only return contract.
 ## Resume here
 
 The new `internal/interpreter` selects `/who`, `/shell`, addressed sends, broadcasts and handoffs and executes them
-itself. It schedules `executeCommand` on the shared serialized lane, asks the
+itself. Definitions and named invocations also use the modular path. It schedules `executeCommand` on the shared serialized lane, asks the
 monolith to admit input, then prepares, starts, tracks, completes and closes its
 own `runtime.InvocationLifecycle`. It also owns one retained visible stage and
 its admission/edit/discard/interrupt policy. Unrecognized commands use monolith
@@ -136,7 +136,7 @@ Current visible-stage checkpoint:
 Public addressed-send cutover checkpoint:
 
 - SendCommand is publicly registered; lifecycle and stage regressions use production
-  registration. Handoff, definitions and loops remain fallback.
+  registration. Definitions and loops remained fallback at this checkpoint.
 - Preparation publishes frozen InputAccepted routing only after validating the
   target. Missing/crashed targets retain participant-unavailable classification.
 - The new interpreter owns send acceptance routing, unavailable-target error
@@ -210,7 +210,27 @@ Handoff cutover checkpoint:
 - Execution/publication and projection-hook implementations remain temporary
   monolith capabilities, transferred and removed with fallback at checkpoint 9.
 
-Next: migrate user command definitions and named invocation (checkpoint 5).
+User command checkpoint:
+
+- DefineCommand and UserCommand are publicly registered. promptlang.Registry stays
+  in promptlang; the interpreter owns one instance exposed as Context.UserCommands
+  through the agreed Define/Resolve capability. The legacy loop and public queued
+  ResolveCommand API share that same instance via WithUserCommands.
+- Definitions store unevaluated shell bodies. Definition records precede successful
+  submission outcomes. Duplicate/reserved names retain diagnostic codes and spans.
+  Named invocation resolves before acceptance; undefined names publish UnknownCommand
+  without recording input. Execution reuses shellInvocation with /name display text.
+- The interpreter drains already-queued synchronous results after Start bookkeeping
+  and acknowledgement, before the next input. This preserves definition confirmation
+  order for a queued definition followed immediately by invocation. Callbacks still
+  only queue results; failed starts and stale/duplicate completions cannot settle twice.
+- Named shell execution retains asynchronous launch, completion events, cancellation
+  and joined shutdown. The compatibility shell event reads its display name from
+  the command-owned record rather than reconstructing named-command policy.
+- Existing legacy handlers remain for direct monolith compatibility until removal
+  at checkpoint 9. Registry ownership and public command execution have moved out.
+
+Next: migrate loop with its current delivery behavior (checkpoint 6).
 Future handoff history selectors (latest, earlier, all) remain a separate feature;
 this checkpoint adds only the latest-output read required by current syntax.
 
@@ -344,7 +364,7 @@ the current package until a real consumer demonstrates a useful boundary.
 - [x] 4. Migrate handoff: add detached canonical source reads to the command
   context. Preserve required departures, source selection and active-source
   completion waits. Do not duplicate the transcript or create another observer.
-- [ ] 5. Migrate user command definitions (`/shell` is already migrated):
+- [x] 5. Migrate user command definitions (`/shell` is already migrated):
   prove command resolution, including definitions
   and named invocation. Preserve asynchronous launch, result publication,
   cancellation and stale-result behavior. These become the capabilities loop uses.

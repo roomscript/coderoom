@@ -17,8 +17,9 @@ type Option func(*Interpreter)
 // other input to the monolith. Both paths share its serialized effect/publication
 // lane during migration.
 type Interpreter struct {
-	fallback *monolith.Interpreter
-	commands *runtime.Registry
+	fallback     *monolith.Interpreter
+	commands     *runtime.Registry
+	userCommands *promptlang.Registry
 	// Accessed only on the shared serialized queue, including shutdown.
 	nextInvocationID uint64
 	invocations      map[uint64]pendingInvocation
@@ -28,9 +29,10 @@ type Interpreter struct {
 // New starts one interpreter runtime backed by sess. Options are applied through
 // the facade before the fallback starts, preserving initial observer publication.
 func New(ctx context.Context, sess SessionController, cwd string, opts ...Option) *Interpreter {
-	i := &Interpreter{commands: newCommandRegistry()}
+	i := &Interpreter{commands: newCommandRegistry(), userCommands: promptlang.NewRegistry()}
 	i.fallback = monolith.New(ctx, sess, cwd, func(fallback *monolith.Interpreter) {
 		i.fallback = fallback
+		monolith.WithUserCommands(i.userCommands)(fallback)
 		monolith.WithShutdown(i.closeInvocations)(fallback)
 		monolith.WithStageSnapshot(i.stageSnapshot)(fallback)
 		monolith.WithCompletedExecution(i.advanceCompletedExecutions)(fallback)
@@ -56,6 +58,12 @@ func newCommandRegistry() *runtime.Registry {
 		panic(err)
 	}
 	if err := registry.Register(std.HandoffCommand{}); err != nil {
+		panic(err)
+	}
+	if err := registry.Register(std.DefineCommand{}); err != nil {
+		panic(err)
+	}
+	if err := registry.Register(std.UserCommand{}); err != nil {
 		panic(err)
 	}
 	return registry

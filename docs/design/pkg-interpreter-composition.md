@@ -54,7 +54,8 @@ submission order. This also handles parent-context cancellation. The monolith
 keeps worker cancellation and canonical projection until those move in a later
 checkpoint; it never adopts new lifecycle or stage policy.
 
-`/who`, `/shell`, addressed sends, broadcasts and handoffs use this path. Other commands delegate to the monolith before
+`/who`, `/shell`, addressed sends, broadcasts, handoffs, definitions and named
+invocations use this path. Other commands delegate to the monolith before
 execution; never retry fallback after selected execution starts. `SubmitCommand`
 remains a temporary legacy bridge. The destination is the new interpreter
 replacing and removing the monolith. Real-Session tests cover busy/startup
@@ -589,3 +590,23 @@ redundant HandoffCompleted notification is removed. The interpreter remains
 the event-ordering, invocation-identity and settlement owner. The projection hook
 and history implementation move out with the remaining monolith capabilities at
 checkpoint 9.
+
+### User definitions and named invocation checkpoint
+
+The new interpreter owns one promptlang.Registry. Context.UserCommands exposes
+only Define and Resolve, implemented by that registry. Std DefineCommand stores
+unevaluated definitions and formats confirmation; std UserCommand resolves a name
+before acceptance and reuses shellInvocation. The interpreter retains admission,
+diagnostic classification, acceptance milestones, lifecycle driving and publication.
+No new shell execution or lifecycle contract is introduced.
+
+Definition confirmation precedes submission success. Already-queued synchronous
+results settle after Start bookkeeping and before the next input, so queued named
+invocation cannot overtake definition confirmation. Unknown names retain their
+registry diagnostic and do not become accepted input. Shell records and completion
+events display /name while the worker runs the resolved program. Cancellation,
+joined shutdown and stale-result rejection use the existing owned execution path.
+
+WithUserCommands temporarily shares the interpreter-owned registry with legacy loop
+and public ResolveCommand dispatch on the same lane. The bridge and legacy handlers
+are removed when remaining monolith consumers migrate at checkpoint 9.

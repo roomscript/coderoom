@@ -115,10 +115,10 @@ The UI receives transcript deltas, with no `/who` result branch.
 
 `/shell` uses the same path and returns its command record on completion. The
 shell capability retains `ShellCompleted` for compatibility. Execution failures
-are separate from submission success; user commands and loops remain legacy.
+are separate from submission success; loop execution remains legacy.
 `runtime.Registry.Register(command)` indexes the type returned by `Statement()`.
 `Lookup(parsed)` selects the command; metadata comes from the command itself.
-All five commands are registered. `SendCommand` retains Session's send plan,
+All seven commands are registered. `SendCommand` retains Session's send plan,
 derives staging from it and submits the native session command with that plan.
 It returns the original input record with actual routing.
 Lifecycle staging is proved with a shared-feed fake. Native send admission and
@@ -164,3 +164,25 @@ removed from the delivery command without changing the readiness description.
 All recipients departing returns `runtime.ErrNoActiveTargets`, which discards a
 retained stage with the existing notice. Direct and waiting broadcasts use the
 same submission milestones and partial-routing publication as addressed sends.
+
+## User definitions and named invocation
+
+Context.UserCommands exposes Define and Resolve through UserCommandRegistry.
+promptlang.Registry remains the implementation and owns validation and unevaluated
+bodies. The interpreter owns one registry per instance; the temporary monolith
+WithUserCommands bridge shares it with legacy loop and queued ResolveCommand calls.
+All access runs on the serialized lane. Remove the bridge when those callers migrate.
+
+DefineCommand prepares a definition invocation; Go stores the body and queues its
+confirmation record. The interpreter publishes that record before submission
+success. Reserved and duplicate names remain classified registry diagnostics.
+UserCommand resolves before input acceptance and then uses the existing
+shellInvocation, executing the resolved program while displaying /name. Missing
+names publish UnknownCommand with the original span and create no input record.
+Shell workers, cancellation, joined shutdown and compatibility completion events
+are unchanged. The compatibility adapter takes display text from the command record.
+
+The interpreter drains already-queued synchronous results after lifecycle Start
+and submission bookkeeping, before admitting the next queued input. The producer
+callback never settles a lifecycle. This preserves definition confirmation before
+an immediately queued invocation and still rejects duplicate or stale results.
