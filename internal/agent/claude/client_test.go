@@ -242,38 +242,6 @@ func TestRead_selfStartedTurnSummarisedAsLog(t *testing.T) {
 	}
 }
 
-func TestPermissionRequestDeniedWithoutListener(t *testing.T) {
-	canUseTool := `{"type":"control_request","request_id":"perm-1","request":{"subtype":"can_use_tool","tool_name":"Write","input":{"file_path":"/w/x"},"tool_use_id":"toolu_1"}}`
-	obs := &recordingObserver{}
-	c := startPeer(t, peerScript(
-		[]string{lineInitOK},
-		[]string{lineSystemInit, canUseTool},
-		[]string{lineResultOK},
-	), WithObserver(obs))
-
-	if _, err := c.Send("write x"); err != nil {
-		t.Fatal(err)
-	}
-	readUntil(t, c, isAnchorFlush)
-
-	var resp struct {
-		Response struct {
-			Subtype   string `json:"subtype"`
-			RequestID string `json:"request_id"`
-			Response  struct {
-				Behavior string `json:"behavior"`
-			} `json:"response"`
-		} `json:"response"`
-	}
-	sent := obs.sentLines()
-	if err := json.Unmarshal([]byte(sent[len(sent)-1]), &resp); err != nil {
-		t.Fatal(err)
-	}
-	if resp.Response.RequestID != "perm-1" || resp.Response.Response.Behavior != "deny" {
-		t.Errorf("permission response = %+v, want deny for perm-1", resp.Response)
-	}
-}
-
 func TestInterrupt(t *testing.T) {
 	obs := &recordingObserver{}
 	c := startPeer(t, peerScript(

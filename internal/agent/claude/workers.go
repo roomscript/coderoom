@@ -9,16 +9,20 @@ import (
 	"github.com/roomscript/coderoom/internal/agent"
 )
 
-// startWorkers starts the stdout and stderr readers and the exit monitor.
-// The monitor waits for both readers to reach EOF before calling Wait, as
-// os/exec requires, then closes the queue.
+// startWorkers starts the stdout and stderr readers, the approval worker and
+// the exit monitor. The monitor waits for both readers to reach EOF before
+// calling Wait, as os/exec requires. Once the process is gone, nothing can
+// answer it, so the monitor also ends the approval worker.
 func (c *Client) startWorkers() {
 	c.lifecycle.readers.Add(2)
 	go c.readStdout()
 	go c.readStderr()
+	go c.runApprovals()
 	go func() {
 		c.lifecycle.readers.Wait()
 		_ = c.proc.cmd.Wait()
+		c.lifecycle.cancelFn()
+		c.approvals.queue.close()
 		c.queue.close()
 		close(c.exited)
 	}()
@@ -90,23 +94,16 @@ func (c *Client) handleControlResponse(line *controlResponseLine) {
 	}
 }
 
-// handleControlRequest answers requests from Claude. Permission requests are
-// denied until approvals are wired; anything else is unsupported.
+// handleControlRequest answers requests from Claude. Permission requests go
+// to the approval worker; anything else is unsupported.
 func (c *Client) handleControlRequest(line *controlRequestLine) {
-	var body struct {
-		Subtype   string `json:"subtype"`
-		ToolUseID string `json:"tool_use_id"`
-	}
-	_ = json.Unmarshal(line.Request, &body)
-	if body.Subtype != controlCanUseTool {
-		_ = c.writeJSON(newControlError(line.RequestID, "unsupported control request: "+body.Subtype))
+	var tool canUseTool
+	_ = json.Unmarshal(line.Request, &tool)
+	if tool.Subtype != controlCanUseTool {
+		_ = c.writeJSON(newControlError(line.RequestID, "unsupported control request: "+tool.Subtype))
 		return
 	}
-	c.dec.markDeclined(body.ToolUseID)
-	_ = c.writeJSON(newControlSuccess(line.RequestID, permissionDeny{
-		Behavior: "deny",
-		Message:  "The coderoom user declined this action.",
-	}))
+	c.queuePermission(line.RequestID, tool)
 }
 
 // noteTurnStart marks a turn Claude started on its own: system/init with no

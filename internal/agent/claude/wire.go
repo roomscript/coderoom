@@ -110,6 +110,15 @@ type controlRequestLine struct {
 	Request   json.RawMessage `json:"request"`
 }
 
+// canUseTool is the request body of a can_use_tool control request.
+type canUseTool struct {
+	Subtype               string            `json:"subtype"`
+	ToolName              string            `json:"tool_name"`
+	Input                 json.RawMessage   `json:"input"`
+	PermissionSuggestions []json.RawMessage `json:"permission_suggestions"`
+	ToolUseID             string            `json:"tool_use_id"`
+}
+
 type controlResponseLine struct {
 	Response struct {
 		Subtype   string `json:"subtype"`
@@ -121,7 +130,8 @@ type controlResponseLine struct {
 // Tool inputs and results the decoder maps.
 
 type bashInput struct {
-	Command string `json:"command"`
+	Command     string `json:"command"`
+	Description string `json:"description"`
 }
 
 type fileInput struct {
@@ -201,6 +211,13 @@ func newControlError(requestID, msg string) controlResponse {
 	return controlResponse{Type: typeControlResponse, Response: controlResponseBody{
 		Subtype: "error", RequestID: requestID, Error: msg,
 	}}
+}
+
+// permissionAllow is the can_use_tool response that allows a tool call.
+type permissionAllow struct {
+	Behavior           string            `json:"behavior"`
+	UpdatedInput       json.RawMessage   `json:"updatedInput"`
+	UpdatedPermissions []json.RawMessage `json:"updatedPermissions,omitempty"`
 }
 
 // permissionDeny is the can_use_tool response that refuses a tool call.

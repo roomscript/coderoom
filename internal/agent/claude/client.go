@@ -46,8 +46,14 @@ type Client struct {
 
 	startTimeout time.Duration
 	stopGrace    time.Duration
-	queue        *messageQueue
+	queue        *queue[agent.Message]
 	dec          *decoder // stdout reader goroutine only
+
+	approvals struct {
+		listener agent.ApprovalListener
+		queue    *queue[permissionRequest]
+		done     chan struct{} // closed when the approval worker exits
+	}
 
 	writeMu sync.Mutex
 	reqSeq  int // guarded by writeMu
@@ -88,8 +94,14 @@ func WithObserver(obs ProtocolObserver) Option {
 // WithContext sets the parent context for the client's worker lifecycle.
 func WithContext(ctx context.Context) Option {
 	return func(c *Client) {
-		c.lifecycle.ctx, c.lifecycle.cancelFn = context.WithCancel(ctx) //nolint:gosec // cancel stored in cancelFn, called in Stop()
+		c.lifecycle.ctx, c.lifecycle.cancelFn = context.WithCancel(ctx) //nolint:gosec // cancel stored in cancelFn, called on process exit and in Stop()
 	}
+}
+
+// WithApprovalListener attaches a listener for permission requests. Without
+// one, every request is declined.
+func WithApprovalListener(l agent.ApprovalListener) Option {
+	return func(c *Client) { c.approvals.listener = l }
 }
 
 // WithModel sets the model passed to --model. If not set, Claude Code uses
@@ -118,7 +130,7 @@ func New(cwd string, opts ...Option) *Client {
 		o(c)
 	}
 	if c.lifecycle.ctx == nil {
-		c.lifecycle.ctx, c.lifecycle.cancelFn = context.WithCancel(context.Background()) // #nosec G118 -- cancel called in Stop()
+		c.lifecycle.ctx, c.lifecycle.cancelFn = context.WithCancel(context.Background()) // #nosec G118 -- cancel called on process exit and in Stop()
 	}
 	return c
 }
@@ -128,7 +140,9 @@ func (c *Client) Start() error {
 	if err := c.proc.start(); err != nil {
 		return err
 	}
-	c.queue = newMessageQueue()
+	c.queue = newQueue[agent.Message]()
+	c.approvals.queue = newQueue[permissionRequest]()
+	c.approvals.done = make(chan struct{})
 	c.dec = newDecoder()
 	c.initDone = make(chan error, 1)
 	c.exited = make(chan struct{})
@@ -206,7 +220,8 @@ func (c *Client) Interrupt() error {
 }
 
 // Stop closes stdin and waits for the process to exit, escalating to SIGTERM
-// and then SIGKILL if it does not. May be called from a different goroutine
+// and then SIGKILL if it does not. A pending approval is abandoned: the
+// listener's context is cancelled. May be called from a different goroutine
 // to interrupt a blocked Read().
 func (c *Client) Stop() error {
 	if c.proc.cmd == nil {
@@ -225,6 +240,7 @@ func (c *Client) Stop() error {
 		_ = c.proc.cmd.Process.Kill()
 		<-c.exited
 	})
+	<-c.approvals.done
 	return nil
 }
 

@@ -171,8 +171,8 @@ message, interrupt?}`.
 | `accept` | `allow`, `updatedInput` = original input |
 | `acceptForSession` | `allow` + `updatedPermissions` = Claude's `permission_suggestions` **rewritten to `destination: session`**. Claude's suggestions often target `localSettings`, which would write `.claude/settings.local.json` into the user's project. No suggestions: treat as `accept` and log it |
 | `decline` | `deny`, message "The coderoom user declined this action." |
-| `cancel` | `deny` with `interrupt: true` (the SDK supports it; to verify in phase 3) |
-| listener error / no listener / ctx done | `deny` |
+| `cancel` | `deny` with `interrupt: true`. Verified live: the turn ends with `aborted_streaming`, and Claude replaces our message with its own rejection text in the tool result |
+| listener error / no listener / invalid choice | `deny`, plus a `Log` saying why |
 
 Offered options: Bash and file changes get all four; `permissions` gets
 accept/decline, as codex.
@@ -184,7 +184,21 @@ scope follows Claude's suggestion and is only roughly the same as Codex's:
 - Write/Edit: switch the session to accept edits (`setMode: acceptEdits`), so
   every later edit in the session is accepted. Broader than one change.
 
-This difference is documented, not mapped.
+This difference is documented, not mapped. Verified live: after one
+`acceptForSession`, a second write in the same turn is not asked, and nothing
+is written under the project's `.claude/`.
+
+### Implementation notes
+
+- The stdout reader only parses `can_use_tool` and queues it. A separate
+  worker asks the listener and writes the response, one request at a time, so
+  a pending human decision never stalls `Read()`, stderr or `Stop()`.
+- The listener's context is the client lifecycle context, cancelled by
+  `Stop()` and on process exit. `Stop()` waits for the worker.
+- A denied file change is reported as `declined`, not `failed`. The adapter
+  records each tool call it denies before answering; the tool result cannot
+  tell, because its text is our message on deny and Claude's own wording on
+  cancel.
 
 ### AskUserQuestion
 

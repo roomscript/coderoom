@@ -244,23 +244,25 @@ func TestDecode_editUpdatesFile(t *testing.T) {
 
 func TestDecode_fileChangeStatus(t *testing.T) {
 	tests := []struct {
-		name     string
-		declined bool
-		isError  bool
-		want     agent.ToolStatus
+		name    string
+		denied  bool // coderoom denied the call
+		content string
+		want    agent.ToolStatus
 	}{
-		{"declined by host", true, true, agent.ToolStatusDeclined},
-		{"failed", false, true, agent.ToolStatusFailed},
+		{"declined by coderoom", true, `"` + declineMessage + `"`, agent.ToolStatusDeclined},
+		{"cancelled by coderoom", true, `"The user doesn't want to proceed with this tool use."`, agent.ToolStatusDeclined},
+		{"denied by Claude", false, `"Claude requested permissions to write to /w/denied.txt, but you haven't granted it yet."`, agent.ToolStatusFailed},
+		{"failed", false, `"File has not been read yet."`, agent.ToolStatusFailed},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			d := newDecoder()
-			if tt.declined {
-				d.markDeclined("toolu_4")
+			if tt.denied {
+				d.denied.add("toolu_4")
 			}
 			msgs := decodeAll(t, d,
 				toolUseLine("toolu_4", "Write", `{"file_path":"/w/denied.txt","content":"no\n"}`),
-				toolResultLine("toolu_4", `"denied"`, tt.isError, `"Error: denied"`),
+				toolResultLine("toolu_4", tt.content, true, `"Error: denied"`),
 			)
 			set, _ := accumulate(t, msgs).Content.(agent.FileChangeSet)
 			if set.Status != tt.want {

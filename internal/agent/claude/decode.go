@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/roomscript/coderoom/internal/agent"
 )
@@ -60,28 +61,52 @@ type toolCall struct {
 }
 
 // decoder translates stdout lines into agent messages. It is owned by the
-// stdout reader goroutine and is not safe for concurrent use.
+// stdout reader goroutine and is not safe for concurrent use, except denied,
+// which the approval worker writes.
 type decoder struct {
 	messageID string
 	blocks    map[int]*openBlock
 	tools     map[string]toolCall
-	declined  map[string]bool // tool_use_ids whose permission was denied
+	denied    *deniedTools
 }
 
 func newDecoder() *decoder {
 	return &decoder{
-		blocks:   map[int]*openBlock{},
-		tools:    map[string]toolCall{},
-		declined: map[string]bool{},
+		blocks: map[int]*openBlock{},
+		tools:  map[string]toolCall{},
+		denied: &deniedTools{ids: map[string]bool{}},
 	}
 }
 
-// markDeclined records that the host denied the tool call, so its result is
-// reported as declined rather than failed.
-func (d *decoder) markDeclined(toolUseID string) {
-	if toolUseID != "" {
-		d.declined[toolUseID] = true
-	}
+// deniedTools holds the tool calls coderoom denied, so their results read as
+// declined rather than failed. The tool result cannot tell: its text is our
+// deny message, or Claude's own wording when the deny interrupts the turn.
+type deniedTools struct {
+	mu  sync.Mutex
+	ids map[string]bool
+}
+
+// add records a denial. The approval worker calls it before writing the
+// response, so it always precedes the tool result.
+func (t *deniedTools) add(toolUseID string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.ids[toolUseID] = true
+}
+
+// take reports whether the call was denied and forgets it.
+func (t *deniedTools) take(toolUseID string) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	denied := t.ids[toolUseID]
+	delete(t.ids, toolUseID)
+	return denied
+}
+
+func (t *deniedTools) clear() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	clear(t.ids)
 }
 
 func (d *decoder) decode(raw []byte) (decoded, error) {
@@ -263,8 +288,7 @@ func (d *decoder) finishTool(block toolResultBlock, toolUseResult json.RawMessag
 		return nil
 	}
 	delete(d.tools, block.ToolUseID)
-	declined := d.declined[block.ToolUseID]
-	delete(d.declined, block.ToolUseID)
+	declined := d.denied.take(block.ToolUseID)
 
 	if tc.kind == toolKindCommand {
 		return commandResultMessages(tc, block, toolUseResult)
@@ -395,7 +419,7 @@ func (d *decoder) flushOpen() []agent.Message {
 	}
 	clear(d.blocks)
 	clear(d.tools)
-	clear(d.declined)
+	d.denied.clear()
 	return msgs
 }
 

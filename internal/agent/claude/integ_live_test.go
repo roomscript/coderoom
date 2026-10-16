@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/roomscript/coderoom/internal/agent"
+	"github.com/roomscript/coderoom/internal/agent/claude"
 )
 
 // These tests run a real Claude Code. They check what fake peers cannot:
@@ -46,10 +47,11 @@ func TestClientLiveToolSurface(t *testing.T) {
 }
 
 // TestClientLiveTurn runs one turn with a successful command, a failing
-// command and a file write. Read-only commands are auto-approved by Claude;
-// the write asks for permission, which the adapter declines for now.
+// command and an approved file write. Read-only commands are auto-approved by
+// Claude; only the write reaches the listener.
 func TestClientLiveTurn(t *testing.T) {
-	c, _, cwd := startLiveClient(t)
+	l := &fixedListener{choice: agent.OptionAccept}
+	c, _, cwd := startLiveClient(t, claude.WithApprovalListener(l))
 	prompt := "Do these steps in order, one tool call each, without retrying:\n" +
 		"1. Run the Bash command `echo coderoom-live`.\n" +
 		"2. Run the Bash command `ls missing-file`.\n" +
@@ -63,16 +65,66 @@ func TestClientLiveTurn(t *testing.T) {
 	checkCommand(t, res, "ls missing-file", func(cmd agent.Command) bool {
 		return cmd.ExitCode != nil && *cmd.ExitCode != 0
 	})
-
-	sets := res.fileChanges()
-	if len(sets) != 1 || sets[0].Status != agent.ToolStatusDeclined {
-		t.Errorf("file changes = %+v, want one declined", sets)
+	checkSingleFileChange(t, res, agent.ToolStatusCompleted)
+	b, err := os.ReadFile(filepath.Join(cwd, "note.txt")) // #nosec G304 -- test temp dir
+	if err != nil || !strings.Contains(string(b), "hello") {
+		t.Errorf("note.txt = %q, %v; want it written", b, err)
 	}
-	if _, err := os.Stat(filepath.Join(cwd, "note.txt")); err == nil {
-		t.Error("note.txt was written although the write was declined")
+	if reqs := l.requests(); len(reqs) != 1 || reqs[0].Kind != agent.ApprovalFileChange {
+		t.Errorf("approval requests = %+v, want one file change", reqs)
 	}
 	if len(res.logs) != 0 {
 		t.Errorf("unexpected logs %q", res.logs)
+	}
+}
+
+// TestClientLiveRefusedWrite checks decline and cancel. Cancel denies with
+// interrupt, which must end the turn: the model gets no chance to continue.
+func TestClientLiveRefusedWrite(t *testing.T) {
+	tests := []struct {
+		choice  agent.ApprovalOption
+		wantLog bool // the turn-interrupted log
+	}{
+		{agent.OptionDecline, false},
+		{agent.OptionCancel, true},
+	}
+	for _, tt := range tests {
+		t.Run(string(tt.choice), func(t *testing.T) {
+			c, _, cwd := startLiveClient(t, claude.WithApprovalListener(&fixedListener{choice: tt.choice}))
+			prompt := "Create the file note.txt containing `hello` with the Write tool. Do not retry. Then reply \"done\"."
+			res := readTurn(t, c, send(t, c, prompt))
+
+			checkSingleFileChange(t, res, agent.ToolStatusDeclined)
+			if _, err := os.Stat(filepath.Join(cwd, "note.txt")); err == nil {
+				t.Error("note.txt was written although the write was refused")
+			}
+			if hasLog := len(res.logs) > 0; hasLog != tt.wantLog {
+				t.Errorf("logs = %q, want a log: %v", res.logs, tt.wantLog)
+			}
+		})
+	}
+}
+
+// TestClientLiveAcceptForSession checks that a session approval covers the
+// next write without asking again, and that the rule stays in the process:
+// Claude suggests localSettings, which would write into the project.
+func TestClientLiveAcceptForSession(t *testing.T) {
+	l := &fixedListener{choice: agent.OptionAcceptForSession}
+	c, _, cwd := startLiveClient(t, claude.WithApprovalListener(l))
+	prompt := "With the Write tool, create a.txt containing `a`, then b.txt containing `b`, one tool call each. " +
+		"Do not retry. Then reply \"done\"."
+	readTurn(t, c, send(t, c, prompt))
+
+	for _, name := range []string{"a.txt", "b.txt"} {
+		if _, err := os.Stat(filepath.Join(cwd, name)); err != nil {
+			t.Errorf("%s not written: %v", name, err)
+		}
+	}
+	if n := len(l.requests()); n != 1 {
+		t.Errorf("approval requests = %d, want 1 (the second write covered by the session rule)", n)
+	}
+	if _, err := os.Stat(filepath.Join(cwd, ".claude")); err == nil {
+		t.Error("session approval wrote settings into the project (.claude exists)")
 	}
 }
 
@@ -111,6 +163,14 @@ func send(t *testing.T, c interface {
 		t.Fatalf("Send: %v", err)
 	}
 	return anchor
+}
+
+func checkSingleFileChange(t *testing.T, res turnResult, want agent.ToolStatus) {
+	t.Helper()
+	sets := res.fileChanges()
+	if len(sets) != 1 || sets[0].Status != want {
+		t.Errorf("file changes = %+v, want one %s", sets, want)
+	}
 }
 
 func checkCommand(t *testing.T, res turnResult, command string, ok func(agent.Command) bool) {

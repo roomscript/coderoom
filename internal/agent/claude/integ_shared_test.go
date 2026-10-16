@@ -3,12 +3,14 @@
 package claude_test
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -78,14 +80,15 @@ func newWireObserver(t *testing.T) *wireObserver {
 // startLiveClient starts a real Claude Code in a fresh directory. A missing
 // claude binary fails the test, as a missing codex does, so a passing run
 // never hides tests that did not run.
-func startLiveClient(t *testing.T) (*claude.Client, *wireObserver, string) {
+func startLiveClient(t *testing.T, opts ...claude.Option) (*claude.Client, *wireObserver, string) {
 	t.Helper()
 	if _, err := exec.LookPath("claude"); err != nil {
 		t.Fatal("claude not installed; the Claude integration tests need Claude Code on PATH")
 	}
 	cwd := t.TempDir()
 	obs := newWireObserver(t)
-	c := claude.New(cwd, claude.WithObserver(obs), claude.WithModel(*claudeModel))
+	opts = append([]claude.Option{claude.WithObserver(obs), claude.WithModel(*claudeModel)}, opts...)
+	c := claude.New(cwd, opts...)
 	if err := c.Start(); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -95,6 +98,27 @@ func startLiveClient(t *testing.T) (*claude.Client, *wireObserver, string) {
 		}
 	})
 	return c, obs, cwd
+}
+
+// fixedListener answers every approval with one choice and records the
+// requests.
+type fixedListener struct {
+	mu     sync.Mutex
+	choice agent.ApprovalOption
+	reqs   []agent.ApprovalRequest
+}
+
+func (l *fixedListener) Decide(_ context.Context, req agent.ApprovalRequest) (agent.ApprovalDecision, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.reqs = append(l.reqs, req)
+	return agent.ApprovalDecision{Choice: l.choice}, nil
+}
+
+func (l *fixedListener) requests() []agent.ApprovalRequest {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return slices.Clone(l.reqs)
 }
 
 // turnResult holds one turn's output, each stream accumulated to its final
