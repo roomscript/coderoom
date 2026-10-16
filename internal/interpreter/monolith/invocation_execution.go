@@ -33,14 +33,13 @@ func (e *interpreterExecutor) goInvocation(value goInvocationInstruction) instru
 	if value.context.Participants == nil {
 		value.context.Participants = participantViews(e.participants())
 	}
-	delivery := &commandSession{executor: e}
+	delivery := &commandSessionProvider{executor: e}
 	if e.commandSessions == nil {
-		e.commandSessions = make(map[uint64]*commandSession)
+		e.commandSessions = make(map[uint64]*commandSessionProvider)
 	}
 	e.commandSessions[id] = delivery
 	if value.context.Session == nil {
-		legacy := &legacyCommandSession{commandSession: delivery}
-		delivery.onClose = legacy.release
+		legacy := &legacyCommandSessionProvider{commandSessionProvider: delivery}
 		value.context.Session = legacy
 	}
 	launcher := &userShellLauncher{executor: e}

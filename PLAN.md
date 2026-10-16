@@ -238,8 +238,15 @@ including failed delivery. Subscribe/Execute and loop behavior remain unchanged.
 By subsequent agreement, Delivery.Go passes the full DeliveryCompleted event
 and a separate execution/protocol error to its callback. Execution identity now
 reaches helper consumers without a second subscription or additional result type.
-Repeated execution scopes, interpreter-driven loop advancement and intermediate
-publication also require agreement before changing runtime contracts.
+Fresh execution scopes are implemented by subsequent agreement:
+Context.Session exposes SessionExecutionProvider, retaining participant reads,
+planning and lifecycle subscriptions. CreateExecution returns an independent,
+single-use Subscribe/Execute handle for each delivery. Provider lifetime belongs
+to the interpreter; closing one scope leaves siblings usable, while closing the
+invocation revokes existing and future scopes. Causal publication stays at the
+provider boundary. SubmitCommand keeps its private compatibility admission policy.
+Loop behavior is unchanged. Interpreter-driven loop advancement and intermediate
+publication still require agreement before changing runtime contracts.
 Future handoff history selectors (latest, earlier, all) remain a separate feature;
 this checkpoint adds only the latest-output read required by current syntax.
 

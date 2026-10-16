@@ -24,8 +24,8 @@ func TestCommandSubmission_nativeCausalPublication(t *testing.T) {
 					t.Error("missing command capabilities")
 				}
 				submission.Publish(InputAccepted{Raw: statement.Raw, Routing: []string{"ada"}})
-				execution := submission.Context.Session
-				command := session.SendToParticipantCommand{Plan: execution.CreateParticipantSendPlan(testAlias("ada")), Message: "work", Notice: "@ada: work"}
+				execution := submission.Context.Session.CreateExecution()
+				command := session.SendToParticipantCommand{Plan: submission.Context.Session.CreateParticipantSendPlan(testAlias("ada")), Message: "work", Notice: "@ada: work"}
 				execution.Subscribe(func(event runtime.ExecutionEvent) {
 					result := deriveAdmissionEventCompletion(statement.Raw, event)
 					submission.QueueCompletion(func() { publishAdmissionTestCompletion(submission, result) })

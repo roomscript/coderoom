@@ -30,9 +30,10 @@ func TestDeliveryCapability_ScopesIdenticalBroadcastRecipients(t *testing.T) {
 		for index, text := range []string{"first", "second"} {
 			submission := interp.AdmitCommand("broadcast", parseSourceStatement(t, text))
 			submissions[index] = submission
-			submission.Context.Session.Subscribe(func(event runtime.ExecutionEvent) { results[index] <- event })
+			execution := submission.Context.Session.CreateExecution()
+			execution.Subscribe(func(event runtime.ExecutionEvent) { results[index] <- event })
 			command := session.BroadcastCommand{Aliases: []participant.Alias{testAlias("ada")}, Text: text}
-			if err := submission.Context.Session.Execute(command); err != nil {
+			if err := execution.Execute(command); err != nil {
 				t.Error(err)
 			}
 		}
@@ -69,9 +70,10 @@ func TestDeliveryCapability_ProtocolFailureWithoutRoutingMetadata(t *testing.T) 
 			events := make(chan runtime.ExecutionEvent, 2)
 			mustSubmit(t, interp.Schedule(func() {
 				submission := interp.AdmitCommand("probe", parseSourceStatement(t, "/cancel ada"))
-				submission.Context.Session.Subscribe(func(event runtime.ExecutionEvent) { events <- event; submission.Close() })
+				execution := submission.Context.Session.CreateExecution()
+				execution.Subscribe(func(event runtime.ExecutionEvent) { events <- event; submission.Close() })
 				// No recipient template or routing kind is needed for a protocol failure.
-				if err := submission.Context.Session.Execute(session.CancelCommand{Alias: testAlias("ada")}); err != nil {
+				if err := execution.Execute(session.CancelCommand{Alias: testAlias("ada")}); err != nil {
 					t.Error(err)
 				}
 			}))
@@ -110,9 +112,10 @@ func TestDeliveryCapability_NoSharedPrimaryReservation(t *testing.T) {
 	mustSubmit(t, interp.Schedule(func() {
 		for range 2 {
 			submission := interp.AdmitCommand("send", parseSourceStatement(t, "@ada work"))
-			submission.Context.Session.Subscribe(func(event runtime.ExecutionEvent) { completed <- event; submission.Close() })
+			execution := submission.Context.Session.CreateExecution()
+			execution.Subscribe(func(event runtime.ExecutionEvent) { completed <- event; submission.Close() })
 			command := session.SendToParticipantCommand{Plan: submission.Context.Session.CreateParticipantSendPlan(testAlias("ada")), Message: "work"}
-			if err := submission.Context.Session.Execute(command); err != nil {
+			if err := execution.Execute(command); err != nil {
 				t.Error(err)
 			}
 		}
@@ -154,8 +157,9 @@ func TestDeliveryCapability_ForwardsExecutionID(t *testing.T) {
 			mustSubmit(t, interp.Schedule(func() {
 				for _, text := range []string{"first", "second"} {
 					submission := interp.AdmitCommand("broadcast", parseSourceStatement(t, text))
-					submission.Context.Session.Subscribe(func(event runtime.ExecutionEvent) { results <- event; submission.Close() })
-					if err := submission.Context.Session.Execute(session.BroadcastCommand{Aliases: []participant.Alias{testAlias("ada")}, Text: text}); err != nil {
+					execution := submission.Context.Session.CreateExecution()
+					execution.Subscribe(func(event runtime.ExecutionEvent) { results <- event; submission.Close() })
+					if err := execution.Execute(session.BroadcastCommand{Aliases: []participant.Alias{testAlias("ada")}, Text: text}); err != nil {
 						t.Error(err)
 					}
 				}

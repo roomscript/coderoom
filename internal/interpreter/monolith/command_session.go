@@ -5,32 +5,17 @@ import (
 	"sync"
 
 	"github.com/roomscript/coderoom/internal/interpreter/runtime"
-	"github.com/roomscript/coderoom/internal/participant"
 	"github.com/roomscript/coderoom/internal/session"
 )
 
-// commandSession admits opaque Session commands on the shared lane and reports
-// terminal events only to its owner before causal publication.
+// commandSession is one execution scope created by an invocation's provider.
 type commandSession struct {
-	executor       *interpreterExecutor
-	invocation     *ownedCommand
-	mu             sync.Mutex
-	onClose        func()
-	handle         func(runtime.ExecutionEvent)
-	admitted       bool
-	closed         bool
-	completionWork func()
-	publication    instructionSequence
-	recordCount    int
-	dispatching    bool
-}
-
-func (s *commandSession) ParticipantByName(name string) (participant.View, bool) {
-	return s.executor.session.ParticipantByName(name)
-}
-
-func (s *commandSession) CreateParticipantSendPlan(alias participant.Alias) session.ParticipantSendPlan {
-	return s.executor.session.CreateParticipantSendPlan(alias)
+	provider *commandSessionProvider
+	mu       sync.Mutex
+	onClose  func()
+	handle   func(runtime.ExecutionEvent)
+	admitted bool
+	closed   bool
 }
 
 func (s *commandSession) Subscribe(handle func(runtime.ExecutionEvent)) func() {
@@ -42,18 +27,6 @@ func (s *commandSession) Subscribe(handle func(runtime.ExecutionEvent)) func() {
 	return s.close
 }
 
-// Delegate only to the atomic Session boundary;
-// controllers without that boundary cannot be used for lifecycle staging.
-func (s *commandSession) SubscribeParticipants(handle func(session.Event)) (session.ParticipantSnapshot, func()) {
-	source, ok := s.executor.session.(interface {
-		SubscribeParticipants(func(session.Event)) (session.ParticipantSnapshot, func())
-	})
-	if !ok {
-		panic("session controller does not support atomic participant subscriptions")
-	}
-	return source.SubscribeParticipants(handle)
-}
-
 func (s *commandSession) Execute(command session.Command) error {
 	if command == nil {
 		return errors.New("delivery requires a command")
@@ -63,7 +36,13 @@ func (s *commandSession) Execute(command session.Command) error {
 	if s.closed || s.admitted || s.handle == nil {
 		return errors.New("delivery adapter is closed, already admitted or has no subscriber")
 	}
-	e := s.executor
+	s.provider.mu.Lock()
+	ownerClosed := s.provider.closed
+	s.provider.mu.Unlock()
+	if ownerClosed {
+		return ErrClosed
+	}
+	e := s.provider.executor
 	e.enqueueMu.Lock()
 	defer e.enqueueMu.Unlock()
 	if e.closed {
@@ -77,43 +56,20 @@ func (s *commandSession) Execute(command session.Command) error {
 
 func (s *commandSession) close() {
 	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return
+	}
 	s.closed = true
 	s.handle = nil
+	onClose := s.onClose
 	s.mu.Unlock()
-	if s.onClose != nil {
-		s.onClose()
+	if onClose != nil {
+		onClose()
 	}
-}
-
-func (s *commandSession) complete(completion invocationCompletion) {
-	s.queueCompletionWork(func() {
-		sequence := s.executor.settleInvocation(completion)
-		s.publishCompletion(sequence, len(completion.completion.Records))
-	})
-}
-
-func (s *commandSession) queueCompletionWork(work func()) {
-	s.mu.Lock()
-	if s.dispatching {
-		if s.completionWork == nil {
-			s.completionWork = work
-		}
-		s.mu.Unlock()
-		return
-	}
-	s.mu.Unlock()
-	s.executor.enqueueCompletion(scheduledOperation{work: work})
-}
-
-func (s *commandSession) publishCompletion(sequence instructionSequence, recordCount int) {
-	s.mu.Lock()
-	if s.dispatching {
-		s.publication, s.recordCount = sequence, recordCount
-		s.mu.Unlock()
-		return
-	}
-	s.mu.Unlock()
-	s.executor.runner.Run(sequence)
+	s.provider.mu.Lock()
+	delete(s.provider.executions, s)
+	s.provider.mu.Unlock()
 }
 
 // Admitted delivery belongs to the current scheduled turn. Drain it before the
@@ -145,44 +101,17 @@ func (op nativeDeliveryOperation) apply(e *interpreterExecutor) {
 		s.mu.Unlock()
 		return
 	}
-	s.dispatching = true
 	handle := s.handle
 	s.mu.Unlock()
+	s.provider.mu.Lock()
+	s.provider.dispatching = true
+	s.provider.mu.Unlock()
 	executionID, err := e.session.Execute(op.command)
 	events := e.takeSessionEvents()
 	if handle != nil {
 		handle(nativeDeliveryEvent(executionID, events, err))
 	}
-	s.publishDelivery(e, events)
-}
-
-// Publish caller-owned completion work, input records, causal events, then the
-// terminal outcome. Neither this adapter nor the runner owns the caller's workflow.
-func (s *commandSession) publishDelivery(e *interpreterExecutor, events []session.Event) {
-	s.mu.Lock()
-	work := s.completionWork
-	s.completionWork = nil
-	s.mu.Unlock()
-	if work != nil {
-		work() // The owning interpreter settles its result before publication.
-	}
-	s.mu.Lock()
-	publication, count := s.publication, s.recordCount
-	s.publication = nil
-	s.recordCount = 0
-	s.dispatching = false
-	s.mu.Unlock()
-	// Input records precede the events caused by delivery, as in legacy dispatch.
-	items := []runnerItem{}
-	var settlement instructionSequence
-
-	if publication != nil {
-		items = append(items, instructionItems(publication[:count])...)
-		settlement = append(settlement, publication[count:]...)
-	}
-	items = append(items, sessionEventsItem{events: events})
-	items = append(items, instructionItems(settlement)...)
-	e.runner.runItems(items)
+	s.provider.publishDelivery(e, events)
 }
 
 // A terminal execution failure belongs to the invocation, not to an invented
@@ -203,11 +132,4 @@ func nativeDeliveryEvent(executionID session.ExecutionID, events []session.Event
 		return runtime.ExecutionFailed{Err: errors.Join(runtime.ErrInvalidDeliveryOutcome, executionErr)}
 	}
 	return runtime.DeliveryCompleted{ExecutionID: executionID, Result: routing}
-}
-
-func (s *commandSession) release() {
-	if s.invocation != nil {
-		s.invocation.close()
-	}
-	s.close()
 }

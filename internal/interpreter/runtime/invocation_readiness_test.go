@@ -353,3 +353,5 @@ func assertRequiredParticipantUnavailable(t *testing.T, err error, alias partici
 }
 
 func (*participantHost) Subscribe(func(ExecutionEvent)) func() { return func() {} }
+
+func (h *participantHost) CreateExecution() SessionExecution { return h }

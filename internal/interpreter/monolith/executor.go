@@ -76,7 +76,7 @@ type interpreterExecutor struct {
 	sessionDown        bool
 	nextInvocationID   uint64
 	pendingInvocations map[uint64]submissionOutcome
-	commandSessions    map[uint64]*commandSession
+	commandSessions    map[uint64]*commandSessionProvider
 }
 
 func newInterpreterExecutor(

@@ -191,3 +191,5 @@ func receiveLifecycleCompletion(t *testing.T, events <-chan session.Event) sessi
 		}
 	}
 }
+
+func (h *participantLifecycleHost) CreateExecution() runtime.SessionExecution { return h }

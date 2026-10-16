@@ -228,7 +228,7 @@ func TestStage_acceptedDiscardResolvesBeforeShutdown(t *testing.T) {
 func captureStageExecution(t *testing.T, interp *Interpreter) runtime.SessionExecution {
 	t.Helper()
 	captured := make(chan runtime.SessionExecution, 1)
-	if err := interp.fallback.Schedule(func() { captured <- interp.invocations[interp.stage.id].submission.Context.Session }); err != nil {
+	if err := interp.fallback.Schedule(func() { captured <- interp.invocations[interp.stage.id].submission.Context.Session.CreateExecution() }); err != nil {
 		t.Fatal(err)
 	}
 	return <-captured

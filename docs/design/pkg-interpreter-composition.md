@@ -610,3 +610,20 @@ joined shutdown and stale-result rejection use the existing owned execution path
 WithUserCommands temporarily shares the interpreter-owned registry with legacy loop
 and public ResolveCommand dispatch on the same lane. The bridge and legacy handlers
 are removed when remaining monolith consumers migrate at checkpoint 9.
+
+### Execution provider checkpoint
+
+Context.Session now exposes SessionExecutionProvider. Participant inspection,
+atomic lifecycle subscriptions and Session-owned send planning remain on the
+provider. Each delivery calls CreateExecution to obtain a fresh single-use
+SessionExecution containing only Subscribe and Execute. Scope unsubscription
+closes that scope independently; interpreter-owned provider closure revokes all
+existing scopes and prevents new admission. This enables repeated deliveries
+within one invocation without changing loop behavior or adding loop staging.
+
+The temporary monolith adapter separates commandSessionProvider (scope lifetime
+and ordered publication) from commandSession (one execution's admission and
+terminal events). Causal completion and publication remain on the single lane.
+The SubmitCommand compatibility provider retains its private early same-primary
+restriction. Native providers add no alias reservations. Remove these temporary
+implementations as their responsibilities transfer out of the monolith at checkpoint 9.

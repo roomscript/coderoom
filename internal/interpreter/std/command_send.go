@@ -65,7 +65,7 @@ func validateSendInput(parsed promptlang.ParsedStatement, ctx runtime.Context) (
 
 // Missing and crashed targets fail preparation. Busy and starting targets are
 // valid: the lifecycle waits for readiness, and Session checks again at delivery.
-func resolveSendTarget(name string, execution runtime.SessionExecution) (participant.Alias, error) {
+func resolveSendTarget(name string, execution runtime.SessionExecutionProvider) (participant.Alias, error) {
 	view, ok := execution.ParticipantByName(name)
 	if !ok {
 		return participant.Alias{}, fmt.Errorf("participant %q not found: %w", name, &runtime.RequiredParticipantUnavailableError{Alias: participant.Alias{Name: name}})
@@ -76,7 +76,7 @@ func resolveSendTarget(name string, execution runtime.SessionExecution) (partici
 	return view.Alias, nil
 }
 
-func newSendInvocation(statement promptlang.Send, raw string, plan session.ParticipantSendPlan, execution runtime.SessionExecution) *sendInvocation {
+func newSendInvocation(statement promptlang.Send, raw string, plan session.ParticipantSendPlan, execution runtime.SessionExecutionProvider) *sendInvocation {
 	invocation := &sendInvocation{
 		session: execution,
 		staging: deriveSendStaging(plan),
@@ -99,7 +99,7 @@ func deriveSendStaging(plan session.ParticipantSendPlan) *runtime.Staging {
 // sendInvocation owns the retained send plan and command policy. Delivery owns
 // launch/completion/close mechanics; the interpreter drives its lifecycle.
 type sendInvocation struct {
-	session  runtime.SessionExecution
+	session  runtime.SessionExecutionProvider
 	staging  *runtime.Staging
 	command  session.SendToParticipantCommand
 	raw      string
@@ -116,7 +116,7 @@ func (i *sendInvocation) discardInform(alias participant.Alias) {
 
 func (i *sendInvocation) Go(complete func(runtime.CommandResult)) error {
 	primary := i.command.Plan.PrimaryParticipant()
-	if err := i.delivery.Go(i.session, i.command, func(outcome runtime.DeliveryCompleted, err error) {
+	if err := i.delivery.Go(i.session.CreateExecution(), i.command, func(outcome runtime.DeliveryCompleted, err error) {
 		result := outcome.Result
 		if err == nil && !validSendOutcome(primary, result) {
 			err = runtime.ErrInvalidDeliveryOutcome

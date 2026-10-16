@@ -56,7 +56,7 @@ func (HandoffCommand) Prepare(parsed promptlang.ParsedStatement, ctx runtime.Con
 	return invocation, nil
 }
 
-func resolveHandoffParticipant(name string, execution runtime.SessionExecution) (participant.Alias, error) {
+func resolveHandoffParticipant(name string, execution runtime.SessionExecutionProvider) (participant.Alias, error) {
 	view, ok := execution.ParticipantByName(name)
 	if !ok || view.Status == participant.StatusCrashed {
 		return participant.Alias{}, fmt.Errorf("handoff participant %q is unavailable", name)
@@ -98,7 +98,7 @@ func (i *handoffInvocation) Go(complete func(runtime.CommandResult)) error {
 		return errors.New("handoff source has no completed room-visible output")
 	}
 	i.command.Source = source
-	if err := i.delivery.Go(i.ctx.Session, i.command, func(outcome runtime.DeliveryCompleted, executionErr error) {
+	if err := i.delivery.Go(i.ctx.Session.CreateExecution(), i.command, func(outcome runtime.DeliveryCompleted, executionErr error) {
 		complete(i.completion(outcome.Result, executionErr))
 	}); err != nil {
 		return fmt.Errorf("handoff delivery: %w", err)

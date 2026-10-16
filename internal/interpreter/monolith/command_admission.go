@@ -42,7 +42,7 @@ type CommandSubmission struct {
 	executor  *interpreterExecutor
 	Statement promptlang.ParsedStatement
 	Name      string
-	session   *commandSession
+	session   *commandSessionProvider
 	shell     *userShellLauncher
 }
 
@@ -55,7 +55,7 @@ func (i *Interpreter) AdmitCommand(name string, statement promptlang.ParsedState
 		e.runner.Run(rejection)
 		return nil
 	}
-	delivery := &commandSession{executor: e}
+	delivery := &commandSessionProvider{executor: e}
 	launcher := &userShellLauncher{executor: e}
 	return &CommandSubmission{
 		Context: runtime.Context{

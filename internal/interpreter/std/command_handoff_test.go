@@ -255,3 +255,5 @@ type completionIDs map[participant.Alias]participant.ExecutionID
 func (ids completionIDs) LastCompletedExecutionID(alias participant.Alias) participant.ExecutionID {
 	return ids[alias]
 }
+
+func (d *handoffDelivery) CreateExecution() runtime.SessionExecution { return d }

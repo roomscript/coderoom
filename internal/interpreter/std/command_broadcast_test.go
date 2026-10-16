@@ -146,3 +146,5 @@ func TestBroadcastCommand_InvalidTerminalOutcomeFails(t *testing.T) {
 		})
 	}
 }
+
+func (d *broadcastDelivery) CreateExecution() runtime.SessionExecution { return d }

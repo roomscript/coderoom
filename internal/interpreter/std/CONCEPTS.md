@@ -43,8 +43,10 @@ addressed sends are publicly registered.
 **Context** supplies narrow capabilities. `ParticipantReader` exposes participant
 information through detached reads without session execution access.
 `ShellLauncher` starts shell work using executor-owned workers and lifetime.
-`Session.Subscribe(handle)` installs an invocation-scoped terminal-event listener
-before `Session.Execute(command)` starts delivery. `runtime.DeliveryCompleted`
+`Context.Session` is a `SessionExecutionProvider`: participant reads, planning
+and lifecycle subscriptions stay on it. `CreateExecution()` returns a fresh
+single-use `SessionExecution`. Its `Subscribe(handle)` installs a scope-owned
+terminal-event listener before `Execute(command)` starts delivery. `runtime.DeliveryCompleted`
 carries the execution ID returned by Session.Execute and the actual routing outcome; `runtime.ExecutionFailed` carries an
 execution/protocol failure without fabricated routing. Other invocations and
 legacy dispatch never reach this stream, even with identical recipients.
@@ -191,3 +193,21 @@ Delivery.Go passes the full DeliveryCompleted event to its callback, preserving
 ExecutionID alongside Result. Actual delivery failures remain in Result.Err;
 execution/protocol failures pass a zero event and a separate error. Commands that
 only format routing outcomes read Result; future loop execution can retain the ID.
+
+## Execution providers and scopes
+
+Delivery commands retain the provider and create a scope in Go. The scope contains
+only Subscribe/Execute; closing its terminal subscription releases that scope,
+not the invocation's provider or any siblings. A future loop can create one scope
+per iteration without reusing a single-use admission handle. No loop behavior or
+staging policy changes in this step.
+
+The temporary monolith commandSessionProvider owns the invocation's scopes and
+ordered publication boundary. commandSession owns one scope's admission and
+terminal listener. Provider close revokes existing and future scopes; admitted
+work that has started remains the host's responsibility. Completion work and
+publication stay associated with the active causal dispatch burst, preserving
+input-before-output ordering. These capability implementations transfer to the
+interpreter and the bridge is removed with the remaining monolith at checkpoint 9.
+SubmitCommand's private provider wraps child scopes for its existing early queued
+send restriction; native scopes introduce no alias reservation or availability policy.

@@ -60,7 +60,7 @@ func (BroadcastCommand) Prepare(parsed promptlang.ParsedStatement, ctx runtime.C
 }
 
 type broadcastInvocation struct {
-	session  runtime.SessionExecution
+	session  runtime.SessionExecutionProvider
 	staging  *runtime.Staging
 	command  session.BroadcastCommand
 	raw      string
@@ -79,7 +79,7 @@ func (i *broadcastInvocation) Go(complete func(runtime.CommandResult)) error {
 	if len(i.command.Aliases) == 0 {
 		return runtime.ErrNoActiveTargets
 	}
-	if err := i.delivery.Go(i.session, i.command, func(outcome runtime.DeliveryCompleted, err error) {
+	if err := i.delivery.Go(i.session.CreateExecution(), i.command, func(outcome runtime.DeliveryCompleted, err error) {
 		result := outcome.Result
 		if err == nil && !validBroadcastOutcome(i.command.Aliases, result) {
 			err = runtime.ErrInvalidDeliveryOutcome

@@ -224,3 +224,5 @@ func waitForSendSessionSignal(t *testing.T, signal <-chan struct{}) {
 		t.Fatal("timed out waiting for session lifecycle event")
 	}
 }
+
+func (h *sendSessionHost) CreateExecution() runtime.SessionExecution { return h }

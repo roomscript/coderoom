@@ -23,32 +23,37 @@ type ShellLauncher interface {
 	Go(program string, complete func(shell.Result)) error
 }
 
-// SessionExecution supplies invocation-scoped terminal events and participant
-// capabilities, not raw Session. Subscribe observes only this instance's execution:
-// other invocations and legacy dispatch must never deliver terminal events here,
-// even with identical routing kinds and recipients. Subscribe does not call inline
-// and returns a non-nil, non-blocking unsubscribe function, safe from a callback.
-// Unsubscribe prevents future delivery; already-running callbacks may finish.
+// SessionExecution is a single-use execution scope. Subscribe observes only this
+// scope's terminal event, even when another execution has identical recipients.
+// Subscribe is not inline and returns a non-nil, non-blocking unsubscribe function.
+// Unsubscribe closes only this scope; already-running callbacks may finish.
 // Execute admits one command without waiting for delivery. Admission errors return
-// directly. Accepted execution emits DeliveryCompleted with the actual Session
-// execution ID and routing outcome, or ExecutionFailed for a missing/invalid outcome or protocol failure.
-// Terminal events run within the owning dispatch burst before projection and may
-// race launch/close; handlers must only queue owner work. The host serializes
-// Session execution, supports worker admission and owns admitted work lifetime.
-// Commands supply only the actual command. Session owns availability and routing.
+// directly; accepted work emits DeliveryCompleted with Session's execution ID and
+// routing outcome, or ExecutionFailed for a protocol/execution failure. Terminal
+// events run in the owning dispatch burst before causal publication and may race
+// launch/close. Handlers only collect facts or queue owner work; the interpreter
+// drives execution.
 type SessionExecution interface {
 	Subscribe(handle func(ExecutionEvent)) (unsubscribe func())
+	Execute(command session.Command) error
+}
+
+// SessionExecutionProvider supplies Session reads and fresh single-use execution
+// scopes within one invocation. The interpreter owns the provider lifetime.
+type SessionExecutionProvider interface {
+	// CreateExecution returns a non-nil, independent scope. Closing one scope does
+	// not affect siblings or the provider. Once its owner closes, existing and new
+	// scopes reject admission. Creation may race owner closure; the returned scope
+	// still rejects admission. It does not reserve participant availability.
+	CreateExecution() SessionExecution
 	// SubscribeParticipants atomically returns initial state and subscribes to
 	// subsequent lifecycle facts in mutation order. It never replays facts from
 	// before that snapshot. Callbacks may race its return, but are not inline;
-	// unsubscribe is non-blocking, safe from a callback, and prevents future
-	// callbacks without waiting for those already in flight.
+	// unsubscribe prevents future callbacks without waiting for those already in
+	// flight. It is non-blocking and safe from a callback.
 	SubscribeParticipants(handle func(session.Event)) (initial session.ParticipantSnapshot, unsubscribe func())
-	// ParticipantByName resolves input names to current Session-owned instances.
 	ParticipantByName(name string) (participant.View, bool)
-	// CreateParticipantSendPlan delegates policy-aware recipient selection to Session.
 	CreateParticipantSendPlan(alias participant.Alias) session.ParticipantSendPlan
-	Execute(command session.Command) error
 }
 
 // HistoryReader supplies detached completed output from the canonical room.
@@ -76,7 +81,7 @@ type Context struct {
 	UserCommands        UserCommandRegistry
 	Participants        ParticipantReader
 	Shell               ShellLauncher
-	Session             SessionExecution
+	Session             SessionExecutionProvider
 	History             HistoryReader
 	CompletedExecutions CompletedExecutionIDReader
 }

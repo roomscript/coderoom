@@ -615,3 +615,5 @@ func (d *sendDelivery) complete(result session.RoutingResult, err error) {
 	}
 	handle(runtime.DeliveryCompleted{Result: result})
 }
+
+func (d *sendDelivery) CreateExecution() runtime.SessionExecution { return d }

@@ -11,7 +11,7 @@ import (
 
 // legacyCommandSession preserves SubmitCommand's early rejection of overlapping
 // queued sends. This is compatibility admission, not participant availability or
-// result correlation. Native facade commands use commandSession directly. Remove
+// result correlation. Native facade commands use independent scopes without these reservations. Remove
 // this wrapper and its reservations with the SubmitCommand bridge (checkpoint 9).
 type legacyCommandSession struct{ *commandSession }
 
@@ -33,7 +33,7 @@ func (s *legacyCommandSession) reserve(command session.Command) error {
 	if !ok {
 		return nil
 	}
-	e := s.executor
+	e := s.provider.executor
 	e.enqueueMu.Lock()
 	defer e.enqueueMu.Unlock()
 	primary := send.Plan.PrimaryParticipant()
@@ -48,7 +48,7 @@ func (s *legacyCommandSession) reserve(command session.Command) error {
 }
 
 func (s *legacyCommandSession) release() {
-	e := s.executor
+	e := s.provider.executor
 	e.enqueueMu.Lock()
 	defer e.enqueueMu.Unlock()
 	for alias, owner := range e.legacySends {
@@ -56,4 +56,17 @@ func (s *legacyCommandSession) release() {
 			delete(e.legacySends, alias)
 		}
 	}
+}
+
+// The compatibility provider wraps each fresh scope independently. Its admission
+// reservation remains private to SubmitCommand, never native participant policy.
+type legacyCommandSessionProvider struct{ *commandSessionProvider }
+
+func (s *legacyCommandSessionProvider) CreateExecution() runtime.SessionExecution {
+	execution := s.createExecution()
+	legacy := &legacyCommandSession{commandSession: execution}
+	execution.mu.Lock()
+	execution.onClose = legacy.release
+	execution.mu.Unlock()
+	return legacy
 }
