@@ -46,7 +46,7 @@ func TestParticipantSend_delayedDepartureCannotTransferToReplacement(t *testing.
 	if ready.Alias.ID == old.ID {
 		t.Fatal("replacement reused identity")
 	}
-	if err := s.Execute(session.SendToParticipantCommand{Plan: plan, Message: "retained work"}); err == nil {
+	if _, err := s.Execute(session.SendToParticipantCommand{Plan: plan, Message: "retained work"}); err == nil {
 		t.Fatal("retained send accepted replacement before old departure arrived")
 	}
 	assertNoIdentityTestDelivery(t, []*mockAgent{original, replacement})
@@ -66,7 +66,7 @@ func TestParticipantSend_delayedDepartureCannotTransferToReplacement(t *testing.
 
 func removeWithBlockedDeparture(t *testing.T, s *session.Session, old participant.Alias, blocker *blockedDepartureObserver) {
 	t.Helper()
-	if err := s.Execute(session.RemoveCommand{Alias: old}); err != nil {
+	if _, err := s.Execute(session.RemoveCommand{Alias: old}); err != nil {
 		t.Fatal(err)
 	}
 	select {

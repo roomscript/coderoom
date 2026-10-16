@@ -317,16 +317,16 @@ func TestParticipantSnapshot_copiesOpenStreams(t *testing.T) {
 	}
 }
 
-func TestParticipantTurnID_recordsAssignedSessionIdentity(t *testing.T) {
+func TestParticipantActiveExecutionID_recordsAssignedSessionIdentity(t *testing.T) {
 	p := newParticipant("ada")
-	for _, want := range []uint64{41, 97} {
-		if err := p.PrepareForWork(testNow()); err != nil {
+	for _, want := range []participant.ExecutionID{41, 97} {
+		if err := p.PrepareForWork(testNow(), want); err != nil {
 			t.Fatalf("PrepareForWork: %v", err)
 		}
-		if err := p.BeginWorking(testNow(), agent.StreamID("anchor"), want); err != nil {
+		if err := p.BeginWorking(testNow(), agent.StreamID("anchor")); err != nil {
 			t.Fatalf("BeginWorking: %v", err)
 		}
-		if got := p.TurnID; got != want {
+		if got := p.ActiveExecutionID; got != want {
 			t.Fatalf("turn ID = %d, want %d", got, want)
 		}
 		if _, err := p.CloseStream(agent.StreamID("anchor")); err != nil {
@@ -338,21 +338,21 @@ func TestParticipantTurnID_recordsAssignedSessionIdentity(t *testing.T) {
 	}
 }
 
-func TestParticipantTurnID_survivesNonTurnRoundTrips(t *testing.T) {
+func TestParticipantActiveExecutionID_survivesNonTurnRoundTrips(t *testing.T) {
 	p := idleParticipantAfterTurn(t, 41)
-	want := p.TurnID
+	want := p.ActiveExecutionID
 
-	assertTurnIDSurvivesKeepalive(t, p, want)
-	assertTurnIDSurvivesPrepareAbort(t, p, want)
+	assertActiveExecutionIDSurvivesKeepalive(t, p, want)
+	assertActiveExecutionIDSurvivesPrepareAbort(t, p, want)
 }
 
-func idleParticipantAfterTurn(t *testing.T, turnID uint64) *participant.Participant {
+func idleParticipantAfterTurn(t *testing.T, executionID participant.ExecutionID) *participant.Participant {
 	t.Helper()
 	p := newParticipant("ada")
-	if err := p.PrepareForWork(testNow()); err != nil {
+	if err := p.PrepareForWork(testNow(), executionID); err != nil {
 		t.Fatalf("PrepareForWork: %v", err)
 	}
-	if err := p.BeginWorking(testNow(), agent.StreamID("anchor"), turnID); err != nil {
+	if err := p.BeginWorking(testNow(), agent.StreamID("anchor")); err != nil {
 		t.Fatalf("BeginWorking: %v", err)
 	}
 	if _, err := p.CloseStream(agent.StreamID("anchor")); err != nil {
@@ -364,7 +364,7 @@ func idleParticipantAfterTurn(t *testing.T, turnID uint64) *participant.Particip
 	return p
 }
 
-func assertTurnIDSurvivesKeepalive(t *testing.T, p *participant.Participant, want uint64) {
+func assertActiveExecutionIDSurvivesKeepalive(t *testing.T, p *participant.Participant, want participant.ExecutionID) {
 	t.Helper()
 	if err := p.BeginKeepalive(testNow()); err != nil {
 		t.Fatalf("BeginKeepalive: %v", err)
@@ -372,20 +372,20 @@ func assertTurnIDSurvivesKeepalive(t *testing.T, p *participant.Participant, wan
 	if err := p.FinishKeepalive(testNow()); err != nil {
 		t.Fatalf("FinishKeepalive: %v", err)
 	}
-	if got := p.TurnID; got != want {
+	if got := p.ActiveExecutionID; got != want {
 		t.Fatalf("turn ID after keepalive = %d, want %d", got, want)
 	}
 }
 
-func assertTurnIDSurvivesPrepareAbort(t *testing.T, p *participant.Participant, want uint64) {
+func assertActiveExecutionIDSurvivesPrepareAbort(t *testing.T, p *participant.Participant, want participant.ExecutionID) {
 	t.Helper()
-	if err := p.PrepareForWork(testNow()); err != nil {
+	if err := p.PrepareForWork(testNow(), 1); err != nil {
 		t.Fatalf("PrepareForWork: %v", err)
 	}
 	if err := p.AbortWork(testNow()); err != nil {
 		t.Fatalf("AbortWork: %v", err)
 	}
-	if got := p.TurnID; got != want {
+	if got := p.ActiveExecutionID; got != want {
 		t.Fatalf("turn ID after prepare abort = %d, want %d", got, want)
 	}
 }
@@ -393,10 +393,10 @@ func assertTurnIDSurvivesPrepareAbort(t *testing.T, p *participant.Participant, 
 func TestParticipantMarkIdle_rejectsOpenStreams(t *testing.T) {
 	p := newParticipant("ada")
 	const anchor = agent.StreamID("anchor1")
-	if err := p.PrepareForWork(testNow()); err != nil {
+	if err := p.PrepareForWork(testNow(), 1); err != nil {
 		t.Fatalf("PrepareForWork: %v", err)
 	}
-	if err := p.BeginWorking(testNow(), anchor, 1); err != nil {
+	if err := p.BeginWorking(testNow(), anchor); err != nil {
 		t.Fatalf("BeginWorking: %v", err)
 	}
 	// Anchor is still open in OpenStreams — BecomeIdle must reject.
@@ -407,10 +407,10 @@ func TestParticipantMarkIdle_rejectsOpenStreams(t *testing.T) {
 
 func TestParticipantCloseStream_onlyAnchorTriggersIdle(t *testing.T) {
 	p := newParticipant("ada")
-	if err := p.PrepareForWork(testNow()); err != nil {
+	if err := p.PrepareForWork(testNow(), 1); err != nil {
 		t.Fatalf("PrepareForWork: %v", err)
 	}
-	if err := p.BeginWorking(testNow(), agent.StreamID("anchor"), 1); err != nil {
+	if err := p.BeginWorking(testNow(), agent.StreamID("anchor")); err != nil {
 		t.Fatalf("BeginWorking: %v", err)
 	}
 	if err := p.TrackStream(agent.StreamID("out1")); err != nil {
@@ -435,3 +435,71 @@ func TestParticipantCloseStream_onlyAnchorTriggersIdle(t *testing.T) {
 }
 
 func testNow() time.Time { return time.Unix(123, 0) }
+
+func TestParticipantActiveExecutionID_clearsOnCompletionAndAbort(t *testing.T) {
+	p := idleParticipantAfterTurn(t, 41)
+	if p.ActiveExecutionID != 0 {
+		t.Fatalf("completed work still active=%d", p.ActiveExecutionID)
+	}
+	assertActiveExecutionIDSurvivesKeepalive(t, p, 0)
+	assertActiveExecutionIDSurvivesPrepareAbort(t, p, 0)
+	if err := p.PrepareForWork(testNow(), 97); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.BeginWorking(testNow(), "anchor"); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.AbortWork(testNow()); err != nil {
+		t.Fatal(err)
+	}
+	if p.ActiveExecutionID != 0 {
+		t.Fatalf("aborted work still active=%d", p.ActiveExecutionID)
+	}
+}
+
+func TestParticipantLastCompletedExecutionID_tracksOnlyNormalCompletion(t *testing.T) {
+	for _, action := range []string{"complete", "abort", "crash", "keepalive", "prepare abort"} {
+		t.Run(action, func(t *testing.T) {
+			p := idleParticipantAfterTurn(t, 41)
+			want := participant.ExecutionID(41)
+			switch action {
+			case "keepalive":
+				assertActiveExecutionIDSurvivesKeepalive(t, p, 0)
+			case "prepare abort":
+				assertActiveExecutionIDSurvivesPrepareAbort(t, p, 0)
+			default:
+				if err := p.PrepareForWork(testNow(), 97); err != nil {
+					t.Fatal(err)
+				}
+				if err := p.BeginWorking(testNow(), "anchor"); err != nil {
+					t.Fatal(err)
+				}
+				want = finishCompletionTestWork(t, p, action)
+			}
+			if p.LastCompletedExecutionID != want || p.ActiveExecutionID != 0 {
+				t.Fatalf("execution state=%#v, want completed=%d", p.View, want)
+			}
+		})
+	}
+}
+
+func finishCompletionTestWork(t *testing.T, p *participant.Participant, action string) participant.ExecutionID {
+	t.Helper()
+	switch action {
+	case "complete":
+		if _, err := p.CloseStream("anchor"); err != nil {
+			t.Fatal(err)
+		}
+		if err := p.BecomeIdle(testNow()); err != nil {
+			t.Fatal(err)
+		}
+		return 97
+	case "abort":
+		if err := p.AbortWork(testNow()); err != nil {
+			t.Fatal(err)
+		}
+	case "crash":
+		p.Crash(testNow())
+	}
+	return 41
+}

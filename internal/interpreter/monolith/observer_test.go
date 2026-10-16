@@ -9,9 +9,10 @@ import (
 
 type startupSession struct{ *submitContractSession }
 
-func (s startupSession) AddObserver(observer session.Observer) {
-	s.submitContractSession.AddObserver(observer)
+func (s startupSession) AddObserver(observer session.Observer) session.ParticipantSnapshot {
+	snapshot := s.submitContractSession.AddObserver(observer)
 	observer.OnEvent(session.AgentReady{Alias: testAlias("ada")})
+	return snapshot
 }
 
 func TestWithObserver_initialStatePrecedesStartupCallbacks(t *testing.T) {

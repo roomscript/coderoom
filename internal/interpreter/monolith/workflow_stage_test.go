@@ -126,9 +126,9 @@ func TestStageWorkflow_stagesBusyBroadcastWithDetachedSnapshot(t *testing.T) {
 	sequence = workflow.handleCompletion(participantStateResult{
 		target: request.target,
 		readinessRequirements: []participantState{
-			{alias: testAlias("ada"), status: participant.StatusWorking, turnID: 7},
+			{alias: testAlias("ada"), status: participant.StatusWorking, executionID: 7},
 			{alias: testAlias("turing"), status: participant.StatusIdle},
-			{alias: testAlias("grace"), status: participant.StatusWorking, turnID: 8},
+			{alias: testAlias("grace"), status: participant.StatusWorking, executionID: 8},
 		},
 	})
 
@@ -166,7 +166,7 @@ func TestStageWorkflow_lifecycleDispatchUsesFrozenBroadcastTargets(t *testing.T)
 	})
 
 	sequence = workflow.handleSessionEvent(session.AgentMessage{
-		Alias: testAlias("ada"), TurnCompleted: true, TurnID: 6,
+		Alias: testAlias("ada"), WorkCompleted: true, ExecutionID: 6,
 	})
 	if len(sequence) != 0 {
 		t.Fatalf("stale source completion produced instructions: %#v", sequence)
@@ -318,7 +318,7 @@ func TestStageWorkflow_handoffWaitsForSourceProjectionAndIdle(t *testing.T) {
 	workflow.handleCompletion(handoffPlanResult{from: testAlias(workflow.active.handoff.action.FromAlias.Value), to: testAlias(workflow.active.handoff.action.ToAlias.Value),
 		target: readParticipants.target,
 		participants: []participantState{
-			{alias: testAlias("ada"), status: participant.StatusWorking, turnID: 7},
+			{alias: testAlias("ada"), status: participant.StatusWorking, executionID: 7},
 			{alias: testAlias("turing"), status: participant.StatusIdle},
 		},
 	})
@@ -330,7 +330,7 @@ func TestStageWorkflow_handoffWaitsForSourceProjectionAndIdle(t *testing.T) {
 		t.Fatal("handoff read source before completed output projection")
 	}
 	sequence = workflow.handleSessionEvent(session.AgentMessage{
-		Alias: testAlias("ada"), TurnCompleted: true, TurnID: 7,
+		Alias: testAlias("ada"), WorkCompleted: true, ExecutionID: 7,
 	})
 	readSource, ok := sequence[0].(readHandoffSourceInstruction)
 	if !ok || readSource.alias != testAlias("ada") {
@@ -395,50 +395,6 @@ func TestStageWorkflow_handoffIgnoresBusyLateJoiner(t *testing.T) {
 	}
 }
 
-func TestStageWorkflow_capturesOnlyActiveHandoffCompletion(t *testing.T) {
-	tests := []struct {
-		name      string
-		statement promptlang.Statement
-		event     session.HandoffDelivered
-		want      bool
-	}{
-		{
-			name:      "matching handoff",
-			statement: promptlang.Handoff{FromAlias: located("ada"), ToAlias: located("turing")},
-			event:     session.HandoffDelivered{FromAlias: testAlias("ada"), ToAlias: testAlias("turing")},
-			want:      true,
-		},
-		{
-			name:      "different handoff",
-			statement: promptlang.Handoff{FromAlias: located("ada"), ToAlias: located("turing")},
-			event:     session.HandoffDelivered{FromAlias: testAlias("grace"), ToAlias: testAlias("turing")},
-		},
-		{
-			name:      "different staged action",
-			statement: promptlang.Broadcast{Text: located("hello")},
-			event:     session.HandoffDelivered{FromAlias: testAlias("ada"), ToAlias: testAlias("turing")},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			workflow := stageWorkflow{}
-			workflow.start("input", tt.statement)
-			workflow.active.phase = stageDispatching
-			if workflow.active.handoff != nil {
-				workflow.active.handoff.from = testAlias(workflow.active.handoff.action.FromAlias.Value)
-				workflow.active.handoff.to = testAlias(workflow.active.handoff.action.ToAlias.Value)
-			}
-
-			workflow.handleSessionEvent(tt.event)
-
-			if got := workflow.active.handoff != nil && workflow.active.handoff.completed != nil; got != tt.want {
-				t.Fatalf("completion captured = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
 func TestInterpreterModel_readsCanonicalHandoffSource(t *testing.T) {
 	model := newInterpreterModel()
 	t.Cleanup(model.Close)
@@ -446,8 +402,8 @@ func TestInterpreterModel_readsCanonicalHandoffSource(t *testing.T) {
 	model.ApplySessionEvent(session.AgentMessage{
 		Alias:         testAlias("ada"),
 		Msg:           agent.Message{Mode: agent.ModeSingle, Content: agent.Output{Text: "finished"}},
-		TurnCompleted: true,
-		TurnID:        3,
+		WorkCompleted: true,
+		ExecutionID:   3,
 	})
 
 	source, ok := model.ReadHandoffSource(testAlias("ada"))
@@ -635,8 +591,8 @@ func seedCanonicalHandoffSource(t *testing.T, interp *Interpreter, events chan E
 	interp.executor.recordSessionEvent(session.AgentMessage{
 		Alias:         testAlias("ada"),
 		Msg:           agent.Message{Mode: agent.ModeSingle, Content: agent.Output{Text: "finished"}},
-		TurnCompleted: true,
-		TurnID:        3,
+		WorkCompleted: true,
+		ExecutionID:   3,
 	})
 	receiveSubmitEvent[StateChanged](t, events)
 }
@@ -658,10 +614,6 @@ func assertCanonicalHandoffDispatch(
 	dispatched := receiveSubmitEvent[StagedInputDispatched](t, events)
 	if !slices.Equal(dispatched.Routing, []string{"turing"}) {
 		t.Fatalf("routing = %v, want [turing]", dispatched.Routing)
-	}
-	completed := receiveSubmitEvent[HandoffCompleted](t, events)
-	if completed.Preview != "[handoff ada -> turing]" {
-		t.Fatalf("completed = %#v", completed)
 	}
 	receiveSubmitEvent[SubmissionSucceeded](t, events)
 	changed := receiveSubmitEvent[StateChanged](t, events)
@@ -696,8 +648,8 @@ func TestSubmitContract_failedHandoffDoesNotRecordInput(t *testing.T) {
 		Msg: agent.Message{
 			Mode: agent.ModeSingle, Content: agent.Output{Text: "finished"},
 		},
-		TurnCompleted: true,
-		TurnID:        3,
+		WorkCompleted: true,
+		ExecutionID:   3,
 	})
 	receiveSubmitEvent[StateChanged](t, events)
 

@@ -204,7 +204,7 @@ an application coordinator can advance dependent workflows only after the
 required room state is observable. For example, an agent-turn-completed trigger
 lets handoff coordination wait until the authoritative turn-ending flush has
 been applied and the source output has been sealed. The trigger includes the
-session-global turn ID, preventing a delayed completion from satisfying a
+originating Session execution ID, preventing a delayed completion from satisfying a
 workflow waiting on a newer turn or a re-invited alias. Coordinators retain the
 latest projected turn independently of temporary runtime status, so keepalive
 and failed send preparation do not erase valid projection progress. Most
@@ -518,3 +518,18 @@ blocking V1:
 
 This removes semantic chat assembly from the UI and gives future features such
 as handoff a stable non-UI source of truth.
+
+## Completed executions
+
+Room retains the latest completed execution ID per participant instance when it
+applies a terminal AgentMessage with WorkCompleted. LastCompletedExecutionID
+provides a narrow read capability to interpreter runtime through Context.CompletedExecutions.
+This records output available in canonical room state, distinct from participant
+lifecycle completion. Reads and updates use the room lock; interpreter runtime
+reads only while the interpreter drives readiness on its serialized lane.
+
+Before event processing starts, the interpreter initializes completion history
+from the atomic Session observer attachment snapshot. This baseline treats work
+completed before attachment as historical without replaying output. Later work
+must be recorded in room before readiness permits dependent commands. Room
+observers signal the interpreter to queue advancement; room does not drive work.

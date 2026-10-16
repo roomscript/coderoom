@@ -80,10 +80,10 @@ func (w *stageWorkflow) handleHandoffSessionEvent(event session.Event) instructi
 	state := w.active
 	switch event := event.(type) {
 	case session.AgentMessage:
-		if !state.handoff.completeSourceTurn(event, state.requirements.turnID(event.Alias)) {
+		if !state.handoff.completeSourceWork(event, state.requirements.executionID(event.Alias)) {
 			return nil
 		}
-		state.requirements.updateTurnID(event.Alias, event.TurnID)
+		state.requirements.updateActiveExecutionID(event.Alias, event.ExecutionID)
 	case session.ParticipantStatusChanged:
 		state.requirements.applySessionEvent(event)
 		state.handoff.updateSourceStatus(event)

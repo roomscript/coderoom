@@ -33,6 +33,7 @@ func New(ctx context.Context, sess SessionController, cwd string, opts ...Option
 		i.fallback = fallback
 		monolith.WithShutdown(i.closeInvocations)(fallback)
 		monolith.WithStageSnapshot(i.stageSnapshot)(fallback)
+		monolith.WithCompletedExecution(i.advanceCompletedExecutions)(fallback)
 		for _, option := range opts {
 			option(i)
 		}
@@ -52,6 +53,9 @@ func newCommandRegistry() *runtime.Registry {
 		panic(err)
 	}
 	if err := registry.Register(std.BroadcastCommand{}); err != nil {
+		panic(err)
+	}
+	if err := registry.Register(std.HandoffCommand{}); err != nil {
 		panic(err)
 	}
 	return registry

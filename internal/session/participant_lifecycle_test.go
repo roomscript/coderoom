@@ -10,6 +10,7 @@ import (
 	"github.com/roomscript/coderoom/internal/agent"
 	"github.com/roomscript/coderoom/internal/interpreter/runtime"
 	"github.com/roomscript/coderoom/internal/participant"
+	"github.com/roomscript/coderoom/internal/room"
 	"github.com/roomscript/coderoom/internal/session"
 )
 
@@ -62,12 +63,16 @@ func newDelayedReadySession(t *testing.T) (*session.Session, *mockAgent, partici
 
 func TestParticipantLifecycle_busySnapshotIgnoresDelayedOrdinaryReady(t *testing.T) {
 	s, a, alias, release := newDelayedReadySession(t)
-	if err := s.Execute(session.SendToParticipantOutsideRoomCommand{Alias: alias, Text: "first turn"}); err != nil {
+	observer := newTestObserver()
+	s.AddObserver(observer)
+	if _, err := s.Execute(session.SendToParticipantOutsideRoomCommand{Alias: alias, Text: "first turn"}); err != nil {
 		t.Fatal(err)
 	}
 	probe := &readinessProbe{session: s, staging: &runtime.Staging{WaitFor: []participant.Alias{alias}}, started: make(chan struct{}, 1)}
 	host := &participantLifecycleHost{Session: s}
-	lifecycle := runtime.NewInvocationLifecycle(probe, runtime.Context{Session: host})
+	recorded := room.New()
+	t.Cleanup(recorded.Close)
+	lifecycle := runtime.NewInvocationLifecycle(probe, runtime.Context{Session: host, CompletedExecutions: recorded})
 	advances := make(chan struct{}, 16)
 	lifecycle.RequestAdvance = func() { advances <- struct{}{} }
 	defer lifecycle.Close(errors.New("cleanup"))
@@ -85,6 +90,12 @@ func TestParticipantLifecycle_busySnapshotIgnoresDelayedOrdinaryReady(t *testing
 	case <-time.After(time.Second):
 		t.Fatal("later native idle transition did not request advancement")
 	}
+	if probe.launches.Load() != 0 {
+		t.Fatal("idle fact bypassed canonical propagation")
+	}
+	completed := receiveLifecycleCompletion(t, observer.ch)
+	recorded.ApplyEvent(completed)
+	lifecycle.Advance()
 	waitParticipantLifecycleSignal(t, probe.started)
 	lifecycle.Close(errors.New("cleanup"))
 	if probe.launches.Load() != 1 {
@@ -99,7 +110,7 @@ type heldParticipantSnapshot struct {
 	idleCollected chan struct{}
 }
 
-func (h *heldParticipantSnapshot) SubscribeParticipants(handle func(session.Event)) ([]participant.View, func()) {
+func (h *heldParticipantSnapshot) SubscribeParticipants(handle func(session.Event)) (session.ParticipantSnapshot, func()) {
 	initial, unsubscribe := h.Session.SubscribeParticipants(func(event session.Event) {
 		handle(event)
 		if status, ok := event.(session.ParticipantStatusChanged); ok && status.To == participant.StatusIdle {
@@ -125,7 +136,7 @@ func TestParticipantLifecycle_idleFactDuringInitialReturnWins(t *testing.T) {
 	s := newSession(t, fixedFactory(a), session.WithObserver(observer))
 	invite(t, s, "ada")
 	alias := mustReceive[session.AgentReady](t, observer.ch).Alias
-	if err := s.Execute(session.SendToParticipantOutsideRoomCommand{Alias: alias, Text: "first turn"}); err != nil {
+	if _, err := s.Execute(session.SendToParticipantOutsideRoomCommand{Alias: alias, Text: "first turn"}); err != nil {
 		t.Fatal(err)
 	}
 	host := &heldParticipantSnapshot{
@@ -133,7 +144,9 @@ func TestParticipantLifecycle_idleFactDuringInitialReturnWins(t *testing.T) {
 		entered:                  make(chan struct{}), release: make(chan struct{}), idleCollected: make(chan struct{}, 1),
 	}
 	probe := &readinessProbe{session: s, staging: &runtime.Staging{WaitFor: []participant.Alias{alias}}, started: make(chan struct{}, 1)}
-	lifecycle := runtime.NewInvocationLifecycle(probe, runtime.Context{Session: host})
+	recorded := room.New()
+	t.Cleanup(recorded.Close)
+	lifecycle := runtime.NewInvocationLifecycle(probe, runtime.Context{Session: host, CompletedExecutions: recorded})
 	var once sync.Once
 	unblock := func() { once.Do(func() { close(host.release) }) }
 	defer func() { unblock(); lifecycle.Close(errors.New("cleanup")) }()
@@ -149,8 +162,32 @@ func TestParticipantLifecycle_idleFactDuringInitialReturnWins(t *testing.T) {
 	if err := <-started; err != nil {
 		t.Fatal(err)
 	}
+	if probe.launches.Load() != 0 {
+		t.Fatal("idle fact bypassed canonical propagation")
+	}
+	completed := receiveLifecycleCompletion(t, observer.ch)
+	recorded.ApplyEvent(completed)
+	lifecycle.Advance()
 	waitParticipantLifecycleSignal(t, probe.started)
 	if probe.launches.Load() != 1 {
 		t.Fatal("post-snapshot readiness did not launch exactly once")
+	}
+}
+
+// These participant-source tests supply the owner's propagation fact explicitly;
+// the interpreter tests exercise the real canonical projection boundary.
+func receiveLifecycleCompletion(t *testing.T, events <-chan session.Event) session.AgentMessage {
+	t.Helper()
+	deadline := time.After(time.Second)
+	for {
+		select {
+		case event := <-events:
+			if message, ok := event.(session.AgentMessage); ok && message.WorkCompleted {
+				return message
+			}
+		case <-deadline:
+			t.Fatal("turn completion did not arrive")
+			return session.AgentMessage{}
+		}
 	}
 }

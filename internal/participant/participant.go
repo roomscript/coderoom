@@ -35,8 +35,8 @@ var (
 	ErrNotActive = errors.New("participant is not active")
 	// ErrNotKeepalive is returned when an operation requires the participant to be in keepalive state.
 	ErrNotKeepalive = errors.New("participant is not in keepalive state")
-	// ErrInvalidTurnID is returned when a working turn has no session identity.
-	ErrInvalidTurnID = errors.New("participant turn ID must be non-zero")
+	// ErrInvalidExecutionID is returned when a work preparation has no Session execution identity.
+	ErrInvalidExecutionID = errors.New("participant execution ID must be non-zero")
 )
 
 // Initiative controls how autonomously a participant acts.
@@ -63,6 +63,11 @@ const (
 	StatusCrashed   Status = "crashed"
 )
 
+// ExecutionID identifies one Session command execution. Session allocates IDs;
+// participant lifecycle only retains their provenance. Session exposes this type
+// as session.ExecutionID to avoid a participant-to-Session dependency.
+type ExecutionID uint64
+
 // View is the observable state of a participant. It contains no live runtime
 // capabilities and is safe to expose in application snapshots.
 type View struct {
@@ -75,15 +80,18 @@ type View struct {
 	// StartupReady is set immediately before AgentReady; Idle alone does not
 	// imply startup has completed.
 	StartupReady bool
-	// TurnID remains stable after completion to identify delayed turn events.
-	TurnID uint64
+	// ActiveExecutionID identifies the execution responsible for currently running work; zero means none.
+	ActiveExecutionID ExecutionID
+	// LastCompletedExecutionID identifies the last normally completed work; aborts and crashes preserve it.
+	LastCompletedExecutionID ExecutionID
 }
 
 // Participant is a named collaborator in a session.
 type Participant struct {
 	View
 
-	Agent agent.Agent
+	Agent              agent.Agent
+	pendingExecutionID ExecutionID
 	// OpenStreams tracks the participant's active turn streams. Session is the
 	// sole mutator; snapshots copy the map so observers/UI can inspect it safely.
 	OpenStreams map[agent.StreamID]struct{}
@@ -206,6 +214,8 @@ func (p *Participant) BecomeIdle(now time.Time) error {
 	}
 	p.resetOpenStreams()
 	p.anchor = ""
+	p.LastCompletedExecutionID = p.ActiveExecutionID
+	p.ActiveExecutionID = 0
 	p.Status = StatusIdle
 	p.Since = now
 	return nil
@@ -213,6 +223,8 @@ func (p *Participant) BecomeIdle(now time.Time) error {
 
 // Crash transitions the participant into crashed state.
 func (p *Participant) Crash(now time.Time) {
+	p.pendingExecutionID = 0
+	p.ActiveExecutionID = 0
 	p.resetOpenStreams()
 	p.anchor = ""
 	p.Status = StatusCrashed
@@ -220,8 +232,9 @@ func (p *Participant) Crash(now time.Time) {
 }
 
 // PrepareForWork transitions the participant from Idle into Preparing.
-// Resets OpenStreams and clears the anchor. Blocks concurrent sends.
-func (p *Participant) PrepareForWork(now time.Time) error {
+// Retains the originating execution privately until delivery commits. Resets
+// OpenStreams and clears the anchor. Blocks concurrent sends.
+func (p *Participant) PrepareForWork(now time.Time, executionID ExecutionID) error {
 	switch p.Status {
 	case StatusStarting, StatusAttached, StatusCrashed:
 		return ErrNotReadyForWork
@@ -230,8 +243,12 @@ func (p *Participant) PrepareForWork(now time.Time) error {
 	case StatusIdle:
 		// Ready to prepare.
 	}
+	if executionID == 0 {
+		return ErrInvalidExecutionID
+	}
 	p.resetOpenStreams()
 	p.anchor = ""
+	p.pendingExecutionID = executionID
 	p.Status = StatusPreparing
 	p.Since = now
 	return nil
@@ -258,16 +275,16 @@ func (p *Participant) FinishKeepalive(now time.Time) error {
 }
 
 // BeginWorking transitions the participant from Preparing into Working and
-// records the turn-lifecycle anchor. The anchor stream is added to OpenStreams
+// records the work-lifecycle anchor. The anchor stream is added to OpenStreams
 // so it is tracked from the moment Working begins — before the adapter can
 // emit any messages — closing the race between Send returning and the first
 // agent message arriving.
-func (p *Participant) BeginWorking(now time.Time, anchor agent.StreamID, turnID uint64) error {
+func (p *Participant) BeginWorking(now time.Time, anchor agent.StreamID) error {
 	if p.Status != StatusPreparing {
 		return ErrNotPreparing
 	}
-	if turnID == 0 {
-		return ErrInvalidTurnID
+	if p.pendingExecutionID == 0 {
+		return ErrInvalidExecutionID
 	}
 	p.anchor = anchor
 	if anchor != "" {
@@ -276,7 +293,8 @@ func (p *Participant) BeginWorking(now time.Time, anchor agent.StreamID, turnID 
 		}
 		p.OpenStreams[anchor] = struct{}{}
 	}
-	p.TurnID = turnID
+	p.ActiveExecutionID = p.pendingExecutionID
+	p.pendingExecutionID = 0
 	p.Status = StatusWorking
 	p.Since = now
 	return nil
@@ -288,8 +306,10 @@ func (p *Participant) AbortWork(now time.Time) error {
 	if !p.HasActiveTurn() {
 		return ErrNotWorking
 	}
+	p.ActiveExecutionID = 0
 	p.resetOpenStreams()
 	p.anchor = ""
+	p.pendingExecutionID = 0
 	p.Status = StatusIdle
 	p.Since = now
 	return nil

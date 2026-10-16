@@ -58,10 +58,6 @@ type InputAccepted = api.InputAccepted
 // Front ends use it to preserve transcript insertion at the dispatch boundary.
 type StagedInputDispatched = api.StagedInputDispatched
 
-// HandoffCompleted presents the audit record for a completed handoff after
-// its staged input has been presented.
-type HandoffCompleted = api.HandoffCompleted
-
 // StagedInputDiscarded reports a staged input abandoned by lifecycle changes.
 type StagedInputDiscarded = api.StagedInputDiscarded
 

@@ -131,7 +131,7 @@ func TestSession_keepaliveStopsWhenParentContextIsCancelled(t *testing.T) {
 	)
 	t.Cleanup(s.Shutdown)
 
-	if err := s.Execute(InviteCommand{
+	if _, err := s.Execute(InviteCommand{
 		Alias: "ada",
 	}); err != nil {
 		t.Fatalf("InviteCommand: %v", err)
@@ -171,7 +171,7 @@ func TestSession_shutdownDuringKeepaliveReturnsPromptly(t *testing.T) {
 		WithObserver(keepaliveObserver{ch: events}),
 	)
 
-	if err := s.Execute(InviteCommand{
+	if _, err := s.Execute(InviteCommand{
 		Alias: "ada",
 	}); err != nil {
 		t.Fatalf("InviteCommand: %v", err)
@@ -202,7 +202,7 @@ func TestSession_sweepKeepaliveSkipsPreparingParticipant(t *testing.T) {
 
 	waitForStatusEvent(t, events, participant.StatusIdle)
 
-	if err := s.prepareParticipantForWork(resolvedAda(s)); err != nil {
+	if err := s.prepareParticipantForWork(resolvedAda(s), 1); err != nil {
 		t.Fatalf("prepareParticipantForWork: %v", err)
 	}
 
@@ -268,7 +268,7 @@ func newKeepaliveTestSession(tick time.Duration, factory func() agent.Agent) (*S
 
 func mustInviteKeepaliveTestParticipant(t *testing.T, s *Session) {
 	t.Helper()
-	if err := s.Execute(InviteCommand{
+	if _, err := s.Execute(InviteCommand{
 		Alias: keepaliveTestAlias,
 	}); err != nil {
 		t.Fatalf("InviteCommand: %v", err)

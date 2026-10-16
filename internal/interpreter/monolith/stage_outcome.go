@@ -14,12 +14,7 @@ func (state *stageState) deliveryEvents(outcome sessionOutcome) instructionSeque
 			Raw: state.raw, Routing: slices.Clone(delivered),
 		}})
 	}
-	if state.handoff != nil && state.handoff.completed != nil && outcome.err == nil {
-		handoff := state.handoff.completed
-		sequence = append(sequence, publishEventInstruction{event: HandoffCompleted{
-			Preview: handoff.Preview,
-		}})
-	}
+
 	return sequence
 }
 

@@ -23,7 +23,7 @@ func TestRoutingCompleted_reportsActualOutcomes(t *testing.T) {
 			invite(t, s, "turing")
 			mustReceive[session.AgentReady](t, observer.ch)
 			enableSendNotices(t, s)
-			err := s.Execute(tt.command(s))
+			_, err := s.Execute(tt.command(s))
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("error = %v", err)
 			}
@@ -80,7 +80,7 @@ func TestRoutingCompleted_followsAdapterAcceptanceAndDetachesObservers(t *testin
 	s := newSession(t, session.WithObserver(first), session.WithObserver(second), session.WithObserver(ready), mappedFactory(map[string]agent.Agent{"ada": adapter}))
 	invite(t, s, "ada")
 	mustReceive[session.AgentReady](t, ready.ch)
-	if err := s.Execute(session.BroadcastCommand{Aliases: resolvedAliases(s, "ada"), Text: "work"}); err != nil {
+	if _, err := s.Execute(session.BroadcastCommand{Aliases: resolvedAliases(s, "ada"), Text: "work"}); err != nil {
 		t.Fatal(err)
 	}
 	if len(second.results) != 1 || second.results[0].Recipients[0].Alias.Name != "ada" {

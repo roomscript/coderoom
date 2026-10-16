@@ -3,6 +3,8 @@ package session
 import (
 	"errors"
 	"slices"
+
+	"github.com/roomscript/coderoom/internal/participant"
 )
 
 // DeliveryError reports that a command partially succeeded before returning an
@@ -46,8 +48,12 @@ func DeliveredAliases(err error) []string {
 	return append([]string(nil), deliveryErr.Delivered...)
 }
 
+// ExecutionID identifies one call to Session.Execute, successful or failed.
+// All work started by that execution shares its ID. Zero is not an execution.
+type ExecutionID = participant.ExecutionID
+
 // Command is a sealed interface; only types in this package can implement it.
 // Execute dispatches via the unexported method — no type switch required.
 type Command interface {
-	execute(s *Session) error
+	execute(s *Session, executionID ExecutionID) error
 }

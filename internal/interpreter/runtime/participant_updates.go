@@ -23,9 +23,10 @@ type participantSnapshot struct {
 }
 
 type participantState struct {
-	status       participant.Status
-	startupReady bool
-	departed     bool
+	status                   participant.Status
+	lastCompletedExecutionID participant.ExecutionID
+	startupReady             bool
+	departed                 bool
 }
 
 func (s participantState) isReadyForWork() bool {
@@ -70,20 +71,26 @@ func (u *participantUpdates) collect(event session.Event) bool {
 
 func applyParticipantUpdate(state *participantState, event session.Event) {
 	switch event := event.(type) {
+	case session.ParticipantWorkCompleted:
+		state.lastCompletedExecutionID = max(state.lastCompletedExecutionID, event.ExecutionID)
 	case session.ParticipantStatusChanged:
-		state.status = event.To
-		state.departed = event.To == participant.StatusCrashed
-		switch {
-		case event.To == participant.StatusStarting || event.To == participant.StatusAttached ||
-			event.From == participant.StatusStarting || event.From == participant.StatusAttached:
-			state.startupReady = false
-		case isPastStartup(event.From) || isPastStartup(event.To):
-			state.startupReady = true
-		}
+		state.applyStatus(event)
 	case session.AgentReady:
 		state.status, state.startupReady = participant.StatusIdle, true
 	case session.AgentStopped, session.AgentCrashed:
 		state.departed, state.startupReady = true, false
+	}
+}
+
+func (s *participantState) applyStatus(event session.ParticipantStatusChanged) {
+	s.status = event.To
+	s.departed = event.To == participant.StatusCrashed
+	switch {
+	case event.To == participant.StatusStarting || event.To == participant.StatusAttached ||
+		event.From == participant.StatusStarting || event.From == participant.StatusAttached:
+		s.startupReady = false
+	case isPastStartup(event.From) || isPastStartup(event.To):
+		s.startupReady = true
 	}
 }
 
@@ -96,11 +103,11 @@ func isPastStartup(status participant.Status) bool {
 	}
 }
 
-// merge only fills aliases untouched by events, including any departures.
-func (u *participantUpdates) merge(views []participant.View) {
+// merge preserves newer event state while merging completion history independently.
+func (u *participantUpdates) merge(initial session.ParticipantSnapshot) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
-	for _, view := range views {
+	for _, view := range initial.Participants {
 		if _, exists := u.states[view.Alias]; !exists {
 			u.states[view.Alias] = participantState{
 				status: view.Status, startupReady: view.StartupReady,
@@ -108,6 +115,10 @@ func (u *participantUpdates) merge(views []participant.View) {
 			}
 			u.revision++
 		}
+		state := u.states[view.Alias]
+		state.lastCompletedExecutionID = max(state.lastCompletedExecutionID, view.LastCompletedExecutionID)
+		u.states[view.Alias] = state
+		u.revision++
 	}
 }
 

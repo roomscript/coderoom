@@ -7,17 +7,17 @@ import (
 	"github.com/roomscript/coderoom/internal/session"
 )
 
-func TestHandoffStage_completeSourceTurn(t *testing.T) {
+func TestHandoffStage_completeSourceWork(t *testing.T) {
 	for _, tc := range []struct {
 		name      string
 		event     session.AgentMessage
 		completes bool
 	}{
-		{name: "other participant", event: session.AgentMessage{Alias: testAlias("ben"), TurnID: 7, TurnCompleted: true}},
-		{name: "unfinished output", event: session.AgentMessage{Alias: testAlias("ada"), TurnID: 7}},
-		{name: "older turn", event: session.AgentMessage{Alias: testAlias("ada"), TurnID: 6, TurnCompleted: true}},
-		{name: "current turn", event: session.AgentMessage{Alias: testAlias("ada"), TurnID: 7, TurnCompleted: true}, completes: true},
-		{name: "newer turn", event: session.AgentMessage{Alias: testAlias("ada"), TurnID: 8, TurnCompleted: true}, completes: true},
+		{name: "other participant", event: session.AgentMessage{Alias: testAlias("ben"), ExecutionID: 7, WorkCompleted: true}},
+		{name: "unfinished output", event: session.AgentMessage{Alias: testAlias("ada"), ExecutionID: 7}},
+		{name: "older turn", event: session.AgentMessage{Alias: testAlias("ada"), ExecutionID: 6, WorkCompleted: true}},
+		{name: "current turn", event: session.AgentMessage{Alias: testAlias("ada"), ExecutionID: 7, WorkCompleted: true}, completes: true},
+		{name: "newer turn", event: session.AgentMessage{Alias: testAlias("ada"), ExecutionID: 8, WorkCompleted: true}, completes: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			handoff := handoffStage{
@@ -25,7 +25,7 @@ func TestHandoffStage_completeSourceTurn(t *testing.T) {
 				action:                promptlang.Handoff{FromAlias: located("ada"), ToAlias: located("ben")},
 				sourceNeedsCompletion: true,
 			}
-			if got := handoff.completeSourceTurn(tc.event, 7); got != tc.completes {
+			if got := handoff.completeSourceWork(tc.event, 7); got != tc.completes {
 				t.Fatalf("source completion = %v, want %v", got, tc.completes)
 			}
 			if handoff.sourceNeedsCompletion == tc.completes {

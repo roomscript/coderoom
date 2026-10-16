@@ -6,6 +6,11 @@ import (
 	"github.com/roomscript/coderoom/internal/participant"
 )
 
+// ParticipantSnapshot contains detached views captured at one Session boundary.
+type ParticipantSnapshot struct {
+	Participants []participant.View
+}
+
 // changeParticipants owns the lifecycle mutation boundary. The callback describes
 // lifecycle or membership changes together with Session runtime bookkeeping; it
 // must not block, notify observers, or acquire the Session lock. Group captures
@@ -25,13 +30,13 @@ func (s *Session) changeParticipants(change func()) {
 // Callbacks may race its return, but are never called inline by this method.
 // They must only collect facts and return promptly. Unsubscribe drops queued facts
 // without waiting for an in-flight callback and is safe from a callback.
-func (s *Session) SubscribeParticipants(handle func(Event)) ([]participant.View, func()) {
+func (s *Session) SubscribeParticipants(handle func(Event)) (ParticipantSnapshot, func()) {
 	s.mu.Lock()
 	initial, subscription := s.participants.Subscribe(func(change participant.Change) {
 		handle(deriveParticipantEvent(change))
 	})
 	s.mu.Unlock()
-	return initial, func() {
+	return ParticipantSnapshot{Participants: initial}, func() {
 		s.mu.Lock()
 		s.participants.Unsubscribe(subscription)
 		s.mu.Unlock()
@@ -49,9 +54,11 @@ func deriveParticipantEvent(change participant.Change) Event {
 	before, after := change.Before, change.After
 	switch change.Kind {
 	case participant.StatusChanged:
-		return ParticipantStatusChanged{Alias: after.Alias, From: before.Status, To: after.Status, Since: after.Since}
+		return ParticipantStatusChanged{Alias: after.Alias, From: before.Status, To: after.Status, Since: after.Since, ActiveExecutionID: after.ActiveExecutionID}
 	case participant.BecameReady:
 		return AgentReady{Alias: after.Alias}
+	case participant.WorkCompleted:
+		return ParticipantWorkCompleted{Alias: before.Alias, ExecutionID: after.LastCompletedExecutionID}
 	case participant.Removed:
 		return AgentStopped{Alias: before.Alias}
 	default:

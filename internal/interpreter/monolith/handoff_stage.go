@@ -13,15 +13,6 @@ type handoffStage struct {
 	from                  participant.Alias
 	to                    participant.Alias
 	sourceNeedsCompletion bool
-	completed             *session.HandoffDelivered
-}
-
-func (h *handoffStage) captureCompletion(event session.Event) {
-	delivered, ok := event.(session.HandoffDelivered)
-	if !ok || delivered.FromAlias != h.from || delivered.ToAlias != h.to {
-		return
-	}
-	h.completed = &delivered
 }
 
 func (h *handoffStage) trackSourceCompletion(participants []participantState) {
@@ -39,8 +30,8 @@ func (h *handoffStage) updateSourceStatus(event session.ParticipantStatusChanged
 	}
 }
 
-func (h *handoffStage) completeSourceTurn(event session.AgentMessage, expectedTurnID uint64) bool {
-	if event.Alias != h.from || !event.TurnCompleted || event.TurnID < expectedTurnID {
+func (h *handoffStage) completeSourceWork(event session.AgentMessage, expectedActiveExecutionID participant.ExecutionID) bool {
+	if event.Alias != h.from || !event.WorkCompleted || event.ExecutionID < expectedActiveExecutionID {
 		return false
 	}
 	h.sourceNeedsCompletion = false

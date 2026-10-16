@@ -30,7 +30,7 @@ func TestStage_retainsOwnershipBeforeQueuedAdvancement(t *testing.T) {
 	}{{"ready", false}, {"departure", true}} {
 		t.Run(tt.name, func(t *testing.T) {
 			interp, sess, backend, events, alias := newLifecycleInterpreter(t)
-			if err := sess.Execute(session.SendToParticipantCommand{Plan: sess.CreateParticipantSendPlan(alias), Message: "busy"}); err != nil {
+			if _, err := sess.Execute(session.SendToParticipantCommand{Plan: sess.CreateParticipantSendPlan(alias), Message: "busy"}); err != nil {
 				t.Fatal(err)
 			}
 			parsed, err := promptlang.Parse("@ada work")
@@ -85,7 +85,7 @@ func retainBeforeQueuedAdvancement(interp *Interpreter, sess *lifecycleSession, 
 		return errors.New("handoff did not enter waiting")
 	}
 	if departure {
-		if removeErr := sess.Execute(session.RemoveCommand{Alias: alias}); removeErr != nil {
+		if _, removeErr := sess.Execute(session.RemoveCommand{Alias: alias}); removeErr != nil {
 			return fmt.Errorf("remove handoff participant: %w", removeErr)
 		}
 	} else {

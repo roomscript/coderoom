@@ -137,8 +137,11 @@ func registerReplacementForCallback(t *testing.T, s *Session, status participant
 	}
 	current := participant.New("ada", "builder", participant.InitiativeManual)
 	current.Agent = echo.New()
-	current.Status = participant.StatusPreparing
-	if err := current.BeginWorking(s.now(), "anchor", 41); err != nil {
+	current.Status = participant.StatusIdle
+	if err := current.PrepareForWork(s.now(), 41); err != nil {
+		t.Fatal(err)
+	}
+	if err := current.BeginWorking(s.now(), "anchor"); err != nil {
 		t.Fatal(err)
 	}
 	current.Status = status
@@ -163,7 +166,7 @@ func assertOldCallbackEvents(t *testing.T, events []Event, old participant.Alias
 			alias = event.Alias
 		case AgentMessage:
 			alias = event.Alias
-			if event.TurnCompleted || event.TurnID != 0 {
+			if event.WorkCompleted || event.ExecutionID != 0 {
 				t.Fatal("old completion completed replacement turn")
 			}
 		default:

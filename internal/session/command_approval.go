@@ -13,7 +13,7 @@ type ResolveApprovalCommand struct {
 	Choice     agent.ApprovalOption
 }
 
-func (c ResolveApprovalCommand) execute(s *Session) error {
+func (c ResolveApprovalCommand) execute(s *Session, _ ExecutionID) error {
 	if s.approvals == nil {
 		return fmt.Errorf("no approval hub configured on session")
 	}

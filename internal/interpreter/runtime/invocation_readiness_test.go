@@ -16,6 +16,7 @@ type participantHost struct {
 	mu         sync.Mutex
 	handle     func(session.Event)
 	views      []participant.View
+	completed  map[participant.Alias]session.ExecutionID
 	entered    chan struct{}
 	release    chan struct{}
 	beforeRead func()
@@ -43,9 +44,13 @@ func (h *participantHost) Participants() []participant.View {
 	return slices.Clone(h.views)
 }
 
-func (h *participantHost) SubscribeParticipants(handle func(session.Event)) ([]participant.View, func()) {
+func (h *participantHost) SubscribeParticipants(handle func(session.Event)) (session.ParticipantSnapshot, func()) {
 	unsubscribe := h.subscribeParticipants(handle)
-	return h.Participants(), unsubscribe
+	views := h.Participants()
+	for index := range views {
+		views[index].LastCompletedExecutionID = h.completed[views[index].Alias]
+	}
+	return session.ParticipantSnapshot{Participants: views}, unsubscribe
 }
 
 func (h *participantHost) ParticipantByName(name string) (participant.View, bool) {

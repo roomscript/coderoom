@@ -125,7 +125,7 @@ func newSessionWithCodexAgents(t *testing.T, aliases ...string) (*session.Sessio
 	t.Cleanup(s.Shutdown)
 	t.Cleanup(func() {
 		for _, alias := range aliases {
-			_ = s.Execute(session.RemoveCommand{Alias: resolvedAlias(s, alias)})
+			_, _ = s.Execute(session.RemoveCommand{Alias: resolvedAlias(s, alias)})
 		}
 	})
 	for _, alias := range aliases {
@@ -136,7 +136,7 @@ func newSessionWithCodexAgents(t *testing.T, aliases ...string) (*session.Sessio
 
 func inviteAndWaitStarted(t *testing.T, s *session.Session, events <-chan session.Event, alias string) {
 	t.Helper()
-	if err := s.Execute(session.InviteCommand{
+	if _, err := s.Execute(session.InviteCommand{
 		Alias: alias,
 	}); err != nil {
 		t.Fatalf("invite %s: %v", alias, err)
@@ -178,7 +178,7 @@ func waitForFirstOutputFlush(t *testing.T, b *eventBuf, alias string, timeout ti
 func waitForFirstStreamOutputThenCancel(t *testing.T, b *eventBuf, s *session.Session, alias string, timeout time.Duration) {
 	t.Helper()
 	waitForFirstStreamOutput(t, b, alias, timeout)
-	if err := s.Execute(session.CancelCommand{Alias: resolvedAlias(s, alias)}); err != nil {
+	if _, err := s.Execute(session.CancelCommand{Alias: resolvedAlias(s, alias)}); err != nil {
 		t.Fatalf("cancel: %v", err)
 	}
 }

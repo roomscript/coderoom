@@ -21,11 +21,11 @@ var aliasFixtures = sync.OnceValue(func() aliasFixtureSet {
 		return echo.New()
 	}))
 	for _, name := range []string{"ada", "ben", "cat", "turing", "grace", "tim", "bob", "later", "linus", "replacement"} {
-		if err := s.Execute(session.InviteCommand{Alias: name}); err != nil {
+		if _, err := s.Execute(session.InviteCommand{Alias: name}); err != nil {
 			panic(err)
 		}
 	}
-	if err := s.Execute(session.EnablePolicyCommand{Name: policy.SendNotices}); err != nil {
+	if _, err := s.Execute(session.EnablePolicyCommand{Name: policy.SendNotices}); err != nil {
 		panic(err)
 	}
 	fixtures := aliasFixtureSet{aliases: map[string]participant.Alias{}, plans: map[string]session.ParticipantSendPlan{}}

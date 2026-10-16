@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/roomscript/coderoom/internal/agent"
 	"github.com/roomscript/coderoom/internal/participant"
 )
 
@@ -43,7 +44,7 @@ func assertParticipantStatus(t *testing.T, facts <-chan Event, alias participant
 func startBlockedPreparation(t *testing.T, s *Session, alias participant.Alias, entered <-chan struct{}) <-chan error {
 	t.Helper()
 	prepared := make(chan error, 1)
-	go func() { prepared <- s.prepareParticipantForWork(alias) }()
+	go func() { prepared <- s.prepareParticipantForWork(alias, 1) }()
 	select {
 	case <-entered:
 	case <-time.After(time.Second):
@@ -69,7 +70,7 @@ func TestSubscribeParticipants_snapshotExcludesQueuedEarlierFacts(t *testing.T) 
 		facts <- event
 	})
 	t.Cleanup(unsubscribe)
-	if len(initial) != 1 || !initial[0].IsReadyForWork() {
+	if len(initial.Participants) != 1 || !initial.Participants[0].IsReadyForWork() {
 		t.Fatalf("initial snapshot = %#v", initial)
 	}
 	prepared := startBlockedPreparation(t, s, alias, entered)
@@ -77,7 +78,7 @@ func TestSubscribeParticipants_snapshotExcludesQueuedEarlierFacts(t *testing.T) 
 	laterFacts := make(chan Event, 4)
 	later, stopLater := s.SubscribeParticipants(func(event Event) { laterFacts <- event })
 	t.Cleanup(stopLater)
-	if len(later) != 1 || later[0].Status != participant.StatusWorking || !initial[0].IsReadyForWork() {
+	if len(later.Participants) != 1 || later.Participants[0].Status != participant.StatusWorking || !initial.Participants[0].IsReadyForWork() {
 		t.Fatal("snapshot missed queued working state or mutated initial snapshot")
 	}
 	unblock()
@@ -130,7 +131,7 @@ func TestSubscribeParticipants_shutdownReleasesSubscriptions(t *testing.T) {
 	s.Shutdown()
 	_, stopLate := s.SubscribeParticipants(func(event Event) { facts <- event })
 	t.Cleanup(stopLate)
-	if err := s.prepareParticipantForWork(alias); err != nil {
+	if err := s.prepareParticipantForWork(alias, 1); err != nil {
 		t.Fatal(err)
 	}
 	if len(facts) != 0 {
@@ -145,11 +146,11 @@ func TestSubscribeParticipants_readinessAndMembershipFacts(t *testing.T) {
 	facts := make(chan Event, 8)
 	initial, unsubscribe := s.SubscribeParticipants(func(event Event) { facts <- event })
 	t.Cleanup(unsubscribe)
-	if len(initial) != 1 || initial[0].StartupReady {
+	if len(initial.Participants) != 1 || initial.Participants[0].StartupReady {
 		t.Fatalf("initial startup snapshot = %#v", initial)
 	}
 	assertStartupReadyFact(t, s, alias, facts)
-	if initial[0].StartupReady {
+	if initial.Participants[0].StartupReady {
 		t.Fatal("readiness change mutated the initial snapshot")
 	}
 	s.changeParticipants(func() { s.removeParticipantLocked(alias) })
@@ -165,7 +166,7 @@ func TestSubscribeParticipants_readinessAndMembershipFacts(t *testing.T) {
 	assertParticipantStatus(t, facts, replacement.Alias, participant.StatusStarting)
 	current, stopCurrent := s.SubscribeParticipants(func(Event) { t.Error("unexpected future fact") })
 	t.Cleanup(stopCurrent)
-	if len(current) != 1 || current[0].Alias != replacement.Alias || replacement.Alias == alias {
+	if len(current.Participants) != 1 || current.Participants[0].Alias != replacement.Alias || replacement.Alias == alias {
 		t.Fatal("subscription snapshot mixed removed and replacement instances")
 	}
 }
@@ -181,4 +182,75 @@ func assertStartupReadyFact(t *testing.T, s *Session, alias participant.Alias, f
 	if !ok || ready.Alias != alias {
 		t.Fatal("readiness change was missed")
 	}
+}
+
+func TestSubscribeParticipants_statusCarriesActiveExecution(t *testing.T) {
+	s, alias := newReadySubscriptionSession(t)
+	facts := make(chan Event, 8)
+	_, unsubscribe := s.SubscribeParticipants(func(event Event) { facts <- event })
+	defer unsubscribe()
+	if err := s.prepareParticipantForWork(alias, 1); err != nil {
+		t.Fatal(err)
+	}
+	assertParticipantStatus(t, facts, alias, participant.StatusPreparing)
+	s.beginParticipantWorking(alias, "anchor")
+	working, ok := receiveParticipantFact(t, facts).(ParticipantStatusChanged)
+	view, exists := s.ParticipantByName(alias.Name)
+	if !ok || !exists || working.To != participant.StatusWorking || working.ActiveExecutionID == 0 || working.ActiveExecutionID != view.ActiveExecutionID {
+		t.Fatalf("working fact=%#v, view=%#v", working, view)
+	}
+	s.abortWork(alias)
+	idle, ok := receiveParticipantFact(t, facts).(ParticipantStatusChanged)
+	if !ok || idle.To != participant.StatusIdle || idle.ActiveExecutionID != 0 {
+		t.Fatalf("idle fact=%#v", idle)
+	}
+}
+
+func startSubscribedWork(t *testing.T, s *Session, alias participant.Alias, id ExecutionID, facts <-chan Event) {
+	t.Helper()
+	if err := s.prepareParticipantForWork(alias, id); err != nil {
+		t.Fatal(err)
+	}
+	assertParticipantStatus(t, facts, alias, participant.StatusPreparing)
+	s.beginParticipantWorking(alias, "anchor")
+	assertParticipantStatus(t, facts, alias, participant.StatusWorking)
+}
+
+func TestSubscribeParticipants_completionPrecedesIdleAndSurvivesLateSubscription(t *testing.T) {
+	s, alias := newReadySubscriptionSession(t)
+	facts := make(chan Event, 8)
+	_, stop := s.SubscribeParticipants(func(event Event) { facts <- event })
+	defer stop()
+	startSubscribedWork(t, s, alias, 41, facts)
+	s.handleAgentMessage(alias, agent.Message{StreamID: "anchor", Mode: agent.ModeFlush, Content: agent.Output{}})
+	completed, ok := receiveParticipantFact(t, facts).(ParticipantWorkCompleted)
+	if !ok || completed.Alias != alias || completed.ExecutionID != 41 {
+		t.Fatalf("completion=%#v", completed)
+	}
+	assertParticipantStatus(t, facts, alias, participant.StatusIdle)
+	snapshot := assertCompletionSnapshot(t, s, alias, 41)
+	snapshot.Participants[0].LastCompletedExecutionID = 99 // Detached from Session state.
+	startSubscribedWork(t, s, alias, 42, facts)
+	s.abortWork(alias)
+	assertParticipantStatus(t, facts, alias, participant.StatusIdle)
+	assertCompletionSnapshot(t, s, alias, 41)
+	if len(facts) != 0 {
+		t.Fatal("abort emitted a completion")
+	}
+	s.changeParticipants(func() { s.removeParticipantLocked(alias) })
+	after, unsubscribe := s.SubscribeParticipants(func(Event) {})
+	defer unsubscribe()
+	if len(after.Participants) != 0 {
+		t.Fatal("departure retained completion history")
+	}
+}
+
+func assertCompletionSnapshot(t *testing.T, s *Session, alias participant.Alias, expected ExecutionID) ParticipantSnapshot {
+	t.Helper()
+	initial, unsubscribe := s.SubscribeParticipants(func(Event) { t.Error("late subscriber replayed old events") })
+	defer unsubscribe()
+	if len(initial.Participants) != 1 || initial.Participants[0].Alias != alias || initial.Participants[0].ActiveExecutionID != 0 || initial.Participants[0].LastCompletedExecutionID != expected {
+		t.Fatalf("snapshot=%#v", initial)
+	}
+	return initial
 }

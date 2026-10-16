@@ -60,7 +60,7 @@ type lifecycleSession struct {
 	subscriptions atomic.Int32
 }
 
-func (s *lifecycleSession) SubscribeParticipants(handle func(session.Event)) ([]participant.View, func()) {
+func (s *lifecycleSession) SubscribeParticipants(handle func(session.Event)) (session.ParticipantSnapshot, func()) {
 	s.subscriptions.Add(1)
 	initial, unsubscribe := s.Session.SubscribeParticipants(handle)
 	var once sync.Once
@@ -84,7 +84,7 @@ func newLifecycleInterpreter(t *testing.T) (*Interpreter, *lifecycleSession, *li
 	interp := New(context.Background(), sess, t.TempDir(), WithObserver(routingObserver{events}))
 	t.Cleanup(interp.Close)
 	t.Cleanup(backend.unblock)
-	if err := sess.Execute(session.InviteCommand{Alias: "ada"}); err != nil {
+	if _, err := sess.Execute(session.InviteCommand{Alias: "ada"}); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -100,7 +100,7 @@ func TestCommandLifecycle_waiting(t *testing.T) {
 	for _, outcome := range []string{"ready", "departure", "close"} {
 		t.Run(outcome, func(t *testing.T) {
 			interp, sess, backend, events, alias := newLifecycleInterpreter(t)
-			if err := sess.Execute(session.SendToParticipantCommand{Plan: sess.CreateParticipantSendPlan(alias), Message: "busy"}); err != nil {
+			if _, err := sess.Execute(session.SendToParticipantCommand{Plan: sess.CreateParticipantSendPlan(alias), Message: "busy"}); err != nil {
 				t.Fatal(err)
 			}
 			submitLifecycleSend(t, interp, events)
@@ -125,7 +125,7 @@ func finishWaitingLifecycle(t *testing.T, interp *Interpreter, sess *lifecycleSe
 		interp.Close()
 		assertLifecycleSendCount(t, interp, 1)
 	case "departure":
-		if err := sess.Execute(session.RemoveCommand{Alias: alias}); err != nil {
+		if _, err := sess.Execute(session.RemoveCommand{Alias: alias}); err != nil {
 			t.Fatal(err)
 		}
 		awaitLifecycleEvent(t, events, func(event Event) bool {
@@ -230,7 +230,7 @@ func TestCommandLifecycle_waitsForStartup(t *testing.T) {
 	interp := New(context.Background(), sess, t.TempDir(), WithObserver(routingObserver{events}))
 	t.Cleanup(interp.Close)
 	t.Cleanup(gate.unblock)
-	if err := sess.Execute(session.InviteCommand{Alias: "ada"}); err != nil {
+	if _, err := sess.Execute(session.InviteCommand{Alias: "ada"}); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -308,11 +308,11 @@ func newNoticeLifecycleInterpreter(t *testing.T, partial bool) (*Interpreter, *l
 	events := make(chan Event, 128)
 	interp := New(context.Background(), sess, t.TempDir(), WithObserver(routingObserver{events}))
 	t.Cleanup(interp.Close)
-	if err := sess.Execute(session.EnablePolicyCommand{Name: policy.SendNotices}); err != nil {
+	if _, err := sess.Execute(session.EnablePolicyCommand{Name: policy.SendNotices}); err != nil {
 		t.Fatal(err)
 	}
 	for _, name := range []string{"ada", "ben"} {
-		if err := sess.Execute(session.InviteCommand{Alias: name}); err != nil {
+		if _, err := sess.Execute(session.InviteCommand{Alias: name}); err != nil {
 			t.Fatal(err)
 		}
 		select {
@@ -493,5 +493,57 @@ func TestSend_queuedInputCannotOvertakeAdmittedDelivery(t *testing.T) {
 				return ok && dispatched.Raw == next
 			})
 		})
+	}
+}
+
+// Completion committed before attachment is history even if its publication is
+// still held by an older observer. New commands must not wait for its replay.
+func TestCommandLifecycle_completedBeforeAttachment(t *testing.T) {
+	for _, held := range []bool{false, true} {
+		t.Run(fmt.Sprintf("publicationHeld=%t", held), func(t *testing.T) {
+			ready := make(chan participant.Alias, 4)
+			completed := make(chan struct{})
+			release := make(chan struct{})
+			var once sync.Once
+			unblock := func() { once.Do(func() { close(release) }) }
+			if !held {
+				unblock()
+			}
+			backend := &lifecycleAgent{Client: echo.New(), release: make(chan struct{})}
+			sess := session.New(session.WithObserver(lifecycleReadyObserver{ready}), session.WithAgentFactory(func(*session.Session, roomconfig.ParticipantConfig, session.AgentBackend) agent.Agent { return backend }))
+			t.Cleanup(sess.Shutdown)
+			sess.AddObserver(&historicalCompletionObserver{completed: completed, release: release})
+			alias := inviteStageRecipient(t, &lifecycleSession{Session: sess}, ready, "ada")
+			if _, err := sess.Execute(session.SendToParticipantOutsideRoomCommand{Alias: alias, Text: "busy"}); err != nil {
+				t.Fatal(err)
+			}
+			backend.unblock()
+			select {
+			case <-completed:
+			case <-time.After(2 * time.Second):
+				t.Fatal("historical work did not complete")
+			}
+			events := make(chan Event, 128)
+			interp := New(context.Background(), sess, t.TempDir(), WithObserver(routingObserver{events}))
+			t.Cleanup(interp.Close)
+			t.Cleanup(unblock)
+			submitLifecycleSend(t, interp, events)
+			assertLifecycleSendCount(t, interp, 1)
+			if interp.Snapshot().Stage != nil {
+				t.Fatal("historical completion blocked new send")
+			}
+		})
+	}
+}
+
+type historicalCompletionObserver struct {
+	completed chan struct{}
+	release   <-chan struct{}
+	once      sync.Once
+}
+
+func (o *historicalCompletionObserver) OnEvent(event session.Event) {
+	if message, ok := event.(session.AgentMessage); ok && message.WorkCompleted {
+		o.once.Do(func() { close(o.completed); <-o.release })
 	}
 }

@@ -15,10 +15,8 @@ import (
 func (i *Interpreter) publishCommandInput(submission *monolith.CommandSubmission, staging *runtime.Staging) {
 	event := InputAccepted{Raw: submission.Statement.Raw}
 	if isDeliveryStatement(submission.Statement) {
-		for _, aliases := range [][]participant.Alias{staging.WaitFor, staging.ToInform} {
-			for _, alias := range aliases {
-				event.Routing = append(event.Routing, alias.Name)
-			}
+		for _, alias := range stagingRouting(staging) {
+			event.Routing = append(event.Routing, alias.Name)
 		}
 	} else {
 		i.fallback.AppendRecord(room.Record{Kind: room.KindUserInput, Text: event.Raw})
@@ -65,7 +63,7 @@ func (i *Interpreter) publishCommandCompletion(pending pendingInvocation, result
 // only after the native delivery result.
 func isDeliveryStatement(statement promptlang.ParsedStatement) bool {
 	switch statement.Value.(type) {
-	case promptlang.Send, promptlang.Broadcast:
+	case promptlang.Send, promptlang.Broadcast, promptlang.Handoff:
 		return true
 	default:
 		return false
@@ -73,8 +71,13 @@ func isDeliveryStatement(statement promptlang.ParsedStatement) bool {
 }
 
 func commandOperation(submission *monolith.CommandSubmission) string {
-	if _, broadcast := submission.Statement.Value.(promptlang.Broadcast); broadcast {
+	switch submission.Statement.Value.(type) {
+	case promptlang.Broadcast, promptlang.Handoff:
 		return "staged dispatch"
 	}
 	return submission.Name
+}
+
+func stagingRouting(staging *runtime.Staging) []participant.Alias {
+	return append(append([]participant.Alias(nil), staging.WaitFor...), staging.ToInform...)
 }

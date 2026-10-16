@@ -8,9 +8,36 @@ what we learned. Do not implement the entire list in one pass. Leave commits to
 the human. Move settled decisions into the design docs and remove this file when
 the issue is complete.
 
+## Agreed runtime decisions
+
+Runtime changes require explicit agreement before implementation.
+WaitFor and ToInform now both guarantee participant availability and propagated
+completion of prior work; departure behavior distinguishes them. Removed the
+separate WaitForCompletion list and Staging.Routing override. Stage presentation
+shows all frozen prerequisites; actual delivery routing remains Session-owned.
+Session facts distinguish the last completed turn from the current/aborted turn,
+so startup, keepalive and failed preparation cannot introduce nonexistent waits.
+CommandError and redundant preview/event plumbing were removed by agreement.
+
+## Session execution identity checkpoint
+
+Session.Execute now returns (session.ExecutionID, error) for every command,
+including failures and commands that start no work. Delivery passes the ID to
+PrepareForWork; BeginWorking commits pending provenance as ActiveExecutionID.
+Broadcast recipients share that origin, and participant instance identity separates
+completion facts. Existing work keeps its origin when receiving a notice.
+Participant ActiveExecutionID exists only during running work and clears on
+completion, abort or crash. Participant View owns LastCompletedExecutionID,
+updated by normal completion and supplied through ParticipantSnapshot and ordered
+ParticipantWorkCompleted facts before idle.
+The terminal AgentMessage carries ExecutionID into canonical room state; room
+retains LastCompletedExecutionIDs per participant instance. There is no separate turn
+counter, and backend agent turn/stream IDs remain unchanged. Runtime's asynchronous
+execution capability retains its admission-only return contract.
+
 ## Resume here
 
-The new `internal/interpreter` selects `/who`, `/shell`, addressed sends and broadcasts and executes them
+The new `internal/interpreter` selects `/who`, `/shell`, addressed sends, broadcasts and handoffs and executes them
 itself. It schedules `executeCommand` on the shared serialized lane, asks the
 monolith to admit input, then prepares, starts, tracks, completes and closes its
 own `runtime.InvocationLifecycle`. It also owns one retained visible stage and
@@ -155,8 +182,37 @@ Broadcast cutover checkpoint:
   order, waiting stage operations, startup, departures, replacements, joins and
   cleanup. UI tests consume retained state before queued acknowledgement.
 
-Next: migrate handoff (checkpoint 4), adding detached canonical source reads and
-preserving required departures, source selection and active-source waits.
+Handoff cutover checkpoint:
+
+- HandoffCommand is publicly registered and uses the same interpreter-driven
+  lifecycle, stage operations and delivery machinery. Std freezes explicit source
+  and destination identities and existing routable/startup-ready bystanders.
+  Required departures discard waiting work; optional departures remove bystander
+  prerequisites. Joins and replacements cannot expand the retained plan.
+- Context.History exposes only LatestOutput(alias), a detached canonical read.
+  After staging is satisfied, Go reads the source and fills the retained Session
+  command's Source before execution. There is no re-Prepare phase, source-owned
+  readiness subscription, HandoffSources capability or ReadinessGate.
+- WaitFor and ToInform share one readiness rule: idle, startup-ready, with the
+  last completed turn propagated into canonical state. Session's atomic facts
+  supply last-completed history in participant views; startup,
+  keepalive and aborted work do not advance it.
+  The interpreter feeds projected turn facts from the existing room observer into
+  the lifecycle and queues advancement after projection. Runtime evaluates facts;
+  the interpreter drives advancement, settlement and shutdown.
+- Stage presentation shows every frozen prerequisite. DeliveryCompleted returns
+  actual routing only; Session's HandoffDelivered audit projects its preview
+  through the canonical room. Std consumes no preview or causal-event payload.
+- Regressions cover idle before final projection, current versus stale execution origins,
+  source selection and audit outcomes, frozen prerequisites, required departures,
+  edit/discard/interrupt and shutdown. Existing UI source-flush, non-completing
+  flush, starting-bystander, late-join and failed-notice tests use the public path.
+- Execution/publication and projection-hook implementations remain temporary
+  monolith capabilities, transferred and removed with fallback at checkpoint 9.
+
+Next: migrate user command definitions and named invocation (checkpoint 5).
+Future handoff history selectors (latest, earlier, all) remain a separate feature;
+this checkpoint adds only the latest-output read required by current syntax.
 
 Validation: `go test ./...`, `go test -race ./...` and
 `go test -race ./internal/interpreter/... -count=3` passed. The interrupted
@@ -285,7 +341,7 @@ the current package until a real consumer demonstrates a useful boundary.
 - [x] 3. Migrate broadcast: extend the proven delivery capability for frozen
   optional recipients, departures and partial results. Joins must not expand a
   retained plan. Preserve existing behavior and cover its complete command path.
-- [ ] 4. Migrate handoff: add detached canonical source reads to the command
+- [x] 4. Migrate handoff: add detached canonical source reads to the command
   context. Preserve required departures, source selection and active-source
   completion waits. Do not duplicate the transcript or create another observer.
 - [ ] 5. Migrate user command definitions (`/shell` is already migrated):
@@ -357,3 +413,5 @@ changes. No tests are needed for this planning-only change.
 
 Non-goals: runtime plugins, configurable runtime stacking, new syntax, a broad
 runtime interface, or unrelated UI/session/backend redesign.
+
+Projection readiness correction: keep completion IDs in room, read through Context.CompletedExecutions (CompletedExecutionIDReader) during runtime readiness evaluation. Atomic Session observer attachment establishes the historical completion cursor; work completed before attachment cannot block new sends awaiting replay.

@@ -38,8 +38,8 @@ func TestAlias_survivesRegistrationAndLifecycle(t *testing.T) {
 		{"attachment", func() error { return p.AttachAgent(fakeAgent{}, testNow()) }},
 		{"idle", func() error { return p.CommitIdle(testNow()) }},
 		{"ready", p.SessionReady},
-		{"preparation", func() error { return p.PrepareForWork(testNow()) }},
-		{"work", func() error { return p.BeginWorking(testNow(), agent.StreamID("anchor"), 1) }},
+		{"preparation", func() error { return p.PrepareForWork(testNow(), 1) }},
+		{"work", func() error { return p.BeginWorking(testNow(), agent.StreamID("anchor")) }},
 		{"completion", func() error {
 			if _, err := p.CloseStream("anchor"); err != nil {
 				return fmt.Errorf("close anchor stream: %w", err)
@@ -47,8 +47,8 @@ func TestAlias_survivesRegistrationAndLifecycle(t *testing.T) {
 			return nil
 		}},
 		{"completed idle", func() error { return p.BecomeIdle(testNow()) }},
-		{"next preparation", func() error { return p.PrepareForWork(testNow()) }},
-		{"next work", func() error { return p.BeginWorking(testNow(), "next", 2) }},
+		{"next preparation", func() error { return p.PrepareForWork(testNow(), 1) }},
+		{"next work", func() error { return p.BeginWorking(testNow(), "next") }},
 		{"cancellation", func() error { return p.AbortWork(testNow()) }},
 		{"maintenance", func() error { return p.BeginKeepalive(testNow()) }},
 		{"maintenance completion", func() error { return p.FinishKeepalive(testNow()) }},

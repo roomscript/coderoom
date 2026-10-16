@@ -39,6 +39,7 @@ type sendDelivery struct {
 	duringParticipants []session.Event
 	nextSubscription   uint64
 	views              []participant.View
+	completed          map[participant.Alias]session.ExecutionID
 	queue              []session.Event
 	duringExecute      *sendOutcome
 	order              []string
@@ -68,7 +69,7 @@ func initializeSendPlanner(t *testing.T, d *sendDelivery) {
 	}))
 	t.Cleanup(d.planner.Shutdown)
 	for _, alias := range []string{"ada", "tim"} {
-		if err := d.planner.Execute(session.InviteCommand{Alias: alias}); err != nil {
+		if _, err := d.planner.Execute(session.InviteCommand{Alias: alias}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -80,7 +81,7 @@ func initializeSendPlanner(t *testing.T, d *sendDelivery) {
 		}
 	}
 	if d.notices {
-		if err := d.planner.Execute(session.EnablePolicyCommand{Name: policy.SendNotices}); err != nil {
+		if _, err := d.planner.Execute(session.EnablePolicyCommand{Name: policy.SendNotices}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -114,9 +115,13 @@ func (d *sendDelivery) Participants() []participant.View {
 	return snapshot
 }
 
-func (d *sendDelivery) SubscribeParticipants(handle func(session.Event)) ([]participant.View, func()) {
+func (d *sendDelivery) SubscribeParticipants(handle func(session.Event)) (session.ParticipantSnapshot, func()) {
 	unsubscribe := d.subscribeParticipants(handle)
-	return d.Participants(), unsubscribe
+	views := d.Participants()
+	for index := range views {
+		views[index].LastCompletedExecutionID = d.completed[views[index].Alias]
+	}
+	return session.ParticipantSnapshot{Participants: views}, unsubscribe
 }
 
 func (d *sendDelivery) Execute(native session.Command) error {
@@ -297,7 +302,7 @@ func TestSendCommand_PrepareRetainsSessionPlan(t *testing.T) {
 	if delivery.launches != 0 || len(delivery.plans) != 1 {
 		t.Fatal("preparation did not select exactly once without delivery")
 	}
-	if err := delivery.planner.Execute(session.EnablePolicyCommand{Name: policy.SendNotices}); err != nil {
+	if _, err := delivery.planner.Execute(session.EnablePolicyCommand{Name: policy.SendNotices}); err != nil {
 		t.Fatal(err)
 	}
 	second, err := (std.SendCommand{}).Prepare(parseSendStatement(t, "@ada second"), ctx)

@@ -1,9 +1,10 @@
 # Command concepts
 
 Working agreement for [#61](https://github.com/roomscript/coderoom/issues/61).
+Changes to runtime contracts or semantics require explicit agreement before implementation.
 Keep this document roughly one page; details belong in code or
 [design docs](../../../docs/design/pkg-interpreter-composition.md).
-`/who`, `/shell`, addressed sends and broadcasts use registry dispatch and lifecycle execution.
+`/who`, `/shell`, addressed sends, broadcasts and handoffs use registry dispatch and lifecycle execution.
 
 ## Command and invocation
 
@@ -25,7 +26,10 @@ submission.
 There is no `Init`, `Next`, polling, or generic fact/expectation contract.
 
 **Staging** holds frozen `WaitFor` and `ToInform` aliases, or nil for no waiting.
-Both groups gate idle, startup-ready readiness. `ToInform` holds optional
+Both groups require idle, startup-ready participants and canonical propagation of
+the last completed turn. Startup, keepalive and aborts create no completion wait.
+Stage presentation shows all frozen prerequisites; Session reports actual delivery
+routing. `ToInform` holds optional
 recipients: contextual notices for send, work recipients for broadcast.
 The command identifies its delivery targets; `WaitFor` does not imply delivery.
 The lifecycle fails staging if a `WaitFor` alias departs. For a departed `ToInform`
@@ -47,7 +51,10 @@ legacy dispatch never reach this stream, even with identical recipients.
 `runtime.ExecutionEvent` is separate from Session's participant events so host
 protocol failures do not become invented Session facts.
 Staging uses `Session.SubscribeParticipants(handle)` separately: it atomically
-returns initial views and subscribes to later participant facts in mutation order.
+returns a ParticipantSnapshot of current views including participant-owned
+LastCompletedExecutionID, and subscribes to later participant facts in mutation order. Derived
+completion facts precede idle. ActiveExecutionID belongs to participant state and
+clears when work ends; terminal messages carry ExecutionID for projection.
 The lifecycle callback collects facts and queues advancement on the interpreter's
 serialized lane.
 
@@ -61,6 +68,15 @@ rejection of queued sends to the same primary; Session owns actual availability.
 Completion only queues owner work; the interpreter still drives lifecycle and
 final settlement. Close releases the terminal subscription; lifecycle close also
 releases participant subscriptions. Commands receive no raw model.
+
+`Context.History.LatestOutput(alias)` reads detached completed canonical output.
+Handoff Go reads it after staging and fills the retained Session command's Source.
+History supplies data only; it owns no readiness subscription. The interpreter
+uses `Context.CompletedExecutions` through `CompletedExecutionIDReader.LastCompletedExecutionID` when
+driving lifecycle readiness. Room owns recorded completion IDs; runtime retains no copy.
+The room observer only queues interpreter advancement after room updates.
+The atomic Session observer attachment snapshot establishes the historical cursor:
+completions committed before attachment do not require replay into the new room. There is no re-Prepare phase or generic readiness gate.
 
 **CommandResult** contains existing `room.Record` values and an error. Commands
 construct records and transfer ownership when calling `complete`; they must not
@@ -102,13 +118,13 @@ shell capability retains `ShellCompleted` for compatibility. Execution failures
 are separate from submission success; user commands and loops remain legacy.
 `runtime.Registry.Register(command)` indexes the type returned by `Statement()`.
 `Lookup(parsed)` selects the command; metadata comes from the command itself.
-All four commands are registered. `SendCommand` retains Session's send plan,
+All five commands are registered. `SendCommand` retains Session's send plan,
 derives staging from it and submits the native session command with that plan.
 It returns the original input record with actual routing.
 Lifecycle staging is proved with a shared-feed fake. Native send admission and
 causal publication are proved through the monolith bridge; public addressed sends use the same stage operations.
 
-The new interpreter selects `/who`, `/shell`, addressed sends and broadcasts and executes them itself.
+The new interpreter selects `/who`, `/shell`, addressed sends, broadcasts and handoffs and executes them itself.
 `monolith.Schedule` supplies the shared serialized lane; `AdmitCommand` checks
 input admission and returns Context plus `CommandSubmission` publication methods.
 The new interpreter prepares and starts its lifecycle, queues raw completions,

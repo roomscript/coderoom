@@ -648,7 +648,7 @@ passed alongside the interpreter to `ui.New`; events wait there until the UI
 consumes them. The UI does not query snapshots or register observers after
 startup. A new observer cannot attach to an already-running interpreter.
 Live snapshots never replace transcript records. Semantic `InputAccepted`,
-`StagedInputDispatched`, `HandoffCompleted`, `ShellCompleted`, and `LoopStatus`
+`StagedInputDispatched`, `ShellCompleted`, and `LoopStatus`
 events remain available to consumers but do not append duplicate TUI records.
 Stage dispatch/discard events still control draft restoration and ordering.
 

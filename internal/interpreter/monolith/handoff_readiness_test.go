@@ -89,7 +89,7 @@ func TestStageWorkflow_handoffPreparingSourceStillWaitsForOutput(t *testing.T) {
 	workflow.handleSessionEvent(session.ParticipantStatusChanged{Alias: testAlias("ada"), From: participant.StatusPreparing, To: participant.StatusWorking})
 	sequence := workflow.handleSessionEvent(session.ParticipantStatusChanged{Alias: testAlias("ada"), From: participant.StatusWorking, To: participant.StatusIdle})
 	assertNoHandoffSourceRead(t, sequence)
-	sequence = workflow.handleSessionEvent(session.AgentMessage{Alias: testAlias("ada"), TurnCompleted: true})
+	sequence = workflow.handleSessionEvent(session.AgentMessage{Alias: testAlias("ada"), WorkCompleted: true})
 	if _, ok := sequence[0].(readHandoffSourceInstruction); !ok {
 		t.Fatalf("source read = %#v", sequence)
 	}

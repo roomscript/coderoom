@@ -14,9 +14,9 @@ type facadeSession struct {
 	observers int
 }
 
-func (s *facadeSession) AddObserver(observer session.Observer) {
+func (s *facadeSession) AddObserver(observer session.Observer) session.ParticipantSnapshot {
 	s.observers++
-	s.recordingSession.AddObserver(observer)
+	return s.recordingSession.AddObserver(observer)
 }
 
 func TestInterpreter_FacadeKeepsOneRuntimeAndAppliesOptionsBeforeStartup(t *testing.T) {

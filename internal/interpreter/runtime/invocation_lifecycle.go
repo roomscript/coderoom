@@ -72,6 +72,7 @@ func NewInvocationLifecycle(invocation Invocation, ctx Context) *InvocationLifec
 	}
 }
 
+// Start reads room completion progress through Context without retaining a copy.
 // Start either starts execution or starts waiting for participants. A nil error
 // means acceptance, not necessarily execution. Initial errors return here; errors
 // encountered while waiting are queued later. The returned boolean records whether
@@ -227,10 +228,27 @@ func (l *InvocationLifecycle) evaluateReadiness(snapshot participantSnapshot) re
 				status: readinessFailed, err: &RequiredParticipantUnavailableError{Alias: alias},
 			}
 		}
-		if !state.isReadyForWork() {
+		if !l.isReadyForWork(alias, state) {
 			decision.status = readinessWaiting
 		}
 	}
+	return l.evaluateOptionalReadiness(snapshot, decision)
+}
+
+// Availability and propagated completion are one prerequisite for both required
+// and optional participants. Only their departure policies differ.
+func (l *InvocationLifecycle) isReadyForWork(alias participant.Alias, state participantState) bool {
+	if !state.isReadyForWork() {
+		return false
+	}
+	if state.lastCompletedExecutionID == 0 {
+		return true
+	}
+	return l.ctx.CompletedExecutions != nil && state.lastCompletedExecutionID <= l.ctx.CompletedExecutions.LastCompletedExecutionID(alias)
+}
+
+func (l *InvocationLifecycle) evaluateOptionalReadiness(snapshot participantSnapshot, decision readinessDecision) readinessDecision {
+	staging := l.invocation.Staging()
 	for _, alias := range staging.ToInform {
 		if l.discardedInform[alias] {
 			continue
@@ -240,7 +258,7 @@ func (l *InvocationLifecycle) evaluateReadiness(snapshot participantSnapshot) re
 			decision.discardInform = append(decision.discardInform, alias)
 			continue
 		}
-		if !state.isReadyForWork() {
+		if !l.isReadyForWork(alias, state) {
 			decision.status = readinessWaiting
 		}
 	}

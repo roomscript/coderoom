@@ -4,6 +4,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/roomscript/coderoom/internal/participant"
 	"github.com/roomscript/coderoom/internal/session"
 )
 
@@ -77,4 +78,74 @@ func TestInvocationLifecycle_collectedDepartureWinsOverDiscard(t *testing.T) {
 	if invocation.launches.Load() != 0 || invocation.closes.Load() != 1 || host.callback() != nil {
 		t.Fatal("queued failure launched work or repeated cleanup")
 	}
+}
+
+func TestInvocationLifecycle_completionTracksCurrentTurn(t *testing.T) {
+	lifecycle, host, invocation := newWaitingLifecycle()
+	defer lifecycle.Close(errors.New("cleanup"))
+	alias := invocation.staging.WaitFor[0]
+	host.views[0].ActiveExecutionID = 7
+	if _, err := lifecycle.Start(func(CommandResult) {}); err != nil {
+		t.Fatal(err)
+	}
+	// A newer turn starts while another participant still blocks the stage.
+	host.callback()(session.ParticipantStatusChanged{Alias: alias, From: participant.StatusIdle, To: participant.StatusWorking, ActiveExecutionID: 8})
+	for _, view := range host.views {
+		host.callback()(session.ParticipantWorkCompleted{Alias: view.Alias, ExecutionID: 8})
+		host.callback()(session.ParticipantStatusChanged{Alias: view.Alias, From: participant.StatusWorking, To: participant.StatusIdle})
+	}
+	lastCompletedExecutionIDs := completionIDs{newTestAlias(alias.Name): 100, alias: 7}
+	lifecycle.ctx.CompletedExecutions = lastCompletedExecutionIDs
+	lifecycle.Advance()
+	if invocation.launches.Load() != 0 {
+		t.Fatal("older turn completion launched current work")
+	}
+	lastCompletedExecutionIDs[alias] = 8
+	lastCompletedExecutionIDs[host.views[1].Alias] = 8
+	if lifecycle.DiscardWaiting() {
+		t.Fatal("discard defeated completion recorded in room")
+	}
+	lifecycle.Advance()
+	if invocation.launches.Load() != 1 {
+		t.Fatal("current completion recorded in room did not launch work")
+	}
+
+}
+
+func TestInvocationLifecycle_requiredAndOptionalSharePropagationReadiness(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		index int
+	}{{"required", 0}, {"optional", 1}} {
+		t.Run(test.name, func(t *testing.T) {
+			lifecycle, host, invocation := newWaitingLifecycle()
+			defer lifecycle.Close(errors.New("cleanup"))
+			for index := range host.views {
+				host.views[index].Status = participant.StatusIdle
+			}
+			index := test.index
+			alias := host.views[index].Alias
+			host.completed = map[participant.Alias]session.ExecutionID{host.views[index].Alias: 7}
+			waiting, err := lifecycle.Start(func(CommandResult) {})
+			if err != nil || !waiting {
+				t.Fatalf("Start=%v,%v", waiting, err)
+			}
+			lifecycle.Advance()
+			if invocation.launches.Load() != 0 {
+				t.Fatal("idle bypassed unpropagated completion")
+			}
+			lastCompletedExecutionIDs := completionIDs{alias: 7}
+			lifecycle.ctx.CompletedExecutions = lastCompletedExecutionIDs
+			lifecycle.Advance()
+			if invocation.launches.Load() != 1 {
+				t.Fatal("propagated completion did not release wait")
+			}
+		})
+	}
+}
+
+type completionIDs map[participant.Alias]participant.ExecutionID
+
+func (ids completionIDs) LastCompletedExecutionID(alias participant.Alias) participant.ExecutionID {
+	return ids[alias]
 }

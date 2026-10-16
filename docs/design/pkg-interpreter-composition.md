@@ -1,7 +1,7 @@
 # Interpreter composition: discussion draft
 
 Status: incremental migration. The facade selects `/who`, `/shell`, addressed
-sends and broadcasts through its registry and owns their lifecycles. The monolith
+sends, broadcasts and handoffs through its registry and owns their lifecycles. The monolith
 supplies
 serialized Session execution and canonical publication.
 
@@ -14,7 +14,7 @@ This follows [#55](https://github.com/roomscript/coderoom/issues/55) and conside
 
 The current interpreter implementation has moved to `internal/interpreter/monolith`
 behind its existing interface. The public `internal/interpreter` facade initially
-delegates unsupported requests to one instance. `/who`, `/shell`, addressed sends and broadcasts are selected in the facade
+delegates unsupported requests to one instance. `/who`, `/shell`, addressed sends, broadcasts and handoffs are selected in the facade
 and admitted through the shared coordinator bridge. Shared `api` contracts keep front-end
 imports stable and let both implementations publish identical event and snapshot
 types without importing the parent package. `runtime` and `std` remain separate.
@@ -54,7 +54,7 @@ submission order. This also handles parent-context cancellation. The monolith
 keeps worker cancellation and canonical projection until those move in a later
 checkpoint; it never adopts new lifecycle or stage policy.
 
-`/who`, `/shell`, addressed sends and broadcasts use this path. Other commands delegate to the monolith before
+`/who`, `/shell`, addressed sends, broadcasts and handoffs use this path. Other commands delegate to the monolith before
 execution; never retry fallback after selected execution starts. `SubmitCommand`
 remains a temporary legacy bridge. The destination is the new interpreter
 replacing and removing the monolith. Real-Session tests cover busy/startup
@@ -310,7 +310,7 @@ avoid retaining ready work indefinitely. Neither snapshots nor lifecycle events
 carry a comparable source revision, so the collector cannot distinguish these
 histories from the conflicting statuses alone.
 
-Session now provides `SubscribeParticipants(handle) -> (initialViews, unsubscribe)`.
+Session now provides `SubscribeParticipants(handle) -> (ParticipantSnapshot, unsubscribe)`.
 Snapshot capture and subscription installation share the Session state lock.
 One `changeParticipants` boundary owns lifecycle mutation, before/after view
 capture and delivery. Callers describe registration, state/readiness changes or
@@ -518,7 +518,7 @@ removal, readiness races, resubmission, partial cancellation/delivery, startup,
 departures, frozen joins and shutdown cleanup. Public send registration preserves
 direct versus queued submission milestones: direct sends settle after causal delivery and dispatch publication;
 queued sends acknowledge retention and publish later failures separately. Both
-paths publish dispatch before partial-delivery failure. Handoff and
+paths publish dispatch before partial-delivery failure. User command definitions and
 loops remain fallback; stage admission works in both submission orders.
 
 ## Delivery responsibility boundary
@@ -539,7 +539,8 @@ Semantic validation may reject an invalid terminal event, but must report failur
 rather than leave the invocation waiting for another result.
 
 The retained delivery command and Staging have different consumers: delivery and
-readiness respectively. Handoff prerequisites can differ from its recipients.
+readiness respectively. Handoff prerequisites can differ from its recipients. Stage presentation shows
+all frozen prerequisites; actual delivery routing comes from Session.
 Departures may update the command while the readiness description remains frozen
 for stage presentation. Neither representation is an error-routing template.
 
@@ -563,3 +564,28 @@ the new interpreter's execution/publication owner while retaining the runtime
 contract. At checkpoint 9, once no fallback handlers or SubmitCommand callers
 remain, remove the bridge, its private reservation wrapper and the monolith.
 Runtime mechanics remain driven by the interpreter throughout.
+
+## Handoff history and staging boundary
+
+`Context.History` is a narrow canonical read capability. Its current operation,
+`LatestOutput(alias)`, returns detached eligible output and its canonical record
+index for that participant instance. It has no readiness methods or subscriptions.
+Future latest/earlier/all selectors can extend history selection when implemented;
+no new syntax or full-history copying is part of this checkpoint.
+
+Prepare freezes the handoff identities and declares staging. Once staging is
+satisfied, Go reads history, fills the retained Session command's Source and
+submits it. Re-running Prepare would risk reselecting participants and is not
+needed. WaitFor and ToInform share participant readiness and turn-propagation
+guarantees. Runtime compares the last completed Session turn against projected
+completion facts; the interpreter supplies those
+facts and drives advancement using the existing canonical observer and shared lane.
+The history capability and SessionExecution keep separate read and effect roles.
+
+DeliveryCompleted carries actual routing only. Session audit facts, including the
+handoff preview, reach the UI through canonical projection. Std does not consume
+or reconstruct previews, and CommandResult needs no semantic-event field. The
+redundant HandoffCompleted notification is removed. The interpreter remains
+the event-ordering, invocation-identity and settlement owner. The projection hook
+and history implementation move out with the remaining monolith capabilities at
+checkpoint 9.

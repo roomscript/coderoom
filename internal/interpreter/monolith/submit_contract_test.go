@@ -30,7 +30,7 @@ func newSubmitContractSession() *submitContractSession {
 	return &submitContractSession{executed: make(chan session.Command, 32)}
 }
 
-func (s *submitContractSession) Execute(command session.Command) error {
+func (s *submitContractSession) Execute(command session.Command) (session.ExecutionID, error) {
 	active := s.active.Add(1)
 	defer s.active.Add(-1)
 	for {
@@ -51,13 +51,14 @@ func (s *submitContractSession) Execute(command session.Command) error {
 		emitFakeRoutingOutcome(command, err, observer)
 	}
 	s.executed <- command
-	return err
+	return 1, err
 }
 
-func (s *submitContractSession) AddObserver(observer session.Observer) {
+func (s *submitContractSession) AddObserver(observer session.Observer) session.ParticipantSnapshot {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.observer = observer
+	return session.ParticipantSnapshot{}
 }
 
 func (*submitContractSession) CreateParticipantSendPlan(alias participant.Alias) session.ParticipantSendPlan {

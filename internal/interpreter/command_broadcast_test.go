@@ -29,14 +29,8 @@ func TestBroadcast_directPublication(t *testing.T) {
 			if err := interp.Submit("work"); err != nil {
 				t.Fatal(err)
 			}
-			var publications []string
-			awaitLifecycleEvent(t, events, func(event Event) bool {
-				publication := broadcastPublication(t, event)
-				if publication != "" {
-					publications = append(publications, publication)
-				}
-				return publication == "success" || publication == "failure"
-			})
+			publications := awaitBroadcastPublications(t, events, outcome == "success" || outcome == "partial")
+
 			want := []string{"accepted", "input", "dispatch", "success"}
 			if outcome == "partial" {
 				want[3] = "failure"
@@ -56,16 +50,43 @@ func TestBroadcast_directPublication(t *testing.T) {
 	}
 }
 
+// Delivery acceptance does not imply the asynchronous echo output has arrived.
+// Wait for both milestones before shutdown and the causal record assertion.
+func awaitBroadcastPublications(t *testing.T, events <-chan Event, expectOutput bool) []string {
+	t.Helper()
+	var publications []string
+	output := false
+	awaitLifecycleEvent(t, events, func(event Event) bool {
+		output = output || isBroadcastOutput(event)
+		publication := broadcastPublication(t, event)
+		if publication != "" {
+			publications = append(publications, publication)
+		}
+		return publication == "success" || publication == "failure"
+	})
+	if expectOutput && !output {
+		awaitLifecycleEvent(t, events, isBroadcastOutput)
+	}
+	return publications
+}
+
+func isBroadcastOutput(event Event) bool {
+	changed, ok := event.(TranscriptChanged)
+	return ok && slices.ContainsFunc(changed.Delta.RecordUpdates, func(update room.IndexedRecord) bool { return isLifecycleOutput(update.Record) })
+}
+
 type broadcastMissingOutcomeSession struct{ *lifecycleSession }
 
-func (s *broadcastMissingOutcomeSession) Execute(command session.Command) error {
+func (s *broadcastMissingOutcomeSession) Execute(command session.Command) (session.ExecutionID, error) {
 	if _, ok := command.(session.BroadcastCommand); ok {
-		return nil
+		return 1, nil
 	}
-	if err := s.lifecycleSession.Execute(command); err != nil {
-		return fmt.Errorf("execute test command: %w", err)
+	id, err := s.lifecycleSession.Execute(command)
+	if err != nil {
+		return id, fmt.Errorf("execute test command: %w", err)
 	}
-	return nil
+	return id, nil
+
 }
 
 func TestBroadcast_waitingOperations(t *testing.T) {
@@ -105,7 +126,7 @@ func TestBroadcast_frozenRecipientsSurviveDepartureAndReplacement(t *testing.T) 
 		t.Fatal(err)
 	}
 	awaitLifecycleEvent(t, events, func(event Event) bool { value, ok := event.(SubmissionSucceeded); return ok && value.Raw == "work" })
-	if err := sess.Execute(session.RemoveCommand{Alias: aliases["ben"]}); err != nil {
+	if _, err := sess.Execute(session.RemoveCommand{Alias: aliases["ben"]}); err != nil {
 		t.Fatal(err)
 	}
 	// The same name is a new instance; neither this replacement nor a new alias
@@ -141,7 +162,7 @@ func TestBroadcast_waitsForStartup(t *testing.T) {
 	interp := New(context.Background(), sess, t.TempDir(), WithObserver(routingObserver{events}))
 	t.Cleanup(interp.Close)
 	t.Cleanup(gate.unblock)
-	if err := sess.Execute(session.InviteCommand{Alias: "ada"}); err != nil {
+	if _, err := sess.Execute(session.InviteCommand{Alias: "ada"}); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -288,7 +309,7 @@ func broadcastInputRecords(interp *Interpreter) []room.Record {
 }
 func inviteBroadcastParticipant(t *testing.T, sess *lifecycleSession, ready <-chan participant.Alias, name string) participant.Alias {
 	t.Helper()
-	if err := sess.Execute(session.InviteCommand{Alias: name}); err != nil {
+	if _, err := sess.Execute(session.InviteCommand{Alias: name}); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -301,7 +322,7 @@ func inviteBroadcastParticipant(t *testing.T, sess *lifecycleSession, ready <-ch
 }
 func makeBroadcastParticipantBusy(t *testing.T, sess *lifecycleSession, alias participant.Alias) {
 	t.Helper()
-	if err := sess.Execute(session.SendToParticipantCommand{Plan: sess.CreateParticipantSendPlan(alias), Message: "busy"}); err != nil {
+	if _, err := sess.Execute(session.SendToParticipantCommand{Plan: sess.CreateParticipantSendPlan(alias), Message: "busy"}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -332,7 +353,7 @@ func applyBroadcastStageAction(t *testing.T, interp *Interpreter, sess *lifecycl
 		resumeBroadcast(t, interp, backend, events, action)
 		delivered = true
 	case "departure":
-		if err := sess.Execute(session.RemoveCommand{Alias: alias}); err != nil {
+		if _, err := sess.Execute(session.RemoveCommand{Alias: alias}); err != nil {
 			t.Fatal(err)
 		}
 		awaitLifecycleEvent(t, events, func(event Event) bool {

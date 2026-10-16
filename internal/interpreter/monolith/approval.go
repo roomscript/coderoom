@@ -31,7 +31,7 @@ func (op resolveApprovalOperation) apply(e *interpreterExecutor) {
 		e.publish(OperationFailed{Operation: "resolve approval", Err: err})
 		return
 	}
-	err = e.session.Execute(session.ResolveApprovalCommand{ApprovalID: op.id, Choice: choice})
+	_, err = e.session.Execute(session.ResolveApprovalCommand{ApprovalID: op.id, Choice: choice})
 	if err != nil {
 		e.publish(OperationFailed{Operation: "resolve approval", Err: err})
 		return

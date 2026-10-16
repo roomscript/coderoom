@@ -21,7 +21,7 @@ one place instead of being reimplemented ad hoc by the session controller.
 
 `View` contains the participant fields safe to expose to front ends: identity,
 initiative, actual lifecycle status, color, status timestamp, `StartupReady`,
-and `TurnID`. `Participant`
+and `ActiveExecutionID`. `Participant`
 embeds that view and adds live agent capabilities and runtime bookkeeping.
 Embedding keeps one canonical copy of every observable field while allowing
 session participant lists and interpreter snapshots to return `View` values without
@@ -45,10 +45,13 @@ participants, including starting and crashed participants. Both queries return
 value copies without transport handles, stream maps, or mutation methods.
 They do not filter recipients or rewrite lifecycle status.
 
-`StartupReady` and `TurnID` live in the embedded `View`, with no duplicate
+`StartupReady` and `ActiveExecutionID` live in the embedded `View`, with no duplicate
 private runtime fields. Startup sets Idle before marking StartupReady; observers
 can therefore distinguish the final startup window without inventing a status.
-TurnID stays stable after a turn completes, until another turn starts.
+ActiveExecutionID is nonzero only while work runs; completion, abort and crash
+clear it. LastCompletedExecutionID records normal completion in BecomeIdle and
+survives subsequent work, aborts, crashes and keepalive. Session exposes these
+views through atomic snapshots and publishes ordered completion events.
 
 View owns pure predicates for shared-room eligibility (`IsRoutable`), transport
 status (`IsSendable`), full readiness for a new turn (`IsReadyForWork`), active
@@ -237,11 +240,12 @@ That separation is intentional:
 ## Anchor ownership
 
 The participant stores a single `anchor` field plus the broader
-`OpenStreams` set. It also retains the session-global turn ID assigned when
-`BeginWorking` succeeds. The ID remains available after the participant
-returns to idle. Coordinators use it to reject delayed completion signals from
-an older turn or removed participant incarnation; it is lifecycle identity,
-not presentation state.
+`OpenStreams` set. PrepareForWork receives a Session-allocated execution ID and
+retains it as pending provenance. BeginWorking commits it as ActiveExecutionID
+when delivery succeeds; aborted preparation drops the pending association.
+ActiveExecutionID clears when work leaves Working. The terminal Session event
+carries the captured ExecutionID; LastCompletedExecutionID in View retains the
+last actual completion. Group derives completion before idle from these views.
 
 - `anchor` means "this stream authoritatively defines turn lifetime"
 - `OpenStreams` means "these turn-scoped streams are currently open"

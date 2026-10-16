@@ -59,7 +59,7 @@ func TestSubmit_planningDuringIdleBeforeSessionReadyWaitsForStartup(t *testing.T
 			release := func() { releaseOnce.Do(func() { close(gate.release) }) }
 			t.Cleanup(release)
 			receiveSubmitEvent[StateChanged](t, events)
-			if err := sess.Execute(session.InviteCommand{Alias: "ben"}); err != nil {
+			if _, err := sess.Execute(session.InviteCommand{Alias: "ben"}); err != nil {
 				t.Fatal(err)
 			}
 			receiveSignal(t, gate.entered, "idle startup window")
@@ -137,7 +137,7 @@ func assertSessionRejectsStartupDelivery(t *testing.T, sess *session.Session) {
 		session.BroadcastCommand{Aliases: []participant.Alias{startupParticipantAlias(t, sess, "ben")}, Text: "premature"},
 	}
 	for _, command := range commands {
-		if err := sess.Execute(command); err == nil {
+		if _, err := sess.Execute(command); err == nil {
 			t.Fatalf("%T allowed delivery before startup", command)
 		}
 	}

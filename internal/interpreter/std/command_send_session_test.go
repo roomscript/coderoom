@@ -136,7 +136,7 @@ type sendSessionHost struct {
 
 func (h *sendSessionHost) Execute(command session.Command) error {
 	h.executions++
-	if err := h.Session.Execute(command); err != nil {
+	if _, err := h.Session.Execute(command); err != nil {
 		return fmt.Errorf("execute test session command: %w", err)
 	}
 	return nil
@@ -160,9 +160,9 @@ func (h *sendSessionHost) Participants() []participant.View {
 
 // This negative fixture deliberately violates the atomic boundary, preserving
 // the stale snapshot/final Session guard cases independently of the real API.
-func (h *sendSessionHost) SubscribeParticipants(handle func(session.Event)) ([]participant.View, func()) {
+func (h *sendSessionHost) SubscribeParticipants(handle func(session.Event)) (session.ParticipantSnapshot, func()) {
 	unsubscribe := h.subscriptions.subscribeParticipants(handle)
-	return h.Participants(), unsubscribe
+	return session.ParticipantSnapshot{Participants: h.Participants()}, unsubscribe
 }
 
 func (h *sendSessionHost) OnEvent(event session.Event) {
@@ -211,7 +211,7 @@ func (a *replacementSendAgent) Send(text string) (agent.StreamID, error) {
 
 func executeSendTestCommand(t *testing.T, s *session.Session, command session.Command) {
 	t.Helper()
-	if err := s.Execute(command); err != nil {
+	if _, err := s.Execute(command); err != nil {
 		t.Fatal(err)
 	}
 }

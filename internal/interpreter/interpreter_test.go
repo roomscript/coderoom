@@ -30,7 +30,7 @@ func newRecordingSession() *recordingSession {
 	return &recordingSession{executed: make(chan session.Command, 64)}
 }
 
-func (s *recordingSession) Execute(command session.Command) error {
+func (s *recordingSession) Execute(command session.Command) (session.ExecutionID, error) {
 	active := s.active.Add(1)
 	defer s.active.Add(-1)
 	for {
@@ -55,13 +55,14 @@ func (s *recordingSession) Execute(command session.Command) error {
 		emitFakeRoutingOutcome(command, err, observer)
 	}
 	s.executed <- command
-	return err
+	return 1, err
 }
 
-func (s *recordingSession) AddObserver(observer session.Observer) {
+func (s *recordingSession) AddObserver(observer session.Observer) session.ParticipantSnapshot {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.observer = observer
+	return session.ParticipantSnapshot{}
 }
 
 func (*recordingSession) CreateParticipantSendPlan(alias participant.Alias) session.ParticipantSendPlan {
@@ -71,8 +72,8 @@ func (*recordingSession) CreateParticipantSendPlan(alias participant.Alias) sess
 }
 
 // This fixed-state fake does not produce participant transitions.
-func (s *recordingSession) SubscribeParticipants(func(session.Event)) ([]participant.View, func()) {
-	return s.Participants(), func() {}
+func (s *recordingSession) SubscribeParticipants(func(session.Event)) (session.ParticipantSnapshot, func()) {
+	return session.ParticipantSnapshot{Participants: s.Participants()}, func() {}
 }
 
 func (s *recordingSession) Participants() []participant.View {

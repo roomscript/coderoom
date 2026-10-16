@@ -17,10 +17,10 @@ func TestParticipantUpdates_mergeKeepsSameNameInstancesSeparate(t *testing.T) {
 	updates.start()
 	defer updates.stop()
 	updates.collect(session.AgentStopped{Alias: old})
-	updates.merge([]participant.View{
+	updates.merge(session.ParticipantSnapshot{Participants: []participant.View{
 		{Alias: old, Status: participant.StatusIdle, StartupReady: true},
 		{Alias: current, Status: participant.StatusIdle, StartupReady: true},
-	})
+	}})
 	snapshot := updates.readSnapshot()
 	if len(snapshot.states) != 2 || !snapshot.states[old].departed || !snapshot.states[current].isReadyForWork() {
 		t.Fatalf("merge mixed same-name instances or overwrote a departure: %#v", snapshot.states)
@@ -155,5 +155,31 @@ func TestInvocationLifecycle_departureCollectedDuringReadSurvivesReplacementSnap
 	}
 	if invocation.launches.Load() != 0 || invocation.closes.Load() != 1 || host.callback() != nil {
 		t.Fatal("initial departure launched replacement work or leaked resources")
+	}
+}
+
+func TestParticipantUpdates_mergePreservesIndependentCompletionFacts(t *testing.T) {
+	alias := newTestAlias("ada")
+	for _, test := range []struct {
+		name      string
+		events    []session.Event
+		completed session.ExecutionID
+	}{
+		{"status before return", []session.Event{session.ParticipantStatusChanged{Alias: alias, From: participant.StatusIdle, To: participant.StatusWorking}}, 7},
+		{"completion before return", []session.Event{session.ParticipantWorkCompleted{Alias: alias, ExecutionID: 8}, session.ParticipantStatusChanged{Alias: alias, From: participant.StatusWorking, To: participant.StatusIdle}}, 8},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			updates := &participantUpdates{}
+			updates.start()
+			defer updates.stop()
+			for _, event := range test.events {
+				updates.collect(event)
+			}
+			updates.merge(session.ParticipantSnapshot{Participants: []participant.View{{Alias: alias, Status: participant.StatusWorking, StartupReady: true, LastCompletedExecutionID: 7}}})
+			state := updates.readSnapshot().states[alias]
+			if state.lastCompletedExecutionID != test.completed {
+				t.Fatalf("completed=%d, want %d", state.lastCompletedExecutionID, test.completed)
+			}
+		})
 	}
 }

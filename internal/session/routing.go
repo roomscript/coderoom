@@ -109,7 +109,7 @@ func (r *RoutingResult) record(index int, err error) {
 	}
 }
 
-func (s *Session) notifyRoutingCompleted(result RoutingResult, err error) {
+func (s *Session) notifyRoutingCompleted(executionID ExecutionID, result RoutingResult, err error) {
 	result.Err = err
-	s.notify(RoutingCompleted{Result: result.Clone()})
+	s.notify(RoutingCompleted{ExecutionID: executionID, Result: result.Clone()})
 }

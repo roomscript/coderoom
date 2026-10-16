@@ -13,13 +13,14 @@ import (
 // interpreterModel owns mutable interpreter state and deterministic decisions.
 // It is confined to the serialized interpreter operation loop.
 type interpreterModel struct {
-	transcriptVersion uint64
-	transcriptChanges []TranscriptChanged
-	room              *room.Room
-	commands          *promptlang.Registry
-	modules           *runtime.Registry
-	workflows         workflowCollection
-	approval          *Approval
+	transcriptVersion    uint64
+	transcriptChanges    []TranscriptChanged
+	room                 *room.Room
+	commands             *promptlang.Registry
+	modules              *runtime.Registry
+	workflows            workflowCollection
+	approval             *Approval
+	onCompletedExecution func()
 }
 
 type modelSnapshot struct {
@@ -122,3 +123,11 @@ func newModuleRegistry() *runtime.Registry {
 	}
 	return registry
 }
+
+// LatestOutput reads completed canonical output for the exact participant instance.
+func (m *interpreterModel) LatestOutput(alias participant.Alias) (session.HandoffSource, bool) {
+	return m.room.LatestHandoffSource(alias)
+}
+
+// Room exposes canonical room state to the temporary executor bridge.
+func (m *interpreterModel) Room() *room.Room { return m.room }

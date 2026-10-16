@@ -52,7 +52,7 @@ func TestCommands_rejectAliasesOutsideCurrentMembership(t *testing.T) {
 				s, observer, adapters := newIdentityTestSession(t)
 				alias := unavailableAlias(t, s, observer, identity)
 				before := s.Participants()
-				if err := s.Execute(command.build(s, alias)); err == nil {
+				if _, err := s.Execute(command.build(s, alias)); err == nil {
 					t.Fatal("command accepted an alias outside current membership")
 				}
 				assertNoIdentityTestDelivery(t, adapters)
@@ -101,7 +101,7 @@ func unavailableAlias(t *testing.T, s *session.Session, observer *testObserver, 
 		mustReceive[session.AgentReady](t, otherObserver.ch)
 		return resolvedAlias(other, "ada")
 	case "replaced", "departed":
-		if err := s.Execute(session.RemoveCommand{Alias: alias}); err != nil {
+		if _, err := s.Execute(session.RemoveCommand{Alias: alias}); err != nil {
 			t.Fatal(err)
 		}
 		mustReceive[session.AgentStopped](t, observer.ch)
@@ -138,7 +138,7 @@ func TestBroadcast_replacedRecipientPreservesPartialDelivery(t *testing.T) {
 	turing := resolvedAlias(s, "turing")
 	command := session.BroadcastCommand{Aliases: []participant.Alias{old, turing}, Text: "work"}
 	unavailableAlias(t, s, observer, "replaced")
-	err := s.Execute(command)
+	_, err := s.Execute(command)
 	if err == nil || !slices.Equal(session.DeliveredAliases(err), []string{"turing"}) {
 		t.Fatalf("partial delivery = %v, %v", session.DeliveredAliases(err), err)
 	}

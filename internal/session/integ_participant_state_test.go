@@ -16,7 +16,7 @@ func TestSession_sharedSendMarksWorkingUntilFlush(t *testing.T) {
 	s, events := newSessionWithCodexAgents(t, "ada")
 	b := newEventBuf(events)
 
-	if err := s.Execute(session.SendToParticipantCommand{
+	if _, err := s.Execute(session.SendToParticipantCommand{
 		Plan:    s.CreateParticipantSendPlan(resolvedAlias(s, "ada")),
 		Message: "What is 2+2? Reply with just the number.",
 	}); err != nil {
@@ -43,7 +43,7 @@ func TestSession_cancelInterruptEndsTurnAndReturnsIdle(t *testing.T) {
 	s, events := newSessionWithCodexAgents(t, "ada")
 	b := newEventBuf(events)
 
-	if err := s.Execute(session.SendToParticipantCommand{
+	if _, err := s.Execute(session.SendToParticipantCommand{
 		Plan:    s.CreateParticipantSendPlan(resolvedAlias(s, "ada")),
 		Message: "Write 200 numbered bullet points, one per line, with short text. Keep going until you reach 200.",
 	}); err != nil {
@@ -66,7 +66,7 @@ func TestSession_privateSendMarksWorkingUntilFlush(t *testing.T) {
 	s, events := newSessionWithCodexAgents(t, "ada")
 	b := newEventBuf(events)
 
-	if err := s.Execute(session.SendToParticipantOutsideRoomCommand{
+	if _, err := s.Execute(session.SendToParticipantOutsideRoomCommand{
 		Alias: resolvedAlias(s, "ada"),
 		Text:  "What is 2+2? Reply with just the number.",
 	}); err != nil {
@@ -90,7 +90,7 @@ func TestSession_broadcastMarksAllWorkingUntilFlush(t *testing.T) {
 	s, events := newSessionWithCodexAgents(t, "ada", "turing")
 	b := newEventBuf(events)
 
-	if err := s.Execute(session.BroadcastCommand{
+	if _, err := s.Execute(session.BroadcastCommand{
 		Text: "Reply with the single word: ok",
 	}); err != nil {
 		t.Fatalf("broadcast: %v", err)
@@ -124,11 +124,11 @@ func TestSession_broadcastMarksAllWorkingUntilFlush(t *testing.T) {
 func TestSession_sharedSendNoticeMarksListenerWorkingUntilFlush(t *testing.T) {
 	s, events := newSessionWithCodexAgents(t, "ada", "turing")
 	b := newEventBuf(events)
-	if err := s.Execute(session.EnablePolicyCommand{Name: policy.SendNotices}); err != nil {
+	if _, err := s.Execute(session.EnablePolicyCommand{Name: policy.SendNotices}); err != nil {
 		t.Fatalf("enable send notices: %v", err)
 	}
 
-	if err := s.Execute(session.SendToParticipantCommand{
+	if _, err := s.Execute(session.SendToParticipantCommand{
 		Plan:    s.CreateParticipantSendPlan(resolvedAlias(s, "ada")),
 		Message: "Reply with just the word: ok",
 		Notice:  "You are a silent listener. Reply only with {\"acknowledge\":true}.",

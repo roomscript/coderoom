@@ -46,7 +46,7 @@ func (o startupListenerObserver) OnEvent(event session.Event) {
 func TestSubmit_sendNoticesWaitsForStartingListenerAndFreezesRecipients(t *testing.T) {
 	sess, interp, events, observer, backends, release := newStartupNoticeInterpreter(t)
 	inviteStartupNoticeParticipant(t, sess, observer, "ada")
-	if err := sess.Execute(session.InviteCommand{Alias: "ben"}); err != nil {
+	if _, err := sess.Execute(session.InviteCommand{Alias: "ben"}); err != nil {
 		t.Fatal(err)
 	}
 	receiveSignal(t, observer.gate.entered, "listener startup window")
@@ -101,7 +101,7 @@ func newStartupNoticeInterpreter(t *testing.T) (*session.Session, *Interpreter, 
 	var once sync.Once
 	release := func() { once.Do(func() { close(observer.gate.release) }) }
 	t.Cleanup(release)
-	if err := sess.Execute(session.EnablePolicyCommand{Name: policy.SendNotices}); err != nil {
+	if _, err := sess.Execute(session.EnablePolicyCommand{Name: policy.SendNotices}); err != nil {
 		t.Fatal(err)
 	}
 	return sess, interp, events, observer, backends, release
@@ -109,7 +109,7 @@ func newStartupNoticeInterpreter(t *testing.T) (*session.Session, *Interpreter, 
 
 func inviteStartupNoticeParticipant(t *testing.T, sess *session.Session, observer startupListenerObserver, alias string) {
 	t.Helper()
-	if err := sess.Execute(session.InviteCommand{Alias: alias}); err != nil {
+	if _, err := sess.Execute(session.InviteCommand{Alias: alias}); err != nil {
 		t.Fatal(err)
 	}
 	select {

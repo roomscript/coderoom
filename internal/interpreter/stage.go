@@ -56,11 +56,9 @@ func (i *Interpreter) stageSnapshot() *StagedSubmission {
 			snapshot.Interruptible = append(snapshot.Interruptible, view.Alias.Name)
 		}
 	}
-	for _, aliases := range [][]participant.Alias{stage.description.WaitFor, stage.description.ToInform} {
-		for _, alias := range aliases {
-			if !unavailable[alias] {
-				snapshot.Routing = append(snapshot.Routing, alias.Name)
-			}
+	for _, alias := range stagingRouting(stage.description) {
+		if !unavailable[alias] {
+			snapshot.Routing = append(snapshot.Routing, alias.Name)
 		}
 	}
 	sort.Strings(snapshot.NotReadyAliases)
@@ -104,7 +102,9 @@ func (i *Interpreter) finishStage(id uint64, result runtime.CommandResult) (runt
 	if unavailable != nil {
 		alias = unavailable.Alias
 	}
-	message, reason := unavailableStageMessages(alias, views)
+	_, handoff := stage.source.Value.(promptlang.Handoff)
+	message, reason := unavailableStageMessages(alias, views, handoff)
+
 	i.fallback.AppendRecord(room.Record{Kind: room.KindSystem, Text: message})
 	// Departure discards already-accepted waiting work; it is not a second
 	// submission failure or an execution failure after actual delivery.
@@ -112,11 +112,11 @@ func (i *Interpreter) finishStage(id uint64, result runtime.CommandResult) (runt
 	return result, []Event{StagedInputDiscarded{Raw: stage.source.Raw, Reason: reason}}
 }
 
-func unavailableStageMessages(alias participant.Alias, views []participant.View) (string, string) {
+func unavailableStageMessages(alias participant.Alias, views []participant.View, handoff bool) (string, string) {
 	active := slices.ContainsFunc(views, func(view participant.View) bool {
 		return view.Status != participant.StatusCrashed
 	})
-	if !active {
+	if !active && !handoff {
 		return "staged submission discarded: no active targets", "staged message discarded: no active targets"
 	}
 	return fmt.Sprintf("staged submission discarded: %q is no longer available", alias.Name), fmt.Sprintf("staged message discarded: %q is no longer available", alias.Name)

@@ -17,8 +17,11 @@ import (
 // This fixed-state session keeps a broadcast pending without external agents.
 type initialStateSession struct{ observer session.Observer }
 
-func (*initialStateSession) Execute(session.Command) error           { return nil }
-func (s *initialStateSession) AddObserver(observer session.Observer) { s.observer = observer }
+func (*initialStateSession) Execute(session.Command) (session.ExecutionID, error) { return 1, nil }
+func (s *initialStateSession) AddObserver(observer session.Observer) session.ParticipantSnapshot {
+	s.observer = observer
+	return session.ParticipantSnapshot{}
+}
 func (*initialStateSession) CreateParticipantSendPlan(participant.Alias) session.ParticipantSendPlan {
 	return session.ParticipantSendPlan{}
 }
@@ -33,8 +36,8 @@ func (s *initialStateSession) ParticipantByName(name string) (participant.View, 
 }
 func (*initialStateSession) Shutdown() {}
 
-func (s *initialStateSession) SubscribeParticipants(func(session.Event)) ([]participant.View, func()) {
-	return s.Participants(), func() {}
+func (s *initialStateSession) SubscribeParticipants(func(session.Event)) (session.ParticipantSnapshot, func()) {
+	return session.ParticipantSnapshot{Participants: s.Participants()}, func() {}
 }
 
 func TestNew_consumesEventsQueuedBeforeUIConstruction(t *testing.T) {

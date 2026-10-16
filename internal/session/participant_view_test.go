@@ -47,7 +47,7 @@ func TestParticipantViews_includeAllStatesAndTurnIdentity(t *testing.T) {
 		p := participant.New(string(status), "", participant.InitiativeManual)
 		p.Status = status
 		p.StartupReady = status == participant.StatusIdle || status == participant.StatusWorking
-		p.TurnID = 17
+		p.ActiveExecutionID = 17
 		if err := s.addParticipant(p); err != nil {
 			t.Fatal(err)
 		}
@@ -58,7 +58,7 @@ func TestParticipantViews_includeAllStatesAndTurnIdentity(t *testing.T) {
 	}
 	for _, value := range values {
 		lookup, ok := s.Participant(value.Alias)
-		if !ok || lookup != value || value.TurnID != 17 {
+		if !ok || lookup != value || value.ActiveExecutionID != 17 {
 			t.Fatalf("inconsistent view: %#v / %#v", value, lookup)
 		}
 	}

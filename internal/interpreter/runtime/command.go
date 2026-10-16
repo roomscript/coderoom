@@ -43,7 +43,7 @@ type SessionExecution interface {
 	// before that snapshot. Callbacks may race its return, but are not inline;
 	// unsubscribe is non-blocking, safe from a callback, and prevents future
 	// callbacks without waiting for those already in flight.
-	SubscribeParticipants(handle func(session.Event)) (initial []participant.View, unsubscribe func())
+	SubscribeParticipants(handle func(session.Event)) (initial session.ParticipantSnapshot, unsubscribe func())
 	// ParticipantByName resolves input names to current Session-owned instances.
 	ParticipantByName(name string) (participant.View, bool)
 	// CreateParticipantSendPlan delegates policy-aware recipient selection to Session.
@@ -51,11 +51,26 @@ type SessionExecution interface {
 	Execute(command session.Command) error
 }
 
-// Context supplies capabilities during preparation on the serialized coordinator.
+// HistoryReader supplies detached completed output from the canonical room.
+// Reads run on the interpreter lane at execution time. Selection can be extended
+// when commands need earlier or multiple outputs; readiness is owned by staging.
+type HistoryReader interface {
+	LatestOutput(participant.Alias) (session.HandoffSource, bool)
+}
+
+// CompletedExecutionIDReader reports completed executions recorded in room state, including
+// the historical attachment boundary. Runtime reads it only on the interpreter lane.
+type CompletedExecutionIDReader interface {
+	LastCompletedExecutionID(participant.Alias) participant.ExecutionID
+}
+
+// Context supplies capabilities for preparation and Go on the serialized coordinator.
 type Context struct {
-	Participants ParticipantReader
-	Shell        ShellLauncher
-	Session      SessionExecution
+	Participants        ParticipantReader
+	Shell               ShellLauncher
+	Session             SessionExecution
+	History             HistoryReader
+	CompletedExecutions CompletedExecutionIDReader
 }
 
 // Command is stateless; Prepare creates independent state for one invocation.
@@ -84,7 +99,8 @@ type Invocation interface {
 
 // Staging describes the frozen participants an invocation needs ready before Go.
 // Aliases retain instance identity; replacement participants cannot inherit waits.
-// All listed aliases use the shared readiness rule: idle and startup-ready.
+// All listed aliases must be idle, startup-ready and have their last completed
+// turn propagated into canonical interpreter state.
 // The invocation owns this description; callers must treat it as read-only.
 // WaitFor gates execution; ToInform describes frozen optional recipients, which
 // also gate readiness (send notices or broadcast work). WaitFor does not imply

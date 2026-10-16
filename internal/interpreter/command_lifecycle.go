@@ -115,3 +115,10 @@ func (i *Interpreter) closeInvocations() {
 		}
 	}
 }
+
+// Room completion updates queue readiness evaluation after the room update burst.
+func (i *Interpreter) advanceCompletedExecutions() {
+	for id := range i.invocations {
+		_ = i.fallback.Schedule(func() { i.advanceCommand(id) })
+	}
+}

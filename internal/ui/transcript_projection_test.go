@@ -48,7 +48,6 @@ func TestTranscriptProjection_semanticEventsAndSnapshotsDoNotEchoRecords(t *test
 	for _, event := range []interpreter.Event{
 		interpreter.InputAccepted{Raw: "/handoff ada turing"},
 		interpreter.StagedInputDispatched{Raw: "/handoff ada turing"},
-		interpreter.HandoffCompleted{Preview: "handoff audit"},
 		interpreter.StateChanged{Snapshot: interpreter.Snapshot{Room: roomstate.Snapshot{Version: 1, Records: records}}},
 	} {
 		m, _ = m.handleInterpreterEvent(event)

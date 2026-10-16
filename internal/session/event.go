@@ -38,27 +38,41 @@ type AgentLog struct {
 type AgentMessage struct {
 	Alias participant.Alias
 	Msg   agent.Message
-	// TurnCompleted is true only when this message caused the participant to
+	// WorkCompleted is true only when this message caused the participant to
 	// transition from working to idle.
-	TurnCompleted bool
-	// TurnID identifies the completed session turn when TurnCompleted is true.
-	TurnID uint64
+	WorkCompleted bool
+	// ExecutionID identifies the command execution whose work completed.
+	ExecutionID ExecutionID
 }
 
 // ParticipantStatusChanged reports a session-driven participant status transition.
 type ParticipantStatusChanged struct {
-	Alias participant.Alias
-	From  participant.Status
-	To    participant.Status
-	Since time.Time
+	Alias             participant.Alias
+	From              participant.Status
+	To                participant.Status
+	Since             time.Time
+	ActiveExecutionID ExecutionID
 }
+
+// ParticipantWorkCompleted is an ordered lifecycle fact. SubscribeParticipants
+// supplies it before the corresponding idle fact. The terminal AgentMessage
+// separately carries the same ExecutionID and payload for canonical projection.
+type ParticipantWorkCompleted struct {
+	Alias       participant.Alias
+	ExecutionID ExecutionID
+}
+
+func (ParticipantWorkCompleted) sessionEvent() {}
 
 // RoutingCompleted is emitted exactly once for each routing command, after its
 // delivery attempts (or rejection), before Execute returns. It carries no message
 // body, including for outside-room sends. It does not report agent work completion.
 // Commands execute serially; consumers associate the outcome with that execution
 // burst rather than a persistent send ID. Lifecycle/agent events may interleave.
-type RoutingCompleted struct{ Result RoutingResult }
+type RoutingCompleted struct {
+	ExecutionID ExecutionID
+	Result      RoutingResult
+}
 
 // HandoffDelivered reports a delivered handoff plus its audit metadata.
 type HandoffDelivered struct {

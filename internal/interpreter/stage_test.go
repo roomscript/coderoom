@@ -13,7 +13,7 @@ import (
 func newBlockedCommandStage(t *testing.T) (*Interpreter, *lifecycleSession, *lifecycleAgent, chan Event) {
 	t.Helper()
 	interp, sess, backend, events, alias := newLifecycleInterpreter(t)
-	if err := sess.Execute(session.SendToParticipantCommand{Plan: sess.CreateParticipantSendPlan(alias), Message: "busy"}); err != nil {
+	if _, err := sess.Execute(session.SendToParticipantCommand{Plan: sess.CreateParticipantSendPlan(alias), Message: "busy"}); err != nil {
 		t.Fatal(err)
 	}
 	submitLifecycleSend(t, interp, events)
@@ -107,7 +107,7 @@ func TestStage_legacyCoexistence(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := sess.Execute(session.SendToParticipantCommand{Plan: sess.CreateParticipantSendPlan(alias), Message: "busy"}); err != nil {
+	if _, err := sess.Execute(session.SendToParticipantCommand{Plan: sess.CreateParticipantSendPlan(alias), Message: "busy"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := interp.Submit("hello"); err != nil {
@@ -178,7 +178,7 @@ func TestStage_shutdownOperations(t *testing.T) {
 
 func TestStage_observerPublishesPendingAndRemoval(t *testing.T) {
 	interp, sess, backend, events, alias := newLifecycleInterpreter(t)
-	if err := sess.Execute(session.SendToParticipantCommand{Plan: sess.CreateParticipantSendPlan(alias), Message: "busy"}); err != nil {
+	if _, err := sess.Execute(session.SendToParticipantCommand{Plan: sess.CreateParticipantSendPlan(alias), Message: "busy"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := interp.Submit("@ada work"); err != nil {

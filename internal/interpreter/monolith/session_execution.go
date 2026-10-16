@@ -46,7 +46,7 @@ func (handoffRequest) sessionRequest()                             {}
 func (e *interpreterExecutor) executeSessionRequest(request sessionRequest) error {
 	switch request := request.(type) {
 	case createPlanAndExecuteParticipantSendRequest:
-		err := e.session.Execute(session.SendToParticipantCommand{
+		_, err := e.session.Execute(session.SendToParticipantCommand{
 			Plan:    e.session.CreateParticipantSendPlan(request.alias),
 			Message: request.message,
 			Notice:  request.notice,
@@ -56,7 +56,7 @@ func (e *interpreterExecutor) executeSessionRequest(request sessionRequest) erro
 		}
 		return nil
 	case executePlannedParticipantSendRequest:
-		err := e.session.Execute(session.SendToParticipantCommand{
+		_, err := e.session.Execute(session.SendToParticipantCommand{
 			Plan:    request.plan,
 			Message: request.message,
 			Notice:  request.notice,
@@ -70,7 +70,7 @@ func (e *interpreterExecutor) executeSessionRequest(request sessionRequest) erro
 	case cancelRequest:
 		return e.executeCancelRequest(request)
 	case handoffRequest:
-		if err := e.session.Execute(session.HandoffCommand{
+		if _, err := e.session.Execute(session.HandoffCommand{
 			FromAlias: request.fromAlias, ToAlias: request.toAlias,
 			RequiredReadyAliases: slices.Clone(request.requiredReadyAliases), Source: request.source,
 		}); err != nil {
@@ -83,7 +83,7 @@ func (e *interpreterExecutor) executeSessionRequest(request sessionRequest) erro
 }
 
 func (e *interpreterExecutor) executeBroadcastRequest(request broadcastRequest) error {
-	if err := e.session.Execute(session.BroadcastCommand{
+	if _, err := e.session.Execute(session.BroadcastCommand{
 		Aliases: slices.Clone(request.aliases), Text: request.text,
 	}); err != nil {
 		return fmt.Errorf("execute broadcast: %w", err)
@@ -92,7 +92,7 @@ func (e *interpreterExecutor) executeBroadcastRequest(request broadcastRequest) 
 }
 
 func (e *interpreterExecutor) executeCancelRequest(request cancelRequest) error {
-	if err := e.session.Execute(session.CancelCommand{Alias: request.alias}); err != nil {
+	if _, err := e.session.Execute(session.CancelCommand{Alias: request.alias}); err != nil {
 		return fmt.Errorf("cancel %q: %w", request.alias.Name, err)
 	}
 	return nil

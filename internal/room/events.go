@@ -16,12 +16,13 @@ func (r *Room) applyEvent(e session.Event) (Update, bool) {
 	if msg, ok := e.(session.AgentMessage); ok {
 		dirty := r.handleAgentMessageLocked(msg.Alias, msg.Msg)
 		update := r.bumpVersionLocked(dirty...)
-		if msg.TurnCompleted {
+		if msg.WorkCompleted {
+			r.recordCompletedExecutionLocked(msg.Alias, msg.ExecutionID)
 			update.Trigger = UpdateTrigger{
-				Kind:     UpdateTriggerAgentTurnCompleted,
-				Alias:    msg.Alias,
-				StreamID: msg.Msg.StreamID,
-				TurnID:   msg.TurnID,
+				Kind:        UpdateTriggerAgentWorkCompleted,
+				Alias:       msg.Alias,
+				StreamID:    msg.Msg.StreamID,
+				ExecutionID: msg.ExecutionID,
 			}
 		}
 		return update, true

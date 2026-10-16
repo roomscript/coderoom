@@ -243,7 +243,7 @@ type sendPlanResult struct {
 type participantState struct {
     alias  string
     status participant.Status
-    turnID uint64
+    executionID session.ExecutionID
 }
 
 type participantStateResult struct {
@@ -270,11 +270,12 @@ func (g sessionGateway) Execute(request sessionRequest) error {
     switch request := request.(type) {
     case createPlanAndExecuteParticipantSendRequest:
         plan := g.session.CreateParticipantSendPlan(request.alias)
-        return g.session.Execute(session.SendToParticipantCommand{
-            Plan:          plan,
-            Message:    request.message,
+        _, err := g.session.Execute(session.SendToParticipantCommand{
+            Plan: plan,
+            Message: request.message,
             Notice: request.notice,
         })
+        return err
     }
 }
 ```
@@ -422,7 +423,7 @@ Correlated shared-send planning and participant-state completions provide
 frozen routing and readiness inputs to the implemented stage workflow.
 
 `submissionOutcome` retains legacy execution results. Registered commands use
-an interpreter-owned `runtime.Registry`; currently `/who`, `/shell`, addressed sends and broadcasts are registered there.
+an interpreter-owned `runtime.Registry`; currently `/who`, `/shell`, addressed sends, broadcasts and handoffs are registered there.
 The shared dispatch path emits `goInvocationInstruction` with the original source,
 then the executor supplies detached participant reads and owned shell execution.
 `CommandRunner.Go` returning nil reports submission success; preparation or launch
@@ -842,7 +843,7 @@ retained work.
 
 Readiness updates, atomic stage operations, and interruption remain shared.
 `stageRequirements` in `stage_requirements.go` owns frozen participant
-facts, startup readiness, turn identity, and departures. Its `isReady` and
+facts, startup readiness, work origin identity, and departures. Its `isReady` and
 `waitingAliases` queries derive readiness from those facts, avoiding a separate
 cached blocker list. Workflows retain the command-specific decision to wait,
 discard, or execute; sends and handoffs share the same readiness updates.
@@ -1011,7 +1012,7 @@ are synchronous preparation; missing output fails the plan, while a valid source
 starts delivery. Shared `core_delivery.go` reports the outcome after causal events.
 `handoff_stage.go` contains methods on `handoffStage`: source-completion tracking,
 accepted-context capture and delivery request construction. `stagePlan` freezes
-recipient requirements, and `stageRequirements` owns readiness and turn identity.
+recipient requirements, and `stageRequirements` owns readiness and work origin identity.
 `core_handoff.go` coordinates updates to these separate owners before resuming work. Repeated preparation and stale source results do not restart
 accepted work.
 
@@ -1110,7 +1111,7 @@ the same record/event ordering, with `OperationFailed` for delivery failure and
 no repeated submission outcome. Required departure instead publishes the existing
 discard notice. Edit/discard and interrupt retain their atomic removal and retry
 rules. Legacy stages block modular sends; modular stages block fallback work.
-Handoff, user commands and loops remain fallback. Loop admission and
+User commands and loops remain fallback. Loop admission and
 delivery policy are unchanged; staged loop coexistence remains a later decision.
 
 ### Broadcast public cutover
@@ -1137,3 +1138,40 @@ publication. Waiting broadcasts acknowledge stage retention and publish later
 failures as operation failures. Partial delivery retains actual and failed
 routing; total failure records no user input. Existing edit/discard, interrupt
 retry, startup waiting and shutdown rules apply without another stage owner.
+
+### Handoff public cutover
+
+Public handoff now uses `std.HandoffCommand`, the existing lifecycle and the same
+visible stage. Preparation freezes source and destination as required instances,
+plus existing routable/startup-ready bystanders as optional readiness prerequisites.
+Stage presentation shows every frozen prerequisite; actual delivery targets only
+the destination. Optional departures remove their prerequisite without admitting later
+joins or replacement instances. Required departures discard the retained draft.
+
+Both `WaitFor` and `ToInform` require idle, startup-ready participants whose last
+completed turn has reached canonical projection. Session's atomic lifecycle snapshot and explicit completion events
+supply the last completed execution separately from participant.ActiveExecutionID.
+Startup, keepalive and aborted work do not advance completion history. The existing room observer forwards projected
+completion notifications to the interpreter, which queues advancement after the
+event burst. Room retains completed execution IDs alongside canonical room state.
+Runtime reads them through `Context.CompletedExecutions` and its narrow `CompletedExecutionIDReader`
+interface for each readiness evaluation; it retains no copy. Atomic observer attachment
+captures Session completion history as the initial cursor: completions committed
+before attachment require no transcript replay; subsequent completions must project. Older turns and replacement instances
+cannot satisfy these waits. Required versus optional determines departure
+behavior, not a different readiness guarantee.
+
+Only after staging permits Go does std read `Context.History.LatestOutput(alias)`
+and fill `session.HandoffCommand.Source`. The read returns detached output text
+and its canonical record index. It preserves completed-output selection and never
+keeps another transcript. Missing output fails the handoff-source operation.
+There is no second preparation phase or generic readiness callback gate.
+
+The Session command remains the delivery and audit authority. DeliveryCompleted
+returns actual routing to std for validation and record formatting. Session's
+HandoffDelivered event projects the preview into the canonical room; std needs no
+preview or causal-event payload. The redundant HandoffCompleted notification is
+removed. Input records precede causal projection, then dispatch publishes before
+a direct submission outcome. Waiting submissions acknowledge retention and report later failures as
+operation failures. Edit, discard, interrupt and shutdown share the existing
+interpreter-owned lifecycle and resource cleanup.

@@ -9,6 +9,7 @@ import (
 	"github.com/roomscript/coderoom/internal/participant"
 	"github.com/roomscript/coderoom/internal/promptlang"
 	"github.com/roomscript/coderoom/internal/queue"
+	"github.com/roomscript/coderoom/internal/room"
 	"github.com/roomscript/coderoom/internal/session"
 	"github.com/roomscript/coderoom/internal/shell"
 )
@@ -28,6 +29,8 @@ type resolveCommandOperation struct {
 type shutdownOperation struct{}
 
 type executorModelPort interface {
+	runtime.HistoryReader
+	Room() *room.Room
 	instructionModelPort
 	CheckInputAllowed(string) instructionSequence
 	PrepareRequest(string, promptlang.ParsedStatement) instructionSequence
@@ -101,7 +104,8 @@ func newInterpreterExecutor(
 
 func (e *interpreterExecutor) start() {
 	e.publish(StateChanged{Snapshot: e.snapshots.Load()})
-	e.session.AddObserver(sessionObserver{executor: e})
+	initial := e.session.AddObserver(sessionObserver{executor: e})
+	e.model.Room().InitializeCompletionHistory(initial.Participants)
 	go e.run()
 	go func() {
 		select {
@@ -224,7 +228,8 @@ func (e *interpreterExecutor) takeSessionEvents() []session.Event {
 func (e *interpreterExecutor) executeCommand(command session.Command) error {
 	// Preserve session error identity and partial-delivery metadata across the
 	// executor boundary; the model owns presentation and error classification.
-	return e.session.Execute(command) //nolint:wrapcheck
+	_, err := e.session.Execute(command)
+	return err //nolint:wrapcheck
 }
 
 func (e *interpreterExecutor) participants() []participant.View {
@@ -262,7 +267,7 @@ func (e *interpreterExecutor) participantState() []participantState {
 func participantStates(participants []participant.View) []participantState {
 	states := make([]participantState, 0, len(participants))
 	for _, value := range participants {
-		states = append(states, participantState{alias: value.Alias, status: value.Status, turnID: value.TurnID, startupPending: !value.StartupReady})
+		states = append(states, participantState{alias: value.Alias, status: value.Status, executionID: value.ActiveExecutionID, startupPending: !value.StartupReady})
 	}
 	return states
 }

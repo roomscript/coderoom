@@ -30,14 +30,14 @@ func TestSession_agentStopsCleanly(t *testing.T) {
 	)
 	t.Cleanup(s.Shutdown)
 
-	if err := s.Execute(session.InviteCommand{
+	if _, err := s.Execute(session.InviteCommand{
 		Alias: "ada",
 	}); err != nil {
 		t.Fatalf("invite: %v", err)
 	}
 	drainUntilType[session.AgentReady](t, events, 10*time.Second)
 
-	if err := s.Execute(session.SendToParticipantCommand{
+	if _, err := s.Execute(session.SendToParticipantCommand{
 		Plan:    s.CreateParticipantSendPlan(resolvedAlias(s, "ada")),
 		Message: "What is 2+2? Reply with just the number.",
 	}); err != nil {
@@ -45,7 +45,7 @@ func TestSession_agentStopsCleanly(t *testing.T) {
 	}
 	drainUntilIdle(t, events, 60*time.Second)
 
-	if err := s.Execute(session.RemoveCommand{Alias: resolvedAlias(s, "ada")}); err != nil {
+	if _, err := s.Execute(session.RemoveCommand{Alias: resolvedAlias(s, "ada")}); err != nil {
 		t.Fatalf("remove: %v", err)
 	}
 	drainUntilType[session.AgentStopped](t, events, 10*time.Second)

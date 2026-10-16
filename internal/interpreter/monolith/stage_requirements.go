@@ -65,19 +65,19 @@ func (r *stageRequirements) markUnavailable(alias participant.Alias) {
 	sortParticipantAliases(r.unavailable)
 }
 
-func (r *stageRequirements) turnID(alias participant.Alias) uint64 {
+func (r *stageRequirements) executionID(alias participant.Alias) participant.ExecutionID {
 	for _, value := range r.participants {
 		if value.alias == alias {
-			return value.turnID
+			return value.executionID
 		}
 	}
 	return 0
 }
 
-func (r *stageRequirements) updateTurnID(alias participant.Alias, turnID uint64) {
+func (r *stageRequirements) updateActiveExecutionID(alias participant.Alias, executionID participant.ExecutionID) {
 	for index := range r.participants {
 		if r.participants[index].alias == alias {
-			r.participants[index].turnID = turnID
+			r.participants[index].executionID = executionID
 			return
 		}
 	}
@@ -147,12 +147,12 @@ func (r *stageRequirements) requiredReadyAliases() []participant.Alias {
 type participantState struct {
 	alias          participant.Alias
 	status         participant.Status
-	turnID         uint64
+	executionID    participant.ExecutionID
 	startupPending bool
 }
 
 func (s participantState) view() participant.View {
-	return participant.View{Alias: s.alias, Status: s.status, TurnID: s.turnID, StartupReady: !s.startupPending}
+	return participant.View{Alias: s.alias, Status: s.status, ActiveExecutionID: s.executionID, StartupReady: !s.startupPending}
 }
 
 func (r *stageRequirements) interruptibleAliases(cancelled []participant.Alias) []participant.Alias {

@@ -82,7 +82,7 @@ and `StateChanged` snapshots for participants, approval, and stage presentation.
 The construction-time observer receives an initial `StateChanged`, then all
 application events in order. The UI consumes that queue without snapshot
 queries. Snapshot records are for inspection, not a second transcript delivery
-path. Input, shell, loop, and handoff semantic events do not echo
+path. Input, shell, and loop semantic events do not echo
 records already delivered through transcript deltas.
 
 The TUI owns rendering, composer, focus, scrolling, and approval presentation.
@@ -124,7 +124,7 @@ The public interpreter now delegates to `internal/interpreter/monolith` during
 command migration. The monolith remains the single execution, transcript,
 publication and shutdown owner. Shared `internal/interpreter/api` contracts keep
 front-end methods, events and snapshots stable; `runtime` and `std` remain command
-contracts and modules. The new interpreter selects `/who`, `/shell`, addressed sends and broadcasts and owns
+contracts and modules. The new interpreter selects `/who`, `/shell`, addressed sends, broadcasts and handoffs and owns
 preparation, lifecycle identity/state, readiness, completion acceptance and cleanup.
 It uses the monolith's `Schedule` to run its own algorithm on the shared lane,
 then calls `AdmitCommand` and `CommandSubmission` publication methods explicitly.
@@ -160,8 +160,18 @@ falls back to its existing stage operations when the new interpreter has none.
 Successful cancellation does not imply readiness, and retries target only failed
 aliases. Public addressed sends now use this path. Direct sends report their submission
 outcome after delivery and dispatch publication; waiting sends acknowledge on
-retention and report later failures separately. Handoff and loops
+retention and report later failures separately. User command definitions and loops
 remain fallback, with unchanged loop delivery behavior.
+
+Handoff uses `Context.History.LatestOutput(alias)` for a detached canonical read
+inside Go, after staging satisfies participant and source-turn prerequisites.
+WaitFor and ToInform both require propagated completion; Session facts identify
+the last completed turn separately from current or aborted work,
+and the interpreter feeds projected completion facts from the existing room
+observer into runtime before queuing advancement. History owns no readiness or
+subscription policy. Std fills the retained Session command's Source. Session's audit preview reaches
+the UI through canonical room projection. No extra transcript,
+Session observer, preparation phase or generic readiness gate is introduced.
 
 This arrangement is temporary. New invocation lifecycle and staging
 orchestration belong to `internal/interpreter` and its runtime components.

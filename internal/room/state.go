@@ -22,18 +22,18 @@ type UpdateTriggerKind uint8
 const (
 	// UpdateTriggerNone identifies updates without workflow-relevant metadata.
 	UpdateTriggerNone UpdateTriggerKind = iota
-	// UpdateTriggerAgentTurnCompleted identifies the applied stream flush that
+	// UpdateTriggerAgentWorkCompleted identifies the applied stream flush that
 	// completed an agent turn.
-	UpdateTriggerAgentTurnCompleted
+	UpdateTriggerAgentWorkCompleted
 )
 
 // UpdateTrigger carries the narrow causal metadata needed by coordinators that
 // must act only after a specific room input has been applied.
 type UpdateTrigger struct {
-	Kind     UpdateTriggerKind
-	Alias    participant.Alias
-	StreamID agent.StreamID
-	TurnID   uint64
+	Kind        UpdateTriggerKind
+	Alias       participant.Alias
+	StreamID    agent.StreamID
+	ExecutionID session.ExecutionID
 }
 
 // Update is a lightweight redraw/invalidation signal: it tells a Listener
@@ -91,15 +91,41 @@ type OpenStream struct {
 // Room holds the canonical chat-visible state for one room, projected from
 // session events and local, non-session appends.
 type Room struct {
-	mu                   sync.RWMutex
-	id                   ID
-	version              uint64
-	members              map[participant.Alias]struct{}
-	departed             map[participant.Alias]bool
-	records              []Record
-	streaming            map[participant.Alias]map[agent.StreamID]OpenStream
-	latestHandoffByAlias map[participant.Alias]int
-	dirty                map[uint64][]int
-	observer             Observer
-	queue                *queue.Queue[session.Event]
+	mu                        sync.RWMutex
+	id                        ID
+	version                   uint64
+	lastCompletedExecutionIDs map[participant.Alias]participant.ExecutionID
+	members                   map[participant.Alias]struct{}
+	departed                  map[participant.Alias]bool
+	records                   []Record
+	streaming                 map[participant.Alias]map[agent.StreamID]OpenStream
+	latestHandoffByAlias      map[participant.Alias]int
+	dirty                     map[uint64][]int
+	observer                  Observer
+	queue                     *queue.Queue[session.Event]
+}
+
+// LastCompletedExecutionID returns completed work recorded in room state,
+// including completion history established when the interpreter attached.
+func (r *Room) LastCompletedExecutionID(alias participant.Alias) participant.ExecutionID {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.lastCompletedExecutionIDs[alias]
+}
+
+// InitializeCompletionHistory establishes the attachment boundary without replaying
+// historical output. The interpreter calls this before processing Session events.
+func (r *Room) InitializeCompletionHistory(views []participant.View) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, view := range views {
+		r.recordCompletedExecutionLocked(view.Alias, view.LastCompletedExecutionID)
+	}
+}
+
+func (r *Room) recordCompletedExecutionLocked(alias participant.Alias, id participant.ExecutionID) {
+	if r.lastCompletedExecutionIDs == nil {
+		r.lastCompletedExecutionIDs = make(map[participant.Alias]participant.ExecutionID)
+	}
+	r.lastCompletedExecutionIDs[alias] = max(r.lastCompletedExecutionIDs[alias], id)
 }

@@ -230,8 +230,6 @@ func (m Model) handleInterpreterTranscriptEvent(event interpreter.Event) (Model,
 	case interpreter.StagedInputDispatched:
 		m.stagedDispatchRaw = event.Raw
 		return m, true
-	case interpreter.HandoffCompleted:
-		return m, true
 	case interpreter.StagedInputDiscarded:
 		m.stagedDispatchRaw = ""
 		m.room = m.room.AppendSystem(event.Reason)

@@ -29,7 +29,7 @@ rules; it coordinates when to invoke them.
 The session controller exposes a single entry point:
 
 ```go
-func (s *Session) Execute(cmd Command) error
+func (s *Session) Execute(cmd Command) (ExecutionID, error)
 ```
 
 `Command` is a sealed interface — only types within the `session` package can implement it. Dispatch is via an unexported method; no type switch required:
@@ -163,6 +163,12 @@ or transcript publication. Callbacks must only collect facts and return promptly
 Unsubscribe drops queued facts without waiting for an in-flight callback and is
 safe from a callback; Session shutdown releases subscriptions. Ordinary
 `Participants()` reads remain detached inspection snapshots, not delivery barriers.
+
+`AddObserver` registers the observer and returns a detached `ParticipantSnapshot`
+under the same Session lock. This defines an attachment boundary for completion
+history. The interpreter treats already-committed completions as historical and
+tracks canonical projection only for subsequent work. Participant lifecycle owns completion
+facts, Session coordinates transitions, and the interpreter owns the projection cursor.
 
 Multiple observers remain supported for infrastructure concerns such as event
 logging. At the application boundary, the interpreter is the observer: it
@@ -429,7 +435,7 @@ current instance. `Participant(alias) (participant.View, bool)` validates a reso
 alias against current Session membership. `Participants() []participant.View`
 returns all registered instances. These queries expose the same detached data;
 the list captures every registered participant under one session lock, including
-startup and crash states. Status is preserved, with StartupReady and TurnID
+startup and crash states. Status is preserved, with StartupReady and ActiveExecutionID
 explicitly available. Runtime handles and stream bookkeeping stay within Session.
 
 Consumers choose recipients and workflow readiness requirements using shared View predicates.
@@ -442,3 +448,34 @@ Startup attachment checks the session lifetime and the participant runtime under
 one lock before binding the agent. A startup that finishes after shutdown begins
 is stopped by startup cleanup and never enters shutdown's bound-agent snapshot.
 This keeps failed attachment from assigning the same agent to both cleanup paths.
+
+## Execution identity and participant work
+
+Session allocates a nonzero, monotonically increasing `session.ExecutionID` for
+every Execute call, including policy, cancellation and failed commands. The ID is
+scoped to that Session. Commands receive it during dispatch; callers receive it
+alongside the execution error. RoutingCompleted carries the same ID before Execute
+returns, so event consumers need not wait for the return value to correlate it.
+
+This replaces the independent participant-turn counter. Delivery supplies the
+execution ID to PrepareForWork; preparation retains it privately until accepted
+delivery commits BeginWorking. All work started by one broadcast or addressed
+send shares the execution ID, with participant instance identity distinguishing
+completions. Notices attached to existing work do not replace that work's origin.
+Aborted preparation discards the pending origin, and failed delivery creates no
+completed work. Startup and keepalive allocate no work identities of their own.
+
+Participant views expose ActiveExecutionID, cleared on completion, abort
+or crash, and LastCompletedExecutionID, updated only by normal completion.
+SubscribeParticipants atomically returns a ParticipantSnapshot of detached
+views, then ordered lifecycle events. A derived
+ParticipantWorkCompleted fact precedes idle in that subscription. A terminal
+AgentMessage separately marks WorkCompleted and carries ExecutionID with the payload. The interpreter tracks propagation of that completion into canonical
+state separately. Execution identity is neither an interpreter invocation ID nor
+an agent request/stream ID. Agent backend protocol IDs remain unchanged.
+
+The underlying immutable ID type lives with the lower-level participant lifecycle
+and is exposed as session.ExecutionID; this avoids a participant-to-Session import
+cycle. Session remains its sole production allocator. Runtime's queued admission
+capability still returns admission errors only; actual Session execution remains
+serialized on the interpreter lane.

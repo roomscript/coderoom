@@ -63,9 +63,9 @@ func TestRoom_delayedOutputAndCompletionRetainOriginalOwner(t *testing.T) {
 	apply(outputEvent(current, "shared", agent.ModeStream, "current output"))
 	apply(outputEvent(old, "shared", agent.ModeSingle, "delayed old output"))
 	completion := outputEvent(old, "shared", agent.ModeFlush, "")
-	completion.TurnCompleted, completion.TurnID = true, 7
+	completion.WorkCompleted, completion.ExecutionID = true, 7
 	update := apply(completion)
-	if update.Trigger.Alias != old || update.Trigger.TurnID != 7 || update.Trigger.Kind != UpdateTriggerAgentTurnCompleted {
+	if update.Trigger.Alias != old || update.Trigger.ExecutionID != 7 || update.Trigger.Kind != UpdateTriggerAgentWorkCompleted {
 		t.Fatalf("delayed completion lost original identity: %#v", update.Trigger)
 	}
 	snapshot := r.Snapshot()
@@ -75,9 +75,9 @@ func TestRoom_delayedOutputAndCompletionRetainOriginalOwner(t *testing.T) {
 	if record := snapshot.Records[5]; record.Alias != old || record.Text != "delayed old output" || record.HandoffSource {
 		t.Fatalf("delayed output changed ownership or source eligibility: %#v", record)
 	}
-	completion.Alias, completion.TurnID = current, 8
+	completion.Alias, completion.ExecutionID = current, 8
 	update = apply(completion)
-	if update.Trigger.Alias != current || update.Trigger.TurnID != 8 {
+	if update.Trigger.Alias != current || update.Trigger.ExecutionID != 8 {
 		t.Fatalf("replacement completion lost its identity: %#v", update.Trigger)
 	}
 	assertHandoffSourceOwner(t, r, current, "current output")
@@ -166,5 +166,37 @@ func assertHandoffSourceOwner(t *testing.T, r *Room, alias participant.Alias, te
 	record := r.Snapshot().Records[source.RecordIndex]
 	if record.Alias != alias || !record.HandoffSource {
 		t.Fatalf("handoff source lost instance ownership: %#v", record)
+	}
+}
+
+func TestRoom_completedExecutionHistory(t *testing.T) {
+	r := New()
+	t.Cleanup(r.Close)
+	alias, replacement := newTestAlias("ada"), newTestAlias("ada")
+	r.InitializeCompletionHistory([]participant.View{{Alias: alias, LastCompletedExecutionID: 7}})
+	if r.LastCompletedExecutionID(alias) != 7 || len(r.Snapshot().Records) != 0 {
+		t.Fatal("attachment history did not establish completion without replay")
+	}
+	for _, test := range []struct {
+		name      string
+		completed bool
+		id        participant.ExecutionID
+		want      participant.ExecutionID
+	}{
+		{"ordinary output", false, 8, 7},
+		{"completion", true, 8, 8},
+		{"older completion", true, 6, 8},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			message := outputEvent(alias, "stream", agent.ModeSingle, "output")
+			message.WorkCompleted, message.ExecutionID = test.completed, test.id
+			r.ApplyEvent(message)
+			if got := r.LastCompletedExecutionID(alias); got != test.want {
+				t.Fatalf("completion=%d, want %d", got, test.want)
+			}
+			if r.LastCompletedExecutionID(replacement) != 0 {
+				t.Fatal("replacement inherited completion history")
+			}
+		})
 	}
 }

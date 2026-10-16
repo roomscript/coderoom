@@ -16,11 +16,11 @@ type HandoffCommand struct {
 	Source               HandoffSource
 }
 
-func (c HandoffCommand) execute(s *Session) (err error) {
+func (c HandoffCommand) execute(s *Session, executionID ExecutionID) (err error) {
 	result := createRoutingResult(RoutingHandoff, []participant.Alias{c.ToAlias}, RecipientHandoff)
 	defer func() {
 		result.record(0, err)
-		s.notifyRoutingCompleted(result, err)
+		s.notifyRoutingCompleted(executionID, result, err)
 	}()
 	attempt := newHandoffAttempt(c, s)
 	if err := c.validate(attempt, s); err != nil {
@@ -29,7 +29,7 @@ func (c HandoffCommand) execute(s *Session) (err error) {
 	if err := c.validateSource(attempt, s); err != nil {
 		return err
 	}
-	return c.deliver(attempt, s)
+	return c.deliver(attempt, s, executionID)
 }
 
 type handoffAttempt struct {
@@ -92,8 +92,8 @@ func (c HandoffCommand) validateSource(attempt *handoffAttempt, s *Session) erro
 	)
 }
 
-func (c HandoffCommand) deliver(attempt *handoffAttempt, s *Session) error {
-	a, prepared, err := acquireParticipantForNotice(c.ToAlias, s)
+func (c HandoffCommand) deliver(attempt *handoffAttempt, s *Session, executionID ExecutionID) error {
+	a, prepared, err := acquireParticipantForNotice(c.ToAlias, s, executionID)
 	if err != nil {
 		return rejectHandoffAttempt(attempt, s, err.Error(), err)
 	}

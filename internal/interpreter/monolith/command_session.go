@@ -44,9 +44,9 @@ func (s *commandSession) Subscribe(handle func(runtime.ExecutionEvent)) func() {
 
 // Delegate only to the atomic Session boundary;
 // controllers without that boundary cannot be used for lifecycle staging.
-func (s *commandSession) SubscribeParticipants(handle func(session.Event)) ([]participant.View, func()) {
+func (s *commandSession) SubscribeParticipants(handle func(session.Event)) (session.ParticipantSnapshot, func()) {
 	source, ok := s.executor.session.(interface {
-		SubscribeParticipants(func(session.Event)) ([]participant.View, func())
+		SubscribeParticipants(func(session.Event)) (session.ParticipantSnapshot, func())
 	})
 	if !ok {
 		panic("session controller does not support atomic participant subscriptions")

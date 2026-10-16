@@ -36,7 +36,7 @@ func TestStageWorkflow_replacementEventsCannotReleaseFrozenParticipants(t *testi
 			for _, event := range []session.Event{
 				session.AgentReady{Alias: replacement},
 				session.ParticipantStatusChanged{Alias: replacement, To: participant.StatusIdle},
-				session.AgentMessage{Alias: replacement, TurnCompleted: true},
+				session.AgentMessage{Alias: replacement, WorkCompleted: true},
 				session.AgentStopped{Alias: replacement},
 				session.AgentCrashed{Alias: replacement},
 			} {
@@ -53,23 +53,15 @@ func TestStageWorkflow_replacementEventsCannotReleaseFrozenParticipants(t *testi
 	}
 }
 
-func TestHandoffStage_completionKeepsFrozenInstances(t *testing.T) {
+func TestHandoffStage_sourceCompletionKeepsFrozenInstance(t *testing.T) {
 	from, to := testAlias("ada"), testAlias("ben")
 	replacement := participant.New(from.Name, "", participant.InitiativeManual).Alias
 	h := handoffStage{from: from, to: to, sourceNeedsCompletion: true}
-	if h.completeSourceTurn(session.AgentMessage{Alias: replacement, TurnCompleted: true, TurnID: 9}, 8) {
+	if h.completeSourceWork(session.AgentMessage{Alias: replacement, WorkCompleted: true, ExecutionID: 9}, 8) {
 		t.Fatal("replacement output completed original source")
 	}
-	h.captureCompletion(session.HandoffDelivered{FromAlias: replacement, ToAlias: to})
-	if h.completed != nil {
-		t.Fatal("replacement delivery completed original handoff")
-	}
-	if !h.completeSourceTurn(session.AgentMessage{Alias: from, TurnCompleted: true, TurnID: 8}, 8) {
+	if !h.completeSourceWork(session.AgentMessage{Alias: from, WorkCompleted: true, ExecutionID: 8}, 8) {
 		t.Fatal("original output did not complete source")
-	}
-	h.captureCompletion(session.HandoffDelivered{FromAlias: from, ToAlias: to})
-	if h.completed == nil {
-		t.Fatal("original delivery did not complete handoff")
 	}
 }
 
@@ -115,7 +107,7 @@ func TestInterpreterModel_handoffSourceAndSnapshotsKeepInstances(t *testing.T) {
 	old := participant.New("ada", "", participant.InitiativeManual).Alias
 	replacement := participant.New("ada", "", participant.InitiativeManual).Alias
 	model.ApplySessionEvent(session.AgentReady{Alias: old})
-	model.ApplySessionEvent(session.AgentMessage{Alias: old, TurnCompleted: true, Msg: agent.Message{Mode: agent.ModeSingle, Content: agent.Output{Text: "old output"}}})
+	model.ApplySessionEvent(session.AgentMessage{Alias: old, WorkCompleted: true, Msg: agent.Message{Mode: agent.ModeSingle, Content: agent.Output{Text: "old output"}}})
 	model.ApplySessionEvent(session.AgentStopped{Alias: old})
 	model.ApplySessionEvent(session.AgentReady{Alias: replacement})
 	model.ApplySessionEvent(session.AgentMessage{Alias: old, Msg: agent.Message{Mode: agent.ModeStream, StreamID: "late", Content: agent.Output{Text: "late output"}}})
@@ -147,7 +139,7 @@ func (o identityReadyObserver) OnEvent(event session.Event) {
 
 func inviteIdentityParticipant(t *testing.T, sess *session.Session, ready <-chan participant.Alias, name string) participant.Alias {
 	t.Helper()
-	if err := sess.Execute(session.InviteCommand{Alias: name}); err != nil {
+	if _, err := sess.Execute(session.InviteCommand{Alias: name}); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -173,7 +165,7 @@ func TestInterpreterExecutor_frozenRequestsRejectSameNameReplacement(t *testing.
 	executor := interpreterExecutor{session: sess}
 	plan := executor.createParticipantSendPlan("ada")
 	broadcast := executor.planBroadcast()
-	if err := sess.Execute(session.RemoveCommand{Alias: old}); err != nil {
+	if _, err := sess.Execute(session.RemoveCommand{Alias: old}); err != nil {
 		t.Fatal(err)
 	}
 	replacement := inviteIdentityParticipant(t, sess, ready, "ada")
@@ -203,9 +195,9 @@ type identityPlanningSession struct {
 	plans []session.ParticipantSendPlan
 }
 
-func (s *identityPlanningSession) Execute(command session.Command) error {
+func (s *identityPlanningSession) Execute(command session.Command) (session.ExecutionID, error) {
 	s.plans = append(s.plans, command.(session.SendToParticipantCommand).Plan)
-	return nil
+	return 1, nil
 }
 
 func TestInterpreterExecutor_loopTurnReplansNoticesForOriginalPrimary(t *testing.T) {
@@ -216,7 +208,7 @@ func TestInterpreterExecutor_loopTurnReplansNoticesForOriginalPrimary(t *testing
 	t.Cleanup(sess.Shutdown)
 	primary := inviteIdentityParticipant(t, sess, ready, "ada")
 	originalNotice := inviteIdentityParticipant(t, sess, ready, "ben")
-	if err := sess.Execute(session.EnablePolicyCommand{Name: policy.SendNotices}); err != nil {
+	if _, err := sess.Execute(session.EnablePolicyCommand{Name: policy.SendNotices}); err != nil {
 		t.Fatal(err)
 	}
 	recording := &identityPlanningSession{Session: sess}
@@ -225,7 +217,7 @@ func TestInterpreterExecutor_loopTurnReplansNoticesForOriginalPrimary(t *testing
 	if err := executor.executeSessionRequest(request); err != nil {
 		t.Fatal(err)
 	}
-	if err := sess.Execute(session.RemoveCommand{Alias: originalNotice}); err != nil {
+	if _, err := sess.Execute(session.RemoveCommand{Alias: originalNotice}); err != nil {
 		t.Fatal(err)
 	}
 	replacementNotice := inviteIdentityParticipant(t, sess, ready, "ben")

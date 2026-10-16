@@ -108,7 +108,7 @@ func pumpUntil(t *testing.T, m Model, pred func(session.Event) bool) Model {
 
 func inviteParticipant(t *testing.T, s *session.Session, alias string) {
 	t.Helper()
-	if err := s.Execute(session.InviteCommand{Alias: alias}); err != nil {
+	if _, err := s.Execute(session.InviteCommand{Alias: alias}); err != nil {
 		t.Fatalf("invite %s: %v", alias, err)
 	}
 }
@@ -211,7 +211,7 @@ func stageHandoffWithCompletedAdaOutput(t *testing.T, agents map[string]agent.Ag
 	}
 	m = pumpUntilAgentsStarted(t, m, "ada", "turing")
 
-	if err := s.Execute(session.SendToParticipantOutsideRoomCommand{Alias: sessionAlias(t, s, "ada"), Text: "seed handoff source"}); err != nil {
+	if _, err := s.Execute(session.SendToParticipantOutsideRoomCommand{Alias: sessionAlias(t, s, "ada"), Text: "seed handoff source"}); err != nil {
 		t.Fatalf("seed handoff source: %v", err)
 	}
 	ada.push(agent.Message{
@@ -222,7 +222,7 @@ func stageHandoffWithCompletedAdaOutput(t *testing.T, agents map[string]agent.Ag
 	ada.push(agent.Message{StreamID: testTurnAnchor, Mode: agent.ModeFlush, Content: agent.Output{}})
 	m = pumpUntil(t, m, func(ev session.Event) bool {
 		msg, ok := ev.(session.AgentMessage)
-		return ok && msg.Alias.Name == "ada" && msg.TurnCompleted
+		return ok && msg.Alias.Name == "ada" && msg.WorkCompleted
 	})
 
 	return ada, s, m
@@ -247,7 +247,7 @@ func TestBarrierBatch_stagesThenDispatchesWhenIdle(t *testing.T) {
 	m = pumpUntilAgentsStarted(t, m, "ada", "turing")
 
 	// Mark ada working, leaving turing idle.
-	if err := s.Execute(session.SendToParticipantOutsideRoomCommand{Alias: sessionAlias(t, s, "ada"), Text: "busy"}); err != nil {
+	if _, err := s.Execute(session.SendToParticipantOutsideRoomCommand{Alias: sessionAlias(t, s, "ada"), Text: "busy"}); err != nil {
 		t.Fatalf("make ada busy: %v", err)
 	}
 	p, _ := s.ParticipantByName("ada")
@@ -297,7 +297,7 @@ func TestBarrierBatch_directSendIgnoresUnrelatedBusyParticipantByDefault(t *test
 	inviteParticipant(t, s, "ada")
 	inviteParticipant(t, s, "turing")
 	m = pumpUntilAgentsStarted(t, m, "ada", "turing")
-	if err := s.Execute(session.SendToParticipantOutsideRoomCommand{Alias: sessionAlias(t, s, "turing"), Text: "busy"}); err != nil {
+	if _, err := s.Execute(session.SendToParticipantOutsideRoomCommand{Alias: sessionAlias(t, s, "turing"), Text: "busy"}); err != nil {
 		t.Fatalf("make turing busy: %v", err)
 	}
 
@@ -333,7 +333,7 @@ func TestBarrierBatch_sendNoticesPolicyIncludesBusyListener(t *testing.T) {
 	next = submitThroughInterpreter(t, m, "/policy enable send-notices")
 	m = next.(Model)
 	assertHistoryContainsSystem(t, m, "[policy] send-notices enabled")
-	if err := s.Execute(session.SendToParticipantOutsideRoomCommand{Alias: sessionAlias(t, s, "turing"), Text: "busy"}); err != nil {
+	if _, err := s.Execute(session.SendToParticipantOutsideRoomCommand{Alias: sessionAlias(t, s, "turing"), Text: "busy"}); err != nil {
 		t.Fatalf("make turing busy: %v", err)
 	}
 
@@ -359,7 +359,7 @@ func TestBarrierBatch_sendNoticesPolicyIncludesBusyListener(t *testing.T) {
 func TestBarrierBatch_autoDispatchPreservesFirstOutputRecord(t *testing.T) {
 	agents, s, m := newTwoAgentBarrierBatchModel(t)
 
-	if err := s.Execute(session.SendToParticipantCommand{Plan: s.CreateParticipantSendPlan(sessionAlias(t, s, "ada")), Message: "busy", Notice: "notice"}); err != nil {
+	if _, err := s.Execute(session.SendToParticipantCommand{Plan: s.CreateParticipantSendPlan(sessionAlias(t, s, "ada")), Message: "busy", Notice: "notice"}); err != nil {
 		t.Fatalf("make ada busy: %v", err)
 	}
 	m = submitThroughInterpreter(t, m, "next turn")
@@ -513,7 +513,7 @@ func TestBarrierBatch_discardedTargetRestoresDraft(t *testing.T) {
 	inviteParticipant(t, s, "ada")
 	m = pumpUntilAgentsStarted(t, m, "ada")
 
-	if err := s.Execute(session.SendToParticipantOutsideRoomCommand{Alias: sessionAlias(t, s, "ada"), Text: "busy"}); err != nil {
+	if _, err := s.Execute(session.SendToParticipantOutsideRoomCommand{Alias: sessionAlias(t, s, "ada"), Text: "busy"}); err != nil {
 		t.Fatalf("make ada busy: %v", err)
 	}
 	next = submitThroughInterpreter(t, m, "@ada hi")
@@ -523,7 +523,7 @@ func TestBarrierBatch_discardedTargetRestoresDraft(t *testing.T) {
 		t.Fatal("expected staged batch before target disappears")
 	}
 
-	if err := s.Execute(session.RemoveCommand{Alias: sessionAlias(t, s, "ada")}); err != nil {
+	if _, err := s.Execute(session.RemoveCommand{Alias: sessionAlias(t, s, "ada")}); err != nil {
 		t.Fatalf("remove ada: %v", err)
 	}
 	m = pumpUntil(t, m, func(ev session.Event) bool {
@@ -554,11 +554,10 @@ func TestBarrierBatch_handoffIgnoresStartingBystanderOutsideBarrier(t *testing.T
 	}
 	cat := agents["cat"].(*gateStartAgent)
 	ada, s, m := stageHandoffWithCompletedAdaOutput(t, agents, "cat")
-	if err := s.Execute(session.SendToParticipantCommand{Plan: s.CreateParticipantSendPlan(sessionAlias(t, s, "ada")), Message: "busy", Notice: "notice"}); err != nil {
+	if _, err := s.Execute(session.SendToParticipantCommand{Plan: s.CreateParticipantSendPlan(sessionAlias(t, s, "ada")), Message: "busy", Notice: "notice"}); err != nil {
 		t.Fatalf("make ada busy: %v", err)
 	}
 	m = submitThroughInterpreter(t, m, "/handoff ada turing")
-	m = consumeInterpreterStateChange(t, m)
 	assertInterpreterHandoffStaged(t, m)
 	ada.push(agent.Message{StreamID: testTurnAnchor, Mode: agent.ModeFlush, Content: agent.Output{}})
 	m = pumpUntil(t, m, isHandoff("ada", "turing"))
@@ -684,11 +683,10 @@ func newTwoAgentBarrierBatchModel(t *testing.T) (map[string]*testAgent, *session
 func stageBusyHandoff(t *testing.T, s *session.Session, m Model) Model {
 	t.Helper()
 
-	if err := s.Execute(session.SendToParticipantOutsideRoomCommand{Alias: sessionAlias(t, s, "ada"), Text: "busy"}); err != nil {
+	if _, err := s.Execute(session.SendToParticipantOutsideRoomCommand{Alias: sessionAlias(t, s, "ada"), Text: "busy"}); err != nil {
 		t.Fatalf("make ada busy: %v", err)
 	}
 	m = submitThroughInterpreter(t, m, "/handoff ada turing")
-	m = consumeInterpreterStateChange(t, m)
 	assertInterpreterHandoffStaged(t, m)
 	return m
 }
@@ -706,7 +704,7 @@ func consumeInterpreterHandoffDispatch(t *testing.T, m Model) Model {
 		_, ok := event.(interpreter.StagedInputDispatched)
 		return ok
 	})
-	return consumeInterpreterStateChange(t, m)
+	return m
 }
 
 func pushAnchorOutput(a *testAgent, text string) {
@@ -770,12 +768,11 @@ func stageDiscardedTargetHandoff(t *testing.T) (*testAgent, *session.Session, Mo
 		Content:  agent.Output{Text: "prior completed output"},
 	}})
 
-	if err := s.Execute(session.SendToParticipantOutsideRoomCommand{Alias: sessionAlias(t, s, "ada"), Text: "busy"}); err != nil {
+	if _, err := s.Execute(session.SendToParticipantOutsideRoomCommand{Alias: sessionAlias(t, s, "ada"), Text: "busy"}); err != nil {
 		t.Fatalf("make ada busy: %v", err)
 	}
 	next = submitThroughInterpreter(t, m, "/handoff ada turing")
 	m = next.(Model)
-	m = consumeInterpreterStateChange(t, m)
 	assertInterpreterHandoffStaged(t, m)
 
 	return agents["ada"], s, m
@@ -784,7 +781,7 @@ func stageDiscardedTargetHandoff(t *testing.T) (*testAgent, *session.Session, Mo
 func TestBarrierBatch_handoffDiscardedTargetRestoresDraft(t *testing.T) {
 	ada, s, m := stageDiscardedTargetHandoff(t)
 
-	if err := s.Execute(session.RemoveCommand{Alias: sessionAlias(t, s, "turing")}); err != nil {
+	if _, err := s.Execute(session.RemoveCommand{Alias: sessionAlias(t, s, "turing")}); err != nil {
 		t.Fatalf("remove turing: %v", err)
 	}
 	m = pumpUntil(t, m, func(ev session.Event) bool {
@@ -819,16 +816,15 @@ func TestBarrierBatch_handoffIgnoresBusyParticipantWhoJoinedAfterStaging(t *test
 		"cat":    newTestAgent(),
 	}
 	ada, s, m := stageHandoffWithCompletedAdaOutput(t, agents)
-	if err := s.Execute(session.SendToParticipantOutsideRoomCommand{Alias: sessionAlias(t, s, "ada"), Text: "busy"}); err != nil {
+	if _, err := s.Execute(session.SendToParticipantOutsideRoomCommand{Alias: sessionAlias(t, s, "ada"), Text: "busy"}); err != nil {
 		t.Fatalf("make ada busy: %v", err)
 	}
 	m = submitThroughInterpreter(t, m, "/handoff ada turing")
-	m = consumeInterpreterStateChange(t, m)
 	assertInterpreterHandoffStaged(t, m)
 
 	inviteParticipant(t, s, "cat")
 	m = pumpUntilAgentsStarted(t, m, "cat")
-	if err := s.Execute(session.SendToParticipantOutsideRoomCommand{Alias: sessionAlias(t, s, "cat"), Text: "busy"}); err != nil {
+	if _, err := s.Execute(session.SendToParticipantOutsideRoomCommand{Alias: sessionAlias(t, s, "cat"), Text: "busy"}); err != nil {
 		t.Fatalf("make cat busy: %v", err)
 	}
 

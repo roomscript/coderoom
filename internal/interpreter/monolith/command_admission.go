@@ -58,7 +58,7 @@ func (i *Interpreter) AdmitCommand(name string, statement promptlang.ParsedState
 	delivery := &commandSession{executor: e}
 	launcher := &userShellLauncher{executor: e}
 	return &CommandSubmission{
-		Context:  runtime.Context{Participants: participantViews(e.participants()), Session: delivery, Shell: launcher},
+		Context:  runtime.Context{Participants: participantViews(e.participants()), Session: delivery, Shell: launcher, History: e.model, CompletedExecutions: e.model.Room()},
 		executor: e, Statement: statement, Name: name,
 		session: delivery, shell: launcher,
 	}

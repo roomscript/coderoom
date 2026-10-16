@@ -50,6 +50,8 @@ func (m *participantSubscription) stop() {
 
 func parseParticipantAlias(event session.Event) (participant.Alias, bool) {
 	switch event := event.(type) {
+	case session.ParticipantWorkCompleted:
+		return event.Alias, true
 	case session.ParticipantStatusChanged:
 		return event.Alias, true
 	case session.AgentReady:

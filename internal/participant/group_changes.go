@@ -5,11 +5,12 @@ import "sync"
 // ChangeKind identifies a participant lifecycle fact.
 type ChangeKind uint8
 
-// Lifecycle facts captured independently by Group.
+// Lifecycle facts delivered by Group are derived from captured views.
 const (
 	StatusChanged ChangeKind = iota
 	BecameReady
 	Removed
+	WorkCompleted
 )
 
 // Change contains detached views of one participant instance before and after a
@@ -96,6 +97,10 @@ func deriveGroupChanges(before, after []View) []Change {
 	var changes []Change
 	for _, view := range after {
 		old, existed := previous[view.Alias]
+		// Completion precedes idle so readiness cannot bypass pending projection.
+		if view.LastCompletedExecutionID > old.LastCompletedExecutionID {
+			changes = append(changes, Change{Kind: WorkCompleted, Before: old, After: view})
+		}
 		if !existed || old.Status != view.Status {
 			changes = append(changes, Change{Kind: StatusChanged, Before: old, After: view})
 		}

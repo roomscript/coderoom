@@ -44,19 +44,19 @@ type agentRuntime struct {
 // Execute must be called from a single goroutine (the TUI input loop).
 // It is not safe for concurrent calls to Execute.
 type Session struct {
-	mu            sync.Mutex
-	participants  *participant.Group
-	agents        map[participant.Alias]agentRuntime
-	obs           []Observer
-	now           func() time.Time
-	keepaliveTick time.Duration
-	agentFactory  AgentFactory
-	config        *roomconfig.Config
-	policies      policy.Set
-	hasInvited    bool
-	approvals     *approvalHub
-	lastTurnID    uint64
-	lifecycle     sessionLifecycle
+	mu              sync.Mutex
+	participants    *participant.Group
+	agents          map[participant.Alias]agentRuntime
+	obs             []Observer
+	now             func() time.Time
+	keepaliveTick   time.Duration
+	agentFactory    AgentFactory
+	config          *roomconfig.Config
+	policies        policy.Set
+	hasInvited      bool
+	approvals       *approvalHub
+	lastExecutionID ExecutionID
+	lifecycle       sessionLifecycle
 }
 
 type sessionLifecycle struct {
@@ -92,11 +92,13 @@ func WithObserver(obs Observer) Option {
 	return func(s *Session) { s.obs = append(s.obs, obs) }
 }
 
-// AddObserver appends an Observer after construction.
-func (s *Session) AddObserver(obs Observer) {
+// AddObserver atomically appends an observer and captures the attachment state.
+// Completions in this snapshot predate attachment; later completions reach the observer.
+func (s *Session) AddObserver(obs Observer) ParticipantSnapshot {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.obs = append(s.obs, obs)
+	return ParticipantSnapshot{Participants: s.participants.Snapshot()}
 }
 
 // WithAgentFactory sets the factory used to construct agents when a participant
@@ -175,9 +177,15 @@ func (s *Session) CreateAgentContext(alias participant.Alias) context.Context {
 	return ctx
 }
 
-// Execute dispatches a command. Must be called from a single goroutine.
-func (s *Session) Execute(cmd Command) error {
-	return cmd.execute(s)
+// Execute assigns an identity to every command execution, including failures and
+// commands that start no work. Events may carry the ID before this call returns.
+// Calls must remain serialized by the owner.
+func (s *Session) Execute(cmd Command) (ExecutionID, error) {
+	s.mu.Lock()
+	s.lastExecutionID++
+	id := s.lastExecutionID
+	s.mu.Unlock()
+	return id, cmd.execute(s, id)
 }
 
 func (s *Session) snapshotAgentsToStop() []agent.Agent {
@@ -255,7 +263,7 @@ func (s *Session) notify(e Event) {
 	for _, o := range obs {
 		event := e
 		if completed, ok := e.(RoutingCompleted); ok {
-			event = RoutingCompleted{Result: completed.Result.Clone()}
+			event = RoutingCompleted{ExecutionID: completed.ExecutionID, Result: completed.Result.Clone()}
 		}
 		o.OnEvent(event)
 	}
@@ -469,7 +477,7 @@ func (s *Session) commitStarted(alias participant.Alias, from participant.Status
 		if err = p.CommitIdle(s.now()); err != nil {
 			return
 		}
-		event = ParticipantStatusChanged{Alias: alias, From: from, To: p.Status, Since: p.Since}
+		event = ParticipantStatusChanged{Alias: alias, From: from, To: p.Status, Since: p.Since, ActiveExecutionID: p.ActiveExecutionID}
 	})
 	if err != nil {
 		s.notifyParticipantInvariant(alias, fmt.Errorf("commit idle: %w", err))
@@ -593,7 +601,7 @@ func (s *Session) handleAgentReadError(stop <-chan struct{}, alias participant.A
 		err := s.updateParticipant(alias, func(p *participant.Participant) (Event, error) {
 			from := p.Status
 			p.Crash(s.now())
-			return ParticipantStatusChanged{Alias: alias, From: from, To: p.Status, Since: p.Since}, nil
+			return ParticipantStatusChanged{Alias: alias, From: from, To: p.Status, Since: p.Since, ActiveExecutionID: p.ActiveExecutionID}, nil
 		})
 		if err != nil && !errors.Is(err, errParticipantNotFound) {
 			s.notifyParticipantInvariant(alias, err)
@@ -621,16 +629,16 @@ func isCrashedReadError(stop <-chan struct{}) bool {
 // prepareParticipantForWork transitions the participant to Preparing state
 // under the session lock. Must be followed by Send then beginParticipantWorking
 // (on success) or abortWork (on Send failure).
-func (s *Session) prepareParticipantForWork(alias participant.Alias) error {
+func (s *Session) prepareParticipantForWork(alias participant.Alias, executionID ExecutionID) error {
 	return s.updateParticipant(alias, func(p *participant.Participant) (Event, error) {
 		if !p.StartupReady {
 			return nil, participant.ErrNotReadyForWork
 		}
 		from := p.Status
-		if err := p.PrepareForWork(s.now()); err != nil {
+		if err := p.PrepareForWork(s.now(), executionID); err != nil {
 			return nil, fmt.Errorf("prepare for work: %w", err)
 		}
-		return ParticipantStatusChanged{Alias: alias, From: from, To: p.Status, Since: p.Since}, nil
+		return ParticipantStatusChanged{Alias: alias, From: from, To: p.Status, Since: p.Since, ActiveExecutionID: p.ActiveExecutionID}, nil
 	})
 }
 
@@ -640,12 +648,10 @@ func (s *Session) prepareParticipantForWork(alias participant.Alias) error {
 func (s *Session) beginParticipantWorking(alias participant.Alias, anchor agent.StreamID) {
 	err := s.updateParticipant(alias, func(p *participant.Participant) (Event, error) {
 		from := p.Status
-		turnID := s.lastTurnID + 1
-		if err := p.BeginWorking(s.now(), anchor, turnID); err != nil {
+		if err := p.BeginWorking(s.now(), anchor); err != nil {
 			return nil, fmt.Errorf("begin working: %w", err)
 		}
-		s.lastTurnID = turnID
-		return ParticipantStatusChanged{Alias: alias, From: from, To: p.Status, Since: p.Since}, nil
+		return ParticipantStatusChanged{Alias: alias, From: from, To: p.Status, Since: p.Since, ActiveExecutionID: p.ActiveExecutionID}, nil
 	})
 	if err != nil && !errors.Is(err, errParticipantNotFound) {
 		s.notifyParticipantInvariant(alias, err)
@@ -663,7 +669,7 @@ func (s *Session) abortWork(alias participant.Alias) {
 		if err := p.AbortWork(s.now()); err != nil {
 			return nil, fmt.Errorf("abort work: %w", err)
 		}
-		return ParticipantStatusChanged{Alias: alias, From: from, To: p.Status, Since: p.Since}, nil
+		return ParticipantStatusChanged{Alias: alias, From: from, To: p.Status, Since: p.Since, ActiveExecutionID: p.ActiveExecutionID}, nil
 	})
 	if err != nil && !errors.Is(err, errParticipantNotFound) {
 		s.notifyParticipantInvariant(alias, err)
@@ -672,20 +678,20 @@ func (s *Session) abortWork(alias participant.Alias) {
 
 // markIdle transitions the participant to Idle via BecomeIdle. Called when the
 // anchor stream flush is received (shouldIdle=true from CloseStream).
-func (s *Session) markIdle(alias participant.Alias) (uint64, bool) {
-	var turnID uint64
+func (s *Session) markIdle(alias participant.Alias) (ExecutionID, bool) {
+	var executionID ExecutionID
 	err := s.updateParticipant(alias, func(p *participant.Participant) (Event, error) {
 		from := p.Status
-		turnID = p.TurnID
+		executionID = p.ActiveExecutionID
 		if err := p.BecomeIdle(s.now()); err != nil {
 			return nil, fmt.Errorf("become idle: %w", err)
 		}
-		return ParticipantStatusChanged{Alias: alias, From: from, To: p.Status, Since: p.Since}, nil
+		return ParticipantStatusChanged{Alias: alias, From: from, To: p.Status, Since: p.Since, ActiveExecutionID: p.ActiveExecutionID}, nil
 	})
 	if err != nil && !errors.Is(err, errParticipantNotFound) {
 		s.notifyParticipantInvariant(alias, err)
 	}
-	return turnID, err == nil
+	return executionID, err == nil
 }
 
 // trackAnchorStream tracks a stream for a participant that is already Working
@@ -772,13 +778,13 @@ func (s *Session) handleAgentMessage(alias participant.Alias, msg agent.Message)
 		return
 	}
 
-	turnID, turnCompleted := s.applyTurnLifecycle(alias, msg)
+	executionID, turnCompleted := s.applyTurnLifecycle(alias, msg)
 	m := msg
 	s.notify(AgentMessage{
 		Alias:         alias,
 		Msg:           m,
-		TurnCompleted: turnCompleted,
-		TurnID:        turnID,
+		WorkCompleted: turnCompleted,
+		ExecutionID:   executionID,
 	})
 }
 
@@ -791,14 +797,14 @@ func (s *Session) finishParticipantKeepalive(alias participant.Alias) {
 		if err := p.FinishKeepalive(s.now()); err != nil {
 			return nil, fmt.Errorf("finish keepalive: %w", err)
 		}
-		return ParticipantStatusChanged{Alias: alias, From: from, To: p.Status, Since: p.Since}, nil
+		return ParticipantStatusChanged{Alias: alias, From: from, To: p.Status, Since: p.Since, ActiveExecutionID: p.ActiveExecutionID}, nil
 	})
 	if err != nil && !errors.Is(err, errParticipantNotFound) {
 		s.notifyParticipantInvariant(alias, err)
 	}
 }
 
-func (s *Session) applyTurnLifecycle(alias participant.Alias, msg agent.Message) (uint64, bool) {
+func (s *Session) applyTurnLifecycle(alias participant.Alias, msg agent.Message) (ExecutionID, bool) {
 	// Stream tracking only — no status transitions here. Transitions happen via
 	// prepareParticipantForWork / beginParticipantWorking / markIdle driven by
 	// the session command layer and the anchor stream close.
@@ -925,10 +931,11 @@ func (s *Session) reserveKeepaliveCandidatesLocked(now time.Time) ([]keepaliveCa
 			continue
 		}
 		events = append(events, ParticipantStatusChanged{
-			Alias: alias,
-			From:  from,
-			To:    p.Status,
-			Since: p.Since,
+			Alias:             alias,
+			From:              from,
+			To:                p.Status,
+			Since:             p.Since,
+			ActiveExecutionID: p.ActiveExecutionID,
 		})
 		candidates = append(candidates, keepaliveCandidate{alias: alias, agent: keepaliver})
 	}

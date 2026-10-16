@@ -55,9 +55,6 @@ func (w *stageWorkflow) handleSessionEvent(event session.Event) instructionSeque
 		return nil
 	}
 	if w.active.phase == stageDispatching {
-		if w.active.handoff != nil {
-			w.active.handoff.captureCompletion(event)
-		}
 		return nil
 	}
 	if w.active.phase != stageWaiting {

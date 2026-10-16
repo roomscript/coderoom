@@ -16,7 +16,7 @@ type InviteCommand struct {
 	Alias string
 }
 
-func (c InviteCommand) execute(s *Session) error {
+func (c InviteCommand) execute(s *Session, _ ExecutionID) error {
 	backend := AgentBackendDefault
 	if s.policies.Enabled(policy.EchoInvites) {
 		backend = AgentBackendEcho
@@ -35,7 +35,7 @@ func (c InviteCommand) execute(s *Session) error {
 	s.hasInvited = true
 	s.CreateAgentRuntime(p.Alias)
 	a := s.agentFactory(s, cfg, backend)
-	s.notify(ParticipantStatusChanged{Alias: p.Alias, From: "", To: p.Status, Since: p.Since})
+	s.notify(ParticipantStatusChanged{Alias: p.Alias, From: "", To: p.Status, Since: p.Since, ActiveExecutionID: p.ActiveExecutionID})
 	s.notify(AgentStarting{Alias: p.Alias})
 	startInvitedAgent(p.Alias, a, s)
 	return nil
@@ -112,7 +112,7 @@ func handleInviteStartError(alias participant.Alias, err error, s *Session) {
 	stateErr := s.updateParticipant(alias, func(p *participant.Participant) (Event, error) {
 		from := p.Status
 		p.Crash(s.now())
-		return ParticipantStatusChanged{Alias: alias, From: from, To: p.Status, Since: p.Since}, nil
+		return ParticipantStatusChanged{Alias: alias, From: from, To: p.Status, Since: p.Since, ActiveExecutionID: p.ActiveExecutionID}, nil
 	})
 	if stateErr != nil && !errors.Is(stateErr, errParticipantNotFound) {
 		s.notifyParticipantInvariant(alias, stateErr)
@@ -125,7 +125,7 @@ type RemoveCommand struct {
 	Alias participant.Alias
 }
 
-func (c RemoveCommand) execute(s *Session) error {
+func (c RemoveCommand) execute(s *Session, _ ExecutionID) error {
 	p, ok := s.detachParticipant(c.Alias)
 	switch {
 	case ok:
@@ -149,7 +149,7 @@ type CancelCommand struct {
 	Alias participant.Alias
 }
 
-func (c CancelCommand) execute(s *Session) error {
+func (c CancelCommand) execute(s *Session, _ ExecutionID) error {
 	p, ok := s.lookupParticipant(c.Alias)
 	if !ok {
 		return fmt.Errorf("participant %q not found", c.Alias.Name)
