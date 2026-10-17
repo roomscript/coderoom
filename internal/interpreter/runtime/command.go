@@ -129,6 +129,17 @@ type Invocation interface {
 	Close()
 }
 
+// SubmissionAcknowledgement is optional for an invocation whose submission is accepted
+// at a milestone after launch. A loop reaches it when its first delivery settles.
+// The interpreter queries this on its lane after Go and HandlePendingEvents and
+// publishes the acknowledgement once. The invocation never publishes submission
+// events. Completion before this milestone settles the pending submission instead.
+// ReadyToAcknowledge must be a pure read; callbacks only collect facts and request
+// event processing, so they cannot change the milestone directly.
+type SubmissionAcknowledgement interface {
+	ReadyToAcknowledge() bool
+}
+
 // InvocationEventHandler is optional for invocations that coordinate work started
 // as part of their own execution. A loop may send participant work, wait for its
 // completion, run a condition command, and react to that result. Future blocks

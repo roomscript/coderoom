@@ -79,7 +79,7 @@ func commandSubmissionEvent(submission *monolith.CommandSubmission, err error) E
 func (p *invocationPublication) publishFinal(submissionPending bool, result runtime.CommandResult, events ...Event) {
 	submission := p.submission
 	_, definition := submission.Statement.Value.(promptlang.UserDefinition)
-	if isDeliveryStatement(submission.Statement) || definition {
+	if isDeliveryStatement(submission.Statement) || definition || submissionPending {
 		if submissionPending {
 			events = append(events, commandSubmissionEvent(submission, result.Err))
 		} else if result.Err != nil {

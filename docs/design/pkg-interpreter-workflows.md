@@ -1175,3 +1175,20 @@ removed. Input records precede causal projection, then dispatch publishes before
 a direct submission outcome. Waiting submissions acknowledge retention and report later failures as
 operation failures. Edit, discard, interrupt and shutdown share the existing
 interpreter-owned lifecycle and resource cleanup.
+
+
+Loop migration admission and acknowledgement boundaries:
+
+The interpreter enforces one active modular loop by inspecting its pending
+invocations before preparation. Condition resolution and loop phases remain std
+responsibilities. No separate reservation or active-loop lifetime is retained.
+The public loop still uses the legacy path until its std implementation is ready.
+
+An optional runtime.SubmissionAcknowledgement supplies a pure ReadyToAcknowledge query
+for a submission milestone after launch. The interpreter checks it after Go and
+HandlePendingEvents, acknowledges once, and keeps the invocation running.
+Completion before the milestone settles the pending submission using its result;
+shutdown likewise reports failure rather than leaving the submission pending.
+The loop will reach this milestone after its first delivery settles. Commands
+without this interface keep their existing acknowledgement behavior. Commands
+never publish submission events through the intermediate publication capability.

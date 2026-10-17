@@ -265,6 +265,13 @@ provider batches before/after-causal-event sequences so intermediate updates and
 final output cannot overwrite one another. A cached child shell result is not
 replayed when final output contains no new shell record. The monolith remains a
 temporary publication mechanism removed with fallback at checkpoint 9.
+Loop admission/acknowledgement boundaries are implemented as an agreed substep:
+the interpreter checks pending modular loops before preparation, with no separate
+reservation state. Optional runtime.SubmissionAcknowledgement.ReadyToAcknowledge supplies
+a pure milestone query after Go/event handling; the interpreter acknowledges once
+or settles a still-pending submission at completion/shutdown. Public loop execution
+remains legacy until the std implementation is ready. Boundary tests use a narrow
+loop invocation fake, including pre-Prepare rejection and admission after settlement.
 Next: implement loop using the agreed capabilities and revisit the provisional
 event-handling flow with that concrete implementation.
 

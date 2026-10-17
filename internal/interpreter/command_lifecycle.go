@@ -12,9 +12,10 @@ import (
 )
 
 type pendingInvocation struct {
-	lifecycle         *runtime.InvocationLifecycle
-	publication       *invocationPublication
-	submissionPending bool
+	lifecycle           *runtime.InvocationLifecycle
+	publication         *invocationPublication
+	submissionPending   bool
+	submissionMilestone runtime.SubmissionAcknowledgement
 }
 
 // The new interpreter owns this algorithm and all lifecycle state. The monolith
@@ -34,17 +35,13 @@ func (i *Interpreter) executeCommand(command runtime.Command, statement promptla
 	if !send && !named {
 		publication.publishInput(nil)
 	}
+	if err := i.checkCommandAdmission(statement); err != nil {
+		publication.publishSubmission(err)
+		return
+	}
 	invocation, err := command.Prepare(statement, submission.Context)
 	if err != nil {
-		if invocation != nil {
-			invocation.Close()
-		}
-		var undefined promptlang.UndefinedCommandError
-		if named && errors.As(err, &undefined) {
-			publication.rejectUnknown(statement.Value.(promptlang.UserCommand).Name.Value, err)
-			return
-		}
-		publication.publishSubmission(fmt.Errorf("prepare command: %w", err))
+		i.rejectCommandPreparation(publication, invocation, err)
 		return
 	}
 	if send || named {
@@ -78,7 +75,8 @@ func (i *Interpreter) startCommand(invocation runtime.Invocation, publication *i
 	send := isDeliveryStatement(statement)
 	pending := i.invocations[id]
 	_, definition := statement.Value.(promptlang.UserDefinition)
-	pending.submissionPending = definition || (send && !enteredWaiting)
+	pending.submissionMilestone, _ = invocation.(runtime.SubmissionAcknowledgement)
+	pending.submissionPending = definition || (send && !enteredWaiting) || pending.submissionMilestone != nil
 	i.invocations[id] = pending
 	if enteredWaiting {
 		i.retainStage(id, statement, invocation.Staging())
@@ -86,6 +84,7 @@ func (i *Interpreter) startCommand(invocation runtime.Invocation, publication *i
 	if !pending.submissionPending {
 		publication.publishSubmission(nil)
 	}
+	i.acknowledgeCommandMilestone(id)
 	// Settle already-queued synchronous results before another input is admitted.
 	// Start and acknowledgement still precede settlement; callbacks never settle work.
 	i.completeQueuedCommand(id, results)
@@ -105,6 +104,7 @@ func (i *Interpreter) processCommandEvents(id uint64) {
 		return
 	}
 	pending.lifecycle.ProcessEvents()
+	i.acknowledgeCommandMilestone(id)
 	i.updateStage(id)
 }
 
@@ -156,4 +156,45 @@ type invocationEventProcessing struct {
 
 func (r invocationEventProcessing) RequestEventProcessing() {
 	_ = r.interpreter.fallback.Schedule(func() { r.interpreter.processCommandEvents(r.id) })
+}
+
+// Loop admission is interpreter policy, independent of condition resolution and
+// the workflow inside std. The pending map already owns invocation lifetime.
+func (i *Interpreter) checkCommandAdmission(statement promptlang.ParsedStatement) error {
+	if _, loop := statement.Value.(promptlang.Loop); !loop {
+		return nil
+	}
+	for _, pending := range i.invocations {
+		if _, loop := pending.publication.submission.Statement.Value.(promptlang.Loop); loop {
+			return errors.New("a loop is already active")
+		}
+	}
+	return nil
+}
+
+func (i *Interpreter) acknowledgeCommandMilestone(id uint64) {
+	pending, ok := i.invocations[id]
+	if !ok || !pending.submissionPending || pending.submissionMilestone == nil {
+		return
+	}
+	if !pending.lifecycle.IsRunning() || !pending.submissionMilestone.ReadyToAcknowledge() {
+		return
+	}
+	pending.submissionPending = false
+	i.invocations[id] = pending
+	pending.publication.publishSubmission(nil)
+}
+
+func (i *Interpreter) rejectCommandPreparation(publication *invocationPublication, invocation runtime.Invocation, err error) {
+	if invocation != nil {
+		invocation.Close()
+	}
+	statement := publication.submission.Statement
+	named, isNamed := statement.Value.(promptlang.UserCommand)
+	var undefined promptlang.UndefinedCommandError
+	if isNamed && errors.As(err, &undefined) {
+		publication.rejectUnknown(named.Name.Value, err)
+		return
+	}
+	publication.publishSubmission(fmt.Errorf("prepare command: %w", err))
 }
