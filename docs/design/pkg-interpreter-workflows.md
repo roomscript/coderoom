@@ -1208,10 +1208,20 @@ phases, publishes status/condition output and launches subsequent work, then
 returns without waiting. Completion during dispatch is retained until delivery
 supplies its ExecutionID. Normal completion must match that ID and participant
 instance and reach room history before the condition starts. A working-to-idle
-transition ending that same execution without normal completion preserves the
-previous condition evaluation after cancellation. Unrelated idle or completion
+transition ending that same execution without a completion fact is treated as a
+rollback and also permits condition evaluation. Cancellation that produces a
+terminal flush follows the normal completion path: Session emits the matching
+completion fact before idle, and the loop waits for its room history. A real-Session
+regression verifies this ordering and that another participant becoming idle cannot
+start the loop condition. Unrelated idle or completion
 facts and replacement instances cannot advance the loop. Shell results carry
 iteration identity so stale callbacks cannot advance later work.
+
+The participant subscription reports crashes as ParticipantStatusChanged to
+StatusCrashed; this follows the same departure path as removal. The interpreter
+consumes completions queued synchronously by HandlePendingEvents before admitting
+another input, just as it does after Go. An input submitted in response to a final
+loop status therefore sees the previous invocation settled.
 
 Departure stops the invocation, including during condition evaluation. By explicit
 agreement this changes legacy observation behavior: shell results arriving after

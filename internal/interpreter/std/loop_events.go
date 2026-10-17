@@ -67,10 +67,6 @@ func (i *loopInvocation) collectParticipantEvent(event session.Event) {
 		if event.Alias == i.primary {
 			i.collect(event)
 		}
-	case session.AgentCrashed:
-		if event.Alias == i.primary {
-			i.collect(event)
-		}
 	}
 }
 
@@ -90,8 +86,6 @@ func (i *loopInvocation) HandlePendingEvents() {
 			i.acceptStatus(event)
 		case session.AgentStopped:
 			i.acceptDeparture("stopped")
-		case session.AgentCrashed:
-			i.acceptDeparture("crashed")
 		case loopConditionResult:
 			i.acceptConditionResult(event)
 		}
@@ -100,6 +94,10 @@ func (i *loopInvocation) HandlePendingEvents() {
 }
 
 func (i *loopInvocation) acceptStatus(event session.ParticipantStatusChanged) {
+	if event.To == participant.StatusCrashed {
+		i.acceptDeparture("crashed")
+		return
+	}
 	if event.To == participant.StatusWorking {
 		i.activeExecutionID = event.ActiveExecutionID
 		return

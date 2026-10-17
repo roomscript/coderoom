@@ -230,7 +230,7 @@ User command checkpoint:
 - Existing legacy handlers remain for direct monolith compatibility until removal
   at checkpoint 9. Registry ownership and public command execution have moved out.
 
-Current checkpoint: loop cutover is implemented; review its concrete event-processing flow before committing checkpoint 6.
+Current checkpoint: loop cutover and its event-processing review are complete; commit checkpoint 6, then continue with checkpoint 9.
 
 Checkpoint 6, first agreed substep: runtime.DeliveryCompleted now carries the
 ExecutionID returned by Session.Execute alongside the actual routing outcome,
@@ -278,23 +278,30 @@ HandlePendingEvents alone updates phases, publishes output and starts subsequent
 work. First delivery settlement supplies the acknowledgement milestone. Session
 still decides immediate delivery availability; loop staging remains out of scope.
 Normal completion must match the delivered ExecutionID and be recorded in room.
-An observed end of that same active execution without normal completion preserves
-condition evaluation after cancellation. Unrelated idle/completion and replacement
-instances cannot advance the loop. Condition results retain iteration identity.
+An observed end of that same active execution without normal completion permits
+condition evaluation after rollback. A real-Session cancellation regression proves
+that interruption with a terminal flush emits the matching completion before idle,
+waits for room history, and cannot be triggered by an unrelated participant's idle.
+Unrelated idle/completion and replacement instances cannot advance the loop.
+Condition results retain iteration identity. Crash handling consumes the actual
+participant-subscription StatusCrashed transition. Regressions cover all loop
+phases and a real reader crash followed by immediate loop admission. The interpreter
+drains synchronous event-handler completions before the next input, matching Go's
+existing settlement ordering.
 By explicit agreement, departure stops the invocation and late condition output
 is ignored; host-owned worker shutdown remains unchanged. Legacy loop code remains
 only for direct monolith callers until checkpoint 9. The concrete event-processing
-flow is ready for the deferred design review below before committing this cutover.
+flow has been reviewed and retained for checkpoint 6. The real-Session cancellation
+regression completes the agreed follow-up; the cutover is ready for commit.
 
-Deferred design review: the event-processing API is provisional. Revisit its
-clarity with the concrete loop implementation rather than extending the abstract
-API discussion now. Show the complete control flow together: subcommand callback
-collects an event -> requests interpreter attention -> interpreter calls
-HandlePendingEvents -> loop consumes collected facts and decides its next action
--> control returns to the interpreter without waiting for subcommand work.
-Review collector ownership, the parameterless handler, and whether the scheduling
-handoff is explicit enough. Agree on any API revisions before committing the loop
-migration; existing runtime-change approval requirements still apply.
+Event-processing review completed for checkpoint 6: retain the parameterless
+handler because the invocation owns its inbox and one processing turn can consume
+several collected facts. Empty or redundant processing requests are valid. The
+concrete flow is subcommand callback -> collect fact -> request attention ->
+interpreter checks identity -> lifecycle calls HandlePendingEvents -> loop decides
+its next action -> interpreter accepts completion and settles. During checkpoint 9,
+transfer temporary execution/publication mechanisms without moving loop policy
+into runtime. Runtime changes still require explicit agreement.
 
 Future handoff history selectors (latest, earlier, all) remain a separate feature;
 this checkpoint adds only the latest-output read required by current syntax.
@@ -410,7 +417,7 @@ the current package until a real consumer demonstrates a useful boundary.
   prove command resolution, including definitions
   and named invocation. Preserve asynchronous launch, result publication,
   cancellation and stale-result behavior. These become the capabilities loop uses.
-- [ ] 6. Migrate loop with its current delivery behavior: inject delivery,
+- [x] 6. Migrate loop with its current delivery behavior: inject delivery,
   participant facts, shell and command resolution; test with narrow fakes rather
   than a fake complete Session. Establish participant-instance and delivered-turn
   completion identity. Cover unrelated idle/turn events, cancellation, same-alias

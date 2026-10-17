@@ -70,7 +70,7 @@ type loopInvocation struct {
 	executionID       session.ExecutionID
 	activeExecutionID session.ExecutionID
 	// Presence means this execution ended; true means an actual completion that
-	// must also reach room history. False preserves evaluation after cancellation.
+	// must also reach room history. False denotes rollback without a terminal completion.
 	work        map[session.ExecutionID]bool
 	departure   string
 	delivery    *runtime.Delivery

@@ -198,7 +198,7 @@ func TestLoop_completionAndDeparture(t *testing.T) {
 	})
 }
 
-func TestLoop_cancelledWorkAndReplacement(t *testing.T) {
+func TestLoop_abortedWorkAndReplacement(t *testing.T) {
 	p := newLoopProof(t, "1")
 	p.deliver(41, session.DeliveryDelivered)
 	replacement := participant.Alias{Name: p.primary.Name}
@@ -211,7 +211,7 @@ func TestLoop_cancelledWorkAndReplacement(t *testing.T) {
 	p.host.listener(session.ParticipantStatusChanged{Alias: p.primary, From: participant.StatusWorking, To: participant.StatusIdle})
 	p.handler.HandlePendingEvents()
 	if len(p.shell.programs) != 1 {
-		t.Fatal("cancellation of own work did not evaluate condition")
+		t.Fatal("rollback of own work did not evaluate condition")
 	}
 }
 
@@ -236,7 +236,7 @@ func TestLoop_failedDeliveryAndProtocol(t *testing.T) {
 
 func TestLoop_departureDuringDispatch(t *testing.T) {
 	p := newLoopProof(t, "1")
-	p.host.listener(session.AgentCrashed{Alias: p.primary})
+	p.host.listener(session.ParticipantStatusChanged{Alias: p.primary, To: participant.StatusCrashed})
 	p.handler.HandlePendingEvents()
 	if len(p.results) != 0 {
 		t.Fatal("departure bypassed delivery outcome")
@@ -274,5 +274,48 @@ func assertLoopRetry(t *testing.T, p *loopProof) {
 	command := p.host.scopes[1].command.(session.SendToParticipantCommand)
 	if !strings.Contains(command.Message, "evidence") {
 		t.Fatal("retry prompt lost condition evidence")
+	}
+}
+
+func TestLoop_crashStopsEachPhase(t *testing.T) {
+	for _, phase := range []string{"dispatch", "waiting", "condition"} {
+		t.Run(phase, func(t *testing.T) {
+			p := newLoopProof(t, "2")
+			if phase != "dispatch" {
+				p.deliver(41, session.DeliveryDelivered)
+			}
+			if phase == "condition" {
+				p.completeWork(41, true)
+			}
+			p.host.listener(session.ParticipantStatusChanged{Alias: p.primary, To: participant.StatusCrashed})
+			p.handler.HandlePendingEvents()
+			if phase == "dispatch" {
+				if len(p.results) != 0 {
+					t.Fatal("crash bypassed delivery settlement")
+				}
+				p.deliver(41, session.DeliveryDelivered)
+			}
+			if len(p.results) != 1 || p.results[0].Err != nil {
+				t.Fatal("crash did not stop loop")
+			}
+			last := p.publication.records[len(p.publication.records)-1]
+			if last.Text != "[loop] stopped: participant @ada crashed" {
+				t.Fatalf("last record=%+v", last)
+			}
+			p.invocation.Close()
+			assertLoopCrashStaysStopped(t, p)
+		})
+	}
+}
+
+func assertLoopCrashStaysStopped(t *testing.T, p *loopProof) {
+	t.Helper()
+	count := len(p.publication.records)
+	for _, callback := range p.shell.callbacks {
+		callback(shell.Result{Status: shell.StatusFailure})
+	}
+	p.handler.HandlePendingEvents()
+	if len(p.results) != 1 || len(p.publication.records) != count || len(p.host.scopes) != 1 || !p.host.unsubscribed {
+		t.Fatal("crashed loop retained resources or accepted late output")
 	}
 }

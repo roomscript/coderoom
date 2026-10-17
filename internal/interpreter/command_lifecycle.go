@@ -14,6 +14,7 @@ import (
 type pendingInvocation struct {
 	lifecycle           *runtime.InvocationLifecycle
 	publication         *invocationPublication
+	results             <-chan runtime.CommandResult
 	submissionPending   bool
 	submissionMilestone runtime.SubmissionAcknowledgement
 }
@@ -57,8 +58,8 @@ func (i *Interpreter) startCommand(invocation runtime.Invocation, publication *i
 	if i.invocations == nil {
 		i.invocations = make(map[uint64]pendingInvocation)
 	}
-	i.invocations[id] = pendingInvocation{lifecycle: lifecycle, publication: publication}
 	results := make(chan runtime.CommandResult, 1)
+	i.invocations[id] = pendingInvocation{lifecycle: lifecycle, publication: publication, results: results}
 	enteredWaiting, err := lifecycle.Start(func(result runtime.CommandResult) {
 		select {
 		case results <- result:
@@ -105,6 +106,9 @@ func (i *Interpreter) processCommandEvents(id uint64) {
 	}
 	pending.lifecycle.ProcessEvents()
 	i.acknowledgeCommandMilestone(id)
+	// Event handlers can complete synchronously, just like Go. Consume their
+	// queued result before admitting input triggered by their published output.
+	i.completeQueuedCommand(id, pending.results)
 	i.updateStage(id)
 }
 
