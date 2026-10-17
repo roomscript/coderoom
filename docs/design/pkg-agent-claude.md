@@ -1,7 +1,7 @@
 # Package design: internal/agent/claude
 
-Status: **draft (phase 2 gap analysis)**. Decisions agreed on 16 October 2026
-are marked **Decided**. Evidence: `docs/playground/poc-claude-stream-json.md` (E1 to E10).
+Status: **implemented, not wired into the app yet**. Decisions agreed on
+16 October 2026 are marked **Decided**. Evidence: `docs/playground/poc-claude-stream-json.md` (E1 to E10).
 
 Scope of the current step: a new `agent.Agent` implementation in
 `internal/agent/claude`, with **no changes to other packages**. Where the
@@ -97,13 +97,14 @@ The adapter owns the turn boundary: every turn ends with exactly one `result`.
   `{StreamID: "claude:turn", Mode: ModeFlush, Content: Output{}}` after
   flushing any open item streams.
 - `SendNotice` returns `claude:notice-turn`, flushed the same way, as codex.
-- The replayed user message (`isReplay`, about 1 s after the write) decides
+- The replayed user message (`isReplay: true`, about 1 s after the write) decides
   whose turn it is: a turn is ours once Claude replays the exact prompt `Send`
   or `SendNotice` wrote. Recordings show the order `system/init`, replay, first output in
   every turn, so output before the replay belongs to a turn Claude started on
   its own (see [Self-started turns](#self-started-turns)). A turn that ends
   before any replay or output is ours only if it failed while our prompt was
-  pending (an API error can end it before the replay).
+  pending (an API error can end it before the replay). A `user` message with
+  string content but no `isReplay` (a sub-agent's prompt) is ignored.
 
 This answers open question 8: the anchor is adapter-local and needs no protocol
 id.
@@ -130,6 +131,13 @@ Stream IDs are built from Claude ids and are opaque to consumers.
 | `result{is_error: true}` | `Log` with `errors[]` / `terminal_reason` (as `pkg-agent-codex-turn-errors.md`), then the anchor flush. `aborted_streaming` and `aborted_tools` (interrupted during an approval) log "turn interrupted" |
 | tool call still open at `result` (cut off by an interrupt) | file change: `failed`; command: `ExitCode` -1; then the flush |
 | `system/init`, `system/status`, `rate_limit_event`, `system/thinking_tokens` | dropped (observer only) |
+| `system/permission_denied` | dropped; the decline already shows as a `declined` item |
+| stderr line | `Log` `ModeSingle` |
+| process exit | `Read()` error |
+
+The partial `stream_event`s are the primary source for text and reasoning; the
+complete `assistant` message per block is the source for `tool_use` input
+(complete JSON instead of `input_json_delta` fragments).
 
 ### Bash results and exit codes
 
@@ -144,13 +152,6 @@ Claude reports a Bash result in one of two shapes (recorded on 2.1.301):
 
 The code comes from human-readable text in the `tool_result` content, not a
 protocol field. A format change falls back to -1, never to a wrong code.
-| `system/permission_denied` | dropped; the decline already shows as a `declined` item |
-| stderr line | `Log` `ModeSingle` |
-| process exit | `Read()` error |
-
-The partial `stream_event`s are the primary source for text and reasoning; the
-complete `assistant` message per block is the source for `tool_use` input
-(complete JSON instead of `input_json_delta` fragments).
 
 ---
 
@@ -206,7 +207,9 @@ is written under the project's `.claude/`.
   cancels the request's context. The end of the turn cancels whatever is
   left, and `Stop()` and process exit cancel everything. A withdrawn request
   is not answered (Claude ignores late answers), is not logged as declined,
-  and is dropped without asking the listener if it was still queued.
+  and is dropped without asking the listener if it was still queued. This is
+  best effort: a withdrawal that lands between the worker's check and its
+  write still gets an answer, which Claude ignores.
   `Stop()` waits for the worker.
 - A denied file change is reported as `declined`, not `failed`. The adapter
   records each tool call it denies before answering; the tool result cannot
@@ -256,7 +259,9 @@ Adapter-only approach:
    replayed is self-started (see [Turn anchor](#turn-anchor)). The adapter
    suppresses its stream messages, emits one `Log` summarising it ("agent
    started a turn on its own: …" with the final text), and returns
-   `ErrTurnInProgress` from `Send*` until it ends. Ownership is decided from
+   `ErrTurnInProgress` from `Send*` until it ends. Permission requests in
+   that turn are denied without asking the listener, with a `Log`: the room
+   shows the participant as idle, so nobody could judge them. Ownership is decided from
    the replay, not from local state, so a self-started turn that begins just
    after `Send` is not mistaken for the reply.
 

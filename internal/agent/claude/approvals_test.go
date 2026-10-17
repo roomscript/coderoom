@@ -188,6 +188,33 @@ func TestPermission_declinedWithoutValidDecision(t *testing.T) {
 	}
 }
 
+func TestPermission_selfStartedTurnDenied(t *testing.T) {
+	obs := &recordingObserver{}
+	l := &fakeListener{choice: agent.OptionAccept}
+	// After the handshake Claude starts a turn on its own and asks to run a
+	// command; the turn ends once the request is answered.
+	c := startPeer(t, peerScript(
+		[]string{lineInitOK, lineSystemInit, toolUseLine("toolu_1", "Bash", `{"command":"ls"}`),
+			canUseToolLine("Bash", `{"command":"ls"}`, `[]`)},
+		[]string{lineResultOK},
+	), WithApprovalListener(l), WithObserver(obs))
+
+	msgs := readUntil(t, c, func(m agent.Message) bool {
+		log, ok := m.Content.(agent.Log)
+		return ok && strings.Contains(log.Text, "on its own:")
+	})
+	if !slices.ContainsFunc(msgs[:len(msgs)-1], isLog) {
+		t.Errorf("messages = %+v, want a log for the denial before the turn summary", msgs)
+	}
+	sent := obs.sentLines()
+	if answer := parseSentPermission(t, sent[len(sent)-1]); answer.Behavior != "deny" || answer.Message != selfTurnMessage {
+		t.Errorf("response = %+v, want deny for a self-started turn", answer)
+	}
+	if n := len(l.requests()); n != 0 {
+		t.Errorf("listener called %d times, want 0", n)
+	}
+}
+
 func TestPermission_askUserQuestionNotForwarded(t *testing.T) {
 	l := &fakeListener{choice: agent.OptionAccept}
 	sent, _ := runPermission(t, canUseToolLine("AskUserQuestion", `{"questions":[]}`, `[]`), WithApprovalListener(l))
@@ -251,11 +278,17 @@ func TestPermission_declinedFileChangeEndToEnd(t *testing.T) {
 }
 
 // firstBlocksListener blocks on its first request until the request is
-// withdrawn, then accepts every later one.
+// withdrawn, then accepts every later one. asked is closed when the first
+// request arrives.
 type firstBlocksListener struct {
 	mu        sync.Mutex
 	calls     int
+	asked     chan struct{}
 	withdrawn chan struct{}
+}
+
+func newFirstBlocksListener() *firstBlocksListener {
+	return &firstBlocksListener{asked: make(chan struct{}), withdrawn: make(chan struct{})}
 }
 
 func (l *firstBlocksListener) Decide(ctx context.Context, _ agent.ApprovalRequest) (agent.ApprovalDecision, error) {
@@ -266,6 +299,7 @@ func (l *firstBlocksListener) Decide(ctx context.Context, _ agent.ApprovalReques
 	if !first {
 		return agent.ApprovalDecision{Choice: agent.OptionAccept}, nil
 	}
+	close(l.asked)
 	<-ctx.Done()
 	close(l.withdrawn)
 	return agent.ApprovalDecision{}, fmt.Errorf("decide: %w", ctx.Err())
@@ -273,11 +307,12 @@ func (l *firstBlocksListener) Decide(ctx context.Context, _ agent.ApprovalReques
 
 func TestPermission_pendingRequestEndsWithItsTurn(t *testing.T) {
 	obs := &recordingObserver{}
-	l := &firstBlocksListener{withdrawn: make(chan struct{})}
+	l := newFirstBlocksListener()
 	c := startPeer(t, peerScript(
 		[]string{lineInitOK},
-		// The turn ends while perm-1 is still pending, as after an interrupt.
-		[]string{lineSystemInit, replayLine("one"), canUseToolLineID("perm-1", "Bash", `{"command":"ls"}`, `[]`), peerPause, lineResultOK},
+		[]string{lineSystemInit, replayLine("one"), canUseToolLineID("perm-1", "Bash", `{"command":"ls"}`, `[]`)},
+		// The interrupt ends the turn while perm-1 is still pending.
+		[]string{lineResultOK},
 		[]string{lineSystemInit, replayLine("two"), canUseToolLineID("perm-2", "Bash", `{"command":"ls"}`, `[]`)},
 		[]string{lineResultOK},
 	), WithApprovalListener(l), WithObserver(obs))
@@ -285,12 +320,12 @@ func TestPermission_pendingRequestEndsWithItsTurn(t *testing.T) {
 	if _, err := c.Send("one"); err != nil {
 		t.Fatal(err)
 	}
-	readUntil(t, c, isAnchorFlush)
-	select {
-	case <-l.withdrawn:
-	case <-time.After(5 * time.Second):
-		t.Fatal("pending request not withdrawn at the end of its turn")
+	waitClosed(t, l.asked, "listener not asked for perm-1")
+	if err := c.Interrupt(); err != nil {
+		t.Fatal(err)
 	}
+	readUntil(t, c, isAnchorFlush)
+	waitClosed(t, l.withdrawn, "pending request not withdrawn at the end of its turn")
 	if _, err := c.Send("two"); err != nil {
 		t.Fatal(err)
 	}
@@ -308,40 +343,48 @@ func TestPermission_pendingRequestEndsWithItsTurn(t *testing.T) {
 }
 
 func TestPermission_withdrawnByClaude(t *testing.T) {
-	l := &firstBlocksListener{withdrawn: make(chan struct{})}
+	l := newFirstBlocksListener()
 	// Claude withdraws perm-1 while the listener waits; the turn goes on.
 	c := startPeer(t, peerScript(
 		[]string{lineInitOK},
-		[]string{lineSystemInit, replayLine("go"), canUseToolLine("Bash", `{"command":"ls"}`, `[]`), peerPause, cancelLine("perm-1")},
+		[]string{lineSystemInit, replayLine("go"), canUseToolLine("Bash", `{"command":"ls"}`, `[]`)},
+		// Sent once the test interrupts, after the listener has the request.
+		[]string{cancelLine("perm-1")},
 	), WithApprovalListener(l))
 
 	if _, err := c.Send("go"); err != nil {
 		t.Fatal(err)
 	}
-	select {
-	case <-l.withdrawn:
-	case <-time.After(5 * time.Second):
-		t.Fatal("listener still waiting after control_cancel_request")
+	waitClosed(t, l.asked, "listener not asked for perm-1")
+	if err := c.Interrupt(); err != nil {
+		t.Fatal(err)
 	}
+	waitClosed(t, l.withdrawn, "listener still waiting after control_cancel_request")
 }
 
 func TestPermission_withdrawnWhileQueuedIsNotAsked(t *testing.T) {
 	obs := &recordingObserver{}
-	l := &firstBlocksListener{withdrawn: make(chan struct{})}
+	l := newFirstBlocksListener()
 	// perm-2 waits behind perm-1 and is withdrawn before its turn comes.
 	// perm-3 follows; the worker handles requests in order, so its answer
 	// means perm-2 has been dealt with.
 	c := startPeer(t, peerScript(
 		[]string{lineInitOK},
+		[]string{lineSystemInit, replayLine("go"), canUseToolLineID("perm-1", "Bash", `{"command":"ls"}`, `[]`)},
+		// Sent once the test interrupts, after the listener has perm-1.
 		[]string{
-			lineSystemInit, replayLine("go"), canUseToolLineID("perm-1", "Bash", `{"command":"ls"}`, `[]`), peerPause,
 			canUseToolLineID("perm-2", "Bash", `{"command":"pwd"}`, `[]`), cancelLine("perm-2"), cancelLine("perm-1"),
 			canUseToolLineID("perm-3", "Bash", `{"command":"id"}`, `[]`),
 		},
+		// Sent after the answer to perm-3.
 		[]string{lineResultOK},
 	), WithApprovalListener(l), WithObserver(obs))
 
 	if _, err := c.Send("go"); err != nil {
+		t.Fatal(err)
+	}
+	waitClosed(t, l.asked, "listener not asked for perm-1")
+	if err := c.Interrupt(); err != nil {
 		t.Fatal(err)
 	}
 	readUntil(t, c, isAnchorFlush)

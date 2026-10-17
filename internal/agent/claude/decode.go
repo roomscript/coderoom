@@ -245,6 +245,9 @@ func (d *decoder) decodeUser(raw []byte) (decoded, error) {
 	}
 	var prompt string
 	if json.Unmarshal(line.Message.Content, &prompt) == nil {
+		if !line.IsReplay {
+			return decoded{}, nil // a prompt we did not write, such as a sub-agent's
+		}
 		return decoded{signal: signalReplay, replay: prompt}, nil
 	}
 	var blocks []toolResultBlock
@@ -267,6 +270,8 @@ func (d *decoder) finishTool(block toolResultBlock, toolUseResult json.RawMessag
 		return nil
 	}
 	delete(d.tools, block.ToolUseID)
+	// Asked for every tool, not only file changes: asking also forgets the
+	// denial.
 	declined := d.declined(block.ToolUseID)
 
 	if tc.kind == toolKindCommand {

@@ -29,16 +29,23 @@ const (
 )
 
 // turnOwner says whose turn Claude is running. A turn is ours once Claude
-// replays the prompt Send wrote; output before that replay belongs to a turn
-// Claude started on its own.
+// replays the prompt Send or SendNotice wrote; output before that replay
+// belongs to a turn Claude started on its own.
 type turnOwner int
 
 const (
 	ownerNone    turnOwner = iota // no turn running
 	ownerUnknown                  // started, owner not known yet
 	ownerPrompt                   // answering the prompt from Send
+	ownerNotice                   // answering the notice from SendNotice
 	ownerSelf                     // started by Claude on its own
 )
+
+// pendingPrompt is a prompt written to Claude and not replayed yet.
+type pendingPrompt struct {
+	text   string
+	notice bool // written by SendNotice
+}
 
 // Client implements agent.Agent for Claude Code. Calls must not be made
 // concurrently, except Stop() which may be called from another goroutine to
@@ -64,14 +71,9 @@ type Client struct {
 	reqSeq  int // guarded by writeMu
 
 	turn struct {
-		mu    sync.Mutex
-		owner turnOwner
-		// prompt is the prompt Send or SendNotice wrote, until Claude
-		// replays it.
-		prompt        string
-		promptPending bool
-		pendingNotice bool // the pending prompt is a notice
-		notice        bool // the running turn answers a notice
+		mu      sync.Mutex
+		owner   turnOwner
+		pending *pendingPrompt // nil when no prompt waits for its replay
 	}
 
 	// notice filters the reply of a notice turn. Stdout reader goroutine
@@ -297,23 +299,29 @@ func (c *Client) admitPrompt(prompt string, notice bool) error {
 	}
 	c.turn.mu.Lock()
 	defer c.turn.mu.Unlock()
-	if c.turn.owner != ownerNone || c.turn.promptPending {
+	if c.turn.owner != ownerNone || c.turn.pending != nil {
 		return agent.ErrTurnInProgress
 	}
-	c.turn.prompt, c.turn.promptPending, c.turn.pendingNotice = prompt, true, notice
+	c.turn.pending = &pendingPrompt{text: prompt, notice: notice}
 	return nil
 }
 
 func (c *Client) dropPrompt() {
 	c.turn.mu.Lock()
 	defer c.turn.mu.Unlock()
-	c.turn.prompt, c.turn.promptPending = "", false
+	c.turn.pending = nil
+}
+
+func (c *Client) currentOwner() turnOwner {
+	c.turn.mu.Lock()
+	defer c.turn.mu.Unlock()
+	return c.turn.owner
 }
 
 func (c *Client) isIdle() bool {
 	c.turn.mu.Lock()
 	defer c.turn.mu.Unlock()
-	return c.turn.owner == ownerNone && !c.turn.promptPending
+	return c.turn.owner == ownerNone && c.turn.pending == nil
 }
 
 func (c *Client) writeJSON(v any) error {

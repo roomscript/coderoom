@@ -160,7 +160,7 @@ func (c *Client) noteTurnStart() {
 func (c *Client) notePromptReplayed(text string) {
 	c.turn.mu.Lock()
 	defer c.turn.mu.Unlock()
-	if c.turn.owner == ownerUnknown && c.turn.promptPending && text == c.turn.prompt {
+	if c.turn.owner == ownerUnknown && c.turn.pending != nil && text == c.turn.pending.text {
 		c.claimPromptLocked()
 	}
 }
@@ -169,8 +169,10 @@ func (c *Client) notePromptReplayed(text string) {
 // prompt. c.turn.mu must be held.
 func (c *Client) claimPromptLocked() {
 	c.turn.owner = ownerPrompt
-	c.turn.notice = c.turn.pendingNotice
-	c.turn.prompt, c.turn.promptPending, c.turn.pendingNotice = "", false, false
+	if c.turn.pending.notice {
+		c.turn.owner = ownerNotice
+	}
+	c.turn.pending = nil
 	c.notice.reset()
 }
 
@@ -182,29 +184,28 @@ func (c *Client) deliver(msgs []agent.Message) {
 	if len(msgs) == 0 {
 		return
 	}
-	owner, notice := c.claimOutput()
-	switch {
-	case owner == ownerSelf:
+	switch c.claimOutput() {
+	case ownerSelf:
 		for _, m := range msgs {
 			if out, ok := m.Content.(agent.Output); ok {
 				c.selfTurnText.WriteString(out.Text)
 			}
 		}
-	case notice:
+	case ownerNotice:
 		c.queue.push(c.notice.filter(msgs)...)
-	default:
+	case ownerNone, ownerUnknown, ownerPrompt:
 		c.queue.push(msgs...)
 	}
 }
 
-func (c *Client) claimOutput() (turnOwner, bool) {
+func (c *Client) claimOutput() turnOwner {
 	c.turn.mu.Lock()
 	defer c.turn.mu.Unlock()
 	if c.turn.owner == ownerUnknown {
 		c.turn.owner = ownerSelf
 		c.selfTurnText.Reset()
 	}
-	return c.turn.owner, c.turn.owner == ownerPrompt && c.turn.notice
+	return c.turn.owner
 }
 
 // endTurn closes the turn and withdraws its pending approvals. The turn is
@@ -212,11 +213,11 @@ func (c *Client) claimOutput() (turnOwner, bool) {
 // reaction to the flush is accepted.
 func (c *Client) endTurn(result resultLine) {
 	c.endApprovalTurn()
-	owner, notice := c.closeTurn(result)
+	owner := c.closeTurn(result)
 	switch owner {
-	case ownerPrompt:
+	case ownerPrompt, ownerNotice:
 		anchor := turnStreamID
-		if notice {
+		if owner == ownerNotice {
 			anchor = noticeTurnStreamID
 			c.queue.push(c.notice.finish()...)
 		}
@@ -235,20 +236,20 @@ func (c *Client) endTurn(result resultLine) {
 // any replay or output is ours only if it failed while our prompt was
 // pending: Claude replays a prompt before answering it, so a failure is the
 // only way our turn ends without one.
-func (c *Client) closeTurn(result resultLine) (owner turnOwner, notice bool) {
+func (c *Client) closeTurn(result resultLine) turnOwner {
 	c.turn.mu.Lock()
 	defer c.turn.mu.Unlock()
 	if c.turn.owner == ownerUnknown {
-		if c.turn.promptPending && result.IsError {
+		if c.turn.pending != nil && result.IsError {
 			c.claimPromptLocked()
 		} else {
 			c.turn.owner = ownerSelf
 			c.selfTurnText.Reset()
 		}
 	}
-	owner, notice = c.turn.owner, c.turn.notice
-	c.turn.owner, c.turn.notice = ownerNone, false
-	return owner, notice
+	owner := c.turn.owner
+	c.turn.owner = ownerNone
+	return owner
 }
 
 func describeTurnError(r resultLine) string {

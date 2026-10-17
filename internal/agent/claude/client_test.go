@@ -15,23 +15,16 @@ import (
 
 const lineInitOK = `{"type":"control_response","response":{"subtype":"success","request_id":"coderoom-init","response":{}}}`
 
-// peerPause, as a step line, makes the peer wait before the next line, for
-// tests that need the client to act first (an approval reaching the
-// listener).
-const peerPause = "!pause"
-
 // peerScript returns a shell script for a fake claude process. Each step
 // reads one line from stdin, then prints its lines. After the last step the
-// peer drains stdin, so it exits when the client closes stdin.
+// peer drains stdin, so it exits when the client closes stdin. A test that
+// must act before the peer goes on starts a new step and then writes a line,
+// usually with Interrupt.
 func peerScript(steps ...[]string) string {
 	var sb strings.Builder
 	for _, step := range steps {
 		sb.WriteString("read -r _; ")
 		for _, l := range step {
-			if l == peerPause {
-				sb.WriteString("sleep 0.3; ")
-				continue
-			}
 			sb.WriteString("printf '%s\\n' '" + l + "'; ")
 		}
 	}
@@ -49,6 +42,16 @@ func startPeer(t *testing.T, script string, opts ...Option) *Client {
 	}
 	t.Cleanup(func() { _ = c.Stop() })
 	return c
+}
+
+// waitClosed fails the test if ch is not closed in time.
+func waitClosed(t *testing.T, ch <-chan struct{}, failure string) {
+	t.Helper()
+	select {
+	case <-ch:
+	case <-time.After(5 * time.Second):
+		t.Fatal(failure)
+	}
 }
 
 // readUntil reads messages until stop returns true, failing after a timeout.
@@ -190,14 +193,19 @@ func TestSend_turn(t *testing.T) {
 func TestSend_turnInProgress(t *testing.T) {
 	c := startPeer(t, peerScript(
 		[]string{lineInitOK},
-		[]string{lineSystemInit, replayLine("first"), lineResultOK},
+		[]string{lineSystemInit, replayLine("first")},
+		// The turn ends only after the test interrupts it.
+		[]string{lineResultOK},
 	))
 
 	if _, err := c.Send("first"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := c.Send("second"); !errors.Is(err, agent.ErrTurnInProgress) {
-		t.Fatalf("second Send error = %v, want ErrTurnInProgress", err)
+		t.Errorf("second Send error = %v, want ErrTurnInProgress", err)
+	}
+	if err := c.Interrupt(); err != nil {
+		t.Fatal(err)
 	}
 	readUntil(t, c, isAnchorFlush)
 	if _, err := c.Send("after the turn"); err != nil {

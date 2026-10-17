@@ -91,6 +91,7 @@ type userLine struct {
 		Content json.RawMessage `json:"content"`
 	} `json:"message"`
 	ToolUseResult json.RawMessage `json:"tool_use_result"`
+	IsReplay      bool            `json:"isReplay"`
 }
 
 type toolResultBlock struct {

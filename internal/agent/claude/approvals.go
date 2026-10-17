@@ -18,6 +18,9 @@ const (
 	// askInReplyMessage denies AskUserQuestion, which is disallowed but
 	// handled in case it still arrives.
 	askInReplyMessage = "Ask the question in your reply; the user will answer in the room."
+	// selfTurnMessage denies tools in a turn Claude started on its own: the
+	// room sees the participant as idle, so nobody could judge the request.
+	selfTurnMessage = "Tools are not available in a turn the user did not start."
 )
 
 var (
@@ -61,6 +64,11 @@ func (c *Client) endApprovalTurn() {
 func (c *Client) queuePermission(requestID string, tool canUseTool) {
 	if tool.ToolName == "AskUserQuestion" {
 		_ = c.writeJSON(newControlSuccess(requestID, permissionDeny{Behavior: "deny", Message: askInReplyMessage}))
+		return
+	}
+	if c.currentOwner() == ownerSelf {
+		_ = c.writeJSON(newControlSuccess(requestID, permissionDeny{Behavior: "deny", Message: selfTurnMessage}))
+		c.queue.push(logMessage("claude: denied " + tool.ToolName + " in a turn the agent started on its own"))
 		return
 	}
 	ctx, cancel := context.WithCancel(c.approvals.turn.ctx)

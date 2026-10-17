@@ -128,7 +128,9 @@ func isReplyOutput(m agent.Message) bool {
 func TestSendNotice_turnInProgress(t *testing.T) {
 	c := startPeer(t, peerScript(
 		[]string{lineInitOK},
-		[]string{lineSystemInit, replayLine("first"), lineResultOK},
+		[]string{lineSystemInit, replayLine("first")},
+		// The turn ends only after the test interrupts it.
+		[]string{lineResultOK},
 	))
 
 	if _, err := c.Send("first"); err != nil {
@@ -136,6 +138,9 @@ func TestSendNotice_turnInProgress(t *testing.T) {
 	}
 	if _, err := c.SendNotice("ada joined"); !errors.Is(err, agent.ErrTurnInProgress) {
 		t.Errorf("SendNotice during a turn: error = %v, want ErrTurnInProgress", err)
+	}
+	if err := c.Interrupt(); err != nil {
+		t.Fatal(err)
 	}
 	readUntil(t, c, isAnchorFlush)
 }
