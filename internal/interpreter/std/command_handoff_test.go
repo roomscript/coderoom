@@ -60,10 +60,10 @@ func TestHandoffCommand_waitsForCanonicalSourceTurn(t *testing.T) {
 			invocation, ctx := prepareHandoff(t, delivery, source)
 			lastCompletedExecutionIDs := completionIDs{delivery.views[0].Alias: source.completed}
 			ctx.CompletedExecutions = lastCompletedExecutionIDs
+			advances := 0
+			ctx.EventProcessing = eventProcessingRequestFunc(func() { advances++ })
 			lifecycle := runtime.NewInvocationLifecycle(invocation, ctx)
 			defer lifecycle.Close(errors.New("cleanup"))
-			advances := 0
-			lifecycle.RequestAdvance = func() { advances++ }
 			waiting, err := lifecycle.Start(func(runtime.CommandResult) {})
 			if err != nil || !waiting || source.reads != 0 {
 				t.Fatalf("Start = %v, %v; reads=%d", waiting, err, source.reads)
@@ -71,13 +71,13 @@ func TestHandoffCommand_waitsForCanonicalSourceTurn(t *testing.T) {
 			delivery.views[0].Status = participant.StatusIdle
 			delivery.queue = append(delivery.queue, session.ParticipantStatusChanged{Alias: delivery.views[0].Alias, From: status, To: participant.StatusIdle})
 			delivery.deliverEvents()
-			lifecycle.Advance()
+			lifecycle.ProcessEvents()
 			if delivery.launches != 0 || source.reads != 0 {
 				t.Fatal("idle launched before canonical projection")
 			}
 			// A reasoning flush or an older completed turn cannot satisfy this turn.
 			lastCompletedExecutionIDs[delivery.views[0].Alias] = source.completed
-			lifecycle.Advance()
+			lifecycle.ProcessEvents()
 			if delivery.launches != 0 {
 				t.Fatal("unrelated projection launched handoff")
 			}
@@ -97,7 +97,7 @@ func finishCompletedHandoff(t *testing.T, lifecycle *runtime.InvocationLifecycle
 	if lifecycle.DiscardWaiting() {
 		t.Fatal("discard defeated collected source readiness")
 	}
-	lifecycle.Advance()
+	lifecycle.ProcessEvents()
 	if delivery.launches != 1 || delivery.handoff.Source != source.source || source.reads != 1 {
 		t.Fatalf("handoff=%#v, reads=%d", delivery.handoff, source.reads)
 	}
@@ -242,7 +242,7 @@ func finishHandoffWait(t *testing.T, lifecycle *runtime.InvocationLifecycle, del
 		alias := delivery.views[index].Alias
 		delivery.queue = append(delivery.queue, session.AgentStopped{Alias: alias})
 		delivery.deliverEvents()
-		lifecycle.Advance()
+		lifecycle.ProcessEvents()
 		var unavailable *runtime.RequiredParticipantUnavailableError
 		if len(*results) != 1 || !errors.As((*results)[0].Err, &unavailable) || unavailable.Alias != alias {
 			t.Fatalf("results=%#v", results)
@@ -257,3 +257,7 @@ func (ids completionIDs) LastCompletedExecutionID(alias participant.Alias) parti
 }
 
 func (d *handoffDelivery) CreateExecution() runtime.SessionExecution { return d }
+
+type eventProcessingRequestFunc func()
+
+func (request eventProcessingRequestFunc) RequestEventProcessing() { request() }

@@ -72,9 +72,8 @@ func TestParticipantLifecycle_busySnapshotIgnoresDelayedOrdinaryReady(t *testing
 	host := &participantLifecycleHost{Session: s}
 	recorded := room.New()
 	t.Cleanup(recorded.Close)
-	lifecycle := runtime.NewInvocationLifecycle(probe, runtime.Context{Session: host, CompletedExecutions: recorded})
 	advances := make(chan struct{}, 16)
-	lifecycle.RequestAdvance = func() { advances <- struct{}{} }
+	lifecycle := runtime.NewInvocationLifecycle(probe, runtime.Context{Session: host, CompletedExecutions: recorded, EventProcessing: eventProcessingRequestFunc(func() { advances <- struct{}{} })})
 	defer lifecycle.Close(errors.New("cleanup"))
 	if _, err := lifecycle.Start(func(runtime.CommandResult) { t.Error("unexpected completion") }); err != nil {
 		t.Fatalf("busy snapshot caused premature launch failure: %v", err)
@@ -86,7 +85,7 @@ func TestParticipantLifecycle_busySnapshotIgnoresDelayedOrdinaryReady(t *testing
 	a.ch <- agent.Message{StreamID: mockTurnAnchor, Mode: agent.ModeFlush, Content: agent.Output{}}
 	select {
 	case <-advances:
-		lifecycle.Advance()
+		lifecycle.ProcessEvents()
 	case <-time.After(time.Second):
 		t.Fatal("later native idle transition did not request advancement")
 	}
@@ -95,7 +94,7 @@ func TestParticipantLifecycle_busySnapshotIgnoresDelayedOrdinaryReady(t *testing
 	}
 	completed := receiveLifecycleCompletion(t, observer.ch)
 	recorded.ApplyEvent(completed)
-	lifecycle.Advance()
+	lifecycle.ProcessEvents()
 	waitParticipantLifecycleSignal(t, probe.started)
 	lifecycle.Close(errors.New("cleanup"))
 	if probe.launches.Load() != 1 {
@@ -167,7 +166,7 @@ func TestParticipantLifecycle_idleFactDuringInitialReturnWins(t *testing.T) {
 	}
 	completed := receiveLifecycleCompletion(t, observer.ch)
 	recorded.ApplyEvent(completed)
-	lifecycle.Advance()
+	lifecycle.ProcessEvents()
 	waitParticipantLifecycleSignal(t, probe.started)
 	if probe.launches.Load() != 1 {
 		t.Fatal("post-snapshot readiness did not launch exactly once")
@@ -193,3 +192,7 @@ func receiveLifecycleCompletion(t *testing.T, events <-chan session.Event) sessi
 }
 
 func (h *participantLifecycleHost) CreateExecution() runtime.SessionExecution { return h }
+
+type eventProcessingRequestFunc func()
+
+func (request eventProcessingRequestFunc) RequestEventProcessing() { request() }

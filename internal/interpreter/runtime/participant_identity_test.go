@@ -53,8 +53,8 @@ func TestParticipantSubscription_ignoresEventsFromSameNamePredecessor(t *testing
 			old, current := newTestAlias("ada"), newTestAlias("ada")
 			host := &participantHost{views: []participant.View{{Alias: current, Status: participant.StatusWorking, StartupReady: true}}}
 			var requests int
-			subscription := &participantSubscription{requestAdvance: func() { requests++ }}
-			subscription.initialize(Context{Participants: host, Session: host}, func(alias participant.Alias) bool { return alias == current })
+			subscription := &participantSubscription{}
+			subscription.initialize(Context{Participants: host, Session: host, EventProcessing: eventProcessingRequestFunc(func() { requests++ })}, func(alias participant.Alias) bool { return alias == current })
 			defer subscription.stop()
 			before := subscription.readSnapshot()
 			host.callback()(tc.event(old))
@@ -91,7 +91,7 @@ func TestInvocationLifecycle_replacementReadinessCannotReleaseOriginalWait(t *te
 				t.Fatal("replacement events advanced retained work for the original")
 			}
 			handle(session.AgentReady{Alias: original})
-			lifecycle.Advance()
+			lifecycle.ProcessEvents()
 			waitLifecycleSignal(t, invocation.started)
 			if invocation.launches.Load() != 1 || len(discarded) != 0 || host.callback() != nil {
 				t.Fatal("original readiness failed to launch once and release the subscription")
@@ -183,3 +183,7 @@ func TestParticipantUpdates_mergePreservesIndependentCompletionFacts(t *testing.
 		})
 	}
 }
+
+type eventProcessingRequestFunc func()
+
+func (request eventProcessingRequestFunc) RequestEventProcessing() { request() }

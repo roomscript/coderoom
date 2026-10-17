@@ -25,6 +25,9 @@ func (i *Interpreter) executeCommand(command runtime.Command, statement promptla
 	if submission == nil {
 		return
 	}
+	i.nextInvocationID++
+	id := i.nextInvocationID
+	submission.Context.EventProcessing = invocationEventProcessing{interpreter: i, id: id}
 	send := isDeliveryStatement(statement)
 	_, named := statement.Value.(promptlang.UserCommand)
 	if !send && !named {
@@ -47,16 +50,11 @@ func (i *Interpreter) executeCommand(command runtime.Command, statement promptla
 	if send || named {
 		i.publishCommandInput(submission, invocation.Staging())
 	}
-	i.startCommand(invocation, submission, statement)
+	i.startCommand(id, invocation, submission, statement)
 }
 
-func (i *Interpreter) startCommand(invocation runtime.Invocation, submission *monolith.CommandSubmission, statement promptlang.ParsedStatement) {
-	i.nextInvocationID++
-	id := i.nextInvocationID
+func (i *Interpreter) startCommand(id uint64, invocation runtime.Invocation, submission *monolith.CommandSubmission, statement promptlang.ParsedStatement) {
 	lifecycle := runtime.NewInvocationLifecycle(invocation, submission.Context)
-	lifecycle.RequestAdvance = func() {
-		_ = i.fallback.Schedule(func() { i.advanceCommand(id) })
-	}
 	if i.invocations == nil {
 		i.invocations = make(map[uint64]pendingInvocation)
 	}
@@ -99,12 +97,12 @@ func (i *Interpreter) completeQueuedCommand(id uint64, results <-chan runtime.Co
 	}
 }
 
-func (i *Interpreter) advanceCommand(id uint64) {
+func (i *Interpreter) processCommandEvents(id uint64) {
 	pending, ok := i.invocations[id]
 	if !ok {
 		return
 	}
-	pending.lifecycle.Advance()
+	pending.lifecycle.ProcessEvents()
 	i.updateStage(id)
 }
 
@@ -142,8 +140,18 @@ func (i *Interpreter) closeInvocations() {
 }
 
 // Room completion updates queue readiness evaluation after the room update burst.
-func (i *Interpreter) advanceCompletedExecutions() {
+func (i *Interpreter) processCompletedExecutions() {
 	for id := range i.invocations {
-		_ = i.fallback.Schedule(func() { i.advanceCommand(id) })
+		_ = i.fallback.Schedule(func() { i.processCommandEvents(id) })
 	}
+}
+
+// invocationEventProcessing exposes an attention request without a general scheduler.
+type invocationEventProcessing struct {
+	interpreter *Interpreter
+	id          uint64
+}
+
+func (r invocationEventProcessing) RequestEventProcessing() {
+	_ = r.interpreter.fallback.Schedule(func() { r.interpreter.processCommandEvents(r.id) })
 }

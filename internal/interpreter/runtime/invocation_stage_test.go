@@ -21,7 +21,7 @@ func TestInvocationLifecycle_discardWaitingStopsLateReadiness(t *testing.T) {
 	for _, view := range host.views {
 		callback(session.AgentReady{Alias: view.Alias})
 	}
-	lifecycle.Advance() // A stale queued request cannot revive discarded work.
+	lifecycle.ProcessEvents() // A stale queued request cannot revive discarded work.
 	if lifecycle.DiscardWaiting() || invocation.launches.Load() != 0 || invocation.closes.Load() != 1 || host.callback() != nil {
 		t.Fatal("discard left live work or subscriptions")
 	}
@@ -40,7 +40,7 @@ func TestInvocationLifecycle_collectedReadinessWinsOverDiscard(t *testing.T) {
 	if lifecycle.DiscardWaiting() {
 		t.Fatal("discard won over collected readiness")
 	}
-	lifecycle.Advance()
+	lifecycle.ProcessEvents()
 	waitLifecycleSignal(t, invocation.started)
 	if invocation.launches.Load() != 1 {
 		t.Fatal("readiness did not launch exactly once")
@@ -58,7 +58,7 @@ func TestInvocationLifecycle_collectedDepartureWinsOverDiscard(t *testing.T) {
 	if lifecycle.DiscardWaiting() || len(results) != 0 {
 		t.Fatal("departure was discarded or settled outside owner advancement")
 	}
-	lifecycle.Advance()
+	lifecycle.ProcessEvents()
 	if len(results) != 1 {
 		t.Fatal("advancement did not queue the departure outcome")
 	}
@@ -73,7 +73,7 @@ func TestInvocationLifecycle_collectedDepartureWinsOverDiscard(t *testing.T) {
 	if _, accepted := lifecycle.Complete(result); accepted {
 		t.Fatal("late completion settled twice")
 	}
-	lifecycle.Advance()
+	lifecycle.ProcessEvents()
 	lifecycle.Close(errors.New("cleanup"))
 	if invocation.launches.Load() != 0 || invocation.closes.Load() != 1 || host.callback() != nil {
 		t.Fatal("queued failure launched work or repeated cleanup")
@@ -96,7 +96,7 @@ func TestInvocationLifecycle_completionTracksCurrentTurn(t *testing.T) {
 	}
 	lastCompletedExecutionIDs := completionIDs{newTestAlias(alias.Name): 100, alias: 7}
 	lifecycle.ctx.CompletedExecutions = lastCompletedExecutionIDs
-	lifecycle.Advance()
+	lifecycle.ProcessEvents()
 	if invocation.launches.Load() != 0 {
 		t.Fatal("older turn completion launched current work")
 	}
@@ -105,7 +105,7 @@ func TestInvocationLifecycle_completionTracksCurrentTurn(t *testing.T) {
 	if lifecycle.DiscardWaiting() {
 		t.Fatal("discard defeated completion recorded in room")
 	}
-	lifecycle.Advance()
+	lifecycle.ProcessEvents()
 	if invocation.launches.Load() != 1 {
 		t.Fatal("current completion recorded in room did not launch work")
 	}
@@ -130,13 +130,13 @@ func TestInvocationLifecycle_requiredAndOptionalSharePropagationReadiness(t *tes
 			if err != nil || !waiting {
 				t.Fatalf("Start=%v,%v", waiting, err)
 			}
-			lifecycle.Advance()
+			lifecycle.ProcessEvents()
 			if invocation.launches.Load() != 0 {
 				t.Fatal("idle bypassed unpropagated completion")
 			}
 			lastCompletedExecutionIDs := completionIDs{alias: 7}
 			lifecycle.ctx.CompletedExecutions = lastCompletedExecutionIDs
-			lifecycle.Advance()
+			lifecycle.ProcessEvents()
 			if invocation.launches.Load() != 1 {
 				t.Fatal("propagated completion did not release wait")
 			}

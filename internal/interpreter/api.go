@@ -35,7 +35,7 @@ func New(ctx context.Context, sess SessionController, cwd string, opts ...Option
 		monolith.WithUserCommands(i.userCommands)(fallback)
 		monolith.WithShutdown(i.closeInvocations)(fallback)
 		monolith.WithStageSnapshot(i.stageSnapshot)(fallback)
-		monolith.WithCompletedExecution(i.advanceCompletedExecutions)(fallback)
+		monolith.WithCompletedExecution(i.processCompletedExecutions)(fallback)
 		for _, option := range opts {
 			option(i)
 		}

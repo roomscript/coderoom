@@ -164,7 +164,7 @@ func assertInitialBusyLifecycleResumes(t *testing.T, lifecycle *InvocationLifecy
 	host.callback()(session.ParticipantStatusChanged{
 		Alias: invocation.staging.WaitFor[0], From: participant.StatusWorking, To: participant.StatusIdle,
 	})
-	lifecycle.Advance()
+	lifecycle.ProcessEvents()
 	waitLifecycleSignal(t, invocation.started)
 	if invocation.launches.Load() != 1 || host.callback() != nil || len(results) != 0 {
 		t.Fatal("readiness did not launch exactly once and release subscription")
@@ -214,7 +214,7 @@ func TestInvocationLifecycle_CloseWhileFactsArrive(t *testing.T) {
 			lifecycle.Close(errors.New("discard"))
 		}()
 		calls.Wait()
-		lifecycle.Advance() // A queued request after close must do nothing.
+		lifecycle.ProcessEvents() // A queued request after close must do nothing.
 		if invocation.launches.Load() != 0 || invocation.closes.Load() != 1 || host.callback() != nil {
 			t.Fatal("readiness/discard race duplicated launch or leaked resources")
 		}
@@ -245,7 +245,7 @@ func TestInvocationLifecycle_ProcessesCollectedDeparturesBeforeLaunch(t *testing
 			handle(session.AgentStopped{Alias: alias})
 			handle(session.AgentReady{Alias: alias})
 			handle(session.AgentReady{Alias: ada})
-			lifecycle.Advance()
+			lifecycle.ProcessEvents()
 			if alias.Name == "tim" {
 				waitLifecycleSignal(t, invocation.started)
 				if discards.Load() != 1 {
@@ -337,7 +337,7 @@ func TestInvocationLifecycle_BusyUpdateDuringDiscardRetainsWork(t *testing.T) {
 		t.Fatal("busy update was lost before launch")
 	}
 	host.callback()(session.AgentReady{Alias: ada})
-	lifecycle.Advance()
+	lifecycle.ProcessEvents()
 	waitLifecycleSignal(t, invocation.started)
 	if discards.Load() != 1 || invocation.launches.Load() != 1 {
 		t.Fatal("reevaluation repeated discard or launch")

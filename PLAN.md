@@ -104,7 +104,7 @@ Current invariants and proof:
 Lifecycle advancement checkpoint:
 
 - Participant callbacks collect facts and queue advancement. The new interpreter
-  calls runtime Advance on the shared lane, alongside retention, stage operations,
+  calls runtime ProcessEvents on the shared lane, alongside retention, stage operations,
   completion and shutdown. Runtime retains readiness policy and transitions.
 - Removed the private monitor goroutine, lifecycle mutex and stop/join machinery.
   The collector lock and revision commit still arbitrate against concurrent facts.
@@ -115,7 +115,7 @@ Current visible-stage checkpoint:
 
 - A waiting invocation retains its source and immutable stage description. Routing
   presentation for send is derived from `WaitFor` followed by `ToInform`.
-  Lifecycle `Readiness` supplies detached collected facts; `RequestAdvance` only
+  Lifecycle `Readiness` supplies detached collected facts; `RequestEventProcessing` only
   queues advancement and projection on the shared lane, never rereads Session.
 - The stage stays visible until delivery settles. It blocks new work, including
   fallback commands and malformed input; presentation-only debug commands remain
@@ -123,7 +123,7 @@ Current visible-stage checkpoint:
 - `DiscardWaiting` shares the advancement lane and uses the collector revision boundary
   to prevent edit/discard after committed delivery or collected readiness. A
   successful removal stops collection, closes resources and revokes native admission, with
-  no input record or completion notice. Ready/failure progress runs only through queued Advance calls.
+  no input record or completion notice. Ready/failure progress runs only through queued ProcessEvents calls.
 - Interrupt cancels only frozen active, cancellable blockers. Failed aliases can
   be retried; successful cancellations are remembered but do not imply readiness.
   Startup/maintenance waits are not cancelled. Required departures publish the
@@ -245,8 +245,24 @@ single-use Subscribe/Execute handle for each delivery. Provider lifetime belongs
 to the interpreter; closing one scope leaves siblings usable, while closing the
 invocation revokes existing and future scopes. Causal publication stays at the
 provider boundary. SubmitCommand keeps its private compatibility admission policy.
-Loop behavior is unchanged. Interpreter-driven loop advancement and intermediate
-publication still require agreement before changing runtime contracts.
+Loop behavior is unchanged. Event processing is implemented by subsequent
+agreement: Context.EventProcessing.RequestEventProcessing queues interpreter attention, and the
+optional InvocationEventHandler.HandlePendingEvents consumes facts on the interpreter lane.
+The EventProcessingRequester capability is bound before Prepare. The lifecycle uses the same ProcessEvents
+entry point for waiting readiness and running invocation processing; it ignores
+requests after settlement/closure. Existing commands need no processor method.
+Intermediate publication remains the next runtime contract to agree.
+
+Deferred design review: the event-processing API is provisional. Revisit its
+clarity with the concrete loop implementation rather than extending the abstract
+API discussion now. Show the complete control flow together: subcommand callback
+collects an event -> requests interpreter attention -> interpreter calls
+HandlePendingEvents -> loop consumes collected facts and decides its next action
+-> control returns to the interpreter without waiting for subcommand work.
+Review collector ownership, the parameterless handler, and whether the scheduling
+handoff is explicit enough. Agree on any API revisions before committing the loop
+migration; existing runtime-change approval requirements still apply.
+
 Future handoff history selectors (latest, earlier, all) remain a separate feature;
 this checkpoint adds only the latest-output read required by current syntax.
 

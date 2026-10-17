@@ -32,7 +32,7 @@ func TestSendLifecycle_ImmediatelyReady(t *testing.T) {
 	}
 	delivery.emit(sendOutcome{Delivered: []string{"ada"}})
 	delivery.drain()
-	lifecycle.Advance()
+	lifecycle.ProcessEvents()
 	result, ok := lifecycle.Complete(receiveSendCompletion(t, queue))
 	if !ok {
 		t.Fatal("completion rejected")
@@ -61,7 +61,7 @@ func TestSendLifecycle_WaitsForParticipantUpdates(t *testing.T) {
 			}
 			delivery.queue = append(delivery.queue, session.AgentReady{Alias: delivery.frozenAlias("ada")})
 			delivery.drain()
-			lifecycle.Advance()
+			lifecycle.ProcessEvents()
 			waitForSendLaunch(t, delivery)
 			if delivery.launches != 1 {
 				t.Fatal("ready state did not launch once")
@@ -93,7 +93,7 @@ func TestSendLifecycle_OptionalDepartureIsSticky(t *testing.T) {
 			}
 			delivery.queue = append(delivery.queue, session.AgentReady{Alias: delivery.frozenAlias("ada")})
 			delivery.drain()
-			lifecycle.Advance()
+			lifecycle.ProcessEvents()
 			waitForSendLaunch(t, delivery)
 			assertDiscardedNoticePlan(t, delivery, []string{"ada"})
 			if discards != 1 || !slices.Equal(invocation.Staging().ToInform, []participant.Alias{delivery.frozenAlias("tim")}) {
@@ -120,7 +120,7 @@ func TestSendLifecycle_RequiredDepartureFails(t *testing.T) {
 			}
 			delivery.queue = append(delivery.queue, event, session.AgentReady{Alias: delivery.frozenAlias("ada")})
 			delivery.drain()
-			lifecycle.Advance()
+			lifecycle.ProcessEvents()
 			result, ok := lifecycle.Complete(receiveSendCompletion(t, queue))
 			if !ok || result.Err == nil || len(result.Records) != 0 || delivery.launches != 0 {
 				t.Fatalf("required departure = %#v, accepted = %v", result, ok)
@@ -192,7 +192,7 @@ func TestSendLifecycle_CloseWhileWaitingPreventsLaunch(t *testing.T) {
 	}
 	delivery.queue = append(delivery.queue, session.AgentReady{Alias: delivery.frozenAlias("ada")})
 	delivery.drain()
-	lifecycle.Advance()
+	lifecycle.ProcessEvents()
 	if delivery.launches != 0 || len(delivery.handlers) != 0 {
 		t.Fatal("closed monitor launched or retained its subscription")
 	}
@@ -211,7 +211,7 @@ func TestSendLifecycle_DelayedLaunchFailure(t *testing.T) {
 	delivery.err = failure
 	delivery.queue = append(delivery.queue, session.AgentReady{Alias: delivery.frozenAlias("ada")})
 	delivery.drain()
-	lifecycle.Advance()
+	lifecycle.ProcessEvents()
 	result, ok := lifecycle.Complete(receiveSendCompletion(t, queue))
 	if !ok || !errors.Is(result.Err, failure) || len(result.Records) != 0 {
 		t.Fatalf("launch failure = %#v, accepted = %v", result, ok)
@@ -241,13 +241,13 @@ func TestSendLifecycle_PreservesPartialDelivery(t *testing.T) {
 			if wait {
 				delivery.queue = append(delivery.queue, session.AgentReady{Alias: delivery.frozenAlias("tim")})
 				delivery.drain()
-				lifecycle.Advance()
+				lifecycle.ProcessEvents()
 			}
 			waitForSendLaunch(t, delivery)
 			outcome := sendOutcome{Delivered: []string{"ada"}, Failed: []string{"tim"}, Err: errors.New("notice failed")}
 			delivery.emit(outcome)
 			delivery.drain()
-			lifecycle.Advance()
+			lifecycle.ProcessEvents()
 			result, ok := lifecycle.Complete(receiveSendCompletion(t, queue))
 			if !ok {
 				t.Fatal("partial delivery rejected")
@@ -283,7 +283,7 @@ func TestSendLifecycle_FailedDelayedLaunchRejectsEarlierCallback(t *testing.T) {
 	}
 	delivery.queue = append(delivery.queue, session.AgentReady{Alias: delivery.frozenAlias("ada")})
 	delivery.drain()
-	lifecycle.Advance()
+	lifecycle.ProcessEvents()
 	earlier := receiveSendCompletion(t, queue)
 	receiveSendCompletion(t, queue) // Failure is recorded before consuming either result.
 	result, ok := lifecycle.Complete(earlier)
@@ -323,7 +323,7 @@ func TestSendLifecycle_InitialListDoesNotOverwriteCollectedChanges(t *testing.T)
 			if !tt.wantErr {
 				delivery.queue = append(delivery.queue, session.AgentReady{Alias: delivery.frozenAlias("ada")})
 				delivery.drain()
-				lifecycle.Advance()
+				lifecycle.ProcessEvents()
 				waitForSendLaunch(t, delivery)
 			}
 		})

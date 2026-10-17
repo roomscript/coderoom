@@ -50,12 +50,8 @@ type readinessDecision struct {
 
 // InvocationLifecycle owns readiness rules and invocation transitions. The caller
 // serializes all methods on its lane. Participant callbacks only collect facts
-// and request advancement; execution callbacks only queue completion.
+// and request event processing; execution callbacks only queue completion.
 type InvocationLifecycle struct {
-	// RequestAdvance must be set before Start when event-driven advancement is
-	// needed. It runs on event producers, including during Start, and must only
-	// enqueue owner work. It must never call lifecycle methods inline.
-	RequestAdvance    func()
 	ctx               Context
 	subscription      *participantSubscription
 	invocation        Invocation
@@ -112,7 +108,6 @@ func (l *InvocationLifecycle) startStagedInvocation() (bool, error) {
 	}
 	l.state = invocationWaiting
 	l.discardedInform = make(map[participant.Alias]bool)
-	l.subscription.requestAdvance = l.RequestAdvance
 	l.subscription.initialize(l.ctx, l.includesParticipant)
 
 	readiness, err := l.prepareStagedExecution()
@@ -169,9 +164,16 @@ func (l *InvocationLifecycle) Close(reason error) (CommandResult, bool) {
 	return CommandResult{Err: reason}, true
 }
 
-// Advance evaluates collected facts on the owner's lane. It may launch work or
-// enqueue a failure. Calls queued before settlement or shutdown are harmless.
-func (l *InvocationLifecycle) Advance() {
+// ProcessEvents evaluates readiness while waiting and delegates collected events
+// to an optional InvocationEventHandler while running. The owner serializes this method;
+// requests processed after settlement or shutdown do nothing.
+func (l *InvocationLifecycle) ProcessEvents() {
+	if l.state == invocationRunning {
+		if handler, ok := l.invocation.(InvocationEventHandler); ok {
+			handler.HandlePendingEvents()
+		}
+		return
+	}
 	if l.state != invocationWaiting {
 		return
 	}

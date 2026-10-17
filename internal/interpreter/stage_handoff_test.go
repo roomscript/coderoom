@@ -68,13 +68,13 @@ func TestStage_retainsOwnershipBeforeQueuedAdvancement(t *testing.T) {
 func retainBeforeQueuedAdvancement(interp *Interpreter, sess *lifecycleSession, backend *lifecycleAgent, alias participant.Alias, parsed promptlang.ParsedStatement, departure bool) error {
 	submission := interp.fallback.AdmitCommand("send", parsed)
 	invocation := &handoffInvocation{staging: runtime.Staging{WaitFor: []participant.Alias{alias}}}
+	requests := make(chan struct{}, 16)
+	submission.Context.EventProcessing = eventProcessingRequestFunc(func() {
+		_ = interp.fallback.Schedule(func() { interp.processCommandEvents(1) })
+		requests <- struct{}{}
+	})
 	lifecycle := runtime.NewInvocationLifecycle(invocation, submission.Context)
 	interp.invocations = map[uint64]pendingInvocation{1: {lifecycle: lifecycle, submission: submission}}
-	requests := make(chan struct{}, 16)
-	lifecycle.RequestAdvance = func() {
-		_ = interp.fallback.Schedule(func() { interp.advanceCommand(1) })
-		requests <- struct{}{}
-	}
 	waited, startErr := lifecycle.Start(func(result runtime.CommandResult) {
 		submission.QueueCompletion(func() { interp.completeCommand(1, result) })
 	})

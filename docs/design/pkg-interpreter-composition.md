@@ -238,18 +238,18 @@ for untouched aliases. Departures stay sticky and participant instance identity
 is preserved. Ordinary inspection reads are not an event-collection barrier.
 
 Participant callbacks never advance the lifecycle. They collect facts and invoke
-`RequestAdvance`, which only queues owner work. The new interpreter checks the
-pending invocation identity, calls `Advance`, then projects the visible stage.
-Start, Advance, Complete, Readiness, DiscardWaiting and Close all run on that same
+`RequestEventProcessing`, which only queues owner work. The new interpreter checks the
+pending invocation identity, calls `ProcessEvents`, then projects the visible stage.
+Start, ProcessEvents, Complete, Readiness, DiscardWaiting and Close all run on that same
 lane. There is no private monitor goroutine, lifecycle mutex, wake channel or join.
 The lane is supplied temporarily by the monolith; the new interpreter owns every
-advancement decision and no scheduling capability is exposed to commands.
+advancement decision and no arbitrary scheduling capability is exposed to commands.
 
 `Start(complete)` subscribes and evaluates initial facts. An already-ready
 invocation launches immediately. Otherwise Start reports that it entered waiting,
 and the interpreter retains its stage before processing any queued advancement.
 Facts can arrive during subscription or before retention, but cannot launch or
-fail the invocation outside the lane. Advance evaluates the latest collected
+fail the invocation outside the lane. ProcessEvents evaluates the latest collected
 facts without rereading Session. Optional departures update the retained delivery
 plan before launch. Required unavailability reports a typed error carrying the
 alias. Launch commits only if the collector revision is still current, freezing
@@ -271,7 +271,7 @@ work before invoking the new interpreter's cleanup hook. Late facts and already
 queued advancement or completion cannot revive removed invocation identities.
 
 DiscardWaiting shares the lane with launch and also checks collected facts:
-collected readiness or failure defeats removal even before Advance runs. Blocked
+collected readiness or failure defeats removal even before ProcessEvents runs. Blocked
 work is removed only after committing the collector revision. This preserves the
 existing edit/discard behavior without an independent advancement timeline.
 Tests cover initialization merging, sticky departures, same-name replacement,
@@ -493,7 +493,7 @@ or invalid input; presentation-only debug commands remain available.
 Send-stage routing presentation is derived from `Staging.WaitFor` followed by
 `Staging.ToInform`; the retained Session plan remains the delivery authority.
 Lifecycle `Readiness` exposes only collected facts for frozen requirements;
-`RequestAdvance` queues lifecycle advancement and stage projection on the owner lane. Departures remain sticky, optional
+`RequestEventProcessing` queues lifecycle advancement and stage projection on the owner lane. Departures remain sticky, optional
 recipients disappear from routing, and joins cannot expand the retained plan.
 Runtime reports required-participant unavailability as a typed error carrying the
 alias. The interpreter translates that outcome into a visible discard notice;
@@ -504,7 +504,7 @@ committed Go or collected readiness/failure defeats removal. Otherwise it freeze
 collection and closes the invocation. The new interpreter
 revokes the submission scope, removes stage/identity and publishes the cleared
 snapshot without an input record or extra completion. It does not return a draft
-that can still deliver. Only queued Advance calls progress waiting work.
+that can still deliver. Only queued ProcessEvents calls progress waiting work.
 
 Interrupt selects frozen active/cancellable blockers from those same facts. The
 monolith executes cancellation on the shared lane and projects its causal facts;
@@ -627,3 +627,19 @@ terminal events). Causal completion and publication remain on the single lane.
 The SubmitCommand compatibility provider retains its private early same-primary
 restriction. Native providers add no alias reservations. Remove these temporary
 implementations as their responsibilities transfer out of the monolith at checkpoint 9.
+
+### Interpreter-driven event processing
+
+Context.EventProcessing.RequestEventProcessing is an attention request, not an arbitrary-work
+scheduler. The interpreter assigns identity and binds it before command Prepare;
+producer callbacks collect facts and enqueue attention only. The serialized lane
+checks the pending identity before invoking lifecycle ProcessEvents. Requests from
+failed preparation/start, settled invocations or closed interpreters cannot revive work.
+
+While waiting, lifecycle ProcessEvents evaluates staging readiness. While running,
+it invokes the optional InvocationEventHandler.HandlePendingEvents method. Std owns the
+command's collected facts, phases and decisions; runtime gates calls by lifecycle
+state; interpreter owns scheduling, identity, final completion and shutdown.
+Existing invocations require no extra method. Final results still use Go's
+completion callback. Intermediate publication and loop migration remain separate
+steps requiring agreement; loop staging remains deferred to #65.

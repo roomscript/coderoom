@@ -8,14 +8,15 @@ import (
 // participantSubscription collects participant facts and requests advancement on
 // the owner's lane. Only its event callback runs concurrently with lifecycle work.
 type participantSubscription struct {
-	updates        participantUpdates
-	includes       func(participant.Alias) bool
-	requestAdvance func()
-	unsubscribe    func()
+	updates         participantUpdates
+	includes        func(participant.Alias) bool
+	eventProcessing EventProcessingRequester
+	unsubscribe     func()
 }
 
 func (m *participantSubscription) initialize(ctx Context, includes func(participant.Alias) bool) {
 	m.includes = includes
+	m.eventProcessing = ctx.EventProcessing
 	m.updates.start()
 	initial, unsubscribe := ctx.Session.SubscribeParticipants(m.handleEvent)
 	m.unsubscribe = unsubscribe
@@ -27,8 +28,8 @@ func (m *participantSubscription) handleEvent(event session.Event) {
 	if !ok || !m.includes(alias) {
 		return
 	}
-	if m.updates.collect(event) && m.requestAdvance != nil {
-		m.requestAdvance()
+	if m.updates.collect(event) && m.eventProcessing != nil {
+		m.eventProcessing.RequestEventProcessing()
 	}
 }
 

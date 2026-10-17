@@ -93,7 +93,7 @@ and rejects late callbacks.
 ## Current proof and next step
 
 Contracts and `CommandRunner` live in `runtime`; commands live in `std`.
-The new interpreter owns `InvocationLifecycle` construction, Start, Advance,
+The new interpreter owns `InvocationLifecycle` construction, Start, ProcessEvents,
 Complete and Close, including its pending identity map. It schedules its own algorithm on the
 shared lane and calls monolith admission/capability/publication APIs explicitly.
 The monolith stores no migrated lifecycle. No Execution interface or execution
@@ -101,12 +101,12 @@ wrapper is needed. Legacy callers retain the stateless runner.
 It keeps Context directly and delegates subscription and synchronized fact
 collection to an unexported participantSubscription. Readiness policy and launch
 stay in the lifecycle. All lifecycle methods run on the new interpreter's lane;
-participant callbacks only collect facts and invoke RequestAdvance to queue work.
+participant callbacks only collect facts and invoke RequestEventProcessing to queue work.
 There is no private worker, lifecycle mutex or join. Staged work atomically
 subscribes and captures initial views, then merges them only for untouched
 aliases. Ordinary inspection reads are not an event-collection barrier.
 Start evaluates initial readiness and reports whether to retain a stage. Later
-Advance calls evaluate collected facts without rereading Session, discard departed
+ProcessEvents calls evaluate collected facts without rereading Session, discard departed
 notices and launch once. The collector revision guards launch and manual removal.
 Close stops collection and releases subscriptions on the lane. Departures stay
 sticky. Initial failures return from Start; later failures close and enqueue
@@ -145,7 +145,7 @@ edit/discard/interrupt use the same path.
 The destination remains the new interpreter replacing the monolith.
 
 The new interpreter now retains one visible stage for waiting work. Lifecycle
-`RequestAdvance` queues advancement and projection on the same lane; `Readiness` supplies collected frozen-instance
+`RequestEventProcessing` queues advancement and projection on the same lane; `Readiness` supplies collected frozen-instance
 facts. The monolith projects that detached stage through `WithStageSnapshot`;
 it owns no new stage policy. Input admission covers fallback and migrated input,
 with presentation-only debug commands still available.
@@ -211,3 +211,32 @@ input-before-output ordering. These capability implementations transfer to the
 interpreter and the bridge is removed with the remaining monolith at checkpoint 9.
 SubmitCommand's private provider wraps child scopes for its existing early queued
 send restriction; native scopes introduce no alias reservation or availability policy.
+
+## Event processing
+
+Event-driven invocations may implement InvocationEventHandler.HandlePendingEvents and require
+Context.EventProcessing.RequestEventProcessing. Producers collect facts under their own collector
+lock and request attention; they never transition the invocation or launch work.
+The interpreter binds the requester before Prepare and queues processing against
+its invocation identity. Requests during Prepare or Go cannot execute inline.
+Preparation/start failures and settled/closed identities make queued requests inert.
+
+InvocationLifecycle.ProcessEvents reevaluates prerequisites while waiting. Once
+Go has succeeded, it delegates to the optional InvocationEventHandler on the same lane.
+An invocation consumes its own facts and may act, keep waiting, or call the final
+completion callback. Redundant requests may find no new facts. Lifecycle Complete
+and Close still belong to the interpreter; processors do not settle themselves.
+Readiness callbacks use the same Context capability; there is no second lifecycle
+request hook. Existing commands need no HandlePendingEvents method. This mechanism
+adds neither loop behavior nor intermediate publication.
+
+Context.EventProcessing exposes EventProcessingRequester, matching the other
+interface-based capabilities. The interpreter implements RequestEventProcessing
+with the invocation identity; consumers receive no function field or scheduler.
+
+InvocationEventHandler is intended for enclosing invocations, such as loops and
+future blocks, that start participant work or child commands and react to their
+results. Child callbacks collect facts and request attention; HandlePendingEvents
+updates the enclosing invocation and decides its next action on the interpreter
+lane. This coordinates subcommand events without moving parent workflow decisions
+into callbacks or giving the parent ownership of interpreter settlement.

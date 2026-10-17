@@ -76,8 +76,16 @@ type UserCommandRegistry interface {
 	Resolve(promptlang.UserCommand) (promptlang.Located[promptlang.Shell], error)
 }
 
+// EventProcessingRequester queues interpreter attention for one invocation.
+// Producers collect facts before requesting; processing never runs inline.
+// Commands requiring event-driven resumption must require this capability.
+type EventProcessingRequester interface {
+	RequestEventProcessing()
+}
+
 // Context supplies capabilities for preparation and Go on the serialized coordinator.
 type Context struct {
+	EventProcessing     EventProcessingRequester
 	UserCommands        UserCommandRegistry
 	Participants        ParticipantReader
 	Shell               ShellLauncher
@@ -108,6 +116,22 @@ type Invocation interface {
 	// after the lifecycle stops collecting participant facts. Implementations must tolerate racing
 	// callbacks. Cancellation of admitted delivery remains the host's job.
 	Close()
+}
+
+// InvocationEventHandler is optional for invocations that coordinate work started
+// as part of their own execution. A loop may send participant work, wait for its
+// completion, run a condition command, and react to that result. Future blocks
+// may likewise coordinate child commands within one enclosing invocation.
+//
+// Subcommand callbacks collect facts and request attention through
+// Context.EventProcessing.RequestEventProcessing. They do not update the enclosing
+// invocation's phase or start its next command themselves. The interpreter calls
+// HandlePendingEvents after Go succeeds, on its serialized lane, so the invocation
+// can consume those facts, update its state, and decide what to start next.
+// Redundant calls may have no pending facts. Report final completion through the
+// callback supplied to Go; the interpreter still owns settlement and shutdown.
+type InvocationEventHandler interface {
+	HandlePendingEvents()
 }
 
 // Staging describes the frozen participants an invocation needs ready before Go.
