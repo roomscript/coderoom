@@ -71,8 +71,7 @@ type interpreterExecutor struct {
 	shutdownCompletions []operation
 	completionsClosed   bool
 
-	legacySends        map[participant.Alias]*legacyCommandSession // protected by enqueueMu
-	nativeDeliveries   []nativeDeliveryOperation                   // protected by enqueueMu
+	nativeDeliveries   []nativeDeliveryOperation // protected by enqueueMu
 	sessionDown        bool
 	nextInvocationID   uint64
 	pendingInvocations map[uint64]submissionOutcome

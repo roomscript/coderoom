@@ -12,7 +12,6 @@ import (
 type commandSession struct {
 	provider *commandSessionProvider
 	mu       sync.Mutex
-	onClose  func()
 	handle   func(runtime.ExecutionEvent)
 	admitted bool
 	closed   bool
@@ -62,11 +61,7 @@ func (s *commandSession) close() {
 	}
 	s.closed = true
 	s.handle = nil
-	onClose := s.onClose
 	s.mu.Unlock()
-	if onClose != nil {
-		onClose()
-	}
 	s.provider.mu.Lock()
 	delete(s.provider.executions, s)
 	s.provider.mu.Unlock()
@@ -74,7 +69,7 @@ func (s *commandSession) close() {
 
 // Admitted delivery belongs to the current scheduled turn. Drain it before the
 // next user operation can inspect readiness or compete with its native scope.
-// The queued drain also wakes the lane for legacy worker admission.
+// The queued drain also wakes the lane for worker admission.
 type drainNativeDeliveriesOperation struct{}
 
 func (drainNativeDeliveriesOperation) apply(e *interpreterExecutor) { e.dispatchNativeDeliveries() }

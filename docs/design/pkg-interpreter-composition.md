@@ -54,8 +54,7 @@ keeps worker cancellation and canonical projection until those move in a later
 checkpoint; it never adopts new lifecycle or stage policy.
 
 All commands use this path, including loops, policy, participant commands and help.
-`SubmitCommand` remains a temporary bridge for compatibility tests, with no
-production callers. The destination is the new interpreter replacing and removing
+The test-only SubmitCommand bridge and its private reservation wrapper are removed. The destination is the new interpreter replacing and removing
 the monolith. Real-Session tests cover busy/startup waiting, departures, cleanup,
 direct/partial delivery and causal ordering. Scheduled turns drain their admitted
 native executions before the next queued input can inspect readiness, preserving
@@ -476,11 +475,8 @@ interpreter retains lifecycle identity and final settlement authority. Native
 execution drains on the shared lane before later input inspects readiness.
 Session's locked participant transitions decide actual availability.
 
-The SubmitCommand compatibility bridge alone preserves early rejection of two
-queued addressed sends to the same primary. Its private `legacyCommandSession`
-wrapper reserves until completion/close; this is neither correlation nor general
-participant-availability policy. Remove the wrapper and its reservations with the
-bridge at checkpoint 9.
+The former SubmitCommand bridge and its private primary-reservation wrapper are
+removed. Session owns actual availability; execution scopes reserve no aliases.
 
 ## Visible stage ownership during migration
 
@@ -549,9 +545,8 @@ for stage presentation. Neither representation is an error-routing template.
 
 Common native admission imposes no alias reservation. Scheduled execution drains
 before subsequent input inspects readiness, and Session's locked transitions
-remain the participant-availability authority. The private SubmitCommand wrapper
-preserves only that bridge's historical queued-send early rejection. It is not
-part of the reusable capability contract.
+remain the participant-availability authority. The former SubmitCommand reservation
+wrapper has been removed.
 
 To add a delivery command, implement its command and invocation policy in `std`,
 compose Delivery, and validate/format its terminal result. Use Staging and
@@ -564,8 +559,9 @@ The monolith remains a temporary host for serialized execution, scoped terminal
 events, canonical projection/publication and draining. As remaining fallback
 workflows migrate (checkpoints 4–9 in PLAN.md), transfer those implementations to
 the new interpreter's execution/publication owner while retaining the runtime
-contract. At checkpoint 9, once no fallback handlers or SubmitCommand callers
-remain, remove the bridge, its private reservation wrapper and the monolith.
+contract. The SubmitCommand bridge and its private reservation wrapper are removed.
+Remove the monolith after transferring remaining infrastructure and retiring direct
+legacy handlers.
 Runtime mechanics remain driven by the interpreter throughout.
 
 ## Handoff history and staging boundary
@@ -627,8 +623,8 @@ within one invocation without changing loop behavior or adding loop staging.
 The temporary monolith adapter separates commandSessionProvider (scope lifetime
 and ordered publication) from commandSession (one execution's admission and
 terminal events). Causal completion and publication remain on the single lane.
-The SubmitCommand compatibility provider retains its private early same-primary
-restriction. Native providers add no alias reservations. Remove these temporary
+The former SubmitCommand compatibility provider is removed; providers add no alias
+reservations. Remove these temporary
 implementations as their responsibilities transfer out of the monolith at checkpoint 9.
 
 ### Interpreter-driven event processing

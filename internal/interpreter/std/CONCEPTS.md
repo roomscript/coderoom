@@ -71,8 +71,8 @@ acceptance and subscription cleanup. Each std invocation owns its retained
 command, departure policy, semantic validation and record formatting. It passes
 only the actual Session command. An invalid terminal outcome fails the invocation
 instead of waiting for another event. There is no routing template or shared
-reservation. Only the temporary SubmitCommand bridge retains its private early
-rejection of queued sends to the same primary; Session owns actual availability.
+reservation. Session owns actual availability. The SubmitCommand bridge and its
+private queued-send reservation wrapper have been removed.
 Completion only queues owner work; the interpreter still drives lifecycle and
 final settlement. Close releases the terminal subscription; lifecycle close also
 releases participant subscriptions. Commands receive no raw model.
@@ -142,7 +142,8 @@ delivery, queued completion work runs before causal events; accepted input recor
 publish before those events, terminal outcomes afterward. `WithShutdown` notifies
 the new interpreter after execution/results drain so it can close its remaining
 lifecycles. Explicit close and context cancellation follow the same path.
-`SubmitCommand` remains a legacy compatibility bridge, with unchanged handlers.
+The SubmitCommand bridge is removed. Direct legacy handlers retain their runner
+until the remaining monolith implementation is removed.
 
 Real-Session tests through the new interpreter prove busy/startup waiting,
 required departure, close while waiting, direct/partial delivery, causal ordering
@@ -215,9 +216,9 @@ terminal listener. Provider close revokes existing and future scopes; admitted
 work that has started remains the host's responsibility. Completion work and
 publication stay associated with the active causal dispatch burst, preserving
 input-before-output ordering. These capability implementations transfer to the
-interpreter and the bridge is removed with the remaining monolith at checkpoint 9.
-SubmitCommand's private provider wraps child scopes for its existing early queued
-send restriction; native scopes introduce no alias reservation or availability policy.
+interpreter with the remaining monolith at checkpoint 9. SubmitCommand and its
+private reservation provider are removed; execution scopes introduce no alias
+reservation or availability policy.
 
 ## Event processing
 

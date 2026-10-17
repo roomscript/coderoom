@@ -40,8 +40,7 @@ func (e *interpreterExecutor) goInvocation(value goInvocationInstruction) instru
 	}
 	e.commandSessions[id] = delivery
 	if value.context.Session == nil {
-		legacy := &legacyCommandSessionProvider{commandSessionProvider: delivery}
-		value.context.Session = legacy
+		value.context.Session = delivery
 	}
 	launcher := &userShellLauncher{executor: e}
 	if value.context.Shell == nil {

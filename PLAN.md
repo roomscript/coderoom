@@ -231,7 +231,7 @@ User command checkpoint:
 - Existing legacy handlers remain for direct monolith compatibility until removal
   at checkpoint 9. Registry ownership and public command execution have moved out.
 
-Current checkpoint: public command cutover through /help is complete. Continue checkpoint 9 with the remaining-consumer audit and a separate execution/publication transfer and monolith-removal step.
+Current checkpoint: public legacy input/stage fallback and SubmitCommand are removed. Continue checkpoint 9 by transferring live infrastructure with its tests and retiring direct legacy dispatch/runner consumers before monolith removal.
 
 Checkpoint 6, first agreed substep: runtime.ExecutionCompleted now carries the
 ExecutionID returned by Session.Execute alongside the actual routing outcome,
@@ -533,7 +533,7 @@ when nil. Parser-form coverage, source diagnostics, empty operations and stage
 isolation regressions cover this first removal step. Public undefined commands
 already use modular resolution.
 
-SubmitCommand has no production callers; its remaining callers are monolith tests.
+SubmitCommand and its private primary-reservation provider are now removed.
 Only the public interpreter package imports monolith in production. It still needs
 that package's scheduling, execution scopes, shell workers, room projection,
 approvals, snapshots, source-aware publication, event dispatcher and shutdown.
@@ -547,8 +547,16 @@ fallback-coexistence test is replaced by a detachment regression: even deliberat
 created compatibility staging cannot appear through public snapshots, gate modular
 commands or be changed by public stage operations. Infrastructure and the catalogue
 remain intact. This step changes no runtime contracts and does not unify registries.
-Next, port remaining SubmitCommand-based proofs and remove that test-only bridge
-before transferring live infrastructure with its tests.
+This removal diff ports worker admission and admitted-delivery shutdown proofs
+onto invocation-scoped execution capabilities. Existing public direct/partial-send
+and capability protocol tests replace the bridge's duplicate delivery cases.
+The old mixed legacy/native primary-reservation test is retired with that private
+restriction; native same-primary admission and serialized public send tests remain.
+SubmitCommand, its submission operation, reservation wrapper, map and scope close
+hook are removed. The direct legacy module runner still has callers (who/shell
+and legacy tests), so its lifecycle ownership stays until legacy dispatch removal.
+Next, transfer cohesive live infrastructure with its tests and retire remaining
+legacy-only consumers; do not remove the runner while those callers remain.
 
 ## Pre-removal test coverage checkpoint
 

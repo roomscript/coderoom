@@ -6,12 +6,13 @@ focused.
 
 ## Migration layout
 
-The public `internal/interpreter` entry point delegates to the existing
-implementation in `internal/interpreter/monolith`. The facade retains the current
-methods and option signatures. `/who` and `/shell` are now selected by the facade's runtime
-registry and executed through an additive `monolith.SubmitCommand` bridge; other
-input delegates to the original `Submit` path. The monolith's command registry and
-handlers remain intact. Front ends keep their existing imports.
+The public `internal/interpreter` entry point owns all command dispatch,
+invocation lifecycles and staging. It retains current methods and option signatures.
+The monolith temporarily supplies execution, projection, publication and shutdown
+infrastructure. Public input no longer falls back to legacy handlers. SubmitCommand
+and its private primary-reservation wrapper are removed; direct legacy handlers
+and their runner remain for compatibility tests until removal. Front ends keep
+their existing imports.
 Shared events, snapshots, errors and record inspection live in
 `internal/interpreter/api`, with aliases on both interfaces to preserve one set of
 contracts and avoid a parent-package import cycle.

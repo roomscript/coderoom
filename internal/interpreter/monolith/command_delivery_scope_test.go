@@ -3,6 +3,7 @@ package monolith
 import (
 	"context"
 	"errors"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -118,7 +119,7 @@ func TestDeliveryCapability_NoSharedPrimaryReservation(t *testing.T) {
 		}
 	}))
 	interp.Snapshot()
-	// Session decides availability. SubmitCommand's reservation remains private.
+	// Session decides availability; the capability reserves no primary.
 	if len(completed) != 2 || len(sess.executed) != 2 {
 		t.Fatal("native capability rejected a command before Session execution")
 	}
@@ -231,5 +232,71 @@ func assertNoExecutionRouting(t *testing.T, routing session.RoutingResult) {
 	t.Helper()
 	if routing.Kind != "" || routing.Err != nil || len(routing.Recipients) != 0 {
 		t.Fatalf("unexpected routing=%#v", routing)
+	}
+}
+
+func TestExecutionCapability_workerAdmission(t *testing.T) {
+	interp, sess, _ := newSubmitContractInterpreter(t)
+	scopes := make(chan runtime.SessionExecution, 1)
+	results := make(chan runtime.ExecutionEvent, 2)
+	mustSubmit(t, interp.Schedule(func() {
+		submission := interp.AdmitCommand("probe", parseSourceStatement(t, "work"))
+		execution := submission.Context.Session.CreateExecution()
+		execution.Subscribe(func(event runtime.ExecutionEvent) { results <- event; submission.Close() })
+		scopes <- execution
+	}))
+	execution := <-scopes
+	admitted := make(chan error, 1)
+	go func() { admitted <- execution.Execute(providerBroadcast("work")) }()
+	if err := <-admitted; err != nil {
+		t.Fatal(err)
+	}
+	receiveSubmitCommand(t, sess.executed)
+	interp.Snapshot()
+	assertProviderEvent(t, results)
+	if sess.maxActive.Load() != 1 {
+		t.Fatal("worker admission bypassed serialized Session execution")
+	}
+}
+
+func TestExecutionCapability_shutdownDrainsAdmittedDelivery(t *testing.T) {
+	interp, sess, _ := newSubmitContractInterpreter(t)
+	configureNativeSendDelivery(t, sess, "direct")
+	execute := sess.execute
+	entered, released := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	release := func() { once.Do(func() { close(released) }) }
+	t.Cleanup(release)
+	sess.execute = func(command session.Command, observer session.Observer) {
+		close(entered)
+		<-released
+		execute(command, observer)
+	}
+	submissions := make(chan *CommandSubmission, 1)
+	mustSubmit(t, interp.Schedule(func() {
+		statement := parseSourceStatement(t, "@ada work")
+		submission := interp.AdmitCommand("send", statement)
+		submissions <- submission
+		execution := submission.Context.Session.CreateExecution()
+		execution.Subscribe(func(event runtime.ExecutionEvent) {
+			result := deriveAdmissionEventCompletion(statement.Raw, event)
+			submission.QueueCompletion(func() { publishAdmissionTestCompletion(submission, result) })
+		})
+		command := session.SendToParticipantCommand{Plan: submission.Context.Session.CreateParticipantSendPlan(testAlias("ada")), Message: "work", Notice: "@ada: work"}
+		if err := execution.Execute(command); err != nil {
+			t.Error(err)
+		}
+	}))
+	<-entered
+	interp.executor.requestClose()
+	release()
+	interp.Close()
+	assertNativeSendRecords(t, interp.Snapshot().Room.Records, "direct")
+	submission := <-submissions
+	submission.session.mu.Lock()
+	retained := len(submission.session.executions)
+	submission.session.mu.Unlock()
+	if retained != 0 || len(interp.executor.pendingInvocations) != 0 {
+		t.Fatal("shutdown retained execution scopes or created legacy invocation ownership")
 	}
 }

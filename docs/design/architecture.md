@@ -141,11 +141,12 @@ command completion does not fabricate it.
 No routing template or alias correlation is required. The monolith supplies
 capabilities and canonical publication; it stores no
 migrated lifecycle and receives no command-orchestration callback.
-Other commands use fallback; `SubmitCommand` remains a legacy compatibility bridge.
+All public commands use modular dispatch. The SubmitCommand bridge is removed;
+direct legacy handlers remain only for compatibility tests.
 
 Native sends remain serialized, with terminal events scoped to the owning
-invocation. Session owns participant availability; only the private SubmitCommand
-compatibility wrapper retains queued-send early rejection for the same primary.
+invocation. Session owns participant availability; the former SubmitCommand
+primary-reservation wrapper is removed.
 Queued completion work lets the new
 interpreter settle its lifecycle during the delivery burst. The monolith publishes
 accepted input records before causal Session events, then terminal outcomes.
@@ -178,12 +179,10 @@ Session observer, preparation phase or generic readiness gate is introduced.
 This arrangement is temporary. New invocation lifecycle and staging
 orchestration belong to `internal/interpreter` and its runtime components.
 The monolith exposes narrow admission, subscription, publication and lifetime
-capabilities while retaining unchanged legacy workflows as fallback. Migration
-should progressively transfer ownership to the new interpreter so the monolith
-and its compatibility bridge can be deprecated and removed, rather than becoming
-the permanent owner of modular commands. Once fallback workflows and legacy
-`SubmitCommand` callers are gone, transfer execution/publication capability
-implementations to the new interpreter and remove the bridge and monolith
+capabilities while retaining direct legacy workflow callers for compatibility tests.
+Public input and staging are detached from those workflows. SubmitCommand and its
+private reservation wrapper are removed. Transfer remaining execution/publication
+capability implementations and retire legacy dispatch before removing the monolith
 (checkpoint 9). Runtime mechanics remain driven by the interpreter throughout.
 
 See [`pkg-interpreter.md`](pkg-interpreter.md).

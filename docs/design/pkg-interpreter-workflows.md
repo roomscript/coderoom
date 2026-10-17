@@ -1132,8 +1132,9 @@ departure policy, terminal validation and record formatting. Execution receives 
 invocation-scoped subscription emits ExecutionCompleted with the Session execution
 ID, authoritative error and optional actual routing, or ExecutionFailed with a
 host/protocol error. Delivery rejects completion without routing; commands validate
-its kind and recipients. Missing or invalid delivery outcomes fail work without invented routing; common admission has no alias reservation. Only the
-private SubmitCommand bridge retains historical queued-send early rejection.
+its kind and recipients. Missing or invalid delivery outcomes fail work without
+invented routing; common admission has no alias reservation. The former SubmitCommand
+bridge and its private queued-send reservation wrapper are removed.
 Direct broadcasts settle submission after actual input records, causal Session
 events and dispatch
 publication. Waiting broadcasts acknowledge stage retention and publish later

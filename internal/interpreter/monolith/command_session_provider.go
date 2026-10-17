@@ -13,7 +13,7 @@ import (
 // The interpreter drives publication on its lane; workers may queue completions.
 type commandSessionProvider struct {
 	executor       *interpreterExecutor
-	invocation     *ownedCommand // temporary SubmitCommand compatibility ownership
+	invocation     *ownedCommand // direct legacy module ownership
 	mu             sync.Mutex
 	closed         bool
 	executions     map[*commandSession]struct{}
@@ -26,10 +26,6 @@ type commandSessionProvider struct {
 var _ runtime.SessionExecutionProvider = (*commandSessionProvider)(nil)
 
 func (s *commandSessionProvider) CreateExecution() runtime.SessionExecution {
-	return s.createExecution()
-}
-
-func (s *commandSessionProvider) createExecution() *commandSession {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	execution := &commandSession{provider: s, closed: s.closed}
