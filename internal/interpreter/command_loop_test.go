@@ -174,7 +174,7 @@ func TestLoop_cancellationUsesOwnSessionCompletion(t *testing.T) {
 	facts := make(chan session.Event, 16)
 	_, unsubscribe := sess.SubscribeParticipants(func(event session.Event) { facts <- event })
 	defer unsubscribe()
-	if _, err := sess.Execute(session.CancelCommand{Alias: before.Alias}); err != nil {
+	if err := interp.Submit("/cancel ada"); err != nil {
 		t.Fatal(err)
 	}
 	assertCancelledLoopFacts(t, facts, before.Alias, before.ActiveExecutionID)

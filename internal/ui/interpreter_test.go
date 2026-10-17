@@ -3,6 +3,7 @@ package ui
 import (
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -97,34 +98,60 @@ func TestSubmit_QuitStopsSessionBeforeReturningTeaQuit(t *testing.T) {
 	})
 	m = m.submitToInterpreter("/quit")
 
+	messages := make(chan tea.Msg, 64)
+	var workers sync.WaitGroup
+	t.Cleanup(func() { m.observer.Close(); workers.Wait() })
+	runQuitTestCommand(awaitUIMessage(m.observer.queue), messages, &workers)
 	for {
-		event, ok := m.observer.queue.PullTimeout(2 * time.Second)
-		if !ok {
-			t.Fatal("timed out waiting for exit request")
-		}
-		next, cmd := m.Update(event)
-		m = next.(Model)
-		if _, requested := event.(quitRequested); requested {
-			go m.shutdownApplication()()
-		}
-		if _, exit := event.(shutdownCompleted); !exit {
-			continue
-		}
-		if cmd == nil {
-			t.Fatal("exit request did not return tea.Quit")
-		}
 		select {
-		case <-stopped:
-		default:
-			t.Fatal("tea.Quit returned before the session stopped its agent")
+		case message := <-messages:
+			if _, quit := message.(tea.QuitMsg); quit {
+				assertQuitAfterShutdown(t, m, stopped)
+				return
+			}
+			next, cmd := m.Update(message)
+			m = next.(Model)
+			runQuitTestCommand(cmd, messages, &workers)
+		case <-time.After(2 * time.Second):
+			t.Fatal("timed out waiting for the UI's quit command")
 		}
-		if m.submissionPending {
-			t.Fatal("exit request arrived before submission completion released the gate")
-		}
-		if got := countUserInputRecords(m, "/quit"); got != 1 {
-			t.Fatalf("user input records = %d, want 1", got)
-		}
+	}
+}
+
+// Execute the commands Update actually returns, including concurrent batches and
+// queue listeners, and feed their messages back into the model like Bubble Tea.
+func runQuitTestCommand(cmd tea.Cmd, messages chan<- tea.Msg, workers *sync.WaitGroup) {
+	if cmd == nil {
 		return
+	}
+	workers.Add(1)
+	go func() {
+		defer workers.Done()
+		message := cmd()
+		if batch, ok := message.(tea.BatchMsg); ok {
+			for _, child := range batch {
+				runQuitTestCommand(child, messages, workers)
+			}
+			return
+		}
+		if message != nil {
+			messages <- message
+		}
+	}()
+}
+
+func assertQuitAfterShutdown(t *testing.T, m Model, stopped <-chan struct{}) {
+	t.Helper()
+	select {
+	case <-stopped:
+	default:
+		t.Fatal("tea.Quit returned before the session stopped its agent")
+	}
+	if m.submissionPending {
+		t.Fatal("UI quit before submission completion released the gate")
+	}
+	if got := countUserInputRecords(m, "/quit"); got != 1 {
+		t.Fatalf("user input records = %d, want 1", got)
 	}
 }
 

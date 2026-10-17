@@ -521,6 +521,32 @@ needs them, rather than as separate interpreter-wide prerequisite steps:
   canonical room. Acceptance and terminal
   submission reporting stay at the outer submission boundary.
 
+## Pre-removal test coverage checkpoint
+
+Before removing the monolith, the migration regression set now includes:
+
+- `/quit` executes the actual commands returned by UI Update (including batches
+  and queue listeners), and observes tea.QuitMsg only after shutdown and submission
+  acknowledgement. The test no longer invokes shutdownApplication itself.
+- Public policy/invite/remove/cancel failures retain whitespace-sensitive parsed
+  statements, diagnostic argument spans and the underlying Session error identity.
+- Public unrouted submissions complete exactly once when Session execution overlaps
+  Close, for success and failure. Admission closure is observed through Submit;
+  failed admission and early lifecycle closure release execution subscriptions.
+- Real-Session public remove/cancel tests check actual lifecycle effects and the
+  published participant snapshot at acknowledgement, plus eventual canonical
+  departure after removal. Cancellation of the real loop now uses
+  public /cancel while retaining execution identity and completion-propagation checks.
+
+Infrastructure tests under monolith remain required during ownership transfer:
+`event_dispatch_test.go` (slow observers, FIFO and shutdown flushing),
+`observer_test.go` (initial-state ordering and multiple observers),
+`command_session_provider_test.go` (scope isolation and revocation),
+`command_delivery_scope_test.go` (execution completion/protocol validation), and
+`command_publication_test.go`/`transcript_test.go` (causal records and updates).
+Transfer these with their implementation owners or port their contracts to the
+public boundary; do not delete them as legacy-handler coverage.
+
 ## Guardrails and validation
 
 One serialized coordinator continues to own execution, canonical projections,
