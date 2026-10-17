@@ -82,9 +82,6 @@ type Who struct{}
 // Help displays available commands.
 type Help struct{}
 
-// Quit exits the session.
-type Quit struct{}
-
 // UnknownCommandError is returned for an invalid user-command invocation.
 type UnknownCommandError struct {
 	Cmd string
@@ -110,4 +107,3 @@ func (UserCommand) isStatement()    {}
 func (Loop) isStatement()           {}
 func (Who) isStatement()            {}
 func (Help) isStatement()           {}
-func (Quit) isStatement()           {}

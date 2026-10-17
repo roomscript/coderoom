@@ -27,7 +27,7 @@ func TestParse_sourceRanges(t *testing.T) {
 		{"broadcast", "  hello @ada /shell λ  ", map[string]promptlang.Span{"Span": {Start: 2, End: 22}, "Value.Text.Span": {Start: 2, End: 22}}},
 		{"who", "  /who  ", map[string]promptlang.Span{"Span": {Start: 2, End: 6}}},
 		{"help", "  /help  ", map[string]promptlang.Span{"Span": {Start: 2, End: 7}}},
-		{"quit", "  /quit  ", map[string]promptlang.Span{"Span": {Start: 2, End: 7}}},
+		{"quit", "  /quit  ", map[string]promptlang.Span{"Span": {Start: 2, End: 7}, "Value.Name.Span": {Start: 3, End: 7}}},
 		{"application invocation", "  /inspect  ", map[string]promptlang.Span{"Span": {Start: 2, End: 10}, "Value.Name.Span": {Start: 3, End: 10}}},
 	}
 	for _, tt := range tests {

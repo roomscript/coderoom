@@ -42,8 +42,6 @@ type instructionExecutorPort interface {
 	participantState() []participantState
 	takeSessionEvents() []session.Event
 	refreshSnapshot() Snapshot
-	requestClose()
-	shutdownSession()
 }
 
 type instructionModelPort interface {
@@ -111,8 +109,8 @@ func (r *instructionRunner) apply(value instruction) ([]runnerItem, bool) {
 	if items, snapshot, handled := r.applyExecutionInstruction(value); handled {
 		return items, snapshot
 	}
-	if items, handled := r.applyLifecycleInstruction(value); handled {
-		return items, false
+	if r.applyLifecycleInstruction(value) {
+		return nil, false
 	}
 	panic(fmt.Sprintf("unknown workflow instruction %T", value))
 }
@@ -198,23 +196,16 @@ func (r *instructionRunner) applyPreparationInstruction(value instruction) ([]ru
 	}
 }
 
-func (r *instructionRunner) applyLifecycleInstruction(value instruction) ([]runnerItem, bool) {
+func (r *instructionRunner) applyLifecycleInstruction(value instruction) bool {
 	switch value := value.(type) {
 	case startShellInstruction:
 		r.executor.startWorkflowShell(value)
-		return nil, true
+		return true
 	case startUserShellInstruction:
 		r.executor.startShell(value.raw, value.command, value.program, value.statement)
-		return nil, true
-	case requestCloseInstruction:
-		r.executor.requestClose()
-		return nil, true
-	case shutdownSessionInstruction:
-		r.executor.shutdownSession()
-		sequence := materializeSnapshot(r.ApplySessionEvents(r.executor.takeSessionEvents()))
-		return instructionItems(sequence), true
+		return true
 	default:
-		return nil, false
+		return false
 	}
 }
 

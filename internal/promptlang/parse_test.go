@@ -29,7 +29,7 @@ func TestParse_slashCommands(t *testing.T) {
 		{"/check-tests_2", promptlang.UserCommand{Name: located("check-tests_2")}},
 		{"/who", promptlang.Who{}},
 		{"/help", promptlang.Help{}},
-		{"/quit", promptlang.Quit{}},
+		{"/quit", promptlang.UserCommand{Name: located("quit")}},
 	}
 	for _, tt := range tests {
 		got, err := promptlang.Parse(tt.input)

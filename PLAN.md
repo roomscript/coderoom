@@ -454,6 +454,34 @@ the runtime and promptlang registries or decide their package ownership.
 - [ ] 10. Remove superseded plumbing, reconcile architecture/workflow docs,
   check every #61 acceptance criterion, run final validation and remove this plan.
 
+## Proposed runtime changes for the remaining handlers
+
+These proposals are not implemented or approved contracts. Review and agree on
+the concrete runtime changes before implementing the remaining-handler batch.
+They preserve existing product behavior rather than introduce new features.
+
+- `/policy enable`, `/invite`, `/remove` and `/cancel` need terminal completion
+  for Session commands that produce no routing outcome. Proposed
+  `ExecutionCompleted{ExecutionID, Err}` reports that command execution's actual
+  result through the existing invocation-scoped Subscribe/Execute stream.
+  Keep DeliveryCompleted for routing outcomes and ExecutionFailed for host/protocol
+  failures. runtime.Delivery must continue rejecting a terminal event without its
+  required routing outcome; ordinary-command support must not weaken delivery
+  validation or reintroduce command-specific switches in the adapter.
+- `/quit` is migrated by agreement as a UI application command, like `/debugview`.
+  The callback queues a request; asynchronous cleanup calls Interpreter.Close(),
+  which owns Session shutdown and publication draining, then queues completion behind drained submission outcomes
+  before UI exit. The dedicated parser statement, handler and ExitRequested event
+  are removed. No ShutdownRequester runtime capability is needed.
+- `/help` can use existing registry metadata and publication machinery; identify
+  the narrow read needed when migrating it, without creating another catalogue.
+  Registry unification and its ownership decision remain deferred to #66.
+- UI debug commands are already migrated as application callbacks. They need no
+  additional runtime capability or dedicated interpreter event types.
+
+Implement the remaining-handler batch after that contract review. Keep removal of
+the temporary monolith execution/publication bridge a separate reviewable step.
+
 Result ownership and lifecycle subscriptions migrate alongside each command that
 needs them, rather than as separate interpreter-wide prerequisite steps:
 

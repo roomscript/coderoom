@@ -461,8 +461,10 @@ For a valid statement, the interpreter:
 Existing syntax and behavior remain unchanged. Built-ins that are purely
 presentational, such as the exact formatting of `/help`, may remain UI
 presentation data, but recognition of the statement and its execution outcome
-belong to the interpreter. `/quit` produces a quit request; a front end decides
-how its own event loop exits after interpreter shutdown begins.
+belong to the interpreter. `/quit` is an application command registered by the UI, like `/debugview`.
+Its callback queues a UI request. Off its event loop, the UI calls
+`Interpreter.Close()`, which owns Session shutdown and publication draining, then
+queues completion behind drained interpreter outcomes before exiting. No quit-specific runtime capability or interpreter event is needed.
 
 ## Events and observation
 
@@ -513,8 +515,6 @@ type LoopStatus struct { Message string }
 type StateChanged struct {
     Snapshot Snapshot
 }
-
-type ExitRequested struct{}
 ```
 
 This list describes the semantic boundary, not a required one-to-one API.

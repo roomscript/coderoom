@@ -13,7 +13,7 @@ import (
 )
 
 func TestApplicationCommands_dispatchesUIOwnedMessages(t *testing.T) {
-	for _, name := range []string{"debugview", "debugrows"} {
+	for _, name := range []string{"quit", "debugview", "debugrows"} {
 		t.Run(name, func(t *testing.T) {
 			observer := NewObserver()
 			t.Cleanup(observer.Close)
@@ -45,6 +45,10 @@ func TestApplicationCommands_dispatchesUIOwnedMessages(t *testing.T) {
 func assertDebugMessage(t *testing.T, name string, message any) {
 	t.Helper()
 	switch name {
+	case "quit":
+		if _, ok := message.(quitRequested); !ok {
+			t.Fatalf("message=%T", message)
+		}
 	case "debugview":
 		if _, ok := message.(debugViewRequested); !ok {
 			t.Fatalf("message=%T", message)
@@ -119,5 +123,20 @@ func assertDebugInputBeforeResult(t *testing.T, m Model) {
 	}
 	if input < 0 || result <= input {
 		t.Fatalf("input=%d result=%d; records=%+v", input, result, m.room.HistoryRecords())
+	}
+}
+
+func TestApplicationHelpIncludesQuitWithoutDebug(t *testing.T) {
+	for _, debug := range []bool{false, true} {
+		m := Model{observer: NewObserver(), debug: debug}
+		entries := m.applicationHelpEntries()
+		m.observer.Close()
+		want := 1
+		if debug {
+			want = 3
+		}
+		if len(entries) != want || entries[0].Usage != "/quit" {
+			t.Fatalf("debug=%v entries=%+v", debug, entries)
+		}
 	}
 }

@@ -104,7 +104,10 @@ func TestSubmit_QuitStopsSessionBeforeReturningTeaQuit(t *testing.T) {
 		}
 		next, cmd := m.Update(event)
 		m = next.(Model)
-		if _, exit := event.(interpreterEventMsg).event.(interpreter.ExitRequested); !exit {
+		if _, requested := event.(quitRequested); requested {
+			go m.shutdownApplication()()
+		}
+		if _, exit := event.(shutdownCompleted); !exit {
 			continue
 		}
 		if cmd == nil {

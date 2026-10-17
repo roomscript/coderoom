@@ -62,6 +62,7 @@ type Model struct {
 	room        room.Model
 	toolbox     toolbox.Model
 	debug       bool
+	quitting    bool
 	colors      map[participant.Alias]string
 	cwd         string
 	lastSize    tea.WindowSizeMsg

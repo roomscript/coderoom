@@ -79,9 +79,6 @@ type HelpEntry = api.HelpEntry
 // HelpListed reports the command metadata requested by /help.
 type HelpListed = api.HelpListed
 
-// ExitRequested asks a front end to end its interactive session.
-type ExitRequested = api.ExitRequested
-
 // ShellCompleted reports the structured result of a local shell command.
 type ShellCompleted = api.ShellCompleted
 

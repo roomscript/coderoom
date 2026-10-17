@@ -372,9 +372,10 @@ The executor instructions preserve native command behavior:
   has different submission timing from a workflow-correlated shell request.
 - `goInvocationInstruction` launches registered commands; the executor supplies
   detached participant inspection outside the model before preparation.
-- `requestCloseInstruction` stops accepting operations, while
-  `shutdownSessionInstruction` shuts down the session and projects its final
-  causal events. Their separation preserves `/quit` ordering.
+- `/quit` uses an application callback that queues a UI request. Application-owned
+  asynchronous cleanup calls `Interpreter.Close()`, the existing owner of Session
+  shutdown and publication draining, before queueing UI exit behind drained
+  submission outcomes. It needs no executor instruction.
 
 These instructions are part of the closed exhaustive vocabulary. They are not
 workflow-specific runner hooks.

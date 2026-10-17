@@ -34,6 +34,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleKey(msg)
 	case tea.WindowSizeMsg:
 		return m.handleResize(msg), nil
+	case quitRequested:
+		if m.quitting {
+			return m, awaitUIMessage(m.observer.queue)
+		}
+		m.quitting = true
+		return m, tea.Batch(m.shutdownApplication(), awaitUIMessage(m.observer.queue))
+	case shutdownCompleted:
+		return m, tea.Quit
 	case debugViewRequested:
 		return m.handleDebugView(), awaitUIMessage(m.observer.queue)
 	case debugRowsRequested:
@@ -207,8 +215,6 @@ func (m Model) handleInterpreterPresentationEvent(event interpreter.Event) (Mode
 		return next, cmd, true
 	case interpreter.HelpListed:
 		return m.renderHelp(event), nil, true
-	case interpreter.ExitRequested:
-		return m, tea.Quit, true
 	case interpreter.ShellCompleted:
 		return m, nil, true
 	case interpreter.LoopStatus:
@@ -400,7 +406,7 @@ func (m Model) renderHelp(help interpreter.HelpListed) Model {
 	var text strings.Builder
 	text.WriteString("[help]\n\nCommands:\n")
 	writeHelpEntries(&text, help.Commands)
-	writeHelpEntries(&text, m.debugHelpEntries())
+	writeHelpEntries(&text, m.applicationHelpEntries())
 	text.WriteString("\nSending messages:\n")
 	writeHelpEntries(&text, help.Messages)
 	text.WriteString("\n")
@@ -419,12 +425,12 @@ func writeHelpEntries(text *strings.Builder, entries []interpreter.HelpEntry) {
 	}
 }
 
-func (m Model) debugHelpEntries() []interpreter.HelpEntry {
-	if !m.debug {
-		return nil
-	}
+func (m Model) applicationHelpEntries() []interpreter.HelpEntry {
 	var entries []interpreter.HelpEntry
 	for _, command := range m.observer.ApplicationCommands() {
+		if command.Name != "quit" && !m.debug {
+			continue
+		}
 		entries = append(entries, interpreter.HelpEntry{Usage: "/" + command.Name, Description: command.Description})
 	}
 	return entries
@@ -437,4 +443,14 @@ func (m Model) debugView() Model {
 	}
 	m.room = m.room.AppendSystem("[debug]\n" + m.room.HistoryDebugSummary())
 	return m
+}
+
+// shutdownApplication keeps blocking cleanup off the UI and publication loops.
+func (m Model) shutdownApplication() tea.Cmd {
+	return func() tea.Msg {
+		m.interpreter.Close()
+		// Queue behind drained submission outcomes before allowing the UI to exit.
+		_ = m.observer.dispatch(shutdownCompleted{})
+		return nil
+	}
 }

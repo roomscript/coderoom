@@ -707,7 +707,10 @@ stores complete definitions as immutable values in one registry; storing a callb
 does not execute it or give promptlang responsibility for scheduling. Application
 message types remain outside promptlang.
 
-The UI contributes debugview and debugrows through Observer.ApplicationCommands.
+The UI contributes quit, debugview and debugrows through Observer.ApplicationCommands.
+Quit dispatches a UI request; an asynchronous call to `Interpreter.Close()` shuts
+down the Session and drains publication before queueing completion behind drained
+outcomes.
 Their callbacks enqueue UI-defined messages in the observer's FIFO alongside
 wrapped interpreter events. The UI loop owns debug enablement, viewport diagnostics
 and row overlays, and builds debug help from the same registrations. Closing the

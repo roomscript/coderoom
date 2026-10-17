@@ -49,7 +49,6 @@ func init() {
 		defineNativeCommand("loop", submitLoop, HelpEntry{Usage: "/loop @<alias> <prompt> /until /<name> /max <turns>", Description: "run a bounded participant loop"}),
 		defineModuleCommand(std.WhoCommand{}),
 		defineNativeCommand("help", submitHelp, HelpEntry{Usage: "/help", Description: "show this message"}),
-		defineNativeCommand("quit", submitQuit, HelpEntry{Usage: "/quit", Description: "exit"}),
 		defineMessageCommand(submitStage[promptlang.Send], HelpEntry{Usage: "@<alias> <text>", Description: "send to one agent"}),
 		defineMessageCommand(submitStage[promptlang.Broadcast], HelpEntry{Usage: "<text>", Description: "broadcast to all agents"}),
 	}
@@ -71,9 +70,6 @@ func submitLoop(m *interpreterModel, raw string, statement promptlang.Loop) inst
 
 func submitHelp(m *interpreterModel, raw string, _ promptlang.Help) instructionSequence {
 	return m.submitHelp(raw)
-}
-func submitQuit(m *interpreterModel, raw string, _ promptlang.Quit) instructionSequence {
-	return m.submitQuit(raw)
 }
 
 // defineModuleCommand keeps the catalog's ordering while execution uses the registry.

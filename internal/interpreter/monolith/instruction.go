@@ -72,8 +72,6 @@ type readHandoffSourceInstruction struct {
 }
 type publishSnapshotInstruction struct{}
 type requestSnapshotInstruction struct{}
-type requestCloseInstruction struct{}
-type shutdownSessionInstruction struct{}
 
 type appendRecordInstruction struct{ record room.Record }
 type publishEventInstruction struct{ event Event }
@@ -89,8 +87,6 @@ func (readParticipantStateInstruction) instruction() {}
 func (readHandoffSourceInstruction) instruction()    {}
 func (publishSnapshotInstruction) instruction()      {}
 func (requestSnapshotInstruction) instruction()      {}
-func (requestCloseInstruction) instruction()         {}
-func (shutdownSessionInstruction) instruction()      {}
 func (appendRecordInstruction) instruction()         {}
 func (publishEventInstruction) instruction()         {}
 

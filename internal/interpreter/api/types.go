@@ -154,9 +154,6 @@ type HelpListed struct {
 	Messages []HelpEntry
 }
 
-// ExitRequested asks a front end to end its interactive session.
-type ExitRequested struct{}
-
 // ShellCompleted reports the structured result of a local shell command.
 type ShellCompleted struct {
 	Raw       string
@@ -195,7 +192,6 @@ func (InputRejected) interpreterEvent()         {}
 func (UnknownCommand) interpreterEvent()        {}
 func (ParticipantsListed) interpreterEvent()    {}
 func (HelpListed) interpreterEvent()            {}
-func (ExitRequested) interpreterEvent()         {}
 func (ShellCompleted) interpreterEvent()        {}
 func (LoopStatus) interpreterEvent()            {}
 func (SubmissionSucceeded) interpreterEvent()   {}

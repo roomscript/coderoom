@@ -2,6 +2,9 @@ package ui
 
 import "github.com/roomscript/coderoom/internal/interpreter"
 
+type quitRequested struct{}
+type shutdownCompleted struct{}
+
 type debugViewRequested struct{}
 type debugRowsRequested struct{}
 
@@ -9,6 +12,7 @@ type debugRowsRequested struct{}
 // Callbacks enqueue messages; only the UI event loop changes presentation state.
 func (o *Observer) ApplicationCommands() []interpreter.ApplicationCommand {
 	return []interpreter.ApplicationCommand{
+		{Name: "quit", Description: "exit", Run: func() error { return o.dispatch(quitRequested{}) }},
 		{Name: "debugview", Description: "print viewport debug", Run: func() error { return o.dispatch(debugViewRequested{}) }},
 		{Name: "debugrows", Description: "toggle row number overlay", Run: func() error { return o.dispatch(debugRowsRequested{}) }},
 	}
