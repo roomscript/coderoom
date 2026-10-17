@@ -231,7 +231,7 @@ User command checkpoint:
 - Existing legacy handlers remain for direct monolith compatibility until removal
   at checkpoint 9. Registry ownership and public command execution have moved out.
 
-Current checkpoint: loop cutover and its event-processing review are complete; commit checkpoint 6, then continue with checkpoint 9.
+Current checkpoint: public command cutover through /help is complete. Continue checkpoint 9 with the remaining-consumer audit and a separate execution/publication transfer and monolith-removal step.
 
 Checkpoint 6, first agreed substep: runtime.ExecutionCompleted now carries the
 ExecutionID returned by Session.Execute alongside the actual routing outcome,
@@ -483,20 +483,24 @@ They preserve existing product behavior rather than introduce new features.
   supplies the requested name; remove/cancel capture the current instance or
   preserve a missing name for Session rejection. Session remains lifecycle authority.
   No runtime changes or new central dispatch branches were needed. Legacy handlers
-  and help remain for direct monolith callers. `/help` is the next migration step.
+  and help remain for direct monolith callers. Public command migration is complete.
 - `/quit` is migrated by agreement as a UI application command, like `/debugview`.
   The callback queues a request; asynchronous cleanup calls Interpreter.Close(),
   which owns Session shutdown and publication draining, then queues completion behind drained submission outcomes
   before UI exit. The dedicated parser statement, handler and ExitRequested event
   are removed. No ShutdownRequester runtime capability is needed.
-- `/help` can use existing registry metadata and publication machinery; identify
-  the narrow read needed when migrating it, without creating another catalogue.
-  Registry unification and its ownership decision remain deferred to #66.
+- `/help` is publicly registered as std.HelpCommand, with a preparation-time
+  ReadHelp function bound to the existing monolith catalogue read. No runtime
+  capability or parallel catalogue was added. The invocation captures detached
+  entries and publishes input snapshot, HelpListed and submission success in the
+  existing order through InvocationPublication and SubmissionAcknowledgement.
+  Legacy help remains for direct monolith callers until removal. Registry
+  unification and its ownership decision remain deferred to #66.
 - UI debug commands are already migrated as application callbacks. They need no
   additional runtime capability or dedicated interpreter event types.
 
-Implement the remaining-handler batch after that contract review. Keep removal of
-the temporary monolith execution/publication bridge a separate reviewable step.
+Public handler migration is complete. Audit remaining consumers and keep removal
+of the temporary monolith execution/publication bridge a separate reviewable step.
 
 Result ownership and lifecycle subscriptions migrate alongside each command that
 needs them, rather than as separate interpreter-wide prerequisite steps:

@@ -741,3 +741,14 @@ releases its subscription on closure. Session owns lifecycle checks and effects;
 invite completion means startup launched, and cancel completion means interruption
 requested. Existing legacy handlers and help variants remain for direct monolith
 compatibility until removal.
+
+### Help cutover
+
+`std.HelpCommand` selects `/help` through the modular registry. Its ReadHelp
+function is bound at construction to the existing catalogue's detached, lane-only
+read in the monolith. Preparation captures the ordered command/message entries,
+including both policy variants. Go uses InvocationPublication to flush the input
+snapshot before HelpListed; the existing acknowledgement capability keeps
+submission success after help publication. Help creates no Session execution.
+The legacy handler remains for direct monolith callers. Catalogue transfer belongs
+to monolith removal; registry unification remains deferred to #66.

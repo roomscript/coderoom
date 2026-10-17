@@ -42,3 +42,7 @@ func moduleHelpListing(registry *runtime.Registry) HelpListed {
 	}
 	return listing
 }
+
+// ReadHelp returns detached metadata from the existing catalogue. Call only on
+// the serialized interpreter lane; this read does not enqueue another operation.
+func (i *Interpreter) ReadHelp() HelpListed { return i.model.helpListing() }
