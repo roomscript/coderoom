@@ -24,7 +24,7 @@ type loopConditionResult struct {
 }
 
 type loopDeliveryResult struct {
-	result runtime.DeliveryCompleted
+	result runtime.ExecutionCompleted
 	err    error
 }
 

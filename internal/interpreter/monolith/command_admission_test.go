@@ -94,7 +94,10 @@ func publishAdmissionTestCompletion(submission *CommandSubmission, result runtim
 
 func deriveAdmissionEventCompletion(raw string, event runtime.ExecutionEvent) runtime.CommandResult {
 	switch event := event.(type) {
-	case runtime.DeliveryCompleted:
+	case runtime.ExecutionCompleted:
+		if event.Result.Kind == "" {
+			return runtime.CommandResult{Err: runtime.ErrInvalidDeliveryOutcome}
+		}
 		return deriveAdmissionTestCompletion(raw, event.Result)
 	case runtime.ExecutionFailed:
 		return runtime.CommandResult{Err: event.Err}

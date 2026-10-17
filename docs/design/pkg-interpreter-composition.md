@@ -451,10 +451,15 @@ adapter, and loop tests against fake delivery/shell ports without a fake Session
 
 `Context.Session.Subscribe(handle)` installs the invocation's terminal-event
 listener before `Execute(command)` admits its native command. The stream emits
-`runtime.DeliveryCompleted` with the actual Session routing outcome, including
-partial/failure delivery in Result.Err, or `runtime.ExecutionFailed` with an
-execution/protocol error. Missing, empty or multiple outcomes produce failure
-without synthesized recipients or a routing kind. These runtime execution events
+`runtime.ExecutionCompleted` whenever Session.Execute returns, with its execution
+ID, authoritative Err and optional actual routing Result. No routing is represented
+by an empty Result.Kind; ordinary errors do not fabricate routing metadata.
+When routing exists, Result.Err is derived from Err. Malformed or multiple routing
+outcomes emit `runtime.ExecutionFailed`, reserved for host/protocol failures.
+`runtime.Delivery` rejects completion without routing; commands validate routing
+kind, recipients and roles. Completion means startup launched for invite,
+interruption requested for cancel, or delivery attempts finished for sends;
+it never means participant work finished. These runtime execution events
 are distinct from Session's participant events and canonical publication.
 Command-specific semantic validation fails an invalid terminal event instead of
 ignoring it. A legacy or another invocation's outcome cannot reach this listener,
@@ -533,9 +538,9 @@ provides readiness/transitions; the interpreter constructs it and decides when t
 advance, settle or close it, owning identity, stage operations and shutdown.
 
 A command subscribes to its execution's terminal events and supplies only the
-actual Session command. The capability emits its actual routing outcome or an
-execution-failed event with no routing. No synthetic routing template is needed
-to terminate missing outcomes. Session owns actual routing and participant state.
+actual Session command. The capability emits execution completion with optional
+actual routing, or a host/protocol failure. Delivery rejects completion without
+routing. No synthetic routing template is needed to terminate missing outcomes. Session owns actual routing and participant state.
 Semantic validation may reject an invalid terminal event, but must report failure
 rather than leave the invocation waiting for another result.
 
@@ -583,7 +588,8 @@ completion facts; the interpreter supplies those
 facts and drives advancement using the existing canonical observer and shared lane.
 The history capability and SessionExecution keep separate read and effect roles.
 
-DeliveryCompleted carries actual routing only. Session audit facts, including the
+ExecutionCompleted carries execution identity/error and optional actual routing,
+without source preview payloads. Session audit facts, including the
 handoff preview, reach the UI through canonical projection. Std does not consume
 or reconstruct previews, and CommandResult needs no semantic-event field. The
 redundant HandoffCompleted notification is removed. The interpreter remains

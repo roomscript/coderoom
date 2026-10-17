@@ -1129,9 +1129,10 @@ accepting or recording input.
 Send and broadcast compose `runtime.Delivery` for subscription, launch, single
 terminal-event acceptance and cleanup. Each command retains construction,
 departure policy, terminal validation and record formatting. Execution receives only the actual Session command. Its
-invocation-scoped subscription emits DeliveryCompleted with the actual routing
-outcome or ExecutionFailed with a protocol error. Missing or invalid outcomes
-fail work without invented routing; common admission has no alias reservation. Only the
+invocation-scoped subscription emits ExecutionCompleted with the Session execution
+ID, authoritative error and optional actual routing, or ExecutionFailed with a
+host/protocol error. Delivery rejects completion without routing; commands validate
+its kind and recipients. Missing or invalid delivery outcomes fail work without invented routing; common admission has no alias reservation. Only the
 private SubmitCommand bridge retains historical queued-send early rejection.
 Direct broadcasts settle submission after actual input records, causal Session
 events and dispatch
@@ -1168,7 +1169,7 @@ and its canonical record index. It preserves completed-output selection and neve
 keeps another transcript. Missing output fails the handoff-source operation.
 There is no second preparation phase or generic readiness callback gate.
 
-The Session command remains the delivery and audit authority. DeliveryCompleted
+The Session command remains the delivery and audit authority. ExecutionCompleted
 returns actual routing to std for validation and record formatting. Session's
 HandoffDelivered event projects the preview into the canonical room; std needs no
 preview or causal-event payload. The redundant HandoffCompleted notification is

@@ -39,8 +39,10 @@ func TestDelivery_TerminalEvents(t *testing.T) {
 		kind  session.RoutingKind
 		err   error
 	}{
-		{"actual outcome", DeliveryCompleted{ExecutionID: 41, Result: session.RoutingResult{Kind: "probe"}}, "probe", nil},
-		{"delivery failure", DeliveryCompleted{ExecutionID: 42, Result: session.RoutingResult{Kind: "probe", Err: failure}}, "probe", nil},
+		{"actual outcome", ExecutionCompleted{ExecutionID: 41, Result: session.RoutingResult{Kind: "probe"}}, "probe", nil},
+		{"delivery failure", ExecutionCompleted{ExecutionID: 42, Result: session.RoutingResult{Kind: "probe", Err: failure}, Err: failure}, "probe", nil},
+		{"missing routing", ExecutionCompleted{ExecutionID: 43}, "", ErrInvalidDeliveryOutcome},
+		{"failed without routing", ExecutionCompleted{ExecutionID: 44, Err: failure}, "", ErrInvalidDeliveryOutcome},
 		{"execution failure", ExecutionFailed{Err: failure}, "", failure},
 		{"invalid failure", ExecutionFailed{}, "", ErrInvalidDeliveryOutcome},
 	} {
@@ -50,9 +52,9 @@ func TestDelivery_TerminalEvents(t *testing.T) {
 			updates := 0
 			delivery.UpdatePrepared(func() { updates++ })
 			count := 0
-			var outcome DeliveryCompleted
+			var outcome ExecutionCompleted
 			var failure error
-			if err := delivery.Go(host, session.CancelCommand{}, func(result DeliveryCompleted, err error) { count++; outcome, failure = result, err }); err != nil {
+			if err := delivery.Go(host, session.CancelCommand{}, func(result ExecutionCompleted, err error) { count++; outcome, failure = result, err }); err != nil {
 				t.Fatal(err)
 			}
 			if !slices.Equal(host.order, []string{"subscribe", "execute"}) {
@@ -65,21 +67,21 @@ func TestDelivery_TerminalEvents(t *testing.T) {
 			host.handle(test.event)
 			delivery.UpdatePrepared(func() { updates++ })
 			assertDeliveryTerminal(t, count, updates, outcome, failure, test.kind, test.err)
-			expected, _ := test.event.(DeliveryCompleted)
-			if outcome.ExecutionID != expected.ExecutionID || !errors.Is(outcome.Result.Err, expected.Result.Err) {
+			expected, _ := test.event.(ExecutionCompleted)
+			if outcome.ExecutionID != expected.ExecutionID || !errors.Is(outcome.Err, expected.Err) || !errors.Is(outcome.Result.Err, expected.Result.Err) {
 				t.Fatalf("outcome=%#v, want %#v", outcome, expected)
 			}
 			if host.unsubscribes.Load() != 1 {
 				t.Fatal("subscription not released once")
 			}
-			if err := delivery.Go(host, session.CancelCommand{}, func(DeliveryCompleted, error) {}); !errors.Is(err, ErrInvocationNotPrepared) {
+			if err := delivery.Go(host, session.CancelCommand{}, func(ExecutionCompleted, error) {}); !errors.Is(err, ErrInvocationNotPrepared) {
 				t.Fatalf("relaunch = %v", err)
 			}
 		})
 	}
 }
 
-func assertDeliveryTerminal(t *testing.T, count, updates int, outcome DeliveryCompleted, failure error, kind session.RoutingKind, want error) {
+func assertDeliveryTerminal(t *testing.T, count, updates int, outcome ExecutionCompleted, failure error, kind session.RoutingKind, want error) {
 	t.Helper()
 	if count != 1 || updates != 1 || outcome.Result.Kind != kind || !errors.Is(failure, want) {
 		t.Fatalf("terminal result count=%d, updates=%d, outcome=%#v, error=%v", count, updates, outcome, failure)
@@ -96,7 +98,7 @@ func TestDelivery_CloseAndFailedLaunch(t *testing.T) {
 				delivery.Close()
 				failure = ErrInvocationNotPrepared
 			}
-			err := delivery.Go(host, session.CancelCommand{}, func(DeliveryCompleted, error) { t.Error("closed delivery completed") })
+			err := delivery.Go(host, session.CancelCommand{}, func(ExecutionCompleted, error) { t.Error("closed delivery completed") })
 			if !errors.Is(err, failure) {
 				t.Fatalf("Go = %v", err)
 			}
@@ -119,12 +121,12 @@ func TestDelivery_ConcurrentEventsAndClose(t *testing.T) {
 	var delivery Delivery
 	host := &deliveryHost{}
 	var completions atomic.Int32
-	if err := delivery.Go(host, session.CancelCommand{}, func(DeliveryCompleted, error) { completions.Add(1) }); err != nil {
+	if err := delivery.Go(host, session.CancelCommand{}, func(ExecutionCompleted, error) { completions.Add(1) }); err != nil {
 		t.Fatal(err)
 	}
 	var work sync.WaitGroup
 	for range 20 {
-		work.Go(func() { host.handle(DeliveryCompleted{Result: session.RoutingResult{Kind: "probe"}}) })
+		work.Go(func() { host.handle(ExecutionCompleted{Result: session.RoutingResult{Kind: "probe"}}) })
 	}
 	work.Go(delivery.Close)
 	work.Wait()

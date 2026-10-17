@@ -121,7 +121,7 @@ func newLoopProof(t *testing.T, maxTurns string) *loopProof {
 
 func (p *loopProof) deliver(id session.ExecutionID, status session.DeliveryStatus) {
 	scope := p.host.scopes[len(p.host.scopes)-1]
-	scope.handle(runtime.DeliveryCompleted{ExecutionID: id, Result: session.RoutingResult{Kind: session.RoutingParticipantSend, Recipients: []session.RecipientResult{{Alias: p.primary, Role: session.RecipientPrimary, Status: status}}}})
+	scope.handle(runtime.ExecutionCompleted{ExecutionID: id, Result: session.RoutingResult{Kind: session.RoutingParticipantSend, Recipients: []session.RecipientResult{{Alias: p.primary, Role: session.RecipientPrimary, Status: status}}}})
 	p.handler.HandlePendingEvents()
 }
 func (p *loopProof) completeWork(id session.ExecutionID, recorded bool) {
@@ -254,7 +254,7 @@ func TestLoop_departureDuringDispatch(t *testing.T) {
 func TestLoop_noticeFailureStillWaitsForPrimary(t *testing.T) {
 	p := newLoopProof(t, "1")
 	failure := errors.New("notice failed")
-	p.host.scopes[0].handle(runtime.DeliveryCompleted{ExecutionID: 41, Result: session.RoutingResult{
+	p.host.scopes[0].handle(runtime.ExecutionCompleted{ExecutionID: 41, Result: session.RoutingResult{
 		Kind: session.RoutingParticipantSend, Err: failure, Recipients: []session.RecipientResult{
 			{Alias: p.primary, Role: session.RecipientPrimary, Status: session.DeliveryDelivered},
 			{Alias: p.host.views[1].Alias, Role: session.RecipientNotice, Status: session.DeliveryFailed, Err: failure},

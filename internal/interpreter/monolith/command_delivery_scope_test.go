@@ -21,8 +21,8 @@ func TestDeliveryCapability_ScopesIdenticalBroadcastRecipients(t *testing.T) {
 		if broadcast.Text == "second" {
 			err = secondErr
 		}
-		observer.OnEvent(session.RoutingCompleted{Result: session.RoutingResult{Kind: session.RoutingBroadcast, Err: err,
-			Recipients: []session.RecipientResult{{Alias: testAlias("ada"), Role: session.RecipientBroadcast, Status: session.DeliveryFailed}}}})
+		observer.OnEvent(session.RoutingCompleted{Result: session.RoutingResult{Kind: session.RoutingBroadcast,
+			Recipients: []session.RecipientResult{{Alias: testAlias("ada"), Role: session.RecipientBroadcast, Status: session.DeliveryFailed, Err: err}}}})
 	}
 	results := []chan runtime.ExecutionEvent{make(chan runtime.ExecutionEvent, 4), make(chan runtime.ExecutionEvent, 4)}
 	submissions := make([]*CommandSubmission, 2)
@@ -54,7 +54,7 @@ func TestDeliveryCapability_ScopesIdenticalBroadcastRecipients(t *testing.T) {
 }
 
 func TestDeliveryCapability_ProtocolFailureWithoutRoutingMetadata(t *testing.T) {
-	for _, scenario := range []string{"missing", "empty", "multiple"} {
+	for _, scenario := range []string{"empty", "multiple"} {
 		t.Run(scenario, func(t *testing.T) {
 			interp, sess, _ := newSubmitContractInterpreter(t)
 			sess.routingOverride = true
@@ -83,9 +83,6 @@ func TestDeliveryCapability_ProtocolFailureWithoutRoutingMetadata(t *testing.T) 
 			}
 			failure, ok := (<-events).(runtime.ExecutionFailed)
 			want := runtime.ErrInvalidDeliveryOutcome
-			if scenario == "missing" {
-				want = errMissingRoutingOutcome
-			}
 			if !ok || !errors.Is(failure.Err, want) {
 				t.Fatalf("terminal failure=%#v", failure)
 			}
@@ -99,8 +96,8 @@ func assertScopedRoutingEvents(t *testing.T, events []chan runtime.ExecutionEven
 		if len(events[index]) != 1 {
 			t.Fatalf("scope %d received %d events", index, len(events[index]))
 		}
-		result, ok := (<-events[index]).(runtime.DeliveryCompleted)
-		if !ok || !errors.Is(result.Result.Err, want) {
+		result, ok := (<-events[index]).(runtime.ExecutionCompleted)
+		if !ok || !errors.Is(result.Result.Recipients[0].Err, want) {
 			t.Fatalf("scope %d consumed another execution: %#v", index, result)
 		}
 	}
@@ -170,11 +167,69 @@ func TestDeliveryCapability_ForwardsExecutionID(t *testing.T) {
 				t.Fatalf("terminal events=%d", len(results))
 			}
 			for _, id := range []session.ExecutionID{41, 42} {
-				result, ok := (<-results).(runtime.DeliveryCompleted)
+				result, ok := (<-results).(runtime.ExecutionCompleted)
 				if !ok || result.ExecutionID != id || !errors.Is(result.Result.Err, sess.executeErr) {
 					t.Fatalf("result=%#v, want execution=%d", result, id)
 				}
 			}
 		})
+	}
+}
+
+func TestExecutionCapability_CompletesWithoutRouting(t *testing.T) {
+	for _, failed := range []bool{false, true} {
+		t.Run(map[bool]string{false: "success", true: "failure"}[failed], func(t *testing.T) {
+			sess := &identifiedDeliverySession{submitContractSession: newSubmitContractSession()}
+			sess.next.Store(40)
+			sess.routingOverride = true
+			entered, release := make(chan struct{}), make(chan struct{})
+			sess.execute = func(session.Command, session.Observer) { close(entered); <-release }
+			if failed {
+				sess.executeErr = errors.New("cancel rejected")
+			}
+			interp := New(context.Background(), sess, t.TempDir())
+			t.Cleanup(interp.Close)
+			results := make(chan runtime.ExecutionEvent, 2)
+			mustSubmit(t, interp.Schedule(func() {
+				submission := interp.AdmitCommand("probe", parseSourceStatement(t, "/cancel ada"))
+				execution := submission.Context.Session.CreateExecution()
+				execution.Subscribe(func(event runtime.ExecutionEvent) { results <- event; submission.Close() })
+				if err := execution.Execute(session.CancelCommand{Alias: testAlias("ada")}); err != nil {
+					t.Error(err)
+				}
+			}))
+			// Close after admission while Session execution is still running.
+			<-entered
+			interp.executor.requestClose()
+			close(release)
+			interp.Close()
+			if len(results) != 1 {
+				t.Fatalf("terminal events=%d", len(results))
+			}
+			result, ok := (<-results).(runtime.ExecutionCompleted)
+			assertNoExecutionRouting(t, result.Result)
+			if !ok || result.ExecutionID != 41 || !errors.Is(result.Err, sess.executeErr) {
+				t.Fatalf("completion=%#v", result)
+			}
+		})
+	}
+}
+
+func TestNativeDeliveryEvent_UsesExecutionError(t *testing.T) {
+	failure := errors.New("Session execution failed")
+	stale := errors.New("stale routing error")
+	for _, err := range []error{nil, failure} {
+		event := nativeDeliveryEvent(41, []session.Event{session.RoutingCompleted{Result: session.RoutingResult{Kind: session.RoutingBroadcast, Err: stale}}}, err)
+		result, ok := event.(runtime.ExecutionCompleted)
+		if !ok || result.ExecutionID != 41 || !errors.Is(result.Err, err) || !errors.Is(result.Result.Err, err) {
+			t.Fatalf("completion=%#v", event)
+		}
+	}
+}
+
+func assertNoExecutionRouting(t *testing.T, routing session.RoutingResult) {
+	t.Helper()
+	if routing.Kind != "" || routing.Err != nil || len(routing.Recipients) != 0 {
+		t.Fatalf("unexpected routing=%#v", routing)
 	}
 }

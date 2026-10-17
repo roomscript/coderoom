@@ -162,9 +162,10 @@ Broadcast cutover checkpoint:
   and cleanup.
 - SessionExecution retains Subscribe/Execute: subscribe to invocation-scoped
   runtime.ExecutionEvent before executing the actual Session command.
-  DeliveryCompleted forwards actual routing; ExecutionFailed terminates protocol
-  failures without invented recipients or kind. Missing, empty and multiple
-  outcomes fail rather than stall. There is no DeliveryRequest, routing template
+  ExecutionCompleted forwards actual routing; ExecutionFailed terminates protocol
+  failures without invented recipients or kind. Missing routing fails in Delivery;
+  malformed and multiple outcomes fail at the adapter rather than stall.
+  There is no DeliveryRequest, routing template
   or ownership-matching predicate; runtime owns terminal subscription mechanics.
 - Common native admission has no alias reservation; Session's locked transitions
   own availability. Only the private SubmitCommand compatibility wrapper preserves
@@ -200,8 +201,8 @@ Handoff cutover checkpoint:
   The interpreter feeds projected turn facts from the existing room observer into
   the lifecycle and queues advancement after projection. Runtime evaluates facts;
   the interpreter drives advancement, settlement and shutdown.
-- Stage presentation shows every frozen prerequisite. DeliveryCompleted returns
-  actual routing only; Session's HandoffDelivered audit projects its preview
+- Stage presentation shows every frozen prerequisite. ExecutionCompleted returns
+  actual routing without source previews; Session's HandoffDelivered audit projects its preview
   through the canonical room. Std consumes no preview or causal-event payload.
 - Regressions cover idle before final projection, current versus stale execution origins,
   source selection and audit outcomes, frozen prerequisites, required departures,
@@ -232,10 +233,10 @@ User command checkpoint:
 
 Current checkpoint: loop cutover and its event-processing review are complete; commit checkpoint 6, then continue with checkpoint 9.
 
-Checkpoint 6, first agreed substep: runtime.DeliveryCompleted now carries the
+Checkpoint 6, first agreed substep: runtime.ExecutionCompleted now carries the
 ExecutionID returned by Session.Execute alongside the actual routing outcome,
 including failed delivery. Subscribe/Execute and loop behavior remain unchanged.
-By subsequent agreement, Delivery.Go passes the full DeliveryCompleted event
+By subsequent agreement, Delivery.Go passes the full ExecutionCompleted event
 and a separate execution/protocol error to its callback. Execution identity now
 reaches helper consumers without a second subscription or additional result type.
 Fresh execution scopes are implemented by subsequent agreement:
@@ -456,18 +457,19 @@ the runtime and promptlang registries or decide their package ownership.
 
 ## Proposed runtime changes for the remaining handlers
 
-These proposals are not implemented or approved contracts. Review and agree on
-the concrete runtime changes before implementing the remaining-handler batch.
+The execution capability and quit changes below are implemented by agreement.
+Review any further runtime changes before implementing the remaining-handler batch.
 They preserve existing product behavior rather than introduce new features.
 
-- `/policy enable`, `/invite`, `/remove` and `/cancel` need terminal completion
-  for Session commands that produce no routing outcome. Proposed
-  `ExecutionCompleted{ExecutionID, Err}` reports that command execution's actual
-  result through the existing invocation-scoped Subscribe/Execute stream.
-  Keep DeliveryCompleted for routing outcomes and ExecutionFailed for host/protocol
-  failures. runtime.Delivery must continue rejecting a terminal event without its
-  required routing outcome; ordinary-command support must not weaken delivery
-  validation or reintroduce command-specific switches in the adapter.
+- Execution capability update is implemented by agreement, without migrating new
+  commands: ExecutionCompleted replaces DeliveryCompleted, carrying Session.Execute's
+  ID, authoritative Err and optional actual routing. Empty Result.Kind means absent;
+  Result.Err is derived from Err only when routing exists. ExecutionFailed remains
+  a host/protocol failure for malformed or multiple routing outcomes. Delivery
+  requires routing; commands retain kind/recipient/role validation. Ordinary command
+  success/failure can now complete without invented routing. Completion means the
+  Session command returned, not participant work completion. Remaining handler
+  migration is a separate step.
 - `/quit` is migrated by agreement as a UI application command, like `/debugview`.
   The callback queues a request; asynchronous cleanup calls Interpreter.Close(),
   which owns Session shutdown and publication draining, then queues completion behind drained submission outcomes

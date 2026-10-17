@@ -135,7 +135,9 @@ Command invocations compose `runtime.Delivery` for subscription, launch, single
 terminal-event acceptance and cleanup. Commands retain construction, departure
 policy, validation and formatting. `SessionExecution.Subscribe` observes only its
 invocation; `Execute` accepts the actual opaque Session command. The stream emits
-DeliveryCompleted with actual routing or ExecutionFailed without invented routing.
+ExecutionCompleted with the Session execution ID, error and optional actual routing,
+or ExecutionFailed for host/protocol failures. Delivery requires routing; ordinary
+command completion does not fabricate it.
 No routing template or alias correlation is required. The monolith supplies
 capabilities and canonical publication; it stores no
 migrated lifecycle and receives no command-orchestration callback.

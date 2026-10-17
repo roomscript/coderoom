@@ -28,9 +28,9 @@ type ShellLauncher interface {
 // scope's terminal event, even when another execution has identical recipients.
 // Subscribe is not inline and returns a non-nil, non-blocking unsubscribe function.
 // Unsubscribe closes only this scope; already-running callbacks may finish.
-// Execute admits one command without waiting for delivery. Admission errors return
-// directly; accepted work emits DeliveryCompleted with Session's execution ID and
-// routing outcome, or ExecutionFailed for a protocol/execution failure. Terminal
+// Execute admits one command without waiting for Session execution. Admission errors return
+// directly; accepted work emits ExecutionCompleted with Session's execution ID and
+// error and optional actual routing, or ExecutionFailed for a host/protocol failure. Terminal
 // events run in the owning dispatch burst before causal publication and may race
 // launch/close. Handlers only collect facts or queue owner work; the interpreter
 // drives execution.

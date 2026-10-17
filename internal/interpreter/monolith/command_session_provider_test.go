@@ -98,7 +98,7 @@ func assertProviderEvent(t *testing.T, events <-chan runtime.ExecutionEvent) {
 	if len(events) != 1 {
 		t.Fatalf("terminal events=%d", len(events))
 	}
-	result, ok := (<-events).(runtime.DeliveryCompleted)
+	result, ok := (<-events).(runtime.ExecutionCompleted)
 	if !ok || result.Result.Kind != session.RoutingBroadcast {
 		t.Fatalf("terminal=%#v", result)
 	}
@@ -143,7 +143,7 @@ func TestExecutionProvider_ScopesReceiveOnlyTheirOwnOutcome(t *testing.T) {
 		if len(stream) != 1 {
 			t.Fatalf("scope %d received %d events", index, len(stream))
 		}
-		outcome, ok := (<-stream).(runtime.DeliveryCompleted)
+		outcome, ok := (<-stream).(runtime.ExecutionCompleted)
 		if !ok || outcome.ExecutionID != session.ExecutionID(41+index) {
 			t.Fatalf("scope %d received another execution: %#v", index, outcome)
 		}

@@ -144,7 +144,7 @@ func TestHandoffCommand_completion(t *testing.T) {
 				t.Fatal(err)
 			}
 			to := delivery.views[1].Alias
-			outcome := runtime.DeliveryCompleted{Result: session.RoutingResult{Kind: session.RoutingHandoff, Recipients: []session.RecipientResult{{Alias: to, Role: session.RecipientHandoff, Status: session.DeliveryDelivered}}}}
+			outcome := runtime.ExecutionCompleted{Result: session.RoutingResult{Kind: session.RoutingHandoff, Recipients: []session.RecipientResult{{Alias: to, Role: session.RecipientHandoff, Status: session.DeliveryDelivered}}}}
 			outcome, expected := handoffTerminalVariant(variant, outcome, failure)
 
 			handle := delivery.terminal
@@ -176,10 +176,11 @@ func assertHandoffCompletion(t *testing.T, result runtime.CommandResult, expecte
 	}
 }
 
-func handoffTerminalVariant(variant string, outcome runtime.DeliveryCompleted, failure error) (runtime.DeliveryCompleted, error) {
+func handoffTerminalVariant(variant string, outcome runtime.ExecutionCompleted, failure error) (runtime.ExecutionCompleted, error) {
 	expected := error(nil)
 	switch variant {
 	case "delivery failure":
+		outcome.Err = failure
 		outcome.Result.Err = failure
 		outcome.Result.Recipients[0].Status = session.DeliveryFailed
 		expected = failure

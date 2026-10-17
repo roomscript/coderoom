@@ -29,12 +29,12 @@ func (s *commandSession) Subscribe(handle func(runtime.ExecutionEvent)) func() {
 
 func (s *commandSession) Execute(command session.Command) error {
 	if command == nil {
-		return errors.New("delivery requires a command")
+		return errors.New("execution requires a command")
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed || s.admitted || s.handle == nil {
-		return errors.New("delivery adapter is closed, already admitted or has no subscriber")
+		return errors.New("execution adapter is closed, already admitted or has no subscriber")
 	}
 	s.provider.mu.Lock()
 	ownerClosed := s.provider.closed
@@ -114,8 +114,8 @@ func (op nativeDeliveryOperation) apply(e *interpreterExecutor) {
 	s.provider.publishDelivery(e, events)
 }
 
-// A terminal execution failure belongs to the invocation, not to an invented
-// Session routing event. Actual outcomes are forwarded unchanged.
+// Session execution always completes, with optional actual routing. Malformed
+// routing is a protocol failure; the adapter does not infer command semantics.
 func nativeDeliveryEvent(executionID session.ExecutionID, events []session.Event, executionErr error) runtime.ExecutionEvent {
 	var routing session.RoutingResult
 	count := 0
@@ -125,11 +125,11 @@ func nativeDeliveryEvent(executionID session.ExecutionID, events []session.Event
 			count++
 		}
 	}
-	if count == 0 {
-		return runtime.ExecutionFailed{Err: errors.Join(errMissingRoutingOutcome, executionErr)}
-	}
-	if count != 1 || routing.Kind == "" {
+	if count > 1 || (count == 1 && routing.Kind == "") {
 		return runtime.ExecutionFailed{Err: errors.Join(runtime.ErrInvalidDeliveryOutcome, executionErr)}
 	}
-	return runtime.DeliveryCompleted{ExecutionID: executionID, Result: routing}
+	if count == 1 {
+		routing.Err = executionErr
+	}
+	return runtime.ExecutionCompleted{ExecutionID: executionID, Result: routing, Err: executionErr}
 }

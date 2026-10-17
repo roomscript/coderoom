@@ -43,10 +43,11 @@ func (d *Delivery) UpdatePrepared(update func()) {
 }
 
 // Go subscribes before admitting one command. Terminal events may race launch;
-// The callback receives the full delivery event, including its execution ID.
-// Execution/protocol failures provide a zero event and a non-nil error.
+// The callback receives the completion, including its execution ID and error.
+// The separate error reports host/protocol failures, including missing routing.
+// Session execution errors remain in the completion so partial delivery is retained.
 // InvocationLifecycle rejects results from failed starts and owns final settlement.
-func (d *Delivery) Go(execution SessionExecution, command session.Command, complete func(DeliveryCompleted, error)) error {
+func (d *Delivery) Go(execution SessionExecution, command session.Command, complete func(ExecutionCompleted, error)) error {
 	if err := d.subscribe(execution, complete); err != nil {
 		return err
 	}
@@ -57,7 +58,7 @@ func (d *Delivery) Go(execution SessionExecution, command session.Command, compl
 	return nil
 }
 
-func (d *Delivery) subscribe(execution SessionExecution, complete func(DeliveryCompleted, error)) error {
+func (d *Delivery) subscribe(execution SessionExecution, complete func(ExecutionCompleted, error)) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if d.state != deliveryPrepared {
@@ -76,16 +77,19 @@ func (d *Delivery) subscribe(execution SessionExecution, complete func(DeliveryC
 	return nil
 }
 
-func executionOutcome(event ExecutionEvent) (DeliveryCompleted, error) {
+func executionOutcome(event ExecutionEvent) (ExecutionCompleted, error) {
 	switch event := event.(type) {
-	case DeliveryCompleted:
+	case ExecutionCompleted:
+		if event.Result.Kind == "" {
+			return event, errors.Join(ErrInvalidDeliveryOutcome, event.Err)
+		}
 		return event, nil
 	case ExecutionFailed:
 		if event.Err != nil {
-			return DeliveryCompleted{}, event.Err
+			return ExecutionCompleted{}, event.Err
 		}
 	}
-	return DeliveryCompleted{}, ErrInvalidDeliveryOutcome
+	return ExecutionCompleted{}, ErrInvalidDeliveryOutcome
 }
 
 func (d *Delivery) acceptOutcome() func() {

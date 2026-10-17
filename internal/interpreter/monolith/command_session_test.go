@@ -99,6 +99,9 @@ func configureNativeSendDelivery(t *testing.T, sess *submitContractSession, scen
 	t.Helper()
 	failure := errors.New("delivery failed")
 	sess.routingOverride = true
+	if scenario == "partial" || scenario == "rejected" {
+		sess.executeErr = failure
+	}
 	sess.execute = func(command session.Command, observer session.Observer) {
 		send := command.(session.SendToParticipantCommand)
 		if send.Message != "work" || send.Notice != "@ada: work" {

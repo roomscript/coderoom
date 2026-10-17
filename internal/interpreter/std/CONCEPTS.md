@@ -47,9 +47,14 @@ information through detached reads without session execution access.
 `Context.Session` is a `SessionExecutionProvider`: participant reads, planning
 and lifecycle subscriptions stay on it. `CreateExecution()` returns a fresh
 single-use `SessionExecution`. Its `Subscribe(handle)` installs a scope-owned
-terminal-event listener before `Execute(command)` starts delivery. `runtime.DeliveryCompleted`
-carries the execution ID returned by Session.Execute and the actual routing outcome; `runtime.ExecutionFailed` carries an
-execution/protocol failure without fabricated routing. Other invocations and
+terminal-event listener before `Execute(command)` starts delivery. `runtime.ExecutionCompleted`
+carries the execution ID and authoritative Err returned by Session.Execute, plus
+optional actual routing (empty Result.Kind means absent). When routing exists,
+Result.Err is derived from Err; it is not a second command result.
+`runtime.ExecutionFailed` carries a host/protocol failure without fabricated routing.
+`runtime.Delivery` requires routing; commands validate its kind and recipients.
+Completion means Session.Execute returned, not participant work completion: invite
+launches startup, cancel requests interruption, and sends finish delivery attempts. Other invocations and
 legacy dispatch never reach this stream, even with identical recipients.
 `runtime.ExecutionEvent` is separate from Session's participant events so host
 protocol failures do not become invented Session facts.
@@ -190,9 +195,10 @@ and submission bookkeeping, before admitting the next queued input. The producer
 callback never settles a lifecycle. This preserves definition confirmation before
 an immediately queued invocation and still rejects duplicate or stale results.
 
-Delivery.Go passes the full DeliveryCompleted event to its callback, preserving
-ExecutionID alongside Result. Actual delivery failures remain in Result.Err;
-execution/protocol failures pass a zero event and a separate error. Commands that
+Delivery.Go passes the full ExecutionCompleted event to its callback, preserving
+ExecutionID alongside Result and Err. Actual delivery failures remain in Err and
+the derived Result.Err; host/protocol failures use the separate callback error.
+Missing routing preserves the completion and reports an invalid-delivery error. Commands that
 only format routing outcomes read Result; future loop execution can retain the ID.
 
 ## Execution providers and scopes

@@ -160,7 +160,7 @@ func (d *sendDelivery) emit(outcome sendOutcome) {
 	}
 	handle := d.terminal
 	if handle != nil {
-		d.deliveries = append(d.deliveries, func() { handle(runtime.DeliveryCompleted{Result: result}) })
+		d.deliveries = append(d.deliveries, func() { handle(runtime.ExecutionCompleted{Result: result, Err: result.Err}) })
 	}
 }
 
@@ -613,7 +613,7 @@ func (d *sendDelivery) complete(result session.RoutingResult, err error) {
 		handle(runtime.ExecutionFailed{Err: err})
 		return
 	}
-	handle(runtime.DeliveryCompleted{Result: result})
+	handle(runtime.ExecutionCompleted{Result: result, Err: result.Err})
 }
 
 func (d *sendDelivery) CreateExecution() runtime.SessionExecution { return d }

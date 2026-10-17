@@ -112,7 +112,7 @@ func (i *loopInvocation) startDelivery(prompt string) error {
 		Plan: i.ctx.Session.CreateParticipantSendPlan(i.primary), Message: prompt,
 		Notice: fmt.Sprintf("@%s: %s", i.statement.Participant.Value, prompt),
 	}
-	if err := i.delivery.Go(i.ctx.Session.CreateExecution(), command, func(result runtime.DeliveryCompleted, err error) {
+	if err := i.delivery.Go(i.ctx.Session.CreateExecution(), command, func(result runtime.ExecutionCompleted, err error) {
 		i.collect(loopDeliveryResult{result: result, err: err})
 	}); err != nil {
 		return fmt.Errorf("loop delivery: %w", err)
