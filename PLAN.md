@@ -251,7 +251,22 @@ optional InvocationEventHandler.HandlePendingEvents consumes facts on the interp
 The EventProcessingRequester capability is bound before Prepare. The lifecycle uses the same ProcessEvents
 entry point for waiting readiness and running invocation processing; it ignores
 requests after settlement/closure. Existing commands need no processor method.
-Intermediate publication remains the next runtime contract to agree.
+Intermediate publication is implemented by subsequent agreement as one
+interpreter-owned invocationPublication component, exposed through
+Context.Publication (runtime.InvocationPublication). Publish takes existing records
+and explicit api.Events and runs only in Go or HandlePendingEvents on the lane.
+The component binds invocation identity/source and checks the existing lifecycle's
+IsRunning fact rather than retaining another active flag. Prepare, Close and stale
+handles cannot publish. Final settlement still belongs to the interpreter.
+CommandSubmission.PublishRecords extracts the existing record/event/snapshot path
+without closing execution scopes or synthesizing shell events. Final publication
+reuses that construction and preserves its existing terminal ordering. The native
+provider batches before/after-causal-event sequences so intermediate updates and
+final output cannot overwrite one another. A cached child shell result is not
+replayed when final output contains no new shell record. The monolith remains a
+temporary publication mechanism removed with fallback at checkpoint 9.
+Next: implement loop using the agreed capabilities and revisit the provisional
+event-handling flow with that concrete implementation.
 
 Deferred design review: the event-processing API is provisional. Revisit its
 clarity with the concrete loop implementation rather than extending the abstract
@@ -408,7 +423,8 @@ needs them, rather than as separate interpreter-wide prerequisite steps:
 - The coordinator projects complete causal event bursts before derived effects or
   execution outcomes advance workflows. The legacy bridge must preserve this
   ordering for unmigrated handlers too.
-- Modules prepare invocations and return records through completion callbacks.
+- Modules prepare invocations, publish intermediate records/events through their
+  publication capability, and return final records through completion callbacks.
   Session execution goes through the host's serialized admission capability;
   modules cannot independently execute raw Session or mutate/observe the
   canonical room. Acceptance and terminal

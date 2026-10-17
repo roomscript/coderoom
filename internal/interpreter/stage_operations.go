@@ -42,7 +42,7 @@ func (i *Interpreter) removeWaitingStage() stageOperationResult {
 	if !pending.lifecycle.DiscardWaiting() {
 		return stageOperationResult{}
 	}
-	pending.submission.Close()
+	pending.publication.submission.Close()
 	delete(i.invocations, stage.id)
 	i.stage = nil
 	i.fallback.PublishState()
@@ -66,7 +66,7 @@ func (i *Interpreter) interruptStage() stageOperationResult {
 	stage.interruptRequested = true
 	i.fallback.PublishState()
 	for _, alias := range aliases {
-		if err := pending.submission.CancelParticipant(alias); err != nil {
+		if err := pending.publication.submission.CancelParticipant(alias); err != nil {
 			i.fallback.Publish(OperationFailed{Raw: stage.source.Raw, Statement: stage.source, Operation: "interrupt staged submission", Err: err})
 			continue
 		}

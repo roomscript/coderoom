@@ -240,3 +240,25 @@ results. Child callbacks collect facts and request attention; HandlePendingEvent
 updates the enclosing invocation and decides its next action on the interpreter
 lane. This coordinates subcommand events without moving parent workflow decisions
 into callbacks or giving the parent ownership of interpreter settlement.
+
+## Invocation publication
+
+Context.Publication exposes InvocationPublication.Publish(records, events...).
+The interpreter owns one invocationPublication component binding identity and
+original source. It checks its pending lifecycle's IsRunning fact, with no second
+active-state flag. Publish runs only in Go or HandlePendingEvents on the lane;
+callbacks collect facts and request processing. Prepare, Close and stale handles
+cannot emit output. Ownership of published records/events transfers to the host.
+
+Std decides content using existing room.Record and api.Event types, including
+LoopStatus and ShellCompleted for child work. Publishing does not complete the
+parent or close its execution scopes. Final completion still uses Go's callback
+and the interpreter accepts it once, closes resources, and publishes final output.
+
+CommandSubmission.PublishRecords reuses the extracted record/event/snapshot path,
+attaching original source and batching updates after causal Session events. Final
+input records remain before those events and terminal outcomes remain after them.
+The monolith supplies this mechanism temporarily; transfer it and remove the
+bridge with remaining fallback at checkpoint 9. Intermediate publication never
+synthesizes shell compatibility events, and final publication synthesizes one only
+for a new shell record, avoiding replay of an already-reported child result.

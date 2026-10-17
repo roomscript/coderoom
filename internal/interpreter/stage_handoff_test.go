@@ -74,7 +74,7 @@ func retainBeforeQueuedAdvancement(interp *Interpreter, sess *lifecycleSession, 
 		requests <- struct{}{}
 	})
 	lifecycle := runtime.NewInvocationLifecycle(invocation, submission.Context)
-	interp.invocations = map[uint64]pendingInvocation{1: {lifecycle: lifecycle, submission: submission}}
+	interp.invocations = map[uint64]pendingInvocation{1: {lifecycle: lifecycle, publication: &invocationPublication{interpreter: interp, id: 1, submission: submission}}}
 	waited, startErr := lifecycle.Start(func(result runtime.CommandResult) {
 		submission.QueueCompletion(func() { interp.completeCommand(1, result) })
 	})
@@ -97,7 +97,7 @@ func retainBeforeQueuedAdvancement(interp *Interpreter, sess *lifecycleSession, 
 			return errors.New("participant callback advanced lifecycle outside owner lane")
 		}
 		interp.retainStage(1, parsed, invocation.Staging())
-		interp.publishCommandSubmission(submission, nil)
+		interp.invocations[1].publication.publishSubmission(nil)
 		return nil
 	case <-time.After(3 * time.Second):
 		return errors.New("handoff did not request advancement")

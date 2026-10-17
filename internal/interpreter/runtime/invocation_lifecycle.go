@@ -132,6 +132,10 @@ func (l *InvocationLifecycle) startInvocation() error {
 	return nil
 }
 
+// IsRunning reports whether Go has begun and the invocation remains unsettled.
+// The interpreter reads this fact on its lane when deciding publication access.
+func (l *InvocationLifecycle) IsRunning() bool { return l.state == invocationRunning }
+
 // Complete accepts one execution result. A failed Go may already have queued a
 // callback; the saved failure takes precedence over that callback's result.
 func (l *InvocationLifecycle) Complete(result CommandResult) (CommandResult, bool) {

@@ -3,6 +3,7 @@
 package runtime
 
 import (
+	"github.com/roomscript/coderoom/internal/interpreter/api"
 	"github.com/roomscript/coderoom/internal/participant"
 	"github.com/roomscript/coderoom/internal/promptlang"
 	"github.com/roomscript/coderoom/internal/room"
@@ -83,8 +84,18 @@ type EventProcessingRequester interface {
 	RequestEventProcessing()
 }
 
+// InvocationPublication publishes records and explicit semantic events while an
+// invocation remains active. Call only from Go or HandlePendingEvents on the
+// interpreter lane. Producers transfer ownership of the supplied records/events.
+// Publication does not settle the invocation or close its execution scopes;
+// the interpreter owns identity checks, source metadata and causal ordering.
+type InvocationPublication interface {
+	Publish(records []room.Record, events ...api.Event)
+}
+
 // Context supplies capabilities for preparation and Go on the serialized coordinator.
 type Context struct {
+	Publication         InvocationPublication
 	EventProcessing     EventProcessingRequester
 	UserCommands        UserCommandRegistry
 	Participants        ParticipantReader

@@ -10,26 +10,55 @@ import (
 	"github.com/roomscript/coderoom/internal/room"
 )
 
+// invocationPublication binds one invocation's identity and original source to
+// the existing ordered publication path. It holds no independent lifecycle state:
+// the interpreter's pending identity and runtime lifecycle determine permission.
+// Only the interpreter calls the private acceptance/final-publication methods.
+type invocationPublication struct {
+	interpreter *Interpreter
+	id          uint64
+	submission  *monolith.CommandSubmission
+}
+
+var _ runtime.InvocationPublication = (*invocationPublication)(nil)
+
+// Publish emits intermediate output on the interpreter lane. Subcommand callbacks
+// collect facts; Go or HandlePendingEvents decides what output to publish.
+func (p *invocationPublication) Publish(records []room.Record, events ...Event) {
+	pending, ok := p.interpreter.invocations[p.id]
+	if !ok || !pending.lifecycle.IsRunning() {
+		return
+	}
+	p.submission.PublishRecords(records, events...)
+}
+
 // Input acceptance belongs to the command owner. Deliveries wait for preparation to
 // supply frozen routing; other commands record input before preparation.
-func (i *Interpreter) publishCommandInput(submission *monolith.CommandSubmission, staging *runtime.Staging) {
+func (p *invocationPublication) publishInput(staging *runtime.Staging) {
+	submission := p.submission
 	event := InputAccepted{Raw: submission.Statement.Raw}
 	if isDeliveryStatement(submission.Statement) {
 		for _, alias := range stagingRouting(staging) {
 			event.Routing = append(event.Routing, alias.Name)
 		}
 	} else {
-		i.fallback.AppendRecord(room.Record{Kind: room.KindUserInput, Text: event.Raw})
+		p.interpreter.fallback.AppendRecord(room.Record{Kind: room.KindUserInput, Text: event.Raw})
 	}
 	submission.Publish(event)
 }
 
-func (i *Interpreter) publishCommandSubmission(submission *monolith.CommandSubmission, err error) {
+func (p *invocationPublication) publishSubmission(err error) {
+	submission := p.submission
 	if err != nil {
 		submission.Close()
-		i.fallback.PublishState()
+		p.interpreter.fallback.PublishState()
 	}
 	submission.Publish(commandSubmissionEvent(submission, err))
+}
+
+func (p *invocationPublication) rejectUnknown(name string, err error) {
+	p.submission.Close()
+	p.submission.Publish(UnknownCommand{Raw: p.submission.Statement.Raw, Name: name, Err: err})
 }
 
 func commandSubmissionEvent(submission *monolith.CommandSubmission, err error) Event {
@@ -47,11 +76,11 @@ func commandSubmissionEvent(submission *monolith.CommandSubmission, err error) E
 // Definitions settle after their confirmation record; direct deliveries settle
 // after dispatch. Queued deliveries already acknowledged retention, so their later
 // delivery failures are operation failures.
-func (i *Interpreter) publishCommandCompletion(pending pendingInvocation, result runtime.CommandResult, events ...Event) {
-	submission := pending.submission
+func (p *invocationPublication) publishFinal(submissionPending bool, result runtime.CommandResult, events ...Event) {
+	submission := p.submission
 	_, definition := submission.Statement.Value.(promptlang.UserDefinition)
 	if isDeliveryStatement(submission.Statement) || definition {
-		if pending.submissionPending {
+		if submissionPending {
 			events = append(events, commandSubmissionEvent(submission, result.Err))
 		} else if result.Err != nil {
 			events = append(events, OperationFailed{Raw: submission.Statement.Raw, Operation: commandOperation(submission), Err: result.Err})

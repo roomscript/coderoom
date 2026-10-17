@@ -81,6 +81,14 @@ func (s *CommandSubmission) QueueCompletion(work func()) {
 	s.session.queueCompletionWork(work)
 }
 
+// PublishRecords publishes explicit output without closing execution scopes or
+// synthesizing shell completion events. Call only on the interpreter lane. During
+// native delivery these updates follow the complete causal Session event burst.
+func (s *CommandSubmission) PublishRecords(records []room.Record, events ...Event) {
+	sequence := invocationPublicationSequence(records, events...)
+	s.session.publishOutput(withSubmissionSource(sequence, s.Statement), 0)
+}
+
 // PublishCompletion publishes an already-settled result. The caller consumes
 // duplicate/late results and closes its lifecycle before calling this method.
 func (s *CommandSubmission) PublishCompletion(result runtime.CommandResult, events ...Event) {
@@ -90,7 +98,7 @@ func (s *CommandSubmission) PublishCompletion(result runtime.CommandResult, even
 	for _, event := range events {
 		sequence = append(sequence, publishEventInstruction{event: event})
 	}
-	s.session.publishCompletion(withSubmissionSource(sequence, s.Statement), len(result.Records))
+	s.session.publishOutput(withSubmissionSource(sequence, s.Statement), len(result.Records))
 }
 
 // Close revokes native admission without publishing an

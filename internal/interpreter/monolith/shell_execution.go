@@ -90,20 +90,23 @@ type workflowShellCompletedOperation struct {
 // completionEvent preserves the shell compatibility event without command routing.
 // Called by the command callback after the owned worker has set its result.
 func (l *userShellLauncher) completionEvent(outcome submissionOutcome, records []room.Record) Event {
-	if l.result == nil {
-		return nil
-	}
-	command := l.program
 	for _, record := range records {
-		if record.Msg != nil {
-			if content, ok := record.Msg.Content.(agent.Command); ok {
-				command = content.Command
-				break
-			}
+		if record.Msg == nil {
+			continue
 		}
+		command, ok := record.Msg.Content.(agent.Command)
+		if !ok || record.Alias.Name != shellRecordAlias {
+			continue
+		}
+		if l.result == nil {
+			return nil
+		}
+		return eventWithSubmissionSource(ShellCompleted{
+			Raw: outcome.raw, Command: command.Command, Cwd: l.executor.cwd,
+			Result: *l.result, Output: formatShellResult(*l.result),
+		}, outcome.statement)
 	}
-	return eventWithSubmissionSource(ShellCompleted{
-		Raw: outcome.raw, Command: command, Cwd: l.executor.cwd,
-		Result: *l.result, Output: formatShellResult(*l.result),
-	}, outcome.statement)
+	// A parent may have reported child shell results while remaining active.
+	// Final output without a new shell record must not replay the cached result.
+	return nil
 }

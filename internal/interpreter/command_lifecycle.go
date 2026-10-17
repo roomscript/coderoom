@@ -6,7 +6,6 @@ import (
 	"maps"
 	"slices"
 
-	"github.com/roomscript/coderoom/internal/interpreter/monolith"
 	"github.com/roomscript/coderoom/internal/interpreter/runtime"
 	"github.com/roomscript/coderoom/internal/promptlang"
 	"github.com/roomscript/coderoom/internal/room"
@@ -14,7 +13,7 @@ import (
 
 type pendingInvocation struct {
 	lifecycle         *runtime.InvocationLifecycle
-	submission        *monolith.CommandSubmission
+	publication       *invocationPublication
 	submissionPending bool
 }
 
@@ -28,10 +27,12 @@ func (i *Interpreter) executeCommand(command runtime.Command, statement promptla
 	i.nextInvocationID++
 	id := i.nextInvocationID
 	submission.Context.EventProcessing = invocationEventProcessing{interpreter: i, id: id}
+	publication := &invocationPublication{interpreter: i, id: id, submission: submission}
+	submission.Context.Publication = publication
 	send := isDeliveryStatement(statement)
 	_, named := statement.Value.(promptlang.UserCommand)
 	if !send && !named {
-		i.publishCommandInput(submission, nil)
+		publication.publishInput(nil)
 	}
 	invocation, err := command.Prepare(statement, submission.Context)
 	if err != nil {
@@ -40,25 +41,26 @@ func (i *Interpreter) executeCommand(command runtime.Command, statement promptla
 		}
 		var undefined promptlang.UndefinedCommandError
 		if named && errors.As(err, &undefined) {
-			submission.Close()
-			submission.Publish(UnknownCommand{Raw: statement.Raw, Name: statement.Value.(promptlang.UserCommand).Name.Value, Err: err})
+			publication.rejectUnknown(statement.Value.(promptlang.UserCommand).Name.Value, err)
 			return
 		}
-		i.publishCommandSubmission(submission, fmt.Errorf("prepare command: %w", err))
+		publication.publishSubmission(fmt.Errorf("prepare command: %w", err))
 		return
 	}
 	if send || named {
-		i.publishCommandInput(submission, invocation.Staging())
+		publication.publishInput(invocation.Staging())
 	}
-	i.startCommand(id, invocation, submission, statement)
+	i.startCommand(invocation, publication)
 }
 
-func (i *Interpreter) startCommand(id uint64, invocation runtime.Invocation, submission *monolith.CommandSubmission, statement promptlang.ParsedStatement) {
+func (i *Interpreter) startCommand(invocation runtime.Invocation, publication *invocationPublication) {
+	id, submission := publication.id, publication.submission
+	statement := submission.Statement
 	lifecycle := runtime.NewInvocationLifecycle(invocation, submission.Context)
 	if i.invocations == nil {
 		i.invocations = make(map[uint64]pendingInvocation)
 	}
-	i.invocations[id] = pendingInvocation{lifecycle: lifecycle, submission: submission}
+	i.invocations[id] = pendingInvocation{lifecycle: lifecycle, publication: publication}
 	results := make(chan runtime.CommandResult, 1)
 	enteredWaiting, err := lifecycle.Start(func(result runtime.CommandResult) {
 		select {
@@ -70,7 +72,7 @@ func (i *Interpreter) startCommand(id uint64, invocation runtime.Invocation, sub
 	if err != nil {
 		delete(i.invocations, id)
 		lifecycle.Close(err)
-		i.publishCommandSubmission(submission, fmt.Errorf("start command lifecycle: %w", err))
+		publication.publishSubmission(fmt.Errorf("start command lifecycle: %w", err))
 		return
 	}
 	send := isDeliveryStatement(statement)
@@ -82,7 +84,7 @@ func (i *Interpreter) startCommand(id uint64, invocation runtime.Invocation, sub
 		i.retainStage(id, statement, invocation.Staging())
 	}
 	if !pending.submissionPending {
-		i.publishCommandSubmission(submission, nil)
+		publication.publishSubmission(nil)
 	}
 	// Settle already-queued synchronous results before another input is admitted.
 	// Start and acknowledgement still precede settlement; callbacks never settle work.
@@ -124,7 +126,7 @@ func (i *Interpreter) completeCommand(id uint64, result runtime.CommandResult) {
 		}
 	}
 	delete(i.invocations, id)
-	i.publishCommandCompletion(pending, result, events...)
+	pending.publication.publishFinal(pending.submissionPending, result, events...)
 }
 
 func (i *Interpreter) closeInvocations() {
@@ -134,7 +136,7 @@ func (i *Interpreter) closeInvocations() {
 		delete(i.invocations, id)
 		result, accepted := pending.lifecycle.Close(ErrClosed)
 		if accepted {
-			i.publishCommandCompletion(pending, result)
+			pending.publication.publishFinal(pending.submissionPending, result)
 		}
 	}
 }

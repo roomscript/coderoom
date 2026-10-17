@@ -643,3 +643,25 @@ state; interpreter owns scheduling, identity, final completion and shutdown.
 Existing invocations require no extra method. Final results still use Go's
 completion callback. Intermediate publication and loop migration remain separate
 steps requiring agreement; loop staging remains deferred to #65.
+
+### Invocation publication component
+
+The interpreter creates one invocationPublication per admitted invocation and
+exposes it as Context.Publication through runtime.InvocationPublication. The
+component binds the invocation ID and original submission and owns the publication
+policy for acceptance, active output, and final outcomes. Std supplies content;
+interpreter owns permission, source metadata, ordering, settlement and shutdown.
+
+Publish(records, events...) is available during Go and HandlePendingEvents on the
+serialized lane. It reads existing pending identity and lifecycle IsRunning state,
+retaining no duplicate lifecycle flag. Calls from Prepare or Close and stale handles
+cannot emit output. Publication leaves execution scopes and the invocation active.
+Only the interpreter accepts final completion and invokes final publication.
+
+The temporary monolith exposes CommandSubmission.PublishRecords by extracting the
+existing record/event/snapshot sequence from final completion. That operation does
+not close resources or invent shell events. Final completion reuses the sequence,
+retaining compatibility shell events only when publishing a new shell record.
+Delivery batching accumulates output rather than overwriting one slot: input
+records precede causal Session events, while updates and terminal outcomes follow.
+Transfer the mechanism out and remove the bridge with the monolith at checkpoint 9.

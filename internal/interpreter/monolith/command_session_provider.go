@@ -19,8 +19,8 @@ type commandSessionProvider struct {
 	executions     map[*commandSession]struct{}
 	dispatching    bool
 	completionWork func()
-	publication    instructionSequence
-	recordCount    int
+	beforeEvents   instructionSequence
+	afterEvents    instructionSequence
 }
 
 var _ runtime.SessionExecutionProvider = (*commandSessionProvider)(nil)
@@ -78,7 +78,7 @@ func (s *commandSessionProvider) close() {
 func (s *commandSessionProvider) complete(completion invocationCompletion) {
 	s.queueCompletionWork(func() {
 		sequence := s.executor.settleInvocation(completion)
-		s.publishCompletion(sequence, len(completion.completion.Records))
+		s.publishOutput(sequence, len(completion.completion.Records))
 	})
 }
 
@@ -95,10 +95,11 @@ func (s *commandSessionProvider) queueCompletionWork(work func()) {
 	s.executor.enqueueCompletion(scheduledOperation{work: work})
 }
 
-func (s *commandSessionProvider) publishCompletion(sequence instructionSequence, recordCount int) {
+func (s *commandSessionProvider) publishOutput(sequence instructionSequence, recordCount int) {
 	s.mu.Lock()
 	if s.dispatching {
-		s.publication, s.recordCount = sequence, recordCount
+		s.beforeEvents = append(s.beforeEvents, sequence[:recordCount]...)
+		s.afterEvents = append(s.afterEvents, sequence[recordCount:]...)
 		s.mu.Unlock()
 		return
 	}
@@ -117,21 +118,15 @@ func (s *commandSessionProvider) publishDelivery(e *interpreterExecutor, events 
 		work() // The owning interpreter settles its result before publication.
 	}
 	s.mu.Lock()
-	publication, count := s.publication, s.recordCount
-	s.publication = nil
-	s.recordCount = 0
+	before, after := s.beforeEvents, s.afterEvents
+	s.beforeEvents, s.afterEvents = nil, nil
 	s.dispatching = false
 	s.mu.Unlock()
-	// Input records precede the events caused by delivery, as in legacy dispatch.
-	items := []runnerItem{}
-	var settlement instructionSequence
-
-	if publication != nil {
-		items = append(items, instructionItems(publication[:count])...)
-		settlement = append(settlement, publication[count:]...)
-	}
+	// Input records precede causal events; updates and terminal outcomes follow.
+	items := instructionItems(before)
 	items = append(items, sessionEventsItem{events: events})
-	items = append(items, instructionItems(settlement)...)
+	items = append(items, instructionItems(after)...)
+
 	e.runner.runItems(items)
 }
 
