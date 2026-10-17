@@ -724,3 +724,14 @@ queue rejects later application dispatch. There are no debug-specific parser AST
 reserved names, interpreter events or interpreter admission branches. Another
 application command requires registration rather than a parser or event-type edit.
 Parameterized commands and asynchronous callback completion are deferred.
+
+### Ordinary Session command cutover
+
+`std.PolicyCommand` selects `/policy enable` through the public modular registry.
+Preparation captures its Session command without effects; Go subscribes to a fresh
+execution scope before admission. ExecutionCompleted supplies the authoritative
+command error without requiring routing; host/protocol failures also settle the
+invocation. The existing SubmissionAcknowledgement query stays false, preserving
+submission success/failure after execution and causal publication. The invocation
+releases its subscription on closure. Existing legacy policy handling and help
+variants remain for direct monolith compatibility until removal.

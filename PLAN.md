@@ -470,6 +470,13 @@ They preserve existing product behavior rather than introduce new features.
   success/failure can now complete without invented routing. Completion means the
   Session command returned, not participant work completion. Remaining handler
   migration is a separate step.
+- `/policy enable` is publicly registered as std.PolicyCommand. It captures input
+  in Prepare, subscribes before admitting Session execution, and consumes
+  ExecutionCompleted/ExecutionFailed without requiring routing. Existing submission
+  acknowledgement keeps success/failure pending until execution and causal
+  publication; no runtime or central command branches were added. The invocation
+  closes its execution subscription. Legacy policy handling/help remains only for
+  monolith compatibility until removal. Participant commands and help are next.
 - `/quit` is migrated by agreement as a UI application command, like `/debugview`.
   The callback queues a request; asynchronous cleanup calls Interpreter.Close(),
   which owns Session shutdown and publication draining, then queues completion behind drained submission outcomes

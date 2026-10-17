@@ -49,6 +49,9 @@ func newInterpreter(ctx context.Context, sess SessionController, cwd string, def
 
 func newCommandRegistry() *runtime.Registry {
 	registry := runtime.NewRegistry()
+	if err := registry.Register(std.PolicyCommand{}); err != nil {
+		panic(err)
+	}
 	if err := registry.Register(std.WhoCommand{}); err != nil {
 		panic(err)
 	}
