@@ -170,7 +170,7 @@ func TestUserCommand_closeCancelsNamedWorker(t *testing.T) {
 	assertNoShellOutcome(t, events)
 }
 
-func TestUserCommand_definitionIsSharedWithLegacyLoop(t *testing.T) {
+func TestUserCommand_definitionIsSharedWithLoop(t *testing.T) {
 	ready := make(chan participant.Alias, 4)
 	backend := &lifecycleAgent{Client: echo.New(), release: make(chan struct{})}
 	sess := &lifecycleSession{Session: session.New(session.WithObserver(lifecycleReadyObserver{ready}), session.WithAgentFactory(func(*session.Session, roomconfig.ParticipantConfig, session.AgentBackend) agent.Agent {
@@ -189,8 +189,7 @@ func TestUserCommand_definitionIsSharedWithLegacyLoop(t *testing.T) {
 	if err := interp.Submit("/loop @ada busy /until /tests /max 1"); err != nil {
 		t.Fatal(err)
 	}
-	// Keep this proof about registry sharing: allow the legacy loop to finish
-	// dispatch before the held participant turn completes.
+	// Submission acknowledgement precedes condition output.
 	awaitLifecycleEvent(t, events, func(event Event) bool {
 		succeeded, ok := event.(SubmissionSucceeded)
 		return ok && succeeded.Raw == "/loop @ada busy /until /tests /max 1"
@@ -205,7 +204,7 @@ func TestUserCommand_definitionIsSharedWithLegacyLoop(t *testing.T) {
 	})
 	interp.Close()
 	if len(calls) != 1 || <-calls != "run-tests" {
-		t.Fatal("legacy loop did not resolve the shared definition")
+		t.Fatal("loop did not resolve the shared definition")
 	}
 }
 

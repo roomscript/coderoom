@@ -4,7 +4,8 @@ Working agreement for [#61](https://github.com/roomscript/coderoom/issues/61).
 Changes to runtime contracts or semantics require explicit agreement before implementation.
 Keep this document roughly one page; details belong in code or
 [design docs](../../../docs/design/pkg-interpreter-composition.md).
-`/who`, `/shell`, addressed sends, broadcasts and handoffs use registry dispatch and lifecycle execution.
+`/who`, `/shell`, addressed sends, broadcasts, handoffs, definitions, named commands
+and loops use registry dispatch and lifecycle execution.
 
 ## Command and invocation
 

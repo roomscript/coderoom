@@ -38,7 +38,7 @@ execution capability retains its admission-only return contract.
 ## Resume here
 
 The new `internal/interpreter` selects `/who`, `/shell`, addressed sends, broadcasts and handoffs and executes them
-itself. Definitions and named invocations also use the modular path. It schedules `executeCommand` on the shared serialized lane, asks the
+itself. Definitions, named invocations and loops also use the modular path. It schedules `executeCommand` on the shared serialized lane, asks the
 monolith to admit input, then prepares, starts, tracks, completes and closes its
 own `runtime.InvocationLifecycle`. It also owns one retained visible stage and
 its admission/edit/discard/interrupt policy. Unrecognized commands use monolith
@@ -230,7 +230,7 @@ User command checkpoint:
 - Existing legacy handlers remain for direct monolith compatibility until removal
   at checkpoint 9. Registry ownership and public command execution have moved out.
 
-Next: migrate loop with its current delivery behavior (checkpoint 6).
+Current checkpoint: loop cutover is implemented; review its concrete event-processing flow before committing checkpoint 6.
 
 Checkpoint 6, first agreed substep: runtime.DeliveryCompleted now carries the
 ExecutionID returned by Session.Execute alongside the actual routing outcome,
@@ -269,11 +269,22 @@ Loop admission/acknowledgement boundaries are implemented as an agreed substep:
 the interpreter checks pending modular loops before preparation, with no separate
 reservation state. Optional runtime.SubmissionAcknowledgement.ReadyToAcknowledge supplies
 a pure milestone query after Go/event handling; the interpreter acknowledges once
-or settles a still-pending submission at completion/shutdown. Public loop execution
-remains legacy until the std implementation is ready. Boundary tests use a narrow
+or settles a still-pending submission at completion/shutdown. Loop execution now uses that milestone after its first delivery settles. Boundary tests use a narrow
 loop invocation fake, including pre-Prepare rejection and admission after settlement.
-Next: implement loop using the agreed capabilities and revisit the provisional
-event-handling flow with that concrete implementation.
+Std.LoopCommand is now publicly registered. Its invocation uses a fresh delivery
+scope per iteration and freezes the resolved condition and participant instance.
+Callbacks append facts to an invocation-owned inbox and request attention;
+HandlePendingEvents alone updates phases, publishes output and starts subsequent
+work. First delivery settlement supplies the acknowledgement milestone. Session
+still decides immediate delivery availability; loop staging remains out of scope.
+Normal completion must match the delivered ExecutionID and be recorded in room.
+An observed end of that same active execution without normal completion preserves
+condition evaluation after cancellation. Unrelated idle/completion and replacement
+instances cannot advance the loop. Condition results retain iteration identity.
+By explicit agreement, departure stops the invocation and late condition output
+is ignored; host-owned worker shutdown remains unchanged. Legacy loop code remains
+only for direct monolith callers until checkpoint 9. The concrete event-processing
+flow is ready for the deferred design review below before committing this cutover.
 
 Deferred design review: the event-processing API is provisional. Revisit its
 clarity with the concrete loop implementation rather than extending the abstract

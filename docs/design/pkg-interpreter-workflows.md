@@ -1182,7 +1182,7 @@ Loop migration admission and acknowledgement boundaries:
 The interpreter enforces one active modular loop by inspecting its pending
 invocations before preparation. Condition resolution and loop phases remain std
 responsibilities. No separate reservation or active-loop lifetime is retained.
-The public loop still uses the legacy path until its std implementation is ready.
+The public loop uses the std workflow described below.
 
 An optional runtime.SubmissionAcknowledgement supplies a pure ReadyToAcknowledge query
 for a submission milestone after launch. The interpreter checks it after Go and
@@ -1192,3 +1192,30 @@ shutdown likewise reports failure rather than leaving the submission pending.
 The loop will reach this milestone after its first delivery settles. Commands
 without this interface keep their existing acknowledgement behavior. Commands
 never publish submission events through the intermediate publication capability.
+
+
+Public loops now run as std.LoopCommand invocations. Preparation resolves the
+condition through the shared promptlang registry once and retains the participant
+instance. Each iteration creates a fresh Session execution scope and send plan;
+Session checks availability immediately, without staging. A successful primary
+starts the wait even when an optional notice failed. First delivery settlement
+reaches the submission acknowledgement milestone; the interpreter publishes it.
+
+Delivery, participant and shell callbacks only collect facts in the invocation's
+locked inbox and request interpreter attention. The interpreter calls
+HandlePendingEvents on its lane. That method consumes the inbox, updates loop
+phases, publishes status/condition output and launches subsequent work, then
+returns without waiting. Completion during dispatch is retained until delivery
+supplies its ExecutionID. Normal completion must match that ID and participant
+instance and reach room history before the condition starts. A working-to-idle
+transition ending that same execution without normal completion preserves the
+previous condition evaluation after cancellation. Unrelated idle or completion
+facts and replacement instances cannot advance the loop. Shell results carry
+iteration identity so stale callbacks cannot advance later work.
+
+Departure stops the invocation, including during condition evaluation. By explicit
+agreement this changes legacy observation behavior: shell results arriving after
+that stop are ignored, rather than published after settlement. The host continues
+to own shell cancellation and worker shutdown. Condition success, cancellation,
+bounded failure, evidence-enriched retries and source metadata remain preserved.
+The direct-monolith compatibility implementation remains until bridge removal.

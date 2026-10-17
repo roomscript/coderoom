@@ -66,6 +66,9 @@ func newCommandRegistry() *runtime.Registry {
 	if err := registry.Register(std.UserCommand{}); err != nil {
 		panic(err)
 	}
+	if err := registry.Register(std.LoopCommand{}); err != nil {
+		panic(err)
+	}
 	return registry
 }
 
