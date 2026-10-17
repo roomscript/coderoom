@@ -476,7 +476,14 @@ They preserve existing product behavior rather than introduce new features.
   acknowledgement keeps success/failure pending until execution and causal
   publication; no runtime or central command branches were added. The invocation
   closes its execution subscription. Legacy policy handling/help remains only for
-  monolith compatibility until removal. Participant commands and help are next.
+  monolith compatibility until removal.
+- `/invite`, `/remove` and `/cancel` are now publicly registered modular commands.
+  They reuse std's unroutedInvocation with policy, preserving subscription
+  cleanup and submission settlement after execution/causal publication. Invite
+  supplies the requested name; remove/cancel capture the current instance or
+  preserve a missing name for Session rejection. Session remains lifecycle authority.
+  No runtime changes or new central dispatch branches were needed. Legacy handlers
+  and help remain for direct monolith callers. `/help` is the next migration step.
 - `/quit` is migrated by agreement as a UI application command, like `/debugview`.
   The callback queues a request; asynchronous cleanup calls Interpreter.Close(),
   which owns Session shutdown and publication draining, then queues completion behind drained submission outcomes

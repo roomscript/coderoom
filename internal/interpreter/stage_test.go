@@ -37,7 +37,7 @@ func TestStage_snapshotAndAdmission(t *testing.T) {
 	stage := assertBlockedCommandStage(t, interp)
 	stage.Raw, stage.Routing[0], stage.NotReadyAliases[0], stage.Interruptible[0] = "changed", "changed", "changed", "changed"
 	assertBlockedCommandStage(t, interp)
-	for _, raw := range []string{"@ada next", "hello", "/who", "/shell echo work", "/policy enable send-notices", "/invite", "/missing"} {
+	for _, raw := range []string{"@ada next", "hello", "/who", "/shell echo work", "/policy enable send-notices", "/invite ada", "/remove ada", "/cancel ada", "/invite", "/missing"} {
 		if err := interp.Submit(raw); err != nil {
 			t.Fatal(err)
 		}

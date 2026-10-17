@@ -44,7 +44,7 @@ func TestPolicyCommand_completion(t *testing.T) {
 				t.Fatalf("command=%#v results=%#v", scope.command, results)
 			}
 			scope.handle(tt.event)
-			assertPolicyResult(t, results, tt.wantErr)
+			assertSessionCommandResult(t, results, tt.wantErr)
 			invocation.Close()
 			if !scope.closed {
 				t.Fatal("execution subscription retained")
@@ -62,7 +62,7 @@ func TestPolicyCommand_requiresStatementAndExecution(t *testing.T) {
 	}
 }
 
-func assertPolicyResult(t *testing.T, results []runtime.CommandResult, wantErr bool) {
+func assertSessionCommandResult(t *testing.T, results []runtime.CommandResult, wantErr bool) {
 	t.Helper()
 	if len(results) != 1 || (results[0].Err != nil) != wantErr || len(results[0].Records) != 0 {
 		t.Fatalf("results=%#v", results)

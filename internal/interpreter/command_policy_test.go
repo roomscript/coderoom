@@ -38,18 +38,18 @@ func TestPolicy_submissionCompletesAfterExecution(t *testing.T) {
 			if len(changed.Snapshot.Room.Records) != 1 || changed.Snapshot.Room.Records[0].Text != raw {
 				t.Fatalf("records=%#v", changed.Snapshot.Room.Records)
 			}
-			assertPolicySubmissionOutcome(t, events, raw, sess.executeErr)
+			assertSessionSubmissionOutcome(t, events, raw, "policy", sess.executeErr)
 			interp.Close()
-			assertPolicySettled(t, sess, events)
+			assertSessionCommandSettled(t, sess, events)
 		})
 	}
 }
 
-func assertPolicySubmissionOutcome(t *testing.T, events <-chan interpreter.Event, raw string, want error) {
+func assertSessionSubmissionOutcome(t *testing.T, events <-chan interpreter.Event, raw, operation string, want error) {
 	t.Helper()
 	if want != nil {
 		result := receiveEvent[interpreter.SubmissionFailed](t, events)
-		if result.Raw != raw || result.Operation != "policy" || result.Code != interpreter.ErrorExecutionFailed || !errors.Is(result.Err, want) {
+		if result.Raw != raw || result.Operation != operation || result.Code != interpreter.ErrorExecutionFailed || !errors.Is(result.Err, want) {
 			t.Fatalf("failure=%#v", result)
 		}
 		return
@@ -59,7 +59,7 @@ func assertPolicySubmissionOutcome(t *testing.T, events <-chan interpreter.Event
 	}
 }
 
-func assertPolicySettled(t *testing.T, sess *recordingSession, events <-chan interpreter.Event) {
+func assertSessionCommandSettled(t *testing.T, sess *recordingSession, events <-chan interpreter.Event) {
 	t.Helper()
 	for len(events) > 0 {
 		if event := <-events; event != nil {

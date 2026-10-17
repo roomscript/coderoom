@@ -49,32 +49,14 @@ func newInterpreter(ctx context.Context, sess SessionController, cwd string, def
 
 func newCommandRegistry() *runtime.Registry {
 	registry := runtime.NewRegistry()
-	if err := registry.Register(std.PolicyCommand{}); err != nil {
-		panic(err)
-	}
-	if err := registry.Register(std.WhoCommand{}); err != nil {
-		panic(err)
-	}
-	if err := registry.Register(std.ShellCommand{}); err != nil {
-		panic(err)
-	}
-	if err := registry.Register(std.SendCommand{}); err != nil {
-		panic(err)
-	}
-	if err := registry.Register(std.BroadcastCommand{}); err != nil {
-		panic(err)
-	}
-	if err := registry.Register(std.HandoffCommand{}); err != nil {
-		panic(err)
-	}
-	if err := registry.Register(std.DefineCommand{}); err != nil {
-		panic(err)
-	}
-	if err := registry.Register(std.UserCommand{}); err != nil {
-		panic(err)
-	}
-	if err := registry.Register(std.LoopCommand{}); err != nil {
-		panic(err)
+	for _, command := range []runtime.Command{
+		std.PolicyCommand{}, std.InviteCommand{}, std.RemoveCommand{}, std.CancelCommand{},
+		std.WhoCommand{}, std.ShellCommand{}, std.SendCommand{}, std.BroadcastCommand{},
+		std.HandoffCommand{}, std.DefineCommand{}, std.UserCommand{}, std.LoopCommand{},
+	} {
+		if err := registry.Register(command); err != nil {
+			panic(err)
+		}
 	}
 	return registry
 }

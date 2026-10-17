@@ -2,7 +2,6 @@ package std
 
 import (
 	"errors"
-	"fmt"
 
 	"github.com/roomscript/coderoom/internal/interpreter/runtime"
 	"github.com/roomscript/coderoom/internal/promptlang"
@@ -35,46 +34,5 @@ func (PolicyCommand) Prepare(parsed promptlang.ParsedStatement, ctx runtime.Cont
 	if ctx.Session == nil {
 		return nil, errors.New("policy requires Session execution")
 	}
-	return &policyInvocation{session: ctx.Session, command: session.EnablePolicyCommand{Name: statement.Name.Value}}, nil
-}
-
-type policyInvocation struct {
-	session     runtime.SessionExecutionProvider
-	command     session.EnablePolicyCommand
-	unsubscribe func()
-}
-
-func (*policyInvocation) Staging() *runtime.Staging { return nil }
-
-// ReadyToAcknowledge keeps submission pending until Session execution completes.
-func (*policyInvocation) ReadyToAcknowledge() bool { return false }
-
-func (i *policyInvocation) Go(complete func(runtime.CommandResult)) error {
-	execution := i.session.CreateExecution()
-	i.unsubscribe = execution.Subscribe(func(event runtime.ExecutionEvent) {
-		complete(runtime.CommandResult{Err: policyExecutionError(event)})
-	})
-	if err := execution.Execute(i.command); err != nil {
-		return fmt.Errorf("execute policy: %w", err)
-	}
-	return nil
-}
-
-func policyExecutionError(event runtime.ExecutionEvent) error {
-	switch event := event.(type) {
-	case runtime.ExecutionCompleted:
-		return event.Err
-	case runtime.ExecutionFailed:
-		if event.Err != nil {
-			return event.Err
-		}
-	}
-	return errors.New("invalid policy execution outcome")
-}
-
-func (i *policyInvocation) Close() {
-	if i.unsubscribe != nil {
-		i.unsubscribe()
-		i.unsubscribe = nil
-	}
+	return &unroutedInvocation{session: ctx.Session, command: session.EnablePolicyCommand{Name: statement.Name.Value}}, nil
 }

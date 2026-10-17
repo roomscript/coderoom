@@ -727,11 +727,17 @@ Parameterized commands and asynchronous callback completion are deferred.
 
 ### Ordinary Session command cutover
 
-`std.PolicyCommand` selects `/policy enable` through the public modular registry.
-Preparation captures its Session command without effects; Go subscribes to a fresh
+`std.PolicyCommand`, `std.InviteCommand`, `std.RemoveCommand` and
+`std.CancelCommand` use the public modular registry and share an ordinary Session
+invocation, `unroutedInvocation`, in std. Preparation captures the Session command without effects;
+remove/cancel resolve the current participant instance, falling back to the
+requested name for Session-owned missing-target errors. Invite retains the new
+participant's requested name. Go subscribes to a fresh
 execution scope before admission. ExecutionCompleted supplies the authoritative
 command error without requiring routing; host/protocol failures also settle the
 invocation. The existing SubmissionAcknowledgement query stays false, preserving
 submission success/failure after execution and causal publication. The invocation
-releases its subscription on closure. Existing legacy policy handling and help
-variants remain for direct monolith compatibility until removal.
+releases its subscription on closure. Session owns lifecycle checks and effects;
+invite completion means startup launched, and cancel completion means interruption
+requested. Existing legacy handlers and help variants remain for direct monolith
+compatibility until removal.

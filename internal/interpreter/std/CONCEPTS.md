@@ -5,7 +5,7 @@ Changes to runtime contracts or semantics require explicit agreement before impl
 Keep this document roughly one page; details belong in code or
 [design docs](../../../docs/design/pkg-interpreter-composition.md).
 `/who`, `/shell`, addressed sends, broadcasts, handoffs, definitions, named commands
-and loops use registry dispatch and lifecycle execution.
+and loops, plus policy, invite, remove and cancel, use registry dispatch and lifecycle execution.
 
 ## Command and invocation
 
