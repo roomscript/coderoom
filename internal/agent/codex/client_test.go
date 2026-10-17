@@ -640,3 +640,9 @@ func (o *testObserver) OnReceive(msg string) {
 		o.onReceive(msg)
 	}
 }
+
+func TestName(t *testing.T) {
+	if got := New(t.TempDir()).Name(); got != "codex" {
+		t.Fatalf("Name() = %q, want codex", got)
+	}
+}

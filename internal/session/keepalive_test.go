@@ -23,6 +23,7 @@ type keepaliveTestAgent struct {
 	stopCh   chan struct{}
 }
 
+func (*keepaliveTestAgent) Name() string   { return "fake" }
 func (a *keepaliveTestAgent) Start() error { a.started = true; return nil }
 func (a *keepaliveTestAgent) Send(string) (agent.StreamID, error) {
 	return "", nil

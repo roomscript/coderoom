@@ -152,6 +152,9 @@ func New(cwd string, opts ...Option) *Client {
 	return c
 }
 
+// Name returns "claude".
+func (c *Client) Name() string { return "claude" }
+
 // Start launches the process and completes the initialize handshake.
 func (c *Client) Start() error {
 	if err := c.proc.start(); err != nil {

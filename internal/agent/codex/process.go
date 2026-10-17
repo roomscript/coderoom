@@ -76,19 +76,23 @@ func (p *process) commandArgs() []string {
 	return codexArgs(p.askForApproval, p.sandboxMode, p.reasoningEffort, p.reasoningSummary)
 }
 
-// codexArgs returns the command and arguments for the Codex app-server.
+// codexPackage returns the npm package npx runs.
 // CODEX_VERSION_OVERRIDE pins a specific npm version for integration testing.
+func codexPackage() string {
+	if v := os.Getenv("CODEX_VERSION_OVERRIDE"); v != "" {
+		return "@openai/codex@" + v
+	}
+	return "@openai/codex"
+}
+
+// codexArgs returns the command and arguments for the Codex app-server.
 func codexArgs(
 	askForApproval AskForApprovalPolicy,
 	sandboxMode SandboxMode,
 	reasoningEffort ReasoningEffort,
 	reasoningSummary ReasoningSummary,
 ) []string {
-	pkg := "@openai/codex"
-	if v := os.Getenv("CODEX_VERSION_OVERRIDE"); v != "" {
-		pkg = "@openai/codex@" + v
-	}
-	args := []string{"npx", pkg}
+	args := []string{"npx", codexPackage()}
 	if askForApproval != AskDefault {
 		args = append(args, "--ask-for-approval", string(askForApproval))
 	}

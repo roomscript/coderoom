@@ -35,6 +35,9 @@ func New() *Client {
 	return &Client{turns: make(chan turn, 1), stop: make(chan struct{})}
 }
 
+// Name returns "echo".
+func (c *Client) Name() string { return "echo" }
+
 // Start marks the adapter ready.
 func (c *Client) Start() error {
 	c.mu.Lock()

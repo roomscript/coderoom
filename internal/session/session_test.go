@@ -43,6 +43,7 @@ func newMockAgent(msgs ...agent.Message) *mockAgent {
 	return m
 }
 
+func (*mockAgent) Name() string   { return "fake" }
 func (m *mockAgent) Start() error { return m.startErr }
 func (m *mockAgent) Interrupt() error {
 	m.mu.Lock()
@@ -123,6 +124,7 @@ func newNoticeFlushAgent() *noticeFlushAgent {
 	return &noticeFlushAgent{inner: newMockAgent()}
 }
 
+func (*noticeFlushAgent) Name() string                               { return "fake" }
 func (n *noticeFlushAgent) Start() error                             { return n.inner.Start() }
 func (n *noticeFlushAgent) Interrupt() error                         { return n.inner.Interrupt() }
 func (n *noticeFlushAgent) Stop() error                              { return n.inner.Stop() }

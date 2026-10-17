@@ -11,6 +11,7 @@ import (
 
 type fakeAgent struct{}
 
+func (fakeAgent) Name() string { return "fake" }
 func (fakeAgent) Start() error { return nil }
 func (fakeAgent) Send(string) (agent.StreamID, error) {
 	return "", nil

@@ -161,6 +161,9 @@ func New(cwd string, opts ...Option) *Client {
 	return c
 }
 
+// Name returns "codex".
+func (c *Client) Name() string { return "codex" }
+
 func (c *Client) initRead() {
 	if c.read.messages == nil {
 		c.read.messages = make(chan readMessage)

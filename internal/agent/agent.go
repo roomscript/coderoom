@@ -3,6 +3,7 @@
 package agent
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"time"
@@ -229,6 +230,9 @@ func (FileChangeSet) content() {}
 
 // Agent manages the lifecycle of and communication with an AI agent process.
 type Agent interface {
+	// Name returns the backend's canonical name, as used in configuration and
+	// shown to users.
+	Name() string
 	// Start launches the process and completes any required handshake.
 	Start() error
 	// Send writes a prompt to the agent and returns immediately.
@@ -263,6 +267,19 @@ type Agent interface {
 type Keepaliver interface {
 	KeepAliveSchedule() time.Duration
 	KeepAlive() error
+}
+
+// ExternalDependencies is implemented by agents that rely on tools outside
+// coderoom.
+type ExternalDependencies interface {
+	ExternalDependencies() []Dependency
+}
+
+// Dependency is one check. Checks run in order; later checks may assume
+// earlier ones passed.
+type Dependency struct {
+	Description string                          // "npx is installed"
+	Verify      func(ctx context.Context) error // nil means satisfied
 }
 
 // SendAndWait sends a prompt and blocks until the turn is complete,

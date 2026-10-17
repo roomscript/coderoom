@@ -33,6 +33,7 @@ func newTestAgent() *testAgent {
 	return &testAgent{ch: make(chan agent.Message, 16)}
 }
 
+func (*testAgent) Name() string   { return "fake" }
 func (a *testAgent) Start() error { return nil }
 
 const testTurnAnchor = agent.StreamID("test:turn-anchor")

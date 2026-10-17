@@ -16,6 +16,7 @@ type stubAgent struct {
 	pos      int
 }
 
+func (*stubAgent) Name() string                                { return "fake" }
 func (s *stubAgent) Start() error                              { return nil }
 func (s *stubAgent) Stop() error                               { return nil }
 func (s *stubAgent) Interrupt() error                          { return nil }
