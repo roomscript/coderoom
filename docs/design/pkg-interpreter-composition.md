@@ -593,7 +593,7 @@ checkpoint 9.
 
 ### User definitions and named invocation checkpoint
 
-The new interpreter owns one promptlang.Registry. Context.UserCommands exposes
+The new interpreter owns one promptlang.Registry. Context.NamedCommands exposes
 only Define and Resolve, implemented by that registry. Std DefineCommand stores
 unevaluated definitions and formats confirmation; std UserCommand resolves a name
 before acceptance and reuses shellInvocation. The interpreter retains admission,
@@ -607,7 +607,7 @@ registry diagnostic and do not become accepted input. Shell records and completi
 events display /name while the worker runs the resolved program. Cancellation,
 joined shutdown and stale-result rejection use the existing owned execution path.
 
-WithUserCommands temporarily shares the interpreter-owned registry with legacy loop
+WithNamedCommands temporarily shares the interpreter-owned registry with legacy loop
 and public ResolveCommand dispatch on the same lane. The bridge and legacy handlers
 are removed when remaining monolith consumers migrate at checkpoint 9.
 
@@ -665,3 +665,53 @@ retaining compatibility shell events only when publishing a new shell record.
 Delivery batching accumulates output rather than overwriting one slot: input
 records precede causal Session events, while updates and terminal outcomes follow.
 Transfer the mechanism out and remove the bridge with the monolith at checkpoint 9.
+
+
+## Application-defined named commands
+
+Applications can contribute argument-free named commands with callbacks through
+`interpreter.NewWithApplicationCommands(ctx, session, cwd, commands, opts...)`.
+It returns an interpreter and an error, preserving the existing `New` constructor
+for callers without application commands. The complete batch is validated and
+copied before interpreter startup; failure leaves no partial registration and does
+not take ownership of the caller's Session. Registrations are immutable afterward.
+
+`interpreter.ApplicationCommand` aliases `promptlang.ApplicationDefinition`,
+which holds `Name`, `Description` and `Run func() error` in the registry.
+The callback runs in the ordered publication dispatcher after earlier interpreter events have reached observers,
+without blocking the interpreter operation lane. It must return promptly and must
+not wait for interpreter processing or call blocking interpreter APIs such as
+Snapshot, ResolveCommand or Close. A nil result acknowledges dispatch
+acceptance, not completion of work handled later by the application. Errors fail
+the submission. The interpreter owns admission, input/source publication,
+acknowledgement and invocation settlement; callbacks do not repeat admission rules.
+Callbacks queue their results back to the interpreter, which accepts and settles
+on its lane. Shutdown drains admitted publication callbacks before closing result
+intake, then flushes their final outcomes through the existing dispatcher.
+
+`promptlang.Registry` remains the single named-command namespace. General Resolve
+returns either UserDefinition (a shell body) or ApplicationDefinition (the complete
+name, description and callback). Define and RegisterApplication share identifier, built-in-name
+and duplicate checks, so shell definitions cannot shadow application commands.
+Each named invocation resolves once. The interpreter retains the returned definition
+through admission and selects application or shell preparation from that value.
+Preparation does not resolve it again, and staged admission uses the selected
+definition kind. Application commands remain available while input is staged;
+participant commands submitted by their callbacks pass through the existing
+interpreter admission rules. No per-application stage flag is needed.
+RequireShell validates an already-resolved definition without
+consulting the registry; loop conditions resolve once and apply this validation
+before launching any participant work. There is no parallel interpreter map of
+application implementations. Registration
+stores complete definitions as immutable values in one registry; storing a callback
+does not execute it or give promptlang responsibility for scheduling. Application
+message types remain outside promptlang.
+
+The UI contributes debugview and debugrows through Observer.ApplicationCommands.
+Their callbacks enqueue UI-defined messages in the observer's FIFO alongside
+wrapped interpreter events. The UI loop owns debug enablement, viewport diagnostics
+and row overlays, and builds debug help from the same registrations. Closing the
+queue rejects later application dispatch. There are no debug-specific parser ASTs,
+reserved names, interpreter events or interpreter admission branches. Another
+application command requires registration rather than a parser or event-type edit.
+Parameterized commands and asynchronous callback completion are deferred.

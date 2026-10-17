@@ -26,13 +26,17 @@ func (w *loopWorkflow) start(
 		}})
 		return sequence
 	}
-	body, err := commands.Resolve(promptlang.UserCommand{Name: statement.Condition})
+	definition, err := commands.Resolve(promptlang.UserCommand{Name: statement.Condition})
 	if err != nil {
 		sequence = append(sequence, publishEventInstruction{event: SubmissionFailed{
 			Raw: raw, Operation: "loop condition /" + statement.Condition.Value,
 			Code: ErrorExecutionFailed, Err: err,
 		}})
 		return sequence
+	}
+	body, err := promptlang.RequireShell(definition)
+	if err != nil {
+		return append(sequence, publishEventInstruction{event: SubmissionFailed{Raw: raw, Operation: "loop condition /" + statement.Condition.Value, Code: ErrorExecutionFailed, Err: err}})
 	}
 	w.nextGeneration++
 	w.active = &loopState{

@@ -85,13 +85,17 @@ func processInterpreterSubmission(t *testing.T, m Model) Model {
 	t.Helper()
 	next := m
 	for {
-		event, ok := next.interpreterQueue.PullTimeout(2 * time.Second)
+		event, ok := next.observer.queue.PullTimeout(2 * time.Second)
 		if !ok {
 			t.Fatal("timed out waiting for interpreter submission event")
 		}
-		updated, _ := next.Update(interpreterEventMsg{event: event})
+		updated, _ := next.Update(event)
 		next = updated.(Model)
-		switch event.(type) {
+		source, interpreterMessage := event.(interpreterEventMsg)
+		if !interpreterMessage {
+			continue
+		}
+		switch source.event.(type) {
 		case interpreter.UnknownCommand,
 			interpreter.InputRejected,
 			interpreter.SubmissionSucceeded,
@@ -112,13 +116,13 @@ func consumeInterpreterStateChange(t *testing.T, m Model) Model {
 func consumeInterpreterUntil(t *testing.T, m Model, done func(interpreter.Event) bool) Model {
 	t.Helper()
 	for {
-		event, ok := m.interpreterQueue.PullTimeout(2 * time.Second)
+		event, ok := m.observer.queue.PullTimeout(2 * time.Second)
 		if !ok {
 			t.Fatal("timed out waiting for interpreter event")
 		}
-		next, _ := m.Update(interpreterEventMsg{event: event})
+		next, _ := m.Update(event)
 		m = next.(Model)
-		if done(event) {
+		if source, ok := event.(interpreterEventMsg); ok && done(source.event) {
 			return m
 		}
 	}
@@ -192,11 +196,11 @@ func hasRecord(m Model, kind record.Kind, text string) bool {
 func consumeInterpreterPresentation(t *testing.T, m Model, ready func(Model) bool) Model {
 	t.Helper()
 	for !ready(m) {
-		event, ok := m.interpreterQueue.PullTimeout(2 * time.Second)
+		event, ok := m.observer.queue.PullTimeout(2 * time.Second)
 		if !ok {
 			t.Fatal("timed out waiting for interpreter presentation")
 		}
-		next, _ := m.Update(interpreterEventMsg{event: event})
+		next, _ := m.Update(event)
 		m = next.(Model)
 	}
 	return m
@@ -207,16 +211,19 @@ func newTestModel(t *testing.T, sess *session.Session) Model {
 	t.Helper()
 	observer := NewObserver()
 	t.Cleanup(observer.Close)
-	interp := interpreter.New(context.Background(), sess, ".", interpreter.WithObserver(observer))
+	interp, err := interpreter.NewWithApplicationCommands(context.Background(), sess, ".", observer.ApplicationCommands(), interpreter.WithObserver(observer))
+	if err != nil {
+		t.Fatal(err)
+	}
 	t.Cleanup(interp.Close)
 	m := New(interp, observer, ".")
 	event, ok := observer.queue.PullTimeout(2 * time.Second)
 	if !ok {
 		t.Fatal("timed out waiting for initial interpreter state")
 	}
-	if _, ok := event.(interpreter.StateChanged); !ok {
+	if _, ok := event.(interpreterEventMsg).event.(interpreter.StateChanged); !ok {
 		t.Fatalf("initial event = %T", event)
 	}
-	m, _ = m.handleInterpreterEvent(event)
+	m, _ = m.handleInterpreterEvent(event.(interpreterEventMsg).event)
 	return m
 }

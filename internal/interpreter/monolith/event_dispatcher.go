@@ -9,13 +9,16 @@ import (
 type eventDispatchItem interface{ eventDispatchItem() }
 
 type publishedEvent struct{ event Event }
+type publicationWork struct{ run func() }
 type eventDispatchBarrier struct{ reached chan struct{} }
+
+func (publicationWork) eventDispatchItem() {}
 
 func (publishedEvent) eventDispatchItem()       {}
 func (eventDispatchBarrier) eventDispatchItem() {}
 
-// eventDispatcher delivers published events in order without blocking the
-// interpreter operation loop on observers.
+// eventDispatcher delivers events and application callbacks in publication order
+// without blocking the interpreter operation loop on observers.
 type eventDispatcher struct {
 	queue *queue.Queue[eventDispatchItem]
 	done  chan struct{}
@@ -36,6 +39,12 @@ func newEventDispatcher() *eventDispatcher {
 // Publish queues an event for ordered observer delivery.
 func (d *eventDispatcher) Publish(event Event) {
 	d.queue.Push(publishedEvent{event: event})
+}
+
+// QueueWork runs work after earlier observer publications and before later ones.
+// The caller must not wait for it on the interpreter operation lane.
+func (d *eventDispatcher) QueueWork(work func()) {
+	d.queue.Push(publicationWork{run: work})
 }
 
 // addObserver installs an observer before any event is published.
@@ -75,6 +84,8 @@ func (d *eventDispatcher) run() {
 		switch item := item.(type) {
 		case publishedEvent:
 			d.deliver(item.event)
+		case publicationWork:
+			item.run()
 		case eventDispatchBarrier:
 			close(item.reached)
 		}

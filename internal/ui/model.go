@@ -3,6 +3,9 @@
 package ui
 
 import (
+	"errors"
+	"sync"
+
 	tea "charm.land/bubbletea/v2"
 	"github.com/roomscript/coderoom/internal/interpreter"
 	"github.com/roomscript/coderoom/internal/participant"
@@ -29,37 +32,39 @@ func WithStartupHelpTip(enabled bool) Option {
 
 type interpreterEventMsg struct{ event interpreter.Event }
 
-// Observer queues interpreter events until the UI consumes them.
+// Observer queues interpreter events and application messages for the UI loop.
 // Create it before constructing the interpreter and install it with WithObserver.
 type Observer struct {
-	queue *queue.Queue[interpreter.Event]
+	queue  *queue.Queue[tea.Msg]
+	mu     sync.Mutex
+	closed bool
 }
 
-// OnEvent queues an application event for ordered UI delivery.
+// OnEvent wraps an interpreter event for ordered UI delivery.
 func (o *Observer) OnEvent(event interpreter.Event) {
-	o.queue.Push(event)
+	o.queue.Push(interpreterEventMsg{event: event})
 }
 
-func awaitInterpreterEvent(q *queue.Queue[interpreter.Event]) tea.Cmd {
+func awaitUIMessage(q *queue.Queue[tea.Msg]) tea.Cmd {
 	return func() tea.Msg {
 		event, ok := q.Pull()
 		if !ok {
 			return nil
 		}
-		return interpreterEventMsg{event: event}
+		return event
 	}
 }
 
 // Model is the Bubble Tea application state for the coderoom TUI.
 type Model struct {
-	interpreter      *interpreter.Interpreter
-	interpreterQueue *queue.Queue[interpreter.Event]
-	room             room.Model
-	toolbox          toolbox.Model
-	debug            bool
-	colors           map[participant.Alias]string
-	cwd              string
-	lastSize         tea.WindowSizeMsg
+	interpreter *interpreter.Interpreter
+	observer    *Observer
+	room        room.Model
+	toolbox     toolbox.Model
+	debug       bool
+	colors      map[participant.Alias]string
+	cwd         string
+	lastSize    tea.WindowSizeMsg
 
 	activeApprovalID           int64
 	submissionPending          bool
@@ -89,12 +94,12 @@ func New(interp *interpreter.Interpreter, observer *Observer, cwd string, opts .
 	roomModel := room.NewPresenter(colorByAlias, colorByName, palette.ColorDeparted)
 
 	m := Model{
-		interpreter:      interp,
-		interpreterQueue: observer.queue,
-		room:             roomModel,
-		toolbox:          toolbox.New(),
-		cwd:              cwd,
-		colors:           colors,
+		interpreter: interp,
+		observer:    observer,
+		room:        roomModel,
+		toolbox:     toolbox.New(),
+		cwd:         cwd,
+		colors:      colors,
 	}
 	for _, o := range opts {
 		o(&m)
@@ -102,17 +107,32 @@ func New(interp *interpreter.Interpreter, observer *Observer, cwd string, opts .
 	return m
 }
 
-// Close stops the model-owned background queues.
+// Close stops the UI message queue.
 func (m Model) Close() {
-	if m.interpreterQueue != nil {
-		m.interpreterQueue.Close()
+	if m.observer != nil {
+		m.observer.Close()
 	}
 }
 
 // NewObserver creates the queue used by a UI and its interpreter.
 func NewObserver() *Observer {
-	return &Observer{queue: queue.New[interpreter.Event]()}
+	return &Observer{queue: queue.New[tea.Msg]()}
 }
 
 // Close releases queued events and unblocks the listener.
-func (o *Observer) Close() { o.queue.Close() }
+func (o *Observer) Close() {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.closed = true
+	o.queue.Close()
+}
+
+func (o *Observer) dispatch(message tea.Msg) error {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.closed {
+		return errors.New("UI message queue is closed")
+	}
+	o.queue.Push(message)
+	return nil
+}

@@ -24,7 +24,7 @@ const (
 
 // Init starts the interpreter event listener; called once by Bubble Tea on startup.
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(awaitInterpreterEvent(m.interpreterQueue), m.room.Init())
+	return tea.Batch(awaitUIMessage(m.observer.queue), m.room.Init())
 }
 
 // Update handles incoming messages and returns the next model state.
@@ -34,9 +34,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleKey(msg)
 	case tea.WindowSizeMsg:
 		return m.handleResize(msg), nil
+	case debugViewRequested:
+		return m.handleDebugView(), awaitUIMessage(m.observer.queue)
+	case debugRowsRequested:
+		return m.handleDebugRows(), awaitUIMessage(m.observer.queue)
 	case interpreterEventMsg:
 		next, cmd := m.handleInterpreterEvent(msg.event)
-		return next, tea.Batch(cmd, awaitInterpreterEvent(m.interpreterQueue))
+		return next, tea.Batch(cmd, awaitUIMessage(m.observer.queue))
 	default:
 		return m.handleNonSessionMessage(msg)
 	}
@@ -122,8 +126,6 @@ func (m Model) handleInterpreterEvent(event interpreter.Event) (Model, tea.Cmd) 
 		return next, cmd
 	}
 	switch event := event.(type) {
-	case interpreter.DebugRequested:
-		return m.executeDebugAction(event.Action), nil
 	case interpreter.UnknownCommand:
 		m.releaseSubmissionGate()
 		if event.Name != "" {
@@ -365,20 +367,6 @@ func (m Model) updateParticipantColors(participants []participant.View) Model {
 	return m
 }
 
-func (m Model) executeDebugAction(action interpreter.DebugAction) Model {
-	if !m.debug {
-		m.room = m.room.AppendSystem("error: debug commands disabled (set CODEROOM_DEBUG=1)")
-		return m
-	}
-	switch action {
-	case interpreter.DebugActionView:
-		return m.debugView()
-	case interpreter.DebugActionRows:
-		m.room = m.room.ToggleDebugRowNums()
-	}
-	return m
-}
-
 const helpKeysText = `General keys:
   Ctrl+O               toggle focus (compose ⇄ history)
   PgUp / PgDn          scroll transcript (works in any focus)
@@ -435,10 +423,11 @@ func (m Model) debugHelpEntries() []interpreter.HelpEntry {
 	if !m.debug {
 		return nil
 	}
-	return []interpreter.HelpEntry{
-		{Usage: "/debugview", Description: "print viewport debug"},
-		{Usage: "/debugrows", Description: "toggle row number overlay"},
+	var entries []interpreter.HelpEntry
+	for _, command := range m.observer.ApplicationCommands() {
+		entries = append(entries, interpreter.HelpEntry{Usage: "/" + command.Name, Description: command.Description})
 	}
+	return entries
 }
 
 func (m Model) debugView() Model {

@@ -32,14 +32,14 @@ func (DefineCommand) Prepare(parsed promptlang.ParsedStatement, ctx runtime.Cont
 	if !ok {
 		return nil, errors.New("def requires a definition statement")
 	}
-	if ctx.UserCommands == nil {
+	if ctx.NamedCommands == nil {
 		return nil, errors.New("def requires user command storage")
 	}
-	return &definitionInvocation{commands: ctx.UserCommands, definition: definition}, nil
+	return &definitionInvocation{commands: ctx.NamedCommands, definition: definition}, nil
 }
 
 type definitionInvocation struct {
-	commands   runtime.UserCommandRegistry
+	commands   runtime.NamedCommandRegistry
 	definition promptlang.UserDefinition
 }
 
@@ -71,17 +71,31 @@ func (UserCommand) Description() string { return "invoke a defined command" }
 func (UserCommand) Statement() promptlang.Statement { return promptlang.UserCommand{} }
 
 // Prepare captures command input and its required capabilities.
-func (UserCommand) Prepare(parsed promptlang.ParsedStatement, ctx runtime.Context) (runtime.Invocation, error) {
+func (c UserCommand) Prepare(parsed promptlang.ParsedStatement, ctx runtime.Context) (runtime.Invocation, error) {
 	statement, ok := parsed.Value.(promptlang.UserCommand)
 	if !ok {
 		return nil, errors.New("named command requires a user command statement")
 	}
-	if ctx.UserCommands == nil {
+	if ctx.NamedCommands == nil {
 		return nil, errors.New("named command requires user command resolution")
 	}
-	body, err := ctx.UserCommands.Resolve(statement)
+	definition, err := ctx.NamedCommands.Resolve(statement)
 	if err != nil {
 		return nil, fmt.Errorf("resolve command: %w", err)
+	}
+	return c.PrepareResolved(parsed, definition, ctx)
+}
+
+// PrepareResolved prepares a supplied definition without consulting the registry.
+// The interpreter uses it after resolving a named invocation and selecting execution.
+func (UserCommand) PrepareResolved(parsed promptlang.ParsedStatement, definition promptlang.Definition, ctx runtime.Context) (runtime.Invocation, error) {
+	statement, ok := parsed.Value.(promptlang.UserCommand)
+	if !ok {
+		return nil, errors.New("named command requires a user command statement")
+	}
+	body, err := promptlang.RequireShell(definition)
+	if err != nil {
+		return nil, fmt.Errorf("prepare named shell: %w", err)
 	}
 	if ctx.Shell == nil {
 		return nil, errors.New("named command requires shell execution")

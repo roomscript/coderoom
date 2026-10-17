@@ -28,8 +28,7 @@ func TestParse_sourceRanges(t *testing.T) {
 		{"who", "  /who  ", map[string]promptlang.Span{"Span": {Start: 2, End: 6}}},
 		{"help", "  /help  ", map[string]promptlang.Span{"Span": {Start: 2, End: 7}}},
 		{"quit", "  /quit  ", map[string]promptlang.Span{"Span": {Start: 2, End: 7}}},
-		{"debug view", "  /debugview  ", map[string]promptlang.Span{"Span": {Start: 2, End: 12}}},
-		{"debug rows", "  /debugrows  ", map[string]promptlang.Span{"Span": {Start: 2, End: 12}}},
+		{"application invocation", "  /inspect  ", map[string]promptlang.Span{"Span": {Start: 2, End: 10}, "Value.Name.Span": {Start: 3, End: 10}}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -124,9 +123,9 @@ func TestRegistry_retainsDefinitionSource(t *testing.T) {
 	if err := registry.Define(definition); err != nil {
 		t.Fatal(err)
 	}
-	body, err := registry.Resolve(promptlang.UserCommand{Name: located("tests")})
-	if err != nil || body != definition.Body {
-		t.Fatalf("body = %#v, error = %v; want %#v", body, err, definition.Body)
+	resolved, err := registry.Resolve(promptlang.UserCommand{Name: located("tests")})
+	if err != nil || resolved != definition {
+		t.Fatalf("definition = %#v, error = %v; want %#v", resolved, err, definition)
 	}
 	var diagnostic *promptlang.Diagnostic
 	if err := registry.Define(definition); !errors.As(err, &diagnostic) || diagnostic.Code != promptlang.DiagnosticCommandExists || diagnostic.Span != definition.Name.Span {

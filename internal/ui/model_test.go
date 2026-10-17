@@ -431,8 +431,8 @@ func TestStreamingCleared_onStop(t *testing.T) {
 
 func TestModelClose_keepsCallerOwnedInterpreterOpen(t *testing.T) {
 	m := makeReadyModel(t)
-	t.Cleanup(m.interpreterQueue.Close)
-	listener := awaitInterpreterEvent(m.interpreterQueue)
+	t.Cleanup(m.observer.Close)
+	listener := awaitUIMessage(m.observer.queue)
 	returned := make(chan tea.Msg, 1)
 	go func() { returned <- listener() }()
 	select {

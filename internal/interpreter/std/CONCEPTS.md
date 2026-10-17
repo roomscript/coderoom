@@ -170,10 +170,10 @@ same submission milestones and partial-routing publication as addressed sends.
 
 ## User definitions and named invocation
 
-Context.UserCommands exposes Define and Resolve through UserCommandRegistry.
+Context.NamedCommands exposes Define and Resolve through NamedCommandRegistry.
 promptlang.Registry remains the implementation and owns validation and unevaluated
 bodies. The interpreter owns one registry per instance; the temporary monolith
-WithUserCommands bridge shares it with legacy loop and queued ResolveCommand calls.
+WithNamedCommands bridge shares it with legacy loop and queued ResolveCommand calls.
 All access runs on the serialized lane. Remove the bridge when those callers migrate.
 
 DefineCommand prepares a definition invocation; Go stores the body and queues its

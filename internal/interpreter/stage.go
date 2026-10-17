@@ -67,13 +67,14 @@ func (i *Interpreter) stageSnapshot() *StagedSubmission {
 	return snapshot
 }
 
-func (i *Interpreter) rejectStagedInput(raw string, statement promptlang.ParsedStatement) bool {
+func (i *Interpreter) rejectStagedInput(raw string, command runtime.Command) bool {
 	if i.stage == nil {
 		return false
 	}
-	switch statement.Value.(type) {
-	case promptlang.DebugView, promptlang.DebugRows:
-		return false
+	if named, ok := command.(resolvedNamedCommand); ok {
+		if _, application := named.definition.(promptlang.ApplicationDefinition); application {
+			return false
+		}
 	}
 	i.fallback.Publish(InputRejected{Raw: raw, Code: ErrorStagePending, Err: &promptlang.Diagnostic{
 		Code: promptlang.DiagnosticCode(ErrorStagePending), Span: promptlang.Span{End: len(raw)},

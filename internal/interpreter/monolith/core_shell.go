@@ -33,11 +33,15 @@ func (m *interpreterModel) prepareShellCommand(
 	raw string,
 	invocation promptlang.UserCommand,
 ) instructionSequence {
-	body, err := m.commands.Resolve(invocation)
+	definition, err := m.commands.Resolve(invocation)
 	if err != nil {
 		return instructionSequence{
 			publishEventInstruction{event: UnknownCommand{Raw: raw, Name: invocation.Name.Value, Err: err}},
 		}
+	}
+	body, err := promptlang.RequireShell(definition)
+	if err != nil {
+		return instructionSequence{publishEventInstruction{event: UnknownCommand{Raw: raw, Name: invocation.Name.Value, Err: err}}}
 	}
 	return prepareShellExecution(raw, "/"+invocation.Name.Value, body.Value.Program.Value)
 }

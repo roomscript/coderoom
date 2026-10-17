@@ -22,11 +22,11 @@ func TestApprovalDecision_UsesInterpreterAndRendersFailure(t *testing.T) {
 	if m.activeApprovalID != 0 {
 		t.Fatalf("active approval id = %d, want 0 after enqueue", m.activeApprovalID)
 	}
-	event, ok := m.interpreterQueue.PullTimeout(2 * time.Second)
+	event, ok := m.observer.queue.PullTimeout(2 * time.Second)
 	if !ok {
 		t.Fatal("timed out waiting for approval resolution failure")
 	}
-	failed, ok := event.(interpreter.OperationFailed)
+	failed, ok := event.(interpreterEventMsg).event.(interpreter.OperationFailed)
 	if !ok {
 		t.Fatalf("event = %T, want OperationFailed", event)
 	}

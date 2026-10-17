@@ -17,9 +17,9 @@ type Option func(*Interpreter)
 // other input to the monolith. Both paths share its serialized effect/publication
 // lane during migration.
 type Interpreter struct {
-	fallback     *monolith.Interpreter
-	commands     *runtime.Registry
-	userCommands *promptlang.Registry
+	fallback      *monolith.Interpreter
+	commands      *runtime.Registry
+	namedCommands *promptlang.Registry
 	// Accessed only on the shared serialized queue, including shutdown.
 	nextInvocationID uint64
 	invocations      map[uint64]pendingInvocation
@@ -29,10 +29,14 @@ type Interpreter struct {
 // New starts one interpreter runtime backed by sess. Options are applied through
 // the facade before the fallback starts, preserving initial observer publication.
 func New(ctx context.Context, sess SessionController, cwd string, opts ...Option) *Interpreter {
-	i := &Interpreter{commands: newCommandRegistry(), userCommands: promptlang.NewRegistry()}
+	return newInterpreter(ctx, sess, cwd, promptlang.NewRegistry(), opts...)
+}
+
+func newInterpreter(ctx context.Context, sess SessionController, cwd string, definitions *promptlang.Registry, opts ...Option) *Interpreter {
+	i := &Interpreter{commands: newCommandRegistry(), namedCommands: definitions}
 	i.fallback = monolith.New(ctx, sess, cwd, func(fallback *monolith.Interpreter) {
 		i.fallback = fallback
-		monolith.WithUserCommands(i.userCommands)(fallback)
+		monolith.WithNamedCommands(i.namedCommands)(fallback)
 		monolith.WithShutdown(i.closeInvocations)(fallback)
 		monolith.WithStageSnapshot(i.stageSnapshot)(fallback)
 		monolith.WithCompletedExecution(i.processCompletedExecutions)(fallback)

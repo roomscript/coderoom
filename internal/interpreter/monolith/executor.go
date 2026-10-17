@@ -285,6 +285,9 @@ func (shutdownOperation) apply(e *interpreterExecutor) {
 	e.shutdownSession()
 	e.cancel()
 	e.shellWG.Wait()
+	// Ordered application callbacks may be behind slow observers. During shutdown,
+	// drain them before closing completion intake or settling remaining invocations.
+	e.dispatcher.Flush()
 	e.drainCompletions()
 	if e.onShutdown != nil {
 		e.onShutdown()

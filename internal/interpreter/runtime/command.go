@@ -70,11 +70,12 @@ type CompletedExecutionIDReader interface {
 	LastCompletedExecutionID(participant.Alias) participant.ExecutionID
 }
 
-// UserCommandRegistry stores and resolves shell-backed definitions on the
-// interpreter lane. promptlang.Registry implements this capability.
-type UserCommandRegistry interface {
+// NamedCommandRegistry supplies named definition and resolution operations on the
+// interpreter lane. promptlang.Registry implements it; application registration
+// remains interpreter-owned. Consumers validate the returned definition kind.
+type NamedCommandRegistry interface {
 	Define(promptlang.UserDefinition) error
-	Resolve(promptlang.UserCommand) (promptlang.Located[promptlang.Shell], error)
+	Resolve(promptlang.UserCommand) (promptlang.Definition, error)
 }
 
 // EventProcessingRequester queues interpreter attention for one invocation.
@@ -97,7 +98,7 @@ type InvocationPublication interface {
 type Context struct {
 	Publication         InvocationPublication
 	EventProcessing     EventProcessingRequester
-	UserCommands        UserCommandRegistry
+	NamedCommands       NamedCommandRegistry
 	Participants        ParticipantReader
 	Shell               ShellLauncher
 	Session             SessionExecutionProvider

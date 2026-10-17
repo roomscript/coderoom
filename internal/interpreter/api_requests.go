@@ -1,20 +1,25 @@
 package interpreter
 
-import "github.com/roomscript/coderoom/internal/promptlang"
+import (
+	"github.com/roomscript/coderoom/internal/interpreter/runtime"
+	"github.com/roomscript/coderoom/internal/promptlang"
+)
 
 // Submit queues prompt-language input, or returns ErrClosed after shutdown.
 func (i *Interpreter) Submit(raw string) error {
 	statement, err := promptlang.Parse(raw)
 	//nolint:wrapcheck // Preserve queue admission error identity.
 	return i.fallback.Schedule(func() {
-		if i.rejectStagedInput(raw, statement) {
+		var command runtime.Command
+		if err == nil {
+			command = i.selectCommand(statement)
+		}
+		if i.rejectStagedInput(raw, command) {
 			return
 		}
-		if err == nil {
-			if command, ok := i.commands.Lookup(statement); ok {
-				i.executeCommand(command, statement)
-				return
-			}
+		if command != nil {
+			i.executeCommand(command, statement)
+			return
 		}
 		i.fallback.ExecuteInput(raw)
 	})

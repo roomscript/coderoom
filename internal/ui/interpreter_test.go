@@ -37,7 +37,7 @@ func TestSubmit_DebugCommandUsesInterpreterDispatch(t *testing.T) {
 	if !hasRecord(m, record.KindSystem, "debug commands disabled") {
 		t.Fatalf("expected debug result; records: %v", m.room.HistoryRecords())
 	}
-	if _, ok := m.interpreterQueue.TryPull(); ok {
+	if _, ok := m.observer.queue.TryPull(); ok {
 		t.Fatal("debug submission left unexpected interpreter events")
 	}
 }
@@ -98,13 +98,13 @@ func TestSubmit_QuitStopsSessionBeforeReturningTeaQuit(t *testing.T) {
 	m = m.submitToInterpreter("/quit")
 
 	for {
-		event, ok := m.interpreterQueue.PullTimeout(2 * time.Second)
+		event, ok := m.observer.queue.PullTimeout(2 * time.Second)
 		if !ok {
 			t.Fatal("timed out waiting for exit request")
 		}
-		next, cmd := m.Update(interpreterEventMsg{event: event})
+		next, cmd := m.Update(event)
 		m = next.(Model)
-		if _, exit := event.(interpreter.ExitRequested); !exit {
+		if _, exit := event.(interpreterEventMsg).event.(interpreter.ExitRequested); !exit {
 			continue
 		}
 		if cmd == nil {

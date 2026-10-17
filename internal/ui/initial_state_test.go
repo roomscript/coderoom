@@ -44,7 +44,10 @@ func TestNew_consumesEventsQueuedBeforeUIConstruction(t *testing.T) {
 	sess := &initialStateSession{}
 	observer := NewObserver()
 	t.Cleanup(observer.Close)
-	interp := interpreter.New(context.Background(), sess, ".", interpreter.WithObserver(observer))
+	interp, err := interpreter.NewWithApplicationCommands(context.Background(), sess, ".", observer.ApplicationCommands(), interpreter.WithObserver(observer))
+	if err != nil {
+		t.Fatal(err)
+	}
 	t.Cleanup(interp.Close)
 	sess.observer.OnEvent(session.AgentReady{Alias: testAlias("ada")})
 	sess.observer.OnEvent(session.AgentMessage{Alias: testAlias("ada"), Msg: agent.Message{StreamID: "output", Mode: agent.ModeStream, Content: agent.Output{Text: "existing output"}}})
@@ -73,12 +76,12 @@ func consumeQueuedStartup(t *testing.T, m Model) Model {
 	// Startup and application events have been queued since interpreter construction.
 	completed := false
 	for !completed || !m.interpreterStagePresented {
-		event, ok := m.interpreterQueue.PullTimeout(2 * time.Second)
+		event, ok := m.observer.queue.PullTimeout(2 * time.Second)
 		if !ok {
 			t.Fatal("timed out consuming queued startup events")
 		}
-		m, _ = m.handleInterpreterEvent(event)
-		if _, succeeded := event.(interpreter.SubmissionSucceeded); succeeded {
+		m, _ = m.handleInterpreterEvent(event.(interpreterEventMsg).event)
+		if _, succeeded := event.(interpreterEventMsg).event.(interpreter.SubmissionSucceeded); succeeded {
 			completed = true
 		}
 	}
@@ -102,7 +105,7 @@ func requireInitialPresentation(t *testing.T, m Model, initial interpreter.Snaps
 	if !m.interpreterStagePresented || m.room.ComposeValue() != initial.Stage.Raw {
 		t.Fatal("existing stage was not initialized behind approval")
 	}
-	if event, ok := m.interpreterQueue.PullTimeout(20 * time.Millisecond); ok {
+	if event, ok := m.observer.queue.PullTimeout(20 * time.Millisecond); ok {
 		t.Fatalf("unexpected duplicate queued event: %T", event)
 	}
 
@@ -113,11 +116,11 @@ func requireSubsequentStreamUpdate(t *testing.T, m Model, expected interpreter.S
 
 	deadline := time.Now().Add(2 * time.Second)
 	for !reflect.DeepEqual(m.room.HistoryRecords(), expected.Room.Records) && time.Now().Before(deadline) {
-		event, ok := m.interpreterQueue.PullTimeout(time.Until(deadline))
+		event, ok := m.observer.queue.PullTimeout(time.Until(deadline))
 		if !ok {
 			t.Fatal("timed out waiting for subsequent stream update")
 		}
-		m, _ = m.handleInterpreterEvent(event)
+		m, _ = m.handleInterpreterEvent(event.(interpreterEventMsg).event)
 	}
 	if !reflect.DeepEqual(m.room.HistoryRecords(), expected.Room.Records) {
 		t.Fatal("subsequent update duplicated or lost records")

@@ -9,11 +9,9 @@ import (
 // A retained stage returns control; later session events resume it.
 func (e *interpreterExecutor) handleInput(raw string) {
 	statement, err := promptlang.Parse(raw)
-	if !isPresentationStatement(statement.Value) {
-		if rejection := e.model.CheckInputAllowed(raw); len(rejection) != 0 {
-			e.runner.Run(rejection)
-			return
-		}
+	if rejection := e.model.CheckInputAllowed(raw); len(rejection) != 0 {
+		e.runner.Run(rejection)
+		return
 	}
 	if err != nil {
 		e.publish(InputRejected{Raw: raw, Code: ErrorInvalidInput, Err: err})
@@ -21,17 +19,6 @@ func (e *interpreterExecutor) handleInput(raw string) {
 	}
 	actions := e.model.PrepareRequest(raw, statement)
 	e.runner.Run(actions)
-}
-
-// Presentation commands remain available while delivery is staged.
-// Admission still takes precedence over syntax errors for other submissions.
-func isPresentationStatement(statement promptlang.Statement) bool {
-	switch statement.(type) {
-	case promptlang.DebugView, promptlang.DebugRows:
-		return true
-	default:
-		return false
-	}
 }
 
 // CheckInputAllowed checks admission before validation and execution.

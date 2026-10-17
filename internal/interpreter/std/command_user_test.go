@@ -2,6 +2,7 @@ package std_test
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/roomscript/coderoom/internal/interpreter/runtime"
@@ -13,7 +14,7 @@ import (
 func TestUserCommand_definitionAndInvocation(t *testing.T) {
 	commands := promptlang.NewRegistry()
 	launcher := &shellLauncher{cwd: "/workspace"}
-	ctx := runtime.Context{UserCommands: commands, Shell: launcher}
+	ctx := runtime.Context{NamedCommands: commands, Shell: launcher}
 	definition, err := (std.DefineCommand{}).Prepare(parseSendStatement(t, "/def tests /shell go test ./..."), ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -58,7 +59,7 @@ func TestUserCommand_registryErrors(t *testing.T) {
 			if err := commands.Define(seed); err != nil {
 				t.Fatal(err)
 			}
-			invocation, err := test.command.Prepare(parseSendStatement(t, test.input), runtime.Context{UserCommands: commands, Shell: &shellLauncher{}})
+			invocation, err := test.command.Prepare(parseSendStatement(t, test.input), runtime.Context{NamedCommands: commands, Shell: &shellLauncher{}})
 			if err == nil {
 				defer invocation.Close()
 				err = invocation.Go(func(runtime.CommandResult) { t.Error("failed definition completed") })
@@ -67,8 +68,8 @@ func TestUserCommand_registryErrors(t *testing.T) {
 			if !errors.As(err, &diagnostic) {
 				t.Fatalf("missing registry diagnostic: %v", err)
 			}
-			body, err := commands.Resolve(promptlang.UserCommand{Name: seed.Name})
-			if err != nil || body != seed.Body {
+			resolved, err := commands.Resolve(promptlang.UserCommand{Name: seed.Name})
+			if err != nil || resolved != seed {
 				t.Fatal("failed operation changed stored definition")
 			}
 		})
@@ -84,4 +85,41 @@ func assertNamedCommandResult(t *testing.T, launcher *shellLauncher, results []r
 		t.Fatalf("program=%q", launcher.program)
 	}
 	assertShellRecord(t, results[0], result, "/tests", "status: success\nstdout:\npass")
+}
+
+type countingDefinitions struct {
+	*promptlang.Registry
+	lookups int
+}
+
+func (r *countingDefinitions) Resolve(invocation promptlang.UserCommand) (promptlang.Definition, error) {
+	r.lookups++
+	definition, err := r.Registry.Resolve(invocation)
+	if err != nil {
+		return nil, fmt.Errorf("resolve counted definition: %w", err)
+	}
+	return definition, nil
+}
+
+func TestUserCommand_resolvesOnceAndAcceptsResolvedDefinition(t *testing.T) {
+	commands := &countingDefinitions{Registry: promptlang.NewRegistry()}
+	definition := parseSendStatement(t, "/def tests /shell check-tests").Value.(promptlang.UserDefinition)
+	if err := commands.Define(definition); err != nil {
+		t.Fatal(err)
+	}
+	parsed := parseSendStatement(t, "/tests")
+	invocation, err := (std.UserCommand{}).Prepare(parsed, runtime.Context{NamedCommands: commands, Shell: &shellLauncher{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	invocation.Close()
+	if commands.lookups != 1 {
+		t.Fatalf("lookups=%d", commands.lookups)
+	}
+	// An already-selected definition requires no registry capability at preparation.
+	prepared, err := (std.UserCommand{}).PrepareResolved(parsed, definition, runtime.Context{Shell: &shellLauncher{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared.Close()
 }

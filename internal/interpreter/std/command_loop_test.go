@@ -99,10 +99,14 @@ func newLoopProof(t *testing.T, maxTurns string) *loopProof {
 	if err := registry.Define(definition); err != nil {
 		t.Fatal(err)
 	}
-	ctx := runtime.Context{Session: host, Shell: proof.shell, UserCommands: registry, EventProcessing: proof.request, Publication: proof.publication, CompletedExecutions: proof.history}
+	commands := &countingDefinitions{Registry: registry}
+	ctx := runtime.Context{Session: host, Shell: proof.shell, NamedCommands: commands, EventProcessing: proof.request, Publication: proof.publication, CompletedExecutions: proof.history}
 	inv, err := (std.LoopCommand{}).Prepare(parseSendStatement(t, "/loop @ada work /until /tests /max "+maxTurns), ctx)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if commands.lookups != 1 {
+		t.Fatalf("loop condition lookups=%d", commands.lookups)
 	}
 	proof.invocation, proof.handler = inv, inv.(runtime.InvocationEventHandler)
 	t.Cleanup(inv.Close)

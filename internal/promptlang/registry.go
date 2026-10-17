@@ -2,41 +2,87 @@ package promptlang
 
 import "fmt"
 
+// Definition identifies a named command without owning its execution.
+// The registry retains shell bodies and application callbacks as data.
+type Definition interface{ commandDefinition() }
+
+// ApplicationDefinition describes a command supplied by the embedding application.
+// The registry stores Run without invoking it; execution belongs to the interpreter.
+type ApplicationDefinition struct {
+	Name        string
+	Description string
+	Run         func() error
+}
+
+func (UserDefinition) commandDefinition()        {}
+func (ApplicationDefinition) commandDefinition() {}
+
 // Registry stores command definitions for one running room.
 type Registry struct {
-	definitions map[string]UserDefinition
+	definitions map[string]Definition
 }
 
 // NewRegistry creates an empty command registry.
 func NewRegistry() *Registry {
-	return &Registry{definitions: make(map[string]UserDefinition)}
+	return &Registry{definitions: make(map[string]Definition)}
 }
 
 // Define stores a command definition without evaluating its body.
 func (r *Registry) Define(definition UserDefinition) error {
-	if !isIdentifier(definition.Name.Value) {
-		return diagnosticForError(DiagnosticInvalidIdentifier, definition.Name.Span, InvalidCommandNameError{Name: definition.Name.Value})
+	return r.define(definition.Name, definition)
+}
+
+// RegisterApplication stores a complete application definition in the shared namespace.
+func (r *Registry) RegisterApplication(definition ApplicationDefinition) error {
+	if definition.Run == nil {
+		return fmt.Errorf("application command %q requires a callback", definition.Name)
 	}
-	if isReservedCommand(definition.Name.Value) {
-		return diagnosticForError(DiagnosticReservedCommand, definition.Name.Span, ReservedCommandNameError{Name: definition.Name.Value})
+	return r.define(Located[string]{Value: definition.Name}, definition)
+}
+
+func (r *Registry) define(name Located[string], definition Definition) error {
+	if !isIdentifier(name.Value) {
+		return diagnosticForError(DiagnosticInvalidIdentifier, name.Span, InvalidCommandNameError{Name: name.Value})
 	}
-	if _, exists := r.definitions[definition.Name.Value]; exists {
-		return diagnosticForError(DiagnosticCommandExists, definition.Name.Span, CommandAlreadyDefinedError{Name: definition.Name.Value})
+	if isReservedCommand(name.Value) {
+		return diagnosticForError(DiagnosticReservedCommand, name.Span, ReservedCommandNameError{Name: name.Value})
+	}
+	if _, exists := r.definitions[name.Value]; exists {
+		return diagnosticForError(DiagnosticCommandExists, name.Span, CommandAlreadyDefinedError{Name: name.Value})
 	}
 	if r.definitions == nil {
-		r.definitions = make(map[string]UserDefinition)
+		r.definitions = make(map[string]Definition)
 	}
-	r.definitions[definition.Name.Value] = definition
+	r.definitions[name.Value] = definition
 	return nil
 }
 
-// Resolve returns the unevaluated shell body for a command invocation.
-func (r *Registry) Resolve(invocation UserCommand) (Located[Shell], error) {
+// Resolve returns a shell or application definition without executing it.
+func (r *Registry) Resolve(invocation UserCommand) (Definition, error) {
 	definition, exists := r.definitions[invocation.Name.Value]
 	if !exists {
-		return Located[Shell]{}, diagnosticForError(DiagnosticUndefinedCommand, invocation.Name.Span, UndefinedCommandError{Name: invocation.Name.Value})
+		return nil, diagnosticForError(DiagnosticUndefinedCommand, invocation.Name.Span, UndefinedCommandError{Name: invocation.Name.Value})
 	}
-	return definition.Body, nil
+	return definition, nil
+}
+
+// RequireShell validates an already-resolved definition without another lookup.
+func RequireShell(definition Definition) (Located[Shell], error) {
+	switch definition := definition.(type) {
+	case UserDefinition:
+		return definition.Body, nil
+	case ApplicationDefinition:
+		return Located[Shell]{}, NotShellCommandError{Name: definition.Name}
+	default:
+		return Located[Shell]{}, fmt.Errorf("invalid command definition %T", definition)
+	}
+}
+
+// NotShellCommandError reports an application command used where a shell is required.
+type NotShellCommandError struct{ Name string }
+
+func (e NotShellCommandError) Error() string {
+	return fmt.Sprintf("command %q is not shell-backed", e.Name)
 }
 
 // InvalidCommandNameError reports a name that is not a valid identifier.

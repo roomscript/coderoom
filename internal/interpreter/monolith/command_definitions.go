@@ -50,8 +50,6 @@ func init() {
 		defineModuleCommand(std.WhoCommand{}),
 		defineNativeCommand("help", submitHelp, HelpEntry{Usage: "/help", Description: "show this message"}),
 		defineNativeCommand("quit", submitQuit, HelpEntry{Usage: "/quit", Description: "exit"}),
-		defineNativeCommand("debugview", submitDebugView),
-		defineNativeCommand("debugrows", submitDebugRows),
 		defineMessageCommand(submitStage[promptlang.Send], HelpEntry{Usage: "@<alias> <text>", Description: "send to one agent"}),
 		defineMessageCommand(submitStage[promptlang.Broadcast], HelpEntry{Usage: "<text>", Description: "broadcast to all agents"}),
 	}

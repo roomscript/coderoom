@@ -60,7 +60,7 @@ func (i *Interpreter) AdmitCommand(name string, statement promptlang.ParsedState
 	return &CommandSubmission{
 		Context: runtime.Context{
 			Participants: participantViews(e.participants()), Session: delivery, Shell: launcher,
-			History: e.model, CompletedExecutions: e.model.Room(), UserCommands: i.model.commands,
+			History: e.model, CompletedExecutions: e.model.Room(), NamedCommands: i.model.commands,
 		},
 		executor: e, Statement: statement, Name: name,
 		session: delivery, shell: launcher,
@@ -163,8 +163,16 @@ func (i *Interpreter) InterruptLegacyStage() bool {
 	return ok
 }
 
-// WithUserCommands shares the interpreter-owned definition registry with legacy
+// WithNamedCommands shares the interpreter-owned definition registry with legacy
 // loop and resolution callers. Remove this bridge when those consumers migrate.
-func WithUserCommands(commands *promptlang.Registry) Option {
+func WithNamedCommands(commands *promptlang.Registry) Option {
 	return func(i *Interpreter) { i.model.commands = commands }
+}
+
+// QueuePublication queues application dispatch after earlier observer publications.
+// Call from the serialized lane; callbacks must return promptly and only queue
+// results back to their owner. Shutdown drains accepted work before settlement.
+// This temporary mechanism moves with publication when the monolith is removed.
+func (i *Interpreter) QueuePublication(work func()) {
+	i.executor.dispatcher.QueueWork(work)
 }

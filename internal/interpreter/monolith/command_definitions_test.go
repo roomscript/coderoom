@@ -98,34 +98,8 @@ func assertNativeHelpDispatch(t *testing.T, raw string, statement promptlang.Sta
 	}
 }
 
-func TestNativeUserDefinitions_debugCommandsRequestPresentation(t *testing.T) {
-	for _, raw := range []string{"/debugview", "/debugrows"} {
-		t.Run(raw, func(t *testing.T) {
-			statement, err := promptlang.Parse(raw)
-			if err != nil {
-				t.Fatal(err)
-			}
-			model := newInterpreterModel()
-			t.Cleanup(model.Close)
-			sequence, handled := model.prepareCommand(raw, statement.Value)
-			if !handled {
-				t.Fatal("debug command did not reach interpreter dispatch")
-			}
-			sourceEvent[DebugRequested](t, sequence)
-			for _, definition := range nativeCommandDefinitions {
-				if definition.matches(statement.Value) && (definition.submit == nil || len(definition.help) != 0) {
-					t.Fatal("debug definition lacks dispatch or exposes native help")
-				}
-			}
-		})
-	}
-}
-
 func TestNativeUserDefinitions_requireNativeHelpAndHandlers(t *testing.T) {
 	for _, definition := range nativeCommandDefinitions {
-		if definition.name == "debugview" || definition.name == "debugrows" {
-			continue
-		}
 		if definition.submit == nil && definition.module == nil {
 			t.Errorf("native definition %q has no handler", definition.name)
 		}

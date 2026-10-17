@@ -92,7 +92,11 @@ func (m *interpreterModel) ReadHandoffSource(alias participant.Alias) (session.H
 }
 
 func (m *interpreterModel) ResolveCommand(invocation promptlang.UserCommand) (promptlang.Shell, error) {
-	body, err := m.commands.Resolve(invocation)
+	definition, err := m.commands.Resolve(invocation)
+	if err != nil {
+		return promptlang.Shell{}, fmt.Errorf("resolve command: %w", err)
+	}
+	body, err := promptlang.RequireShell(definition)
 	if err != nil {
 		return promptlang.Shell{}, fmt.Errorf("resolve command: %w", err)
 	}

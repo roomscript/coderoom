@@ -75,13 +75,16 @@ func (o lifecycleReadyObserver) OnEvent(event session.Event) {
 	}
 }
 
-func newLifecycleInterpreter(t *testing.T) (*Interpreter, *lifecycleSession, *lifecycleAgent, chan Event, participant.Alias) {
+func newLifecycleInterpreter(t *testing.T, applications ...ApplicationCommand) (*Interpreter, *lifecycleSession, *lifecycleAgent, chan Event, participant.Alias) {
 	t.Helper()
 	ready := make(chan participant.Alias, 4)
 	backend := &lifecycleAgent{Client: echo.New(), release: make(chan struct{})}
 	sess := &lifecycleSession{Session: session.New(session.WithObserver(lifecycleReadyObserver{ready}), session.WithAgentFactory(func(*session.Session, roomconfig.ParticipantConfig, session.AgentBackend) agent.Agent { return backend }))}
 	events := make(chan Event, 128)
-	interp := New(context.Background(), sess, t.TempDir(), WithObserver(routingObserver{events}))
+	interp, err := NewWithApplicationCommands(context.Background(), sess, t.TempDir(), applications, WithObserver(routingObserver{events}))
+	if err != nil {
+		t.Fatal(err)
+	}
 	t.Cleanup(interp.Close)
 	t.Cleanup(backend.unblock)
 	if _, err := sess.Execute(session.InviteCommand{Alias: "ada"}); err != nil {

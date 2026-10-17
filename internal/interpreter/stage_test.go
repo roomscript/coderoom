@@ -177,7 +177,8 @@ func TestStage_shutdownOperations(t *testing.T) {
 }
 
 func TestStage_observerPublishesPendingAndRemoval(t *testing.T) {
-	interp, sess, backend, events, alias := newLifecycleInterpreter(t)
+	called := make(chan struct{}, 1)
+	interp, sess, backend, events, alias := newLifecycleInterpreter(t, ApplicationCommand{Name: "inspect", Run: func() error { called <- struct{}{}; return nil }})
 	if _, err := sess.Execute(session.SendToParticipantCommand{Plan: sess.CreateParticipantSendPlan(alias), Message: "busy"}); err != nil {
 		t.Fatal(err)
 	}
@@ -189,10 +190,14 @@ func TestStage_observerPublishesPendingAndRemoval(t *testing.T) {
 		return ok && changed.Snapshot.Stage != nil && slices.Equal(changed.Snapshot.Stage.NotReadyAliases, []string{"ada"})
 	})
 	assertBlockedCommandStage(t, interp)
-	if err := interp.Submit("/debugview"); err != nil {
+	if err := interp.Submit("/inspect"); err != nil {
 		t.Fatal(err)
 	}
-	awaitLifecycleEvent(t, events, func(event Event) bool { _, ok := event.(DebugRequested); return ok })
+	awaitLifecycleEvent(t, events, func(event Event) bool {
+		succeeded, ok := event.(SubmissionSucceeded)
+		return ok && succeeded.Raw == "/inspect"
+	})
+	awaitShellSignal(t, called)
 	backend.unblock()
 	awaitLifecycleEvent(t, events, func(event Event) bool {
 		changed, ok := event.(StateChanged)

@@ -62,7 +62,7 @@ type UserDefinition struct {
 	Body Located[Shell]
 }
 
-// UserCommand calls a user-defined command by name.
+// UserCommand invokes a shell-backed or application command by name.
 type UserCommand struct {
 	Name Located[string]
 }
@@ -84,12 +84,6 @@ type Help struct{}
 
 // Quit exits the session.
 type Quit struct{}
-
-// DebugView prints a short viewport debug dump (development aid).
-type DebugView struct{}
-
-// DebugRows toggles viewport row-number overlay.
-type DebugRows struct{}
 
 // UnknownCommandError is returned for an invalid user-command invocation.
 type UnknownCommandError struct {
@@ -117,5 +111,3 @@ func (Loop) isStatement()           {}
 func (Who) isStatement()            {}
 func (Help) isStatement()           {}
 func (Quit) isStatement()           {}
-func (DebugView) isStatement()      {}
-func (DebugRows) isStatement()      {}

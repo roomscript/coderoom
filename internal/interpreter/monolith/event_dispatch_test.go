@@ -149,3 +149,20 @@ func newSubmitContractInterpreterWithoutCleanup(t *testing.T, opts ...Option) (*
 	interp := New(t.Context(), sess, t.TempDir(), opts...)
 	return interp, sess
 }
+
+func TestEventDispatcher_workSharesPublicationOrder(t *testing.T) {
+	dispatcher := newEventDispatcher()
+	t.Cleanup(dispatcher.Close)
+	delivered := make(chan Event, 3)
+	dispatcher.addObserver(submitContractObserver{events: delivered})
+	dispatcher.Publish(UnknownCommand{Name: "before"})
+	dispatcher.QueueWork(func() { delivered <- UnknownCommand{Name: "callback"} })
+	dispatcher.Publish(UnknownCommand{Name: "after"})
+	dispatcher.Flush()
+	for _, want := range []string{"before", "callback", "after"} {
+		event, ok := (<-delivered).(UnknownCommand)
+		if !ok || event.Name != want {
+			t.Fatalf("event=%+v, want %s", event, want)
+		}
+	}
+}

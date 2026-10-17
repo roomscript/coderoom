@@ -38,7 +38,11 @@ func (LoopCommand) Prepare(parsed promptlang.ParsedStatement, ctx runtime.Contex
 	if statement.MaxTurns.Value < 1 {
 		return nil, errors.New("loop requires a positive turn bound")
 	}
-	body, err := ctx.UserCommands.Resolve(promptlang.UserCommand{Name: statement.Condition})
+	definition, err := ctx.NamedCommands.Resolve(promptlang.UserCommand{Name: statement.Condition})
+	if err != nil {
+		return nil, fmt.Errorf("loop condition /%s: %w", statement.Condition.Value, err)
+	}
+	body, err := promptlang.RequireShell(definition)
 	if err != nil {
 		return nil, fmt.Errorf("loop condition /%s: %w", statement.Condition.Value, err)
 	}
@@ -176,7 +180,7 @@ func (i *loopInvocation) Close() {
 }
 
 func validateLoopCapabilities(ctx runtime.Context) error {
-	if ctx.Session == nil || ctx.Shell == nil || ctx.UserCommands == nil || ctx.EventProcessing == nil || ctx.Publication == nil || ctx.CompletedExecutions == nil {
+	if ctx.Session == nil || ctx.Shell == nil || ctx.NamedCommands == nil || ctx.EventProcessing == nil || ctx.Publication == nil || ctx.CompletedExecutions == nil {
 		return errors.New("loop requires delivery, shell, definitions, event processing, publication and completion history")
 	}
 	return nil

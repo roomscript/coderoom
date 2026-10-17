@@ -79,12 +79,6 @@ type HelpEntry = api.HelpEntry
 // HelpListed reports the command metadata requested by /help.
 type HelpListed = api.HelpListed
 
-// DebugAction identifies a front-end debug operation parsed by the interpreter.
-type DebugAction = api.DebugAction
-
-// DebugRequested asks the front end to execute a presentation-only debug action.
-type DebugRequested = api.DebugRequested
-
 // ExitRequested asks a front end to end its interactive session.
 type ExitRequested = api.ExitRequested
 
@@ -123,6 +117,4 @@ const (
 	ApprovalFileChange          = api.ApprovalFileChange
 	ApprovalPermissions         = api.ApprovalPermissions
 	StagePhasePending           = api.StagePhasePending
-	DebugActionView             = api.DebugActionView
-	DebugActionRows             = api.DebugActionRows
 )

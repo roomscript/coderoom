@@ -10,11 +10,9 @@ import (
 )
 
 var noArgCommands = map[string]Statement{
-	"/who":       Who{},
-	"/help":      Help{},
-	"/quit":      Quit{},
-	"/debugview": DebugView{},
-	"/debugrows": DebugRows{},
+	"/who":  Who{},
+	"/help": Help{},
+	"/quit": Quit{},
 }
 
 // Parse reads one complete submission. Prompts and shell programs remain opaque;
@@ -200,7 +198,7 @@ func isIdentifierPart(char rune) bool {
 func isReservedCommand(name string) bool {
 	switch name {
 	case "invite", "remove", "cancel", "handoff", "who", "help", "quit",
-		"policy", "shell", "def", "loop", "debugview", "debugrows":
+		"policy", "shell", "def", "loop":
 		return true
 	default:
 		return false

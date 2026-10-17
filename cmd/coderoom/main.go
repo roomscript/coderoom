@@ -59,6 +59,11 @@ func run() int {
 		session.WithAgentFactory(factory),
 	)
 
+	defer sess.Shutdown()
+	return runUI(ctx, sess, cwd)
+}
+
+func runUI(ctx context.Context, sess *session.Session, cwd string) int {
 	var opts []ui.Option
 	if strings.TrimSpace(os.Getenv("CODEROOM_DEBUG")) == "1" {
 		opts = append(opts, ui.WithDebug(true))
@@ -67,7 +72,11 @@ func run() int {
 
 	observer := ui.NewObserver()
 	defer observer.Close()
-	interp := interpreter.New(ctx, sess, cwd, interpreter.WithObserver(observer))
+	interp, err := interpreter.NewWithApplicationCommands(ctx, sess, cwd, observer.ApplicationCommands(), interpreter.WithObserver(observer))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
 	defer interp.Close()
 	model := ui.New(interp, observer, cwd, opts...)
 	defer model.Close()

@@ -213,9 +213,9 @@ Handoff cutover checkpoint:
 User command checkpoint:
 
 - DefineCommand and UserCommand are publicly registered. promptlang.Registry stays
-  in promptlang; the interpreter owns one instance exposed as Context.UserCommands
+  in promptlang; the interpreter owns one instance exposed as Context.NamedCommands
   through the agreed Define/Resolve capability. The legacy loop and public queued
-  ResolveCommand API share that same instance via WithUserCommands.
+  ResolveCommand API share that same instance via WithNamedCommands.
 - Definitions store unevaluated shell bodies. Definition records precede successful
   submission outcomes. Duplicate/reserved names retain diagnostic codes and spans.
   Named invocation resolves before acceptance; undefined names publish UnknownCommand
@@ -426,6 +426,24 @@ the current package until a real consumer demonstrates a useful boundary.
 - Deferred 7–8. Loop-staging design and implementation moved to
   [#65](https://github.com/roomscript/coderoom/issues/65); they do not block this
   migration. After checkpoint 6, continue with checkpoint 9.
+- [x] 9a. Application-defined commands: promptlang.Registry resolves shell and
+  application definitions in one namespace. Each named invocation resolves once,
+  retaining its definition through admission and preparation; RequireShell validates
+  resolved loop conditions without a second lookup. NewWithApplicationCommands validates/copies a batch
+  before interpreter startup. The registry owns each complete application definition
+  (name, description and callback), with no parallel implementation map. Application
+  commands remain available during staging; participant work submitted by callbacks
+  passes through existing admission. Callbacks run in the ordered
+  publication dispatcher after preceding observer events, and queue results back
+  to the interpreter for acknowledgement/settlement. Success means dispatch acceptance;
+  shutdown drains admitted callbacks before closing completion intake. UI-owned
+  debug callbacks now enqueue UI messages,
+  replacing dedicated parser types and interpreter events. Existing New is unchanged.
+  Arguments and asynchronous callback completion remain out of scope.
+Registry unification is deferred to [#66](https://github.com/roomscript/coderoom/issues/66).
+It is outside the current application-command change; do not expand this diff to merge
+the runtime and promptlang registries or decide their package ownership.
+
 - [ ] 9. Migrate remaining handlers and remove the temporary bridge and monolith
   fallback. Transfer the remaining monolith responsibilities to the new interpreter;
   deprecate and remove the monolith once no consumers remain. Confirm new
