@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/roomscript/coderoom/internal/interpreter/runtime"
-	"github.com/roomscript/coderoom/internal/interpreter/std"
 	"github.com/roomscript/coderoom/internal/session"
 )
 
@@ -97,40 +96,6 @@ func TestStage_editAndResubmitHasNoStaleDelivery(t *testing.T) {
 	})
 	interp.Close()
 	assertLifecycleSendCount(t, interp, 1)
-}
-
-func TestStage_legacyCoexistence(t *testing.T) {
-	interp, sess, _, events, alias := newLifecycleInterpreter(t)
-	// Keep broadcast on fallback to prove coexistence with an unmigrated stage.
-	interp.commands = runtime.NewRegistry()
-	if err := interp.commands.Register(std.SendCommand{}); err != nil {
-		t.Fatal(err)
-	}
-
-	if _, err := sess.Execute(session.SendToParticipantCommand{Plan: sess.CreateParticipantSendPlan(alias), Message: "busy"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := interp.Submit("hello"); err != nil {
-		t.Fatal(err)
-	}
-	awaitLifecycleEvent(t, events, func(event Event) bool {
-		accepted, ok := event.(SubmissionSucceeded)
-		return ok && accepted.Raw == "hello"
-	})
-	if err := interp.Submit("@ada work"); err != nil {
-		t.Fatal(err)
-	}
-	awaitLifecycleEvent(t, events, func(event Event) bool {
-		rejected, ok := event.(InputRejected)
-		return ok && rejected.Code == ErrorStagePending
-	})
-	if stage := interp.Snapshot().Stage; stage == nil || stage.Raw != "hello" {
-		t.Fatalf("legacy stage replaced: %#v", stage)
-	}
-	if sess.subscriptions.Load() != 0 {
-		t.Fatal("rejected command prepared a lifecycle")
-	}
-	assertLegacyStageEdit(t, interp)
 }
 
 func TestStage_interruptRetryWaitsForActualReadiness(t *testing.T) {
@@ -263,18 +228,55 @@ func removeStageForTest(t *testing.T, interp *Interpreter, edit bool) {
 	}
 }
 
-func assertLegacyStageEdit(t *testing.T, interp *Interpreter) {
-	t.Helper()
-	raw, ok := interp.TakeStageForEdit()
-	if !ok || raw != "hello" || interp.Snapshot().Stage != nil {
-		t.Fatalf("legacy edit = %q, %v", raw, ok)
-	}
-}
-
 func assertAcknowledgedStage(t *testing.T, interp *Interpreter) {
 	t.Helper()
 	stage := interp.Snapshot().Stage
 	if stage == nil || len(stage.Interruptible) != 0 || !slices.Equal(stage.NotReadyAliases, []string{"ada"}) {
 		t.Fatalf("acknowledgement incorrectly implied readiness: %#v", stage)
+	}
+}
+
+func TestStage_emptyOperations(t *testing.T) {
+	interp, _, _, _, _ := newLifecycleInterpreter(t)
+	assertEmptyPublicStage(t, interp)
+}
+
+func assertEmptyPublicStage(t *testing.T, interp *Interpreter) {
+	t.Helper()
+	if raw, ok := interp.TakeStageForEdit(); raw != "" || ok {
+		t.Fatalf("empty edit=%q, %v", raw, ok)
+	}
+	if interp.DiscardStage() || interp.InterruptAndDispatchStage() || interp.Snapshot().Stage != nil {
+		t.Fatal("empty public stage operation reported work")
+	}
+}
+
+func TestStage_publicAPIsIgnoreLegacyWorkflowState(t *testing.T) {
+	interp, sess, _, events, alias := newLifecycleInterpreter(t)
+	if _, err := sess.Execute(session.SendToParticipantCommand{Plan: sess.CreateParticipantSendPlan(alias), Message: "busy"}); err != nil {
+		t.Fatal(err)
+	}
+	// Only a direct compatibility caller can create legacy staging now. It must
+	// neither gate modular commands nor appear through the public stage API.
+	if err := interp.fallback.Submit("legacy"); err != nil {
+		t.Fatal(err)
+	}
+	awaitLifecycleEvent(t, events, func(event Event) bool {
+		succeeded, ok := event.(SubmissionSucceeded)
+		return ok && succeeded.Raw == "legacy"
+	})
+	assertEmptyPublicStage(t, interp)
+	if err := interp.Submit("/who"); err != nil {
+		t.Fatal(err)
+	}
+	awaitLifecycleEvent(t, events, func(event Event) bool {
+		if rejected, ok := event.(InputRejected); ok {
+			t.Fatalf("legacy stage gated modular input: %#v", rejected)
+		}
+		succeeded, ok := event.(SubmissionSucceeded)
+		return ok && succeeded.Raw == "/who"
+	})
+	if raw, ok := interp.fallback.TakeStageForEdit(); raw != "legacy" || !ok {
+		t.Fatalf("legacy stage changed=%q, %v", raw, ok)
 	}
 }

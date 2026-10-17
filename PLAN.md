@@ -521,6 +521,35 @@ needs them, rather than as separate interpreter-wide prerequisite steps:
   canonical room. Acceptance and terminal
   submission reporting stay at the outer submission boundary.
 
+## Remaining-consumer audit and next removal step
+
+All parser statement types have public modular registrations, including named
+invocations. The public facade now publishes parse rejection directly on the
+serialized lane,
+without reparsing or calling legacy input dispatch. Unregistered statements reject
+instead of reaching legacy handlers. Public stage operations and modular admission
+no longer consult legacy workflows; the public stage snapshot is authoritative even
+when nil. Parser-form coverage, source diagnostics, empty operations and stage
+isolation regressions cover this first removal step. Public undefined commands
+already use modular resolution.
+
+SubmitCommand has no production callers; its remaining callers are monolith tests.
+Only the public interpreter package imports monolith in production. It still needs
+that package's scheduling, execution scopes, shell workers, room projection,
+approvals, snapshots, source-aware publication, event dispatcher and shutdown.
+Help still reads the existing catalogue there. These are live infrastructure,
+not removable legacy handlers.
+
+The first focused removal diff detached public input, stage APIs and admission
+from legacy workflows while preserving stage-before-validation rejection, source
+diagnostics, no-stage operation results and shutdown ordering. The obsolete
+fallback-coexistence test is replaced by a detachment regression: even deliberately
+created compatibility staging cannot appear through public snapshots, gate modular
+commands or be changed by public stage operations. Infrastructure and the catalogue
+remain intact. This step changes no runtime contracts and does not unify registries.
+Next, port remaining SubmitCommand-based proofs and remove that test-only bridge
+before transferring live infrastructure with its tests.
+
 ## Pre-removal test coverage checkpoint
 
 Before removing the monolith, the migration regression set now includes:

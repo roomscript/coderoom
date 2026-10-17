@@ -46,15 +46,11 @@ type CommandSubmission struct {
 	shell     *userShellLauncher
 }
 
-// AdmitCommand checks admission and supplies invocation-scoped capabilities.
-// Call only from Schedule. Nil means rejection was published; the caller must
-// not execute. The caller owns input acceptance and outcome policy.
+// AdmitCommand supplies invocation-scoped capabilities for already-admitted input.
+// Call only from Schedule. The caller owns stage admission, input acceptance
+// and outcome policy. Legacy workflow state does not gate modular execution.
 func (i *Interpreter) AdmitCommand(name string, statement promptlang.ParsedStatement) *CommandSubmission {
 	e := i.executor
-	if rejection := e.model.CheckInputAllowed(statement.Raw); len(rejection) != 0 {
-		e.runner.Run(rejection)
-		return nil
-	}
 	delivery := &commandSessionProvider{executor: e}
 	launcher := &userShellLauncher{executor: e}
 	return &CommandSubmission{
@@ -106,10 +102,6 @@ func (s *CommandSubmission) PublishCompletion(result runtime.CommandResult, even
 // discarded. Lifecycle-owned participant subscriptions are closed by its owner.
 func (s *CommandSubmission) Close() { s.session.close() }
 
-// ExecuteInput executes legacy input on the shared lane, after the new
-// interpreter has applied its admission policy. Call only from Schedule.
-func (i *Interpreter) ExecuteInput(raw string) { i.executor.handleInput(raw) }
-
 // PublishState refreshes and publishes the single canonical snapshot on the lane.
 func (i *Interpreter) PublishState() {
 	i.executor.runner.Run(instructionSequence{publishSnapshotInstruction{}})
@@ -125,8 +117,8 @@ func (i *Interpreter) AppendRecord(record room.Record) {
 	i.executor.runner.Run(instructionSequence{appendRecordInstruction{record: record}})
 }
 
-// WithStageSnapshot installs a detached stage projection owned by the new
-// interpreter. It runs on the shared lane; nil preserves the legacy projection.
+// WithStageSnapshot installs the authoritative detached stage projection.
+// It runs on the shared lane; a nil result means no stage.
 func WithStageSnapshot(snapshot func() *StagedSubmission) Option {
 	return func(i *Interpreter) { i.executor.stageSnapshot = snapshot }
 }
@@ -137,30 +129,6 @@ func (s *CommandSubmission) CancelParticipant(alias participant.Alias) error {
 	err := s.executor.executeCommand(session.CancelCommand{Alias: alias})
 	s.executor.applySessionEvents()
 	return err //nolint:wrapcheck // Preserve cancellation error identity.
-}
-
-// The following legacy stage operations run on the shared lane. The new
-// interpreter calls them only when it has no stage of its own.
-
-// TakeLegacyStageForEdit removes the monolith's retained draft.
-func (i *Interpreter) TakeLegacyStageForEdit() (string, bool) {
-	sequence, raw, ok := i.executor.model.TakeStageForEdit()
-	i.executor.runner.Run(sequence)
-	return raw, ok
-}
-
-// DiscardLegacyStage abandons the monolith's retained draft.
-func (i *Interpreter) DiscardLegacyStage() bool {
-	sequence, ok := i.executor.model.DiscardStage()
-	i.executor.runner.Run(sequence)
-	return ok
-}
-
-// InterruptLegacyStage requests cancellation for the monolith's current stage.
-func (i *Interpreter) InterruptLegacyStage() bool {
-	sequence, ok := i.executor.model.InterruptAndDispatchStage()
-	i.executor.runner.Run(sequence)
-	return ok
 }
 
 // WithNamedCommands shares the interpreter-owned definition registry with legacy

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/roomscript/coderoom/internal/interpreter"
+	"github.com/roomscript/coderoom/internal/promptlang"
 	"github.com/roomscript/coderoom/internal/session"
 )
 
@@ -24,16 +25,33 @@ func TestSubmitAPI_reportsUnknownCommand(t *testing.T) {
 }
 
 func TestSubmitAPI_rejectsInvalidArguments(t *testing.T) {
-	interp, _, events := newSubmitExample()
-	defer interp.Close()
-
-	if err := interp.Submit("/invite"); err != nil {
-		t.Fatalf("Submit: %v", err)
+	for _, raw := range []string{"  /invite  ", "", "/who extra", "/loop @ada work"} {
+		t.Run(raw, func(t *testing.T) {
+			interp, sess, events := newSubmitExample()
+			defer interp.Close()
+			_, expected := promptlang.Parse(raw)
+			if err := interp.Submit(raw); err != nil {
+				t.Fatal(err)
+			}
+			rejected := receiveEvent[interpreter.InputRejected](t, events)
+			assertParseRejection(t, rejected, raw, expected)
+			interp.Close()
+			if records := interp.Snapshot().Room.Records; len(records) != 0 {
+				t.Fatalf("invalid input recorded=%#v", records)
+			}
+			assertSessionCommandSettled(t, sess, events)
+		})
 	}
+}
 
-	rejected := receiveEvent[interpreter.InputRejected](t, events)
-	if rejected.Raw != "/invite" || rejected.Err == nil {
-		t.Fatalf("rejected input = %#v", rejected)
+func assertParseRejection(t *testing.T, rejected interpreter.InputRejected, raw string, expected error) {
+	t.Helper()
+	var got, want *promptlang.Diagnostic
+	if !errors.As(rejected.Err, &got) || !errors.As(expected, &want) {
+		t.Fatalf("diagnostics=%v, %v", rejected.Err, expected)
+	}
+	if rejected.Raw != raw || rejected.Code != interpreter.ErrorInvalidInput || got.Code != want.Code || got.Span != want.Span {
+		t.Fatalf("rejection=%#v diagnostic=%#v want=%#v", rejected, got, want)
 	}
 }
 

@@ -23,9 +23,6 @@ type pendingInvocation struct {
 // supplies only admission, capabilities and ordered publication on the shared lane.
 func (i *Interpreter) executeCommand(command runtime.Command, statement promptlang.ParsedStatement) {
 	submission := i.fallback.AdmitCommand(command.Name(), statement)
-	if submission == nil {
-		return
-	}
 	i.nextInvocationID++
 	id := i.nextInvocationID
 	submission.Context.EventProcessing = invocationEventProcessing{interpreter: i, id: id}

@@ -7,21 +7,28 @@ import (
 
 // Submit queues prompt-language input, or returns ErrClosed after shutdown.
 func (i *Interpreter) Submit(raw string) error {
-	statement, err := promptlang.Parse(raw)
+	statement, parseErr := promptlang.Parse(raw)
 	//nolint:wrapcheck // Preserve queue admission error identity.
 	return i.fallback.Schedule(func() {
 		var command runtime.Command
-		if err == nil {
+		if parseErr == nil {
 			command = i.selectCommand(statement)
 		}
 		if i.rejectStagedInput(raw, command) {
 			return
 		}
-		if command != nil {
-			i.executeCommand(command, statement)
+		if parseErr != nil {
+			i.fallback.Publish(InputRejected{Raw: raw, Code: ErrorInvalidInput, Err: parseErr})
 			return
 		}
-		i.fallback.ExecuteInput(raw)
+		if command == nil {
+			i.fallback.Publish(InputRejected{Raw: raw, Code: ErrorInvalidInput, Err: &promptlang.Diagnostic{
+				Code: promptlang.DiagnosticCode(ErrorInvalidInput), Span: statement.Span,
+				Message: "command is not registered",
+			}})
+			return
+		}
+		i.executeCommand(command, statement)
 	})
 }
 

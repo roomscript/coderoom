@@ -23,15 +23,14 @@ func (i *Interpreter) runStageOperation(operation func() stageOperationResult) s
 
 func (i *Interpreter) takeStageForEdit() stageOperationResult {
 	if i.stage == nil {
-		raw, ok := i.fallback.TakeLegacyStageForEdit()
-		return stageOperationResult{raw: raw, ok: ok}
+		return stageOperationResult{}
 	}
 	return i.removeWaitingStage()
 }
 
 func (i *Interpreter) discardStage() stageOperationResult {
 	if i.stage == nil {
-		return stageOperationResult{ok: i.fallback.DiscardLegacyStage()}
+		return stageOperationResult{}
 	}
 	return i.removeWaitingStage()
 }
@@ -51,7 +50,7 @@ func (i *Interpreter) removeWaitingStage() stageOperationResult {
 
 func (i *Interpreter) interruptStage() stageOperationResult {
 	if i.stage == nil {
-		return stageOperationResult{ok: i.fallback.InterruptLegacyStage()}
+		return stageOperationResult{}
 	}
 	stage := i.stage
 	pending := i.invocations[stage.id]

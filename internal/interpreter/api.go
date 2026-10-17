@@ -13,9 +13,8 @@ import (
 // Option configures an Interpreter before execution and publication start.
 type Option func(*Interpreter)
 
-// Interpreter executes registered commands and owns their lifecycles, delegating
-// other input to the monolith. Both paths share its serialized effect/publication
-// lane during migration.
+// Interpreter owns input dispatch, command lifecycles and staging. The monolith
+// temporarily supplies the serialized execution/publication infrastructure.
 type Interpreter struct {
 	fallback      *monolith.Interpreter
 	commands      *runtime.Registry

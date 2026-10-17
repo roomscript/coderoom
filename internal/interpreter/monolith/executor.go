@@ -317,9 +317,7 @@ func (e *interpreterExecutor) refreshSnapshot() Snapshot {
 		Stage:        model.stage,
 	}
 	if e.stageSnapshot != nil {
-		if stage := e.stageSnapshot(); stage != nil {
-			snapshot.Stage = stage
-		}
+		snapshot.Stage = e.stageSnapshot()
 	}
 	e.snapshots.Store(snapshot)
 	return cloneSnapshot(snapshot)

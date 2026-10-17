@@ -10,13 +10,12 @@ This follows [#55](https://github.com/roomscript/coderoom/issues/55) and conside
 [pkg-interpreter.md](pkg-interpreter.md) and
 [pkg-interpreter-workflows.md](pkg-interpreter-workflows.md) remain authoritative.
 
-## Public facade and monolith fallback
+## Public interpreter and temporary monolith infrastructure
 
-The current interpreter implementation has moved to `internal/interpreter/monolith`
-behind its existing interface. The public `internal/interpreter` facade initially
-delegates unsupported requests to one instance. `/who`, `/shell`, addressed sends, broadcasts and handoffs are selected in the facade
-and admitted through the shared coordinator bridge. Shared `api` contracts keep front-end
-imports stable and let both implementations publish identical event and snapshot
+All public parser forms now select modular commands in `internal/interpreter`.
+Parse errors are published there after stage admission; there is no legacy input
+fallback. `internal/interpreter/monolith` temporarily supplies infrastructure to
+that interpreter. Shared `api` contracts preserve front-end event and snapshot
 types without importing the parent package. `runtime` and `std` remain separate.
 
 Keep Session execution and canonical publication on one serialized lane during
@@ -29,8 +28,8 @@ identity and cleanup all belong to the new interpreter. No Execution interface
 or command execution wrapper is involved.
 
 `AdmitCommand` returns a `CommandSubmission` containing invocation-scoped Context
-and publication methods, or nil after publishing rejection. Admission publishes
-no accepted input. The new interpreter chooses acceptance records/routing, error
+and publication methods for input already admitted by the public interpreter. It
+consults no legacy stage policy and publishes no accepted input. The new interpreter chooses acceptance records/routing, error
 classification and direct versus queued terminal events; the monolith publishes
 the supplied events in causal order and attaches source diagnostics. Its methods run on
 the shared lane; only `QueueCompletion` is producer-safe. The new interpreter
@@ -54,15 +53,13 @@ submission order. This also handles parent-context cancellation. The monolith
 keeps worker cancellation and canonical projection until those move in a later
 checkpoint; it never adopts new lifecycle or stage policy.
 
-`/who`, `/shell`, addressed sends, broadcasts, handoffs, definitions and named
-invocations use this path. Other commands delegate to the monolith before
-execution; never retry fallback after selected execution starts. `SubmitCommand`
-remains a temporary legacy bridge. The destination is the new interpreter
-replacing and removing the monolith. Real-Session tests cover busy/startup
-waiting, departures, cleanup, direct/partial delivery and causal ordering.
-Scheduled turns drain their admitted native deliveries before the next queued
-input can inspect readiness. This preserves submission order across modular
-sends and fallback work without adding an execution lane.
+All commands use this path, including loops, policy, participant commands and help.
+`SubmitCommand` remains a temporary bridge for compatibility tests, with no
+production callers. The destination is the new interpreter replacing and removing
+the monolith. Real-Session tests cover busy/startup waiting, departures, cleanup,
+direct/partial delivery and causal ordering. Scheduled turns drain their admitted
+native executions before the next queued input can inspect readiness, preserving
+submission order without adding an execution lane.
 
 Existing implementation-file references below describe the `monolith` package
 unless qualified otherwise.
@@ -752,3 +749,18 @@ snapshot before HelpListed; the existing acknowledgement capability keeps
 submission success after help publication. Help creates no Session execution.
 The legacy handler remains for direct monolith callers. Catalogue transfer belongs
 to monolith removal; registry unification remains deferred to #66.
+
+### Public input and stage detachment
+
+Every parser statement form selects a registered modular command. The public
+interpreter publishes parser rejection on the existing serialized lane after its
+stage admission check; malformed input is not reparsed by legacy input dispatch.
+An absent registration rejects instead of executing a legacy handler. Named-command
+resolution retains its existing unknown-command path.
+
+Public stage operations return empty results when no modular stage exists.
+Modular admission no longer reads legacy workflow state, and the stage snapshot
+hook replaces legacy projection even when it returns nil. Legacy Submit and stage
+APIs remain only for direct compatibility tests. Scheduling, capabilities, canonical
+publication, shutdown and the existing help catalogue remain in the monolith for
+subsequent transfer. No runtime contract or registry unification changes here.
