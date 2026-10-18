@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -56,10 +57,7 @@ func run() int {
 		fmt.Fprintf(os.Stderr, "backends: %v\n", err)
 		return 1
 	}
-	cfg, err := config.Load(cwd, configDefaults())
-	if err == nil {
-		err = backends.ValidateConfig(cfg)
-	}
+	cfg, err := loadConfig(cwd, configDefaults(), backends)
 	if err != nil {
 		reportConfigErrors(err)
 		return 1
@@ -91,6 +89,20 @@ func configDefaults() config.Defaults {
 		return config.Defaults{Backend: config.BackendRequest{Name: backend, Source: backendEnvVar}}
 	}
 	return config.Defaults{Backend: config.BackendRequest{Name: builtinBackend, Source: "built-in default"}}
+}
+
+// loadConfig loads the participant configuration and validates the backends
+// it names. It reports file problems first, then unknown backends, so one
+// startup lists every problem.
+func loadConfig(cwd string, defaults config.Defaults, backends *registry.Registry) (*config.Config, error) {
+	cfg, loadErr := config.Load(cwd, defaults)
+	if cfg == nil {
+		return nil, fmt.Errorf("load participant config: %w", loadErr)
+	}
+	if err := errors.Join(loadErr, backends.ValidateConfig(cfg)); err != nil {
+		return nil, err
+	}
+	return cfg, nil
 }
 
 // reportConfigErrors prints each configuration problem on its own line.

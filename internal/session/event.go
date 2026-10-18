@@ -141,8 +141,8 @@ type HandoffSource struct {
 
 // Observer receives session events. Implementations must be fast; a slow
 // OnEvent blocks the goroutine that called notify (typically an agent reader
-// goroutine or the Execute goroutine). If async processing is needed, buffer
-// internally and dispatch off-goroutine.
+// goroutine, a dependency check or the Execute goroutine). If async processing
+// is needed, buffer internally and dispatch off-goroutine.
 type Observer interface {
 	OnEvent(e Event)
 }

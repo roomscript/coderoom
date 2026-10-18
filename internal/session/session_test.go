@@ -646,6 +646,39 @@ func TestInvite_reportsConfigChangedSinceStartup(t *testing.T) {
 	}
 }
 
+func TestInvite_factoryGetsConfigLoadedAtStartup(t *testing.T) {
+	root := t.TempDir()
+	writeSessionConfigFile(t, root, ".coderoom/participants/ada.yaml", "alias: ada\nrole: reviewer\nbackend: claude\n")
+	writeSessionConfigFile(t, root, ".coderoom/prompts/roles/reviewer.md", "Focus on correctness.")
+	cfg := loadSessionConfig(t, root)
+	want, err := cfg.Participant("ada")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Valid edits to both sources, which a reload would pick up.
+	writeSessionConfigFile(t, root, ".coderoom/participants/ada.yaml", "alias: ada\nrole: reviewer\nbackend: codex\n")
+	writeSessionConfigFile(t, root, ".coderoom/prompts/roles/reviewer.md", "Focus on style.")
+
+	obs := newTestObserver()
+	var got roomconfig.ParticipantConfig
+	s := newSession(t,
+		session.WithObserver(obs),
+		session.WithConfig(cfg),
+		session.WithAgentFactory(func(_ *session.Session, c roomconfig.ParticipantConfig) (agent.Agent, error) {
+			got = c
+			return newMockAgent(), nil
+		}),
+	)
+	t.Cleanup(func() { _, _ = s.Execute(session.RemoveCommand{Alias: resolvedAlias(s, "ada")}) })
+
+	invite(t, s, "ada")
+	mustReceive[session.ParticipantConfigChanged](t, obs.ch)
+	mustReceive[session.AgentReady](t, obs.ch)
+	if got != want {
+		t.Fatalf("factory config = %+v, want the startup config %+v", got, want)
+	}
+}
+
 func loadSessionConfig(t *testing.T, root string) *roomconfig.Config {
 	t.Helper()
 	cfg, err := roomconfig.Load(root, roomconfig.Defaults{Backend: roomconfig.BackendRequest{Name: "codex", Source: "default"}})

@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"sync"
 
 	"github.com/roomscript/coderoom/internal/policy"
 )
@@ -9,6 +10,16 @@ import (
 // DependencyVerifier runs a backend's external dependency checks.
 type DependencyVerifier interface {
 	VerifyDependencies(ctx context.Context, backend string) error
+}
+
+// dependencyChecks tracks the running checks. Reporting is best effort: a
+// result is dropped if its check was cancelled before it finished, but a
+// failure that finishes just as an invite cancels its check may still be
+// reported right after the agent starts. mu is never held while observers run.
+type dependencyChecks struct {
+	mu      sync.Mutex
+	running map[string]*dependencyCheck // by backend name
+	wg      sync.WaitGroup
 }
 
 // dependencyCheck is one running check. Its pointer identifies it, so a
@@ -32,8 +43,8 @@ func (s *Session) StartDependencyChecks(v DependencyVerifier, backends []string)
 }
 
 func (s *Session) startDependencyCheck(v DependencyVerifier, backend string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.checks.mu.Lock()
+	defer s.checks.mu.Unlock()
 	if _, ok := s.checks.running[backend]; ok {
 		return
 	}
@@ -51,38 +62,41 @@ func (s *Session) startDependencyCheck(v DependencyVerifier, backend string) {
 // finishDependencyCheck reports err unless the check was cancelled first, by
 // an invite, the EchoInvites policy, or the session ending.
 func (s *Session) finishDependencyCheck(ctx context.Context, backend string, check *dependencyCheck, err error) {
-	s.mu.Lock()
-	current := s.checks.running[backend] == check
-	if current {
-		delete(s.checks.running, backend)
-	}
-	s.mu.Unlock()
-	cancelled := ctx.Err() != nil
-	check.cancel()
-	if current && !cancelled && err != nil {
+	defer check.cancel()
+	if s.retireDependencyCheck(backend, check) && err != nil && ctx.Err() == nil {
 		s.notify(BackendUnavailable{Backend: backend, Err: err})
 	}
+}
+
+// retireDependencyCheck removes check and reports whether it was still the
+// running check for backend, that is, not cancelled.
+func (s *Session) retireDependencyCheck(backend string, check *dependencyCheck) bool {
+	s.checks.mu.Lock()
+	defer s.checks.mu.Unlock()
+	if s.checks.running[backend] != check {
+		return false
+	}
+	delete(s.checks.running, backend)
+	return true
 }
 
 // cancelDependencyCheck stops backend's check, if one is running, and drops
 // its result.
 func (s *Session) cancelDependencyCheck(backend string) {
-	s.mu.Lock()
-	check, ok := s.checks.running[backend]
-	delete(s.checks.running, backend)
-	s.mu.Unlock()
-	if ok {
+	s.checks.mu.Lock()
+	defer s.checks.mu.Unlock()
+	if check, ok := s.checks.running[backend]; ok {
+		delete(s.checks.running, backend)
 		check.cancel()
 	}
 }
 
 // cancelAllDependencyChecks stops every running check and drops its result.
 func (s *Session) cancelAllDependencyChecks() {
-	s.mu.Lock()
-	running := s.checks.running
-	s.checks.running = make(map[string]*dependencyCheck)
-	s.mu.Unlock()
-	for _, check := range running {
+	s.checks.mu.Lock()
+	defer s.checks.mu.Unlock()
+	for backend, check := range s.checks.running {
+		delete(s.checks.running, backend)
 		check.cancel()
 	}
 }

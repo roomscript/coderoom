@@ -18,9 +18,12 @@ func TestLoadReportsEveryBrokenFile(t *testing.T) {
 		".coderoom/participants/bob.yaml": "alias: bob\n",
 	})
 
-	_, err := Load(root, testDefaults)
+	s, err := Load(root, testDefaults)
 	if err == nil {
 		t.Fatal("expected error")
+	}
+	if s == nil || !slices.Equal(slices.Sorted(maps.Keys(s.participants)), []string{"bob"}) {
+		t.Fatalf("partial config = %+v, want only bob", s)
 	}
 	var joined interface{ Unwrap() []error }
 	if !errors.As(err, &joined) {

@@ -126,9 +126,11 @@ the registry can consume it without importing `config`.
 
 `Load` fails on anything that used to fail at invite (malformed YAML, alias
 and filename mismatch, missing role prompt), but for every file, at startup.
-It reports every broken file, not only the first. Only `*.yaml` files directly
-in the participants directory are read. `Participant` only rejects an invalid
-alias.
+It reports every broken file, not only the first. When only some files are
+broken, it also returns a `Config` holding the files that loaded, so startup
+can validate their backends in the same report; that `Config` is for
+diagnostics only. Only `*.yaml` files directly in the participants directory
+are read. `Participant` only rejects an invalid alias.
 
 ### Edits during a session
 
@@ -279,11 +281,13 @@ default would otherwise only show up at the first `/invite` of an alias
 without a file. An unknown default aborts startup even when the repository has
 no participant files.
 
-`ValidateConfig` collects every problem before returning, sorted by source, so
-one startup reports all broken files:
+`ValidateConfig` collects every problem before returning, sorted by source.
+`cmd/coderoom` joins those with the file errors from `Load`, so one startup
+reports every problem: broken files first, then unknown backends.
 
 ```text
 coderoom: configuration errors:
+  .coderoom/participants/tim.yaml: invalid participant yaml: ...
   .coderoom/participants/ada.yaml: unknown backend "abc" (known: claude, codex)
   CODEROOM_BACKEND: unknown backend "cluade" (known: claude, codex)
 ```
@@ -308,6 +312,9 @@ exist only to warn early. **Decided.**
 - There is no timeout. A check that hangs only means no early warning, which
   was the behaviour before. Checks run under the session context, so their
   processes are killed when coderoom exits.
+- A check's command runs in its own process group, and cancelling the check
+  kills the whole group. `npx` starts node as a child, which would otherwise
+  outlive the cancellation and overlap the agent's own `npx` run.
 - `/invite` never waits for a check and never re-runs one. It starts the agent
   as before; a missing tool shows up as the adapter's own start error.
 - Inviting a participant **cancels the check for its backend**. Starting the
@@ -316,6 +323,12 @@ exist only to warn early. **Decided.**
   same package can conflict in the npm cache. Checks for other backends go on.
 - A result that arrives after its check was cancelled is dropped, whether an
   invite, the `EchoInvites` policy or the session ending cancelled it.
+- Reporting is **best effort**. **Decided.** If a check fails at the same
+  moment an invite cancels it, the warning may appear right after the agent's
+  starting line. Ruling that out would need a lock held while observers run,
+  and a matching restriction on what observers may do. That cost is too high
+  for one stale line in a window of microseconds, and the agent's own start
+  error still shows a real problem.
 - With the `EchoInvites` policy on, no checks run. The policy is enabled after
   startup, so enabling it cancels the checks already running.
 - `Session.Shutdown` cancels the checks and waits for them.

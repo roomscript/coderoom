@@ -38,6 +38,11 @@ type fingerprint struct {
 
 // Load reads every participant file under root and every role prompt they
 // reference. It reports every broken file, not only the first.
+//
+// When only some files are broken, Load returns both the error and a Config
+// holding the files that loaded, so their backends can be validated in the
+// same report. Such a Config is for diagnostics only. When nothing could be
+// read at all, the Config is nil.
 func Load(root string, defaults Defaults) (*Config, error) {
 	if strings.TrimSpace(defaults.Backend.Name) == "" {
 		return nil, errMissingDefaultBackend
@@ -56,10 +61,7 @@ func Load(root string, defaults Defaults) (*Config, error) {
 		}
 		c.participants[alias] = p
 	}
-	if err := errors.Join(errs...); err != nil {
-		return nil, err
-	}
-	return c, nil
+	return c, errors.Join(errs...)
 }
 
 // readParticipantAliases returns the alias of each participant file, sorted.

@@ -51,11 +51,6 @@ type Session struct {
 	checks          dependencyChecks
 }
 
-type dependencyChecks struct {
-	running map[string]*dependencyCheck // by backend name; guarded by mu
-	wg      sync.WaitGroup
-}
-
 type sessionLifecycle struct {
 	ctx          context.Context
 	cancelFn     context.CancelFunc
