@@ -16,12 +16,16 @@ type participantReader struct {
 
 func (r participantReader) Participants() []participant.View { return r.views }
 
-func TestWhoCommand_Go(t *testing.T) {
-	tests := []struct {
-		name  string
-		views []participant.View
-		text  string
-	}{
+type whoCommandTest struct {
+	name  string
+	views []participant.View
+	text  string
+}
+
+// whoCommandTests returns a fresh table: each test edits its views after
+// preparation.
+func whoCommandTests() []whoCommandTest {
+	return []whoCommandTest{
 		{name: "empty", text: "[no agents]"},
 		{
 			name:  "starting",
@@ -36,8 +40,19 @@ func TestWhoCommand_Go(t *testing.T) {
 			},
 			text: "[agents] ada, tim",
 		},
+		{
+			name: "with backends",
+			views: []participant.View{
+				{Alias: newTestAlias("tim"), Backend: "codex"},
+				{Alias: newTestAlias("ada"), Backend: "claude"},
+			},
+			text: "[agents] ada (claude), tim (codex)",
+		},
 	}
-	for _, tt := range tests {
+}
+
+func TestWhoCommand_Go(t *testing.T) {
+	for _, tt := range whoCommandTests() {
 		t.Run(tt.name, func(t *testing.T) {
 			invocation, err := (std.WhoCommand{}).Prepare(promptlang.ParsedStatement{Located: promptlang.Located[promptlang.Statement]{Value: promptlang.Who{}}}, runtime.Context{
 				Participants: participantReader{views: tt.views},

@@ -30,7 +30,7 @@ func (c InviteCommand) execute(s *Session, _ ExecutionID) error {
 		return err
 	}
 	s.CreateAgentRuntime(p.Alias)
-	a, err := s.buildAgent(cfg)
+	a, err := s.createAgent(p.Alias, cfg)
 	if err != nil {
 		s.abandonInvite(p.Alias)
 		return fmt.Errorf("invite %q: %w", p.Alias.Name, err)
@@ -38,7 +38,7 @@ func (c InviteCommand) execute(s *Session, _ ExecutionID) error {
 	s.hasInvited = true
 	s.notify(ParticipantStatusChanged{Alias: p.Alias, From: "", To: p.Status, Since: p.Since, ActiveExecutionID: p.ActiveExecutionID})
 	s.notifyChangedConfig(p.Alias)
-	s.notify(AgentStarting{Alias: p.Alias})
+	s.notify(AgentStarting{Alias: p.Alias, Backend: a.Name()})
 	startInvitedAgent(p.Alias, a, s)
 	return nil
 }
@@ -54,8 +54,25 @@ func (s *Session) buildAgent(cfg roomconfig.ParticipantConfig) (agent.Agent, err
 	return s.agentFactory(s, cfg)
 }
 
-// abandonInvite removes a participant whose agent could not be built. Nothing
-// about it has been announced yet.
+// createAgent builds the participant's agent and records the backend name it
+// reports in the participant's view.
+func (s *Session) createAgent(alias participant.Alias, cfg roomconfig.ParticipantConfig) (agent.Agent, error) {
+	a, err := s.buildAgent(cfg)
+	if err != nil {
+		return nil, err
+	}
+	err = s.updateParticipant(alias, func(p *participant.Participant) (Event, error) {
+		p.Backend = a.Name()
+		return nil, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return a, nil
+}
+
+// abandonInvite removes a participant whose agent could not be created.
+// Nothing about it has been announced yet.
 func (s *Session) abandonInvite(alias participant.Alias) {
 	s.cancelAgentContext(alias)
 	s.changeParticipants(func() { s.removeParticipantLocked(alias) })

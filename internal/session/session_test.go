@@ -433,6 +433,32 @@ func TestInvite_buildsEchoWithoutFactoryWhenPolicyEnabled(t *testing.T) {
 	if factoryCalled {
 		t.Fatal("factory called, want the session to build echo")
 	}
+	if p, _ := s.ParticipantByName("ada"); p.Backend != "echo" {
+		t.Fatalf("Backend = %q, want echo", p.Backend)
+	}
+}
+
+func TestInvite_recordsBackendTheAgentReports(t *testing.T) {
+	root := t.TempDir()
+	writeSessionConfigFile(t, root, ".coderoom/participants/ada.yaml", "alias: ada\nbackend: claude\n")
+	obs := newTestObserver()
+	s := newSession(t,
+		session.WithObserver(obs),
+		session.WithConfig(loadSessionConfig(t, root)),
+		fixedFactory(newMockAgent()), // reports "fake"
+	)
+	t.Cleanup(func() { _, _ = s.Execute(session.RemoveCommand{Alias: resolvedAlias(s, "ada")}) })
+
+	invite(t, s, "ada")
+	starting := mustReceive[session.AgentStarting](t, obs.ch)
+	mustReceive[session.AgentReady](t, obs.ch)
+
+	if starting.Backend != "fake" {
+		t.Fatalf("AgentStarting.Backend = %q, want fake", starting.Backend)
+	}
+	if p, _ := s.ParticipantByName("ada"); p.Backend != "fake" {
+		t.Fatalf("View.Backend = %q, want fake", p.Backend)
+	}
 }
 
 func TestInvite_passesConfiguredBackendToFactory(t *testing.T) {

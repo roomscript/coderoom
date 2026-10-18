@@ -66,6 +66,18 @@ func TestOnEvent_agentLifecycleAppendsSystemRecords(t *testing.T) {
 	}
 }
 
+func TestOnEvent_agentStartingShowsBackend(t *testing.T) {
+	room, updates := newTestRoom(t)
+
+	room.OnEvent(session.AgentStarting{Alias: newTestAlias("ada"), Backend: "codex"})
+	waitUpdate(t, updates)
+
+	records := room.Snapshot().Records
+	if len(records) != 1 || records[0].Text != "[ada starting · codex]" {
+		t.Fatalf("records = %#v, want [ada starting · codex]", records)
+	}
+}
+
 func TestOnEvent_backendUnavailableAppendsSystemRecord(t *testing.T) {
 	room, updates := newTestRoom(t)
 

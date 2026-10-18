@@ -16,7 +16,11 @@ type Event interface {
 }
 
 // AgentStarting reports that the session has begun starting an agent process.
-type AgentStarting struct{ Alias participant.Alias }
+// Backend is the name the agent reports.
+type AgentStarting struct {
+	Alias   participant.Alias
+	Backend string
+}
 
 // AgentReady reports that an agent is ready to receive messages. By the time
 // this event fires the participant is in StatusIdle and IsSendable returns true.

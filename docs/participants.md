@@ -70,6 +70,13 @@ uses the default: the `CODEROOM_BACKEND` environment variable if set, otherwise
 `codex`. The environment variable is per user, so people sharing a repository
 can use different defaults.
 
+The room shows each participant's backend when it starts, and `/who` lists it:
+
+```text
+[ada starting · codex]
+[agents] ada (codex), tim (codex)
+```
+
 After startup, coderoom checks in the background that the tools each backend in
 use needs are installed. A failure appears in the room and does not block
 anything:

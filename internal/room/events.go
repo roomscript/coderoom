@@ -41,7 +41,7 @@ func (r *Room) applyEvent(e session.Event) (Update, bool) {
 func (r *Room) handleLifecycleEventLocked(e session.Event) ([]int, bool) {
 	switch e := e.(type) {
 	case session.AgentStarting:
-		return r.appendSystemRecordLocked("[" + e.Alias.Name + " starting]"), true
+		return r.appendSystemRecordLocked(startingNotice(e)), true
 	case session.AgentReady:
 		return r.handleJoinLocked(e.Alias)
 	case session.AgentStopped:
@@ -94,6 +94,13 @@ func (r *Room) appendRecordLocked(record Record) []int {
 	idx := len(r.records)
 	r.records = append(r.records, record)
 	return []int{idx}
+}
+
+func startingNotice(e session.AgentStarting) string {
+	if e.Backend == "" {
+		return "[" + e.Alias.Name + " starting]"
+	}
+	return "[" + e.Alias.Name + " starting · " + e.Backend + "]"
 }
 
 // configChangedNotice tells the user that edited config files only apply

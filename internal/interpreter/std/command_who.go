@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/roomscript/coderoom/internal/interpreter/runtime"
+	"github.com/roomscript/coderoom/internal/participant"
 	"github.com/roomscript/coderoom/internal/promptlang"
 	"github.com/roomscript/coderoom/internal/room"
 )
@@ -37,17 +38,24 @@ func (WhoCommand) Prepare(parsed promptlang.ParsedStatement, ctx runtime.Context
 	if ctx.Participants == nil {
 		return nil, errors.New("who requires participant reads")
 	}
-	views := ctx.Participants.Participants()
-	aliases := make([]string, len(views))
-	for index, view := range views {
-		aliases[index] = view.Alias.Name
+	return &whoInvocation{record: room.Record{Kind: room.KindSystem, Text: whoNotice(ctx.Participants.Participants())}}, nil
+}
+
+// whoNotice lists participants by alias, each with its backend when known.
+func whoNotice(views []participant.View) string {
+	if len(views) == 0 {
+		return "[no agents]"
 	}
-	slices.Sort(aliases)
-	text := "[no agents]"
-	if len(aliases) > 0 {
-		text = "[agents] " + strings.Join(aliases, ", ")
+	views = slices.Clone(views)
+	slices.SortFunc(views, func(a, b participant.View) int { return strings.Compare(a.Alias.Name, b.Alias.Name) })
+	entries := make([]string, len(views))
+	for i, view := range views {
+		entries[i] = view.Alias.Name
+		if view.Backend != "" {
+			entries[i] += " (" + view.Backend + ")"
+		}
 	}
-	return &whoInvocation{record: room.Record{Kind: room.KindSystem, Text: text}}, nil
+	return "[agents] " + strings.Join(entries, ", ")
 }
 
 type whoInvocation struct {

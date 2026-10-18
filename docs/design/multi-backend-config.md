@@ -342,10 +342,13 @@ separate field for it.
 - The factory returns `(agent.Agent, error)`. On error, the invite removes the
   participant it already added and reports the error. Nothing about the
   participant has been announced yet, so the room shows only the error.
-- After the factory returns, the session copies `a.Name()` into
-  `participant.View` before `ParticipantStatusChanged` and `AgentStarting`
-  are sent. The view holds the name the agent **declares**, not the name that
-  was requested.
+- After the agent is built, the session copies `a.Name()` into
+  `participant.View.Backend` before `ParticipantStatusChanged` and
+  `AgentStarting` are sent, and `AgentStarting` carries it too. The view holds
+  the name the agent **declares**, not the name that was requested. If
+  recording it fails, the invite is rolled back like a failed build.
+- `View.Backend` is empty between registering the participant and building
+  its agent, since the factory needs the participant registered.
 
 The two factories in `cmd/coderoom` become one thin wrapper that maps session
 facilities to `registry.Options`.
@@ -355,9 +358,11 @@ facilities to `registry.Options`.
 ## Display
 
 The name shown is `View`'s copy of `Agent.Name()`. It is shown always, for
-every backend, so it is never hidden. **Decided.**
+every backend, so it is never hidden. **Decided.** The room builds the starting
+line from `AgentStarting.Backend`; `/who` reads `View.Backend` and sorts by
+alias. Either falls back to the bare alias when the name is empty.
 
-| Where | Today | Proposed |
+| Where | Before | Now |
 |---|---|---|
 | Room, on invite | `[ada starting]` | `[ada starting · claude]` |
 | `/who` | `[agents] ada, tim` | `[agents] ada (claude), tim (codex)` |
