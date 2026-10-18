@@ -66,6 +66,38 @@ func TestOnEvent_agentLifecycleAppendsSystemRecords(t *testing.T) {
 	}
 }
 
+func TestOnEvent_participantConfigChangedAppendsNotice(t *testing.T) {
+	tests := []struct {
+		name    string
+		sources []string
+		want    string
+	}{
+		{
+			"one file",
+			[]string{".coderoom/participants/ada.yaml"},
+			"[ada.yaml changed since startup; using the loaded version. Restart coderoom to apply it]",
+		},
+		{
+			"participant file and role prompt",
+			[]string{".coderoom/participants/ada.yaml", ".coderoom/prompts/roles/reviewer.md"},
+			"[ada.yaml, reviewer.md changed since startup; using the loaded versions. Restart coderoom to apply them]",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			room, updates := newTestRoom(t)
+
+			room.OnEvent(session.ParticipantConfigChanged{Alias: newTestAlias("ada"), Sources: tt.sources})
+			waitUpdate(t, updates)
+
+			records := room.Snapshot().Records
+			if len(records) != 1 || records[0].Kind != KindSystem || records[0].Text != tt.want {
+				t.Fatalf("records = %#v, want one system record %q", records, tt.want)
+			}
+		})
+	}
+}
+
 func TestOnEvent_agentMessageStreamsIntoSingleRecord(t *testing.T) {
 	ada := newTestAlias("ada")
 	room, updates := newTestRoom(t)

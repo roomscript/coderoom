@@ -94,7 +94,8 @@ YAML file.
 
 ### Validation
 
-Participant loading should fail fast when:
+All participant files are loaded and validated once, at startup (see
+`docs/design/multi-backend-config.md`). Loading fails fast when:
 
 - the file is malformed YAML
 - `alias` is empty
@@ -195,10 +196,12 @@ to:
 
 Invite flow:
 
-1. user runs `/invite ada`
-2. system checks for `.coderoom/participants/ada.yaml`
-3. if the file exists, system validates the definition
-4. if the file exists, system loads the role prompt for the configured role
+1. at startup, system loads and validates every participant file and the role
+   prompts they reference
+2. user runs `/invite ada`
+3. system takes ada's configuration from what was loaded at startup
+4. if ada's files changed since startup, system shows a notice and continues
+   with the loaded configuration
 5. system synthesizes the participant's system prompt from the available data
 6. system passes that prompt into agent startup
 7. system starts the agent

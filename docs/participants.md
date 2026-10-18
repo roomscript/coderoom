@@ -75,6 +75,31 @@ Prioritize real defects and risky assumptions over style feedback.
 
 The prompt file is the source of truth for what that role means in the repo.
 
+## Loading at Startup
+
+coderoom reads every file in `.coderoom/participants/` and the role prompts they
+reference once, when it starts. Files that do not end in `.yaml`, and
+subdirectories, are ignored.
+
+If any file is invalid, coderoom does not start. It lists every broken file,
+not only the first:
+
+```text
+coderoom: configuration errors:
+  .coderoom/participants/ada.yaml: invalid participant yaml: ...
+  .coderoom/participants/tim.yaml: role prompt not found: ...
+```
+
+Startup fails when:
+
+- the YAML is malformed or has unknown keys
+- `alias` is empty
+- the filename does not match `alias`
+- the configured role prompt file is missing
+
+These failures should be fixed in repo configuration rather than worked around
+at runtime.
+
 ## Invite Behavior
 
 When you run:
@@ -83,28 +108,24 @@ When you run:
 /invite ada
 ```
 
-coderoom does the following:
-
-1. Checks for `.coderoom/participants/ada.yaml`.
-2. If the file exists, validates it.
-3. If the file defines a role, loads `.coderoom/prompts/roles/<role>.md`.
-4. Synthesizes the participant startup prompt from identity plus role prompt.
-5. Starts the agent.
+coderoom builds the participant startup prompt from the configuration loaded at
+startup (identity plus role prompt) and starts the agent.
 
 If `.coderoom/participants/ada.yaml` does not exist, invite still succeeds with
 identification-only setup.
 
-## Validation Failures
+## Editing During a Session
 
-Invite should fail clearly when:
+Configuration is not reloaded. If `ada.yaml` or the role prompt it uses changed
+since startup (edited, deleted, or created for an alias that had no file),
+`/invite ada` shows a notice and continues with the loaded version:
 
-- the YAML is malformed
-- `alias` is empty
-- the filename does not match `alias`
-- the configured role prompt file is missing
+```text
+[ada.yaml changed since startup; using the loaded version. Restart coderoom to apply it]
+```
 
-These failures should be fixed in repo configuration rather than worked around
-at runtime.
+The check only compares file contents; a broken edit does not block the invite.
+Restart coderoom to apply changes.
 
 ## Current Repository Example
 

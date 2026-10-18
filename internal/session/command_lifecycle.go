@@ -36,6 +36,7 @@ func (c InviteCommand) execute(s *Session, _ ExecutionID) error {
 	s.CreateAgentRuntime(p.Alias)
 	a := s.agentFactory(s, cfg, backend)
 	s.notify(ParticipantStatusChanged{Alias: p.Alias, From: "", To: p.Status, Since: p.Since, ActiveExecutionID: p.ActiveExecutionID})
+	s.notifyChangedConfig(p.Alias)
 	s.notify(AgentStarting{Alias: p.Alias})
 	startInvitedAgent(p.Alias, a, s)
 	return nil
@@ -45,11 +46,22 @@ func (s *Session) resolveParticipantConfig(alias string) (roomconfig.Participant
 	if s.config == nil {
 		return roomconfig.ParticipantConfig{Alias: alias}, nil
 	}
-	cfg, err := s.config.ForParticipant(alias)
+	cfg, err := s.config.Participant(alias)
 	if err != nil {
 		return roomconfig.ParticipantConfig{}, fmt.Errorf("resolve participant config for %q: %w", alias, err)
 	}
 	return cfg, nil
+}
+
+// notifyChangedConfig reports the participant's config files that changed
+// since startup. The invite goes on with the loaded config.
+func (s *Session) notifyChangedConfig(alias participant.Alias) {
+	if s.config == nil {
+		return
+	}
+	if sources := s.config.ChangedSources(alias.Name); len(sources) > 0 {
+		s.notify(ParticipantConfigChanged{Alias: alias, Sources: sources})
+	}
 }
 
 func (c InviteCommand) buildParticipant(s *Session, cfg roomconfig.ParticipantConfig) *participant.Participant {

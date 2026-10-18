@@ -21,6 +21,7 @@ var successParticipantConfigTests = []participantConfigTest{
 		alias: "ada",
 		want: ParticipantConfig{
 			Alias:          "ada",
+			Backend:        BackendRequest{Name: "codex", Source: "default"},
 			Prompt:         "Your name is ada.\nYou will be referred to as ada or @ada.",
 			LoadedFromDisk: false,
 		},
@@ -36,6 +37,7 @@ var successParticipantConfigTests = []participantConfigTest{
 			Alias:          "ada",
 			Role:           "reviewer",
 			Prompt:         "Your name is ada.\nYou will be referred to as ada or @ada.\n\nYou are a reviewer.\n\nFocus on correctness.",
+			Backend:        BackendRequest{Name: "codex", Source: "default"},
 			LoadedFromDisk: true,
 		},
 	},
@@ -48,6 +50,7 @@ var successParticipantConfigTests = []participantConfigTest{
 		want: ParticipantConfig{
 			Alias:          "ada",
 			Prompt:         "Your name is ada.\nYou will be referred to as ada or @ada.",
+			Backend:        BackendRequest{Name: "codex", Source: "default"},
 			LoadedFromDisk: true,
 		},
 	},
@@ -60,6 +63,7 @@ var successParticipantConfigTests = []participantConfigTest{
 		want: ParticipantConfig{
 			Alias:          "ada",
 			Prompt:         "Your name is ada.\nYou will be referred to as ada or @ada.",
+			Backend:        BackendRequest{Name: "codex", Source: "default"},
 			LoadedFromDisk: true,
 		},
 	},
@@ -71,6 +75,49 @@ var successParticipantConfigTests = []participantConfigTest{
 		},
 		want: ParticipantConfig{
 			Alias:          "ada",
+			Prompt:         "Your name is ada.\nYou will be referred to as ada or @ada.",
+			Backend:        BackendRequest{Name: "codex", Source: "default"},
+			LoadedFromDisk: true,
+		},
+	},
+}
+
+var backendParticipantConfigTests = []participantConfigTest{
+	{
+		name:  "backend from participant file",
+		alias: "ada",
+		files: map[string]string{
+			".coderoom/participants/ada.yaml": "alias: ada\nbackend: claude\n",
+		},
+		want: ParticipantConfig{
+			Alias:          "ada",
+			Backend:        BackendRequest{Name: "claude", Source: ".coderoom/participants/ada.yaml"},
+			Prompt:         "Your name is ada.\nYou will be referred to as ada or @ada.",
+			LoadedFromDisk: true,
+		},
+	},
+	{
+		name:  "empty backend in file falls back to the default",
+		alias: "ada",
+		files: map[string]string{
+			".coderoom/participants/ada.yaml": "alias: ada\nbackend: \" \"\n",
+		},
+		want: ParticipantConfig{
+			Alias:          "ada",
+			Backend:        BackendRequest{Name: "codex", Source: "default"},
+			Prompt:         "Your name is ada.\nYou will be referred to as ada or @ada.",
+			LoadedFromDisk: true,
+		},
+	},
+	{
+		name:  "unknown backend names are stored as written",
+		alias: "ada",
+		files: map[string]string{
+			".coderoom/participants/ada.yaml": "alias: ada\nbackend: abc\n",
+		},
+		want: ParticipantConfig{
+			Alias:          "ada",
+			Backend:        BackendRequest{Name: "abc", Source: ".coderoom/participants/ada.yaml"},
 			Prompt:         "Your name is ada.\nYou will be referred to as ada or @ada.",
 			LoadedFromDisk: true,
 		},
@@ -129,6 +176,22 @@ var errorParticipantConfigTests = []participantConfigTest{
 		wantErr: errInvalidParticipantRole,
 	},
 	{
+		name:  "reject unknown keys",
+		alias: "ada",
+		files: map[string]string{
+			".coderoom/participants/ada.yaml": "alias: ada\nmodel: o3\n",
+		},
+		wantErr: errInvalidParticipantYAML,
+	},
+	{
+		name:  "reject a broken file of another alias",
+		alias: "ada",
+		files: map[string]string{
+			".coderoom/participants/tim.yaml": "alias: [tim\n",
+		},
+		wantErr: errInvalidParticipantYAML,
+	},
+	{
 		name:  "reject multiple yaml documents",
 		alias: "ada",
 		files: map[string]string{
@@ -138,12 +201,17 @@ var errorParticipantConfigTests = []participantConfigTest{
 	},
 }
 
-func TestForParticipantSuccess(t *testing.T) {
+func TestParticipantSuccess(t *testing.T) {
 	t.Parallel()
 	runParticipantConfigTests(t, successParticipantConfigTests)
 }
 
-func TestForParticipantErrors(t *testing.T) {
+func TestParticipantBackend(t *testing.T) {
+	t.Parallel()
+	runParticipantConfigTests(t, backendParticipantConfigTests)
+}
+
+func TestParticipantErrors(t *testing.T) {
 	t.Parallel()
 	runParticipantConfigTests(t, errorParticipantConfigTests)
 }
@@ -166,8 +234,7 @@ func runParticipantConfigTest(t *testing.T, tt participantConfigTest) {
 	root := t.TempDir()
 	writeFiles(t, root, tt.files)
 
-	cfg := New(root)
-	got, err := cfg.ForParticipant(tt.alias)
+	got, err := loadAndGetParticipant(root, tt.alias)
 	if tt.wantErr != nil {
 		if err == nil {
 			t.Fatal("expected error")
@@ -178,11 +245,21 @@ func runParticipantConfigTest(t *testing.T, tt participantConfigTest) {
 		return
 	}
 	if err != nil {
-		t.Fatalf("ForParticipant(%q): %v", tt.alias, err)
+		t.Fatalf("Participant(%q): %v", tt.alias, err)
 	}
 	if got != tt.want {
-		t.Fatalf("ForParticipant(%q) = %+v, want %+v", tt.alias, got, tt.want)
+		t.Fatalf("Participant(%q) = %+v, want %+v", tt.alias, got, tt.want)
 	}
+}
+
+var testDefaults = Defaults{Backend: BackendRequest{Name: "codex", Source: "default"}}
+
+func loadAndGetParticipant(root, alias string) (ParticipantConfig, error) {
+	s, err := Load(root, testDefaults)
+	if err != nil {
+		return ParticipantConfig{}, err
+	}
+	return s.Participant(alias)
 }
 
 func writeFiles(t *testing.T, root string, files map[string]string) {

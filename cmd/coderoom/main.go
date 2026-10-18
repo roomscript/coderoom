@@ -21,6 +21,14 @@ import (
 	"github.com/roomscript/coderoom/internal/ui"
 )
 
+const (
+	// backendEnvVar sets the user's default backend.
+	backendEnvVar = "CODEROOM_BACKEND"
+	// builtinBackend is the backend used when neither a participant file nor
+	// CODEROOM_BACKEND names one.
+	builtinBackend = "codex"
+)
+
 func main() {
 	os.Exit(run())
 }
@@ -41,6 +49,12 @@ func run() int {
 		return 1
 	}
 
+	cfg, err := config.Load(cwd, configDefaults())
+	if err != nil {
+		reportConfigErrors(err)
+		return 1
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -52,7 +66,6 @@ func run() int {
 	if cleanup != nil {
 		defer cleanup()
 	}
-	cfg := config.New(cwd)
 	sess := session.New(
 		session.WithContext(ctx),
 		session.WithConfig(cfg),
@@ -61,6 +74,21 @@ func run() int {
 
 	defer sess.Shutdown()
 	return runUI(ctx, sess, cwd)
+}
+
+func configDefaults() config.Defaults {
+	if backend := strings.TrimSpace(os.Getenv(backendEnvVar)); backend != "" {
+		return config.Defaults{Backend: config.BackendRequest{Name: backend, Source: backendEnvVar}}
+	}
+	return config.Defaults{Backend: config.BackendRequest{Name: builtinBackend, Source: "built-in default"}}
+}
+
+// reportConfigErrors prints each configuration problem on its own line.
+func reportConfigErrors(err error) {
+	fmt.Fprintln(os.Stderr, "coderoom: configuration errors:")
+	for _, line := range strings.Split(err.Error(), "\n") {
+		fmt.Fprintf(os.Stderr, "  %s\n", line)
+	}
 }
 
 func runUI(ctx context.Context, sess *session.Session, cwd string) int {

@@ -60,8 +60,9 @@ different defaults for different people (for example someone who only has
 Claude installed). The YAML is per repository.
 
 `config` does not read the environment itself. `cmd/coderoom` reads
-`CODEROOM_BACKEND` and passes it to the loader as the default. This keeps
-`config` free of process state and easy to test.
+`CODEROOM_BACKEND` and passes it to the loader as the default, or `codex` with
+the source `built-in default` when the variable is unset or blank. This keeps
+`config` free of process state and of backend names, and easy to test.
 
 Each resolved value records its source (the file path, or the environment
 variable), so errors can name where the value came from.
@@ -86,31 +87,51 @@ which names exist. **Decided:** `config` depends on nothing in coderoom.
 `config` gets a load-all entry point, roughly:
 
 ```go
+// BackendRequest is a backend name as configured, and where it was set.
+// config does not check that the name exists.
+type BackendRequest struct {
+	Name   string
+	Source string // "<path>/ada.yaml", "CODEROOM_BACKEND" or "built-in default"
+}
+
 type Defaults struct {
-	Backend string // from CODEROOM_BACKEND; empty means "codex"
+	Backend BackendRequest // Name is required
 }
 
 // Load reads every participant file and every role prompt they reference.
-func Load(root string, defaults Defaults) (*Snapshot, error)
+func Load(root string, defaults Defaults) (*Config, error)
 
 // Participant returns the loaded config for alias, or the default config
 // when no file exists for it.
-func (s *Snapshot) Participant(alias string) (ParticipantConfig, error)
+func (c *Config) Participant(alias string) (ParticipantConfig, error)
 
 // ConfiguredBackends maps each source ("<path>/ada.yaml",
-// "CODEROOM_BACKEND") to the backend name it requests.
-func (s *Snapshot) ConfiguredBackends() map[string]string
+// "CODEROOM_BACKEND") to the backend name it requests. The default is always
+// included.
+func (c *Config) ConfiguredBackends() map[string]string
+
+// ChangedSources returns alias's source files that differ on disk from what
+// Load read.
+func (c *Config) ChangedSources(alias string) []string
 ```
 
-`ParticipantConfig` gains `Backend` (the requested name) and its source.
+`ParticipantConfig` gains `Backend BackendRequest`. The type name says it is
+what was asked for, not what runs: the name shown to users comes from
+`Agent.Name()` (see Display). File sources are paths relative to the
+repository root.
+
+`ConfiguredBackends` returns built-in types rather than `[]BackendRequest` so
+the registry can consume it without importing `config`.
 
 `Load` fails on anything that fails today at invite (malformed YAML, alias
 and filename mismatch, missing role prompt), but for every file, at startup.
-`Participant` only rejects an invalid alias.
+It reports every broken file, not only the first. Only `*.yaml` files directly
+in the participants directory are read. `Participant` only rejects an invalid
+alias.
 
 ### Edits during a session
 
-**Decided:** the snapshot is not reloaded. When `/invite` runs, coderoom checks
+**Decided:** the configuration is not reloaded. When `/invite` runs, coderoom checks
 whether **the invited participant's** sources changed since startup and, if
 so, shows a notice. The invite continues with the loaded config.
 
@@ -122,7 +143,9 @@ change is any of:
 - a file loaded at startup was deleted.
 
 The check only compares; it does not parse the new content, so a broken edit
-does not block an invite. Proposed notice:
+does not block an invite. The session emits
+`ParticipantConfigChanged{Alias, Sources}` before `AgentStarting`, and the room
+shows it as:
 
 ```text
 [ada.yaml changed since startup; using the loaded version. Restart coderoom to apply it]
@@ -190,7 +213,7 @@ builds agents at invite, and validates configuration. `cmd/coderoom` builds it
 and no longer imports adapter packages.
 
 It depends on configuration only through an interface of built-in types, which
-`config.Snapshot` satisfies without either package importing the other:
+`config.Config` satisfies without either package importing the other:
 
 ```go
 // Configuration is what Validate needs from the loaded config.
@@ -294,7 +317,7 @@ and the registry stays a stateless table.
 
 ## Building the agent at invite
 
-- `InviteCommand` gets the participant's config from the snapshot.
+- `InviteCommand` gets the participant's config from the loaded `config.Config`.
 - The session cancels the dependency check for the participant's backend, if
   one is running.
 - When `EchoInvites` is on, the factory builds echo directly. Otherwise it
@@ -333,8 +356,9 @@ Small steps to main, each leaving it working (see
 1. `agent.Agent` gains `Name()`; `agent.ExternalDependencies` and
    `agent.Dependency` are added; Codex implements both, echo and test fakes
    implement `Name()`.
-2. `config`: `backend` field, `Defaults`, `Load`, `Snapshot`,
-   `ConfiguredBackends`, change detection. Session switches to the snapshot.
+2. `config`: `backend` field, `Defaults`, `Load`, `Config`,
+   `ConfiguredBackends`, change detection. Session switches to the loaded
+   `Config`.
 3. `internal/agent/registry`; configuration validation at startup;
    dependency checks reported in the room, cancelled by `/invite`; one factory
    in `cmd/coderoom`. Only `codex` is registered.
@@ -351,8 +375,8 @@ Registering Claude follows as its own step.
 | `internal/agent` | `Agent.Name()`; `ExternalDependencies`, `Dependency`; test fakes implement `Name()` |
 | `internal/agent/{codex,claude,echo}` | `Name()`; Codex and Claude list their dependencies; `claude.NewLogObserver` |
 | `internal/agent/registry` (new) | constructors, `Build`, `ValidateConfig`, `VerifyDependencies` |
-| `internal/config` | `backend` field, `Defaults`, `Load`, `Snapshot`, change detection |
-| `internal/session` | uses the snapshot; `AgentBackend` removed; factory returns an error; invite rollback; name copied into `View`; change notice; runs and cancels dependency checks; a "backend unavailable" event |
+| `internal/config` | `backend` field, `BackendRequest`, `Defaults`, `Load`, `Config`, change detection |
+| `internal/session` | uses the loaded `Config`; `AgentBackend` removed; factory returns an error; invite rollback; name copied into `View`; change notice; runs and cancels dependency checks; a "backend unavailable" event |
 | `internal/participant` | `View` gains the backend name |
 | `internal/room`, `internal/interpreter/std` | starting line, `/who`, the unavailable line; their tests |
 | `cmd/coderoom` | reads `CODEROOM_BACKEND`, loads and validates at startup, builds the registry, one factory |

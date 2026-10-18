@@ -2,7 +2,9 @@ package room
 
 import (
 	"fmt"
+	"path/filepath"
 	"slices"
+	"strings"
 
 	"github.com/roomscript/coderoom/internal/agent"
 	"github.com/roomscript/coderoom/internal/participant"
@@ -40,6 +42,8 @@ func (r *Room) handleLifecycleEventLocked(e session.Event) ([]int, bool) {
 	switch e := e.(type) {
 	case session.AgentStarting:
 		return r.appendSystemRecordLocked("[" + e.Alias.Name + " starting]"), true
+	case session.ParticipantConfigChanged:
+		return r.appendSystemRecordLocked(configChangedNotice(e.Sources)), true
 	case session.AgentReady:
 		if r.departed[e.Alias] {
 			return nil, false
@@ -81,6 +85,19 @@ func (r *Room) appendRecordLocked(record Record) []int {
 	idx := len(r.records)
 	r.records = append(r.records, record)
 	return []int{idx}
+}
+
+// configChangedNotice tells the user that edited config files only apply
+// after a restart.
+func configChangedNotice(sources []string) string {
+	names := make([]string, len(sources))
+	for i, src := range sources {
+		names[i] = filepath.Base(src)
+	}
+	if len(names) == 1 {
+		return "[" + names[0] + " changed since startup; using the loaded version. Restart coderoom to apply it]"
+	}
+	return "[" + strings.Join(names, ", ") + " changed since startup; using the loaded versions. Restart coderoom to apply them]"
 }
 
 func handoffPreview(e session.HandoffDelivered) string {

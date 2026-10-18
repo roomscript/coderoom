@@ -526,7 +526,7 @@ func TestInvite_resolvesRoleFromConfig(t *testing.T) {
 	s := newSession(
 		t,
 		session.WithObserver(obs),
-		session.WithConfig(roomconfig.New(root)),
+		session.WithConfig(loadSessionConfig(t, root)),
 		fixedFactory(a),
 	)
 	t.Cleanup(func() { _, _ = s.Execute(session.RemoveCommand{Alias: resolvedAlias(s, "ada")}) })
@@ -565,6 +565,42 @@ func TestInvite_assignsColorToParticipant(t *testing.T) {
 	if p.Color == "" {
 		t.Error("expected participant color")
 	}
+}
+
+func TestInvite_reportsConfigChangedSinceStartup(t *testing.T) {
+	root := t.TempDir()
+	writeSessionConfigFile(t, root, ".coderoom/participants/ada.yaml", "alias: ada\nrole: reviewer\n")
+	writeSessionConfigFile(t, root, ".coderoom/prompts/roles/reviewer.md", "Focus on correctness.")
+	cfg := loadSessionConfig(t, root)
+	writeSessionConfigFile(t, root, ".coderoom/participants/ada.yaml", "alias: ada\nrole: [broken\n")
+
+	obs := newTestObserver()
+	s := newSession(t, session.WithObserver(obs), session.WithConfig(cfg), fixedFactory(newMockAgent()))
+	t.Cleanup(func() { _, _ = s.Execute(session.RemoveCommand{Alias: resolvedAlias(s, "ada")}) })
+
+	invite(t, s, "ada")
+	changed := mustReceive[session.ParticipantConfigChanged](t, obs.ch)
+	want := []string{filepath.Join(".coderoom", "participants", "ada.yaml")}
+	if changed.Alias.Name != "ada" || !slices.Equal(changed.Sources, want) {
+		t.Fatalf("ParticipantConfigChanged = %+v, want ada with %v", changed, want)
+	}
+	mustReceive[session.AgentStarting](t, obs.ch)
+	mustReceive[session.AgentReady](t, obs.ch)
+
+	// The invite used the loaded config, not the broken edit.
+	p, _ := s.ParticipantByName("ada")
+	if p.Role != "reviewer" {
+		t.Fatalf("role = %q, want reviewer", p.Role)
+	}
+}
+
+func loadSessionConfig(t *testing.T, root string) *roomconfig.Config {
+	t.Helper()
+	cfg, err := roomconfig.Load(root, roomconfig.Defaults{Backend: roomconfig.BackendRequest{Name: "codex", Source: "default"}})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	return cfg
 }
 
 func writeSessionConfigFile(t *testing.T, root, name, content string) {

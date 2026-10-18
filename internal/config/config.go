@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -17,113 +16,51 @@ const (
 	configDirName       = ".coderoom"
 	participantsDirName = "participants"
 	rolePromptsDirName  = "prompts/roles"
+	participantFileExt  = ".yaml"
 )
 
 var (
-	errParticipantConfigNotFound = errors.New("participant config not found")
-	errInvalidParticipantAlias   = errors.New("invalid participant alias")
-	errInvalidParticipantRole    = errors.New("invalid participant role")
-	errInvalidParticipantYAML    = errors.New("invalid participant yaml")
-	errRolePromptNotFound        = errors.New("role prompt not found")
+	errInvalidParticipantAlias = errors.New("invalid participant alias")
+	errInvalidParticipantRole  = errors.New("invalid participant role")
+	errInvalidParticipantYAML  = errors.New("invalid participant yaml")
+	errRolePromptNotFound      = errors.New("role prompt not found")
+	errMissingDefaultBackend   = errors.New("default backend must not be empty")
 )
-
-// Config resolves repo-local participant configuration relative to a repo root.
-type Config struct {
-	root string
-}
 
 // ParticipantConfig is the resolved invite-time configuration for a participant.
 type ParticipantConfig struct {
 	Alias          string
 	Role           string
+	Backend        BackendRequest
 	Prompt         string
 	LoadedFromDisk bool
 }
 
+// BackendRequest is a backend name as configured, and where it was set.
+// config does not check that the name exists.
+type BackendRequest struct {
+	Name string
+	// Source is a participant file path relative to the repo root, or the
+	// default's source, e.g. "CODEROOM_BACKEND".
+	Source string
+}
+
+// Defaults are the values a participant gets when its file does not set them,
+// or when it has no file.
+type Defaults struct {
+	Backend BackendRequest // Name is required
+}
+
 type participantDefinition struct {
-	Alias string
-	Role  string
+	Alias   string
+	Role    string
+	Backend string
 }
 
 type rawParticipantDefinition struct {
-	Alias string  `yaml:"alias"`
-	Role  *string `yaml:"role"`
-}
-
-// New returns a repo-local configuration loader rooted at root.
-func New(root string) *Config {
-	return &Config{root: root}
-}
-
-// ForParticipant resolves participant configuration for alias. If no matching
-// YAML file exists, it returns identification-only configuration.
-func (c *Config) ForParticipant(alias string) (ParticipantConfig, error) {
-	alias = strings.TrimSpace(alias)
-	if alias == "" {
-		return ParticipantConfig{}, fmt.Errorf("%w: participant alias must not be empty", errInvalidParticipantAlias)
-	}
-	if err := validatePathSegment(alias, errInvalidParticipantAlias); err != nil {
-		return ParticipantConfig{}, err
-	}
-
-	def, err := c.loadParticipantDefinition(alias)
-	switch {
-	case err == nil:
-	case errors.Is(err, errParticipantConfigNotFound):
-		return ParticipantConfig{
-			Alias:          alias,
-			Prompt:         buildPrompt(alias, "", ""),
-			LoadedFromDisk: false,
-		}, nil
-	default:
-		return ParticipantConfig{}, err
-	}
-
-	rolePrompt, err := c.loadRolePrompt(def.Role)
-	if err != nil {
-		return ParticipantConfig{}, err
-	}
-
-	return ParticipantConfig{
-		Alias:          def.Alias,
-		Role:           def.Role,
-		Prompt:         buildPrompt(def.Alias, def.Role, rolePrompt),
-		LoadedFromDisk: true,
-	}, nil
-}
-
-func (c *Config) loadParticipantDefinition(alias string) (participantDefinition, error) {
-	path, err := c.participantPath(alias)
-	if err != nil {
-		return participantDefinition{}, err
-	}
-	data, err := os.ReadFile(filepath.Clean(path))
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return participantDefinition{}, errParticipantConfigNotFound
-		}
-		return participantDefinition{}, fmt.Errorf("read participant config %q: %w", path, err)
-	}
-
-	def, err := parseParticipantDefinition(data)
-	if err != nil {
-		return participantDefinition{}, fmt.Errorf("load participant config %q: %w", path, err)
-	}
-	if def.Alias == "" {
-		return participantDefinition{}, fmt.Errorf("load participant config %q: %w: participant alias must not be empty", path, errInvalidParticipantYAML)
-	}
-	if err := validatePathSegment(def.Alias, errInvalidParticipantAlias); err != nil {
-		return participantDefinition{}, fmt.Errorf("load participant config %q: %w", path, err)
-	}
-	if def.Alias != alias {
-		return participantDefinition{}, fmt.Errorf("load participant config %q: %w: alias %q does not match filename %q", path, errInvalidParticipantYAML, def.Alias, alias)
-	}
-	if def.Role != "" {
-		if err := validatePathSegment(def.Role, errInvalidParticipantRole); err != nil {
-			return participantDefinition{}, fmt.Errorf("load participant config %q: %w", path, err)
-		}
-	}
-	return def, nil
+	Alias   string  `yaml:"alias"`
+	Role    *string `yaml:"role"`
+	Backend *string `yaml:"backend"`
 }
 
 func parseParticipantDefinition(data []byte) (participantDefinition, error) {
@@ -143,49 +80,48 @@ func parseParticipantDefinition(data []byte) (participantDefinition, error) {
 		return participantDefinition{}, fmt.Errorf("%w: multiple yaml documents are not supported", errInvalidParticipantYAML)
 	}
 
-	def := participantDefinition{
-		Alias: strings.TrimSpace(raw.Alias),
-	}
-	if raw.Role == nil {
-		return def, nil
-	}
-
-	role := strings.TrimSpace(*raw.Role)
-	def.Role = role
-	return def, nil
+	return participantDefinition{
+		Alias:   strings.TrimSpace(raw.Alias),
+		Role:    trimOptional(raw.Role),
+		Backend: trimOptional(raw.Backend),
+	}, nil
 }
 
-func (c *Config) loadRolePrompt(role string) (string, error) {
-	role = strings.TrimSpace(role)
-	if role == "" {
-		return "", nil
+func trimOptional(s *string) string {
+	if s == nil {
+		return ""
 	}
-	path, err := c.rolePromptPath(role)
-	if err != nil {
-		return "", err
+	return strings.TrimSpace(*s)
+}
+
+// validateParticipantDefinition checks a parsed file against the alias its
+// filename gives.
+func validateParticipantDefinition(alias string, def participantDefinition) error {
+	if def.Alias == "" {
+		return fmt.Errorf("%w: participant alias must not be empty", errInvalidParticipantYAML)
 	}
-	data, err := os.ReadFile(filepath.Clean(path))
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return "", fmt.Errorf("%w: %q for role %q", errRolePromptNotFound, path, role)
+	if err := validatePathSegment(def.Alias, errInvalidParticipantAlias); err != nil {
+		return err
+	}
+	if def.Alias != alias {
+		return fmt.Errorf("%w: alias %q does not match filename %q", errInvalidParticipantYAML, def.Alias, alias)
+	}
+	if def.Role != "" {
+		if err := validatePathSegment(def.Role, errInvalidParticipantRole); err != nil {
+			return err
 		}
-		return "", fmt.Errorf("read role prompt %q: %w", path, err)
 	}
-	return strings.TrimSpace(string(data)), nil
+	return nil
 }
 
-func (c *Config) participantPath(alias string) (string, error) {
-	if err := validatePathSegment(alias, errInvalidParticipantAlias); err != nil {
-		return "", err
-	}
-	return filepath.Join(c.root, configDirName, participantsDirName, alias+".yaml"), nil
+// participantPath returns the repo-relative path of alias's file.
+func participantPath(alias string) string {
+	return filepath.Join(configDirName, participantsDirName, alias+participantFileExt)
 }
 
-func (c *Config) rolePromptPath(role string) (string, error) {
-	if err := validatePathSegment(role, errInvalidParticipantRole); err != nil {
-		return "", err
-	}
-	return filepath.Join(c.root, configDirName, rolePromptsDirName, role+".md"), nil
+// rolePromptPath returns the repo-relative path of role's prompt.
+func rolePromptPath(role string) string {
+	return filepath.Join(configDirName, rolePromptsDirName, role+".md")
 }
 
 func validatePathSegment(value string, kind error) error {

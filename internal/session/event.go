@@ -28,6 +28,14 @@ type AgentStopped struct{ Alias participant.Alias }
 // AgentCrashed reports that an agent exited unexpectedly.
 type AgentCrashed struct{ Alias participant.Alias }
 
+// ParticipantConfigChanged reports that files a participant's config was
+// loaded from changed after startup. The session keeps using the loaded
+// config. Sources are repo-relative paths.
+type ParticipantConfigChanged struct {
+	Alias   participant.Alias
+	Sources []string
+}
+
 // AgentLog carries a diagnostic line associated with an agent.
 type AgentLog struct {
 	Alias participant.Alias
@@ -101,6 +109,7 @@ type ApprovalCleared struct {
 }
 
 func (AgentStarting) sessionEvent()            {}
+func (ParticipantConfigChanged) sessionEvent() {}
 func (AgentReady) sessionEvent()               {}
 func (AgentStopped) sessionEvent()             {}
 func (AgentCrashed) sessionEvent()             {}

@@ -109,7 +109,8 @@ func WithAgentFactory(f AgentFactory) Option {
 	return func(s *Session) { s.agentFactory = f }
 }
 
-// WithConfig sets the repo-local configuration resolver used during invite.
+// WithConfig sets the participant configuration loaded at startup. Without
+// it, invited participants get identification-only config.
 func WithConfig(cfg *roomconfig.Config) Option {
 	return func(s *Session) { s.config = cfg }
 }
