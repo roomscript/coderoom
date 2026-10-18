@@ -18,5 +18,9 @@ func (c EnablePolicyCommand) execute(s *Session, _ ExecutionID) error {
 	if err := s.policies.Enable(c.Name); err != nil {
 		return fmt.Errorf("enable policy %q: %w", c.Name, err)
 	}
+	if c.Name == policy.EchoInvites {
+		// Echo agents need no external tools, so earlier checks no longer apply.
+		s.cancelAllDependencyChecks()
+	}
 	return nil
 }

@@ -75,13 +75,13 @@ func newIdentityTestSession(t *testing.T) (*session.Session, *testObserver, []*m
 	observer := newTestObserver()
 	adapters := []*mockAgent{newMockAgent(), newMockAgent(), newMockAgent()}
 	nextAda := 0
-	s := newSession(t, session.WithObserver(observer), session.WithAgentFactory(func(_ *session.Session, cfg roomconfig.ParticipantConfig, _ session.AgentBackend) agent.Agent {
+	s := newSession(t, session.WithObserver(observer), session.WithAgentFactory(func(_ *session.Session, cfg roomconfig.ParticipantConfig) (agent.Agent, error) {
 		if cfg.Alias == "turing" {
-			return adapters[2]
+			return adapters[2], nil
 		}
 		a := adapters[nextAda]
 		nextAda++
-		return a
+		return a, nil
 	}))
 	for _, name := range []string{"ada", "turing"} {
 		invite(t, s, name)

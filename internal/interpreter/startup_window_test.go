@@ -49,8 +49,8 @@ func TestSubmit_planningDuringIdleBeforeSessionReadyWaitsForStartup(t *testing.T
 		t.Run(raw, func(t *testing.T) {
 			gate := startupIdleGate{entered: make(chan struct{}), release: make(chan struct{})}
 			backend := &startupDeliveryAgent{Client: echo.New(), sent: make(chan string, 1)}
-			sess := session.New(session.WithObserver(gate), session.WithAgentFactory(func(_ *session.Session, _ roomconfig.ParticipantConfig, _ session.AgentBackend) agent.Agent {
-				return backend
+			sess := session.New(session.WithObserver(gate), session.WithAgentFactory(func(_ *session.Session, _ roomconfig.ParticipantConfig) (agent.Agent, error) {
+				return backend, nil
 			}))
 			events := make(chan Event, 32)
 			interp := New(context.Background(), sess, t.TempDir(), WithObserver(routingObserver{events: events}))

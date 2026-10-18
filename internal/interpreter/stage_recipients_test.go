@@ -21,8 +21,8 @@ func newMultiRecipientStage(t *testing.T) (*Interpreter, *lifecycleSession, map[
 		agents[name] = &lifecycleAgent{Client: echo.New(), release: make(chan struct{})}
 	}
 	ready := make(chan participant.Alias, 4)
-	sess := &lifecycleSession{Session: session.New(session.WithObserver(lifecycleReadyObserver{ready}), session.WithAgentFactory(func(_ *session.Session, config roomconfig.ParticipantConfig, _ session.AgentBackend) agent.Agent {
-		return agents[config.Alias]
+	sess := &lifecycleSession{Session: session.New(session.WithObserver(lifecycleReadyObserver{ready}), session.WithAgentFactory(func(_ *session.Session, config roomconfig.ParticipantConfig) (agent.Agent, error) {
+		return agents[config.Alias], nil
 	}))}
 	events := make(chan Event, 128)
 	interp := New(context.Background(), sess, t.TempDir(), WithObserver(routingObserver{events}))

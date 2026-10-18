@@ -44,8 +44,8 @@ func TestSubmit_DebugCommandUsesInterpreterDispatch(t *testing.T) {
 }
 
 func TestSubmit_HelpUsesNativeInterpreterMetadata(t *testing.T) {
-	sess := session.New(session.WithAgentFactory(func(*session.Session, roomconfig.ParticipantConfig, session.AgentBackend) agent.Agent {
-		return newTestAgent()
+	sess := session.New(session.WithAgentFactory(func(*session.Session, roomconfig.ParticipantConfig) (agent.Agent, error) {
+		return newTestAgent(), nil
 	}))
 	t.Cleanup(sess.Shutdown)
 	m := newTestModelWithSession(t, sess)
@@ -87,8 +87,8 @@ func TestSubmit_WhoUsesNativeInterpreterHandler(t *testing.T) {
 
 func TestSubmit_QuitStopsSessionBeforeReturningTeaQuit(t *testing.T) {
 	stopped := make(chan struct{})
-	sess := session.New(session.WithAgentFactory(func(*session.Session, roomconfig.ParticipantConfig, session.AgentBackend) agent.Agent {
-		return &quitTrackingAgent{testAgent: newTestAgent(), stopped: stopped}
+	sess := session.New(session.WithAgentFactory(func(*session.Session, roomconfig.ParticipantConfig) (agent.Agent, error) {
+		return &quitTrackingAgent{testAgent: newTestAgent(), stopped: stopped}, nil
 	}))
 	m := newTestModelWithSession(t, sess)
 	inviteParticipant(t, sess, "ada")
@@ -223,8 +223,8 @@ func TestSubmit_GatesSecondSubmissionUntilTerminalOutcome(t *testing.T) {
 
 func TestSubmit_InviteCompletesBeforeFollowingWho(t *testing.T) {
 	startGate := make(chan struct{})
-	sess := session.New(session.WithAgentFactory(func(*session.Session, roomconfig.ParticipantConfig, session.AgentBackend) agent.Agent {
-		return &gateStartAgent{testAgent: newTestAgent(), startGate: startGate}
+	sess := session.New(session.WithAgentFactory(func(*session.Session, roomconfig.ParticipantConfig) (agent.Agent, error) {
+		return &gateStartAgent{testAgent: newTestAgent(), startGate: startGate}, nil
 	}))
 	m := newTestModelWithSession(t, sess)
 	t.Cleanup(func() { close(startGate) })

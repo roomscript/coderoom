@@ -29,8 +29,8 @@ func TestParticipantSend_delayedDepartureCannotTransferToReplacement(t *testing.
 	blocker := &blockedDepartureObserver{entered: make(chan struct{}), release: make(chan struct{})}
 	original, replacement := newMockAgent(), newMockAgent()
 	current := original
-	s := newSession(t, session.WithObserver(blocker), session.WithObserver(observer), session.WithAgentFactory(func(_ *session.Session, _ roomconfig.ParticipantConfig, _ session.AgentBackend) agent.Agent {
-		return current
+	s := newSession(t, session.WithObserver(blocker), session.WithObserver(observer), session.WithAgentFactory(func(_ *session.Session, _ roomconfig.ParticipantConfig) (agent.Agent, error) {
+		return current, nil
 	}))
 	var releaseOnce sync.Once
 	release := func() { releaseOnce.Do(func() { close(blocker.release) }) }

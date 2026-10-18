@@ -36,6 +36,13 @@ type ParticipantConfigChanged struct {
 	Sources []string
 }
 
+// BackendUnavailable reports that a backend's dependency check failed, so
+// inviting a participant that uses it will likely fail. Err names the check.
+type BackendUnavailable struct {
+	Backend string
+	Err     error
+}
+
 // AgentLog carries a diagnostic line associated with an agent.
 type AgentLog struct {
 	Alias participant.Alias
@@ -110,6 +117,7 @@ type ApprovalCleared struct {
 
 func (AgentStarting) sessionEvent()            {}
 func (ParticipantConfigChanged) sessionEvent() {}
+func (BackendUnavailable) sessionEvent()       {}
 func (AgentReady) sessionEvent()               {}
 func (AgentStopped) sessionEvent()             {}
 func (AgentCrashed) sessionEvent()             {}

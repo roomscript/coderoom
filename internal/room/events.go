@@ -42,32 +42,41 @@ func (r *Room) handleLifecycleEventLocked(e session.Event) ([]int, bool) {
 	switch e := e.(type) {
 	case session.AgentStarting:
 		return r.appendSystemRecordLocked("[" + e.Alias.Name + " starting]"), true
-	case session.ParticipantConfigChanged:
-		return r.appendSystemRecordLocked(configChangedNotice(e.Sources)), true
 	case session.AgentReady:
-		if r.departed[e.Alias] {
-			return nil, false
-		}
-		r.members[e.Alias] = struct{}{}
-		dirty := r.refreshLatestHandoffSourceLocked(e.Alias)
-		dirty = append(dirty, r.appendSystemRecordLocked("["+e.Alias.Name+" joined]")...)
-		slices.Sort(dirty)
-		return slices.Compact(dirty), true
+		return r.handleJoinLocked(e.Alias)
 	case session.AgentStopped:
-		dirty := r.handleDepartureLocked(e.Alias)
-		dirty = append(dirty, r.appendSystemRecordLocked("["+e.Alias.Name+" left]")...)
-		return slices.Compact(dirty), true
+		return r.handleLeaveLocked(e.Alias, "left"), true
 	case session.AgentCrashed:
-		dirty := r.handleDepartureLocked(e.Alias)
-		dirty = append(dirty, r.appendSystemRecordLocked("["+e.Alias.Name+" crashed]")...)
-		return slices.Compact(dirty), true
+		return r.handleLeaveLocked(e.Alias, "crashed"), true
 	case session.AgentLog:
 		return r.appendRecordLocked(Record{Kind: KindLog, Alias: e.Alias, Text: e.Text}), true
 	case session.HandoffDelivered:
 		return r.appendSystemRecordLocked(handoffPreview(e)), true
+	case session.ParticipantConfigChanged:
+		return r.appendSystemRecordLocked(configChangedNotice(e.Sources)), true
+	case session.BackendUnavailable:
+		return r.appendSystemRecordLocked("[" + e.Backend + " unavailable: " + e.Err.Error() + "]"), true
 	default:
 		return nil, false
 	}
+}
+
+func (r *Room) handleJoinLocked(alias participant.Alias) ([]int, bool) {
+	if r.departed[alias] {
+		return nil, false
+	}
+	r.members[alias] = struct{}{}
+	dirty := r.refreshLatestHandoffSourceLocked(alias)
+	dirty = append(dirty, r.appendSystemRecordLocked("["+alias.Name+" joined]")...)
+	slices.Sort(dirty)
+	return slices.Compact(dirty), true
+}
+
+// handleLeaveLocked records a departure; verb is "left" or "crashed".
+func (r *Room) handleLeaveLocked(alias participant.Alias, verb string) []int {
+	dirty := r.handleDepartureLocked(alias)
+	dirty = append(dirty, r.appendSystemRecordLocked("["+alias.Name+" "+verb+"]")...)
+	return slices.Compact(dirty)
 }
 
 func (r *Room) handleDepartureLocked(alias participant.Alias) []int {

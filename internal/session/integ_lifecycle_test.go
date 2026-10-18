@@ -23,9 +23,9 @@ func TestSession_agentStopsCleanly(t *testing.T) {
 	var a *codex.Client
 	s := session.New(
 		session.WithObserver(chanObserver{ch: events}),
-		session.WithAgentFactory(func(_ *session.Session, _ roomconfig.ParticipantConfig, _ session.AgentBackend) agent.Agent {
+		session.WithAgentFactory(func(_ *session.Session, _ roomconfig.ParticipantConfig) (agent.Agent, error) {
 			a = codex.New(cwd)
-			return a
+			return a, nil
 		}),
 	)
 	t.Cleanup(s.Shutdown)

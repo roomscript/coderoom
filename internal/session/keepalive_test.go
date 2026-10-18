@@ -116,12 +116,12 @@ func TestSession_keepaliveSweepTransitionsParticipant(t *testing.T) {
 
 func TestSession_keepaliveStopsWhenParentContextIsCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
-	agentFactory := func(_ *Session, _ roomconfig.ParticipantConfig, _ AgentBackend) agent.Agent {
+	agentFactory := func(_ *Session, _ roomconfig.ParticipantConfig) (agent.Agent, error) {
 		return &keepaliveTestAgent{
 			schedule: 50 * time.Millisecond,
 			readCh:   make(chan agent.Message, 1),
 			stopCh:   make(chan struct{}),
-		}
+		}, nil
 	}
 	events := make(chan Event, 32)
 	s := New(
@@ -157,13 +157,13 @@ func TestSession_keepaliveStopsWhenParentContextIsCancelled(t *testing.T) {
 }
 
 func TestSession_shutdownDuringKeepaliveReturnsPromptly(t *testing.T) {
-	agentFactory := func(_ *Session, _ roomconfig.ParticipantConfig, _ AgentBackend) agent.Agent {
+	agentFactory := func(_ *Session, _ roomconfig.ParticipantConfig) (agent.Agent, error) {
 		return &keepaliveTestAgent{
 			schedule: 10 * time.Millisecond,
 			blockCh:  make(chan struct{}),
 			readCh:   make(chan agent.Message, 1),
 			stopCh:   make(chan struct{}),
-		}
+		}, nil
 	}
 	events := make(chan Event, 32)
 	s := New(
@@ -261,7 +261,7 @@ func newKeepaliveTestSession(tick time.Duration, factory func() agent.Agent) (*S
 	events := make(chan Event, 32)
 	s := New(
 		func(s *Session) { s.keepaliveTick = tick },
-		WithAgentFactory(func(_ *Session, _ roomconfig.ParticipantConfig, _ AgentBackend) agent.Agent { return factory() }),
+		WithAgentFactory(func(_ *Session, _ roomconfig.ParticipantConfig) (agent.Agent, error) { return factory(), nil }),
 		WithObserver(keepaliveObserver{ch: events}),
 	)
 	return s, events

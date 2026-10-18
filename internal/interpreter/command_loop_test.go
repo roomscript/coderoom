@@ -73,8 +73,8 @@ func (o *publicLoopObservation) consume(t *testing.T, event Event) bool {
 func newPublicLoopInterpreter(t *testing.T) (*Interpreter, *lifecycleSession, chan Event, *atomic.Int32) {
 	t.Helper()
 	ready := make(chan participant.Alias, 4)
-	sess := &lifecycleSession{Session: session.New(session.WithObserver(lifecycleReadyObserver{ready}), session.WithAgentFactory(func(*session.Session, roomconfig.ParticipantConfig, session.AgentBackend) agent.Agent {
-		return echo.New()
+	sess := &lifecycleSession{Session: session.New(session.WithObserver(lifecycleReadyObserver{ready}), session.WithAgentFactory(func(*session.Session, roomconfig.ParticipantConfig) (agent.Agent, error) {
+		return echo.New(), nil
 	}))}
 	events := make(chan Event, 128)
 	var calls atomic.Int32
@@ -241,11 +241,11 @@ func awaitLoopParticipantFact(t *testing.T, facts <-chan session.Event) session.
 func newLoopInterpreterWithAgent(t *testing.T, backend agent.Agent) (*Interpreter, *lifecycleSession, chan Event) {
 	t.Helper()
 	ready := make(chan participant.Alias, 4)
-	sess := &lifecycleSession{Session: session.New(session.WithObserver(lifecycleReadyObserver{ready}), session.WithAgentFactory(func(_ *session.Session, cfg roomconfig.ParticipantConfig, _ session.AgentBackend) agent.Agent {
+	sess := &lifecycleSession{Session: session.New(session.WithObserver(lifecycleReadyObserver{ready}), session.WithAgentFactory(func(_ *session.Session, cfg roomconfig.ParticipantConfig) (agent.Agent, error) {
 		if cfg.Alias == "ada" {
-			return backend
+			return backend, nil
 		}
-		return echo.New()
+		return echo.New(), nil
 	}))}
 	events := make(chan Event, 128)
 	interp := New(t.Context(), sess, t.TempDir(), WithObserver(routingObserver{events}), WithShellRunner(ShellRunnerFunc(func(context.Context, string, string) shell.Result {

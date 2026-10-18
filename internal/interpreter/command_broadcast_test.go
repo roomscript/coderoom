@@ -107,11 +107,11 @@ func TestBroadcast_waitingOperations(t *testing.T) {
 func TestBroadcast_frozenRecipientsSurviveDepartureAndReplacement(t *testing.T) {
 	ready := make(chan participant.Alias, 8)
 	backends := map[string]*lifecycleAgent{}
-	sess := &lifecycleSession{Session: session.New(session.WithObserver(lifecycleReadyObserver{ready}), session.WithAgentFactory(func(_ *session.Session, config roomconfig.ParticipantConfig, _ session.AgentBackend) agent.Agent {
+	sess := &lifecycleSession{Session: session.New(session.WithObserver(lifecycleReadyObserver{ready}), session.WithAgentFactory(func(_ *session.Session, config roomconfig.ParticipantConfig) (agent.Agent, error) {
 		backend := &lifecycleAgent{Client: echo.New(), release: make(chan struct{})}
 		backends[config.Alias] = backend
 		t.Cleanup(backend.unblock)
-		return backend
+		return backend, nil
 	}))}
 	events := make(chan Event, 256)
 	interp := New(context.Background(), sess, t.TempDir(), WithObserver(routingObserver{events}))
@@ -155,8 +155,8 @@ func TestBroadcast_frozenRecipientsSurviveDepartureAndReplacement(t *testing.T) 
 
 func TestBroadcast_waitsForStartup(t *testing.T) {
 	gate := &lifecycleStartupGate{entered: make(chan struct{}), release: make(chan struct{})}
-	sess := &lifecycleSession{Session: session.New(session.WithObserver(gate), session.WithAgentFactory(func(*session.Session, roomconfig.ParticipantConfig, session.AgentBackend) agent.Agent {
-		return echo.New()
+	sess := &lifecycleSession{Session: session.New(session.WithObserver(gate), session.WithAgentFactory(func(*session.Session, roomconfig.ParticipantConfig) (agent.Agent, error) {
+		return echo.New(), nil
 	}))}
 	events := make(chan Event, 128)
 	interp := New(context.Background(), sess, t.TempDir(), WithObserver(routingObserver{events}))
@@ -219,14 +219,14 @@ func newBroadcastDeliveryInterpreter(t *testing.T, outcome string) (*Interpreter
 	t.Helper()
 	ready := make(chan participant.Alias, 4)
 	backend := &lifecycleAgent{Client: echo.New(), release: make(chan struct{})}
-	sess := &lifecycleSession{Session: session.New(session.WithObserver(lifecycleReadyObserver{ready}), session.WithAgentFactory(func(_ *session.Session, config roomconfig.ParticipantConfig, _ session.AgentBackend) agent.Agent {
+	sess := &lifecycleSession{Session: session.New(session.WithObserver(lifecycleReadyObserver{ready}), session.WithAgentFactory(func(_ *session.Session, config roomconfig.ParticipantConfig) (agent.Agent, error) {
 		if outcome == "failure" || outcome == "partial" && config.Alias == "ben" {
-			return &broadcastFailingAgent{echo.New()}
+			return &broadcastFailingAgent{echo.New()}, nil
 		}
 		if config.Alias == "ada" {
-			return backend
+			return backend, nil
 		}
-		return echo.New()
+		return echo.New(), nil
 	}))}
 	events := make(chan Event, 256)
 	var controller SessionController = sess

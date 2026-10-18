@@ -79,7 +79,7 @@ func newLifecycleInterpreter(t *testing.T, applications ...ApplicationCommand) (
 	t.Helper()
 	ready := make(chan participant.Alias, 4)
 	backend := &lifecycleAgent{Client: echo.New(), release: make(chan struct{})}
-	sess := &lifecycleSession{Session: session.New(session.WithObserver(lifecycleReadyObserver{ready}), session.WithAgentFactory(func(*session.Session, roomconfig.ParticipantConfig, session.AgentBackend) agent.Agent { return backend }))}
+	sess := &lifecycleSession{Session: session.New(session.WithObserver(lifecycleReadyObserver{ready}), session.WithAgentFactory(func(*session.Session, roomconfig.ParticipantConfig) (agent.Agent, error) { return backend, nil }))}
 	events := make(chan Event, 128)
 	interp, err := NewWithApplicationCommands(context.Background(), sess, t.TempDir(), applications, WithObserver(routingObserver{events}))
 	if err != nil {
@@ -226,8 +226,8 @@ func (g *lifecycleStartupGate) unblock() { g.once.Do(func() { close(g.release) }
 
 func TestCommandLifecycle_waitsForStartup(t *testing.T) {
 	gate := &lifecycleStartupGate{entered: make(chan struct{}), release: make(chan struct{})}
-	sess := &lifecycleSession{Session: session.New(session.WithObserver(gate), session.WithAgentFactory(func(*session.Session, roomconfig.ParticipantConfig, session.AgentBackend) agent.Agent {
-		return echo.New()
+	sess := &lifecycleSession{Session: session.New(session.WithObserver(gate), session.WithAgentFactory(func(*session.Session, roomconfig.ParticipantConfig) (agent.Agent, error) {
+		return echo.New(), nil
 	}))}
 	events := make(chan Event, 128)
 	interp := New(context.Background(), sess, t.TempDir(), WithObserver(routingObserver{events}))
@@ -301,12 +301,12 @@ func TestCommandLifecycle_delivery(t *testing.T) {
 func newNoticeLifecycleInterpreter(t *testing.T, partial bool) (*Interpreter, *lifecycleSession, chan Event) {
 	t.Helper()
 	ready := make(chan participant.Alias, 4)
-	sess := &lifecycleSession{Session: session.New(session.WithObserver(lifecycleReadyObserver{ready}), session.WithAgentFactory(func(_ *session.Session, config roomconfig.ParticipantConfig, _ session.AgentBackend) agent.Agent {
+	sess := &lifecycleSession{Session: session.New(session.WithObserver(lifecycleReadyObserver{ready}), session.WithAgentFactory(func(_ *session.Session, config roomconfig.ParticipantConfig) (agent.Agent, error) {
 		backend := &lifecycleNoticeAgent{Client: echo.New()}
 		if partial && config.Alias == "ben" {
 			backend.failure = errors.New("notice failed")
 		}
-		return backend
+		return backend, nil
 	}))}
 	events := make(chan Event, 128)
 	interp := New(context.Background(), sess, t.TempDir(), WithObserver(routingObserver{events}))
@@ -513,7 +513,7 @@ func TestCommandLifecycle_completedBeforeAttachment(t *testing.T) {
 				unblock()
 			}
 			backend := &lifecycleAgent{Client: echo.New(), release: make(chan struct{})}
-			sess := session.New(session.WithObserver(lifecycleReadyObserver{ready}), session.WithAgentFactory(func(*session.Session, roomconfig.ParticipantConfig, session.AgentBackend) agent.Agent { return backend }))
+			sess := session.New(session.WithObserver(lifecycleReadyObserver{ready}), session.WithAgentFactory(func(*session.Session, roomconfig.ParticipantConfig) (agent.Agent, error) { return backend, nil }))
 			t.Cleanup(sess.Shutdown)
 			sess.AddObserver(&historicalCompletionObserver{completed: completed, release: release})
 			alias := inviteStageRecipient(t, &lifecycleSession{Session: sess}, ready, "ada")

@@ -230,12 +230,14 @@ type Options struct {
 	Context          context.Context
 	ApprovalListener agent.ApprovalListener
 	SystemPrompt     string
+	Alias            string    // tags --agent-log lines
 	Log              io.Writer // --agent-log; nil when off
 }
 
 type Constructor func(cwd string, opts Options) agent.Agent
 
 func New(cwd string, ctors ...Constructor) (*Registry, error) // rejects duplicate names
+func NewDefault(cwd string) (*Registry, error)                // the configurable backends
 func (r *Registry) Build(name string, opts Options) (agent.Agent, error)
 func (r *Registry) ValidateConfig(cfg Configuration) error
 func (r *Registry) VerifyDependencies(ctx context.Context, name string) error
@@ -249,9 +251,13 @@ That becomes a written requirement for every adapter.
 Echo is not registered, so `codex` and `claude` are the only valid names in a
 file or in `CODEROOM_BACKEND`.
 
+The constructors live in the registry package (`registry.Codex`), which maps
+`Options` to each adapter's own options. The adapters do not import the
+registry.
+
 `--agent-log` works for every backend: each constructor wraps `Options.Log`
 in its own protocol log observer (`codex.NewLogObserver`, and a new
-`claude.NewLogObserver`).
+`claude.NewLogObserver`), tagged with `Options.Alias`.
 
 ---
 
@@ -290,7 +296,8 @@ exist only to warn early. **Decided.**
 - After startup, the session runs the checks for the backends in use: every
   backend named in a file, plus the default, since any alias without a file
   gets it. One goroutine per backend; each backend's checks run in order and
-  stop at the first failure.
+  stop at the first failure. `cmd/coderoom` starts them once the room
+  receives session events, so an early failure is not lost.
 - A failure is shown as a system line in the room; a pass shows nothing:
 
   ```text
@@ -306,12 +313,20 @@ exist only to warn early. **Decided.**
   agent tests more than the check does, a late "unavailable" line would
   contradict what the user already sees, and two first-time `npx` runs of the
   same package can conflict in the npm cache. Checks for other backends go on.
-- A result that arrives after its check was cancelled is dropped.
-- With the `EchoInvites` policy on, no checks run.
+- A result that arrives after its check was cancelled is dropped, whether an
+  invite, the `EchoInvites` policy or the session ending cancelled it.
+- With the `EchoInvites` policy on, no checks run. The policy is enabled after
+  startup, so enabling it cancels the checks already running.
+- `Session.Shutdown` cancels the checks and waits for them.
 
-The session owns the checks: it starts them with the registry, keeps one
-cancel function per backend, and calls it at invite. No results are stored,
-and the registry stays a stateless table.
+The session owns the checks: `Session.StartDependencyChecks(verifier,
+backends)` takes the registry through a one-method `DependencyVerifier`
+interface, keeps one cancel function per backend, and calls it at invite. No
+results are stored, and the registry stays a stateless table.
+
+A failure is the session event `BackendUnavailable{Backend, Err}`. `Err`
+already starts with the failed check's description, so the event carries no
+separate field for it.
 
 ---
 
@@ -320,10 +335,13 @@ and the registry stays a stateless table.
 - `InviteCommand` gets the participant's config from the loaded `config.Config`.
 - The session cancels the dependency check for the participant's backend, if
   one is running.
-- When `EchoInvites` is on, the factory builds echo directly. Otherwise it
-  calls `Registry.Build` with the configured backend.
+- When `EchoInvites` is on, the session builds echo itself and does not call
+  the factory. Otherwise the factory calls `Registry.Build` with the
+  configured backend. `AgentBackend` is gone: the factory only ever builds the
+  configured backend.
 - The factory returns `(agent.Agent, error)`. On error, the invite removes the
-  participant it already added and reports the error.
+  participant it already added and reports the error. Nothing about the
+  participant has been announced yet, so the room shows only the error.
 - After the factory returns, the session copies `a.Name()` into
   `participant.View` before `ParticipantStatusChanged` and `AgentStarting`
   are sent. The view holds the name the agent **declares**, not the name that
@@ -386,6 +404,6 @@ Registering Claude follows as its own step.
 
 ## Open questions
 
-1. **System line wording and record type** for "backend unavailable" in the
-   room. Proposed: a session event `BackendUnavailable{Backend, Check, Err}`,
-   shown as `[codex unavailable: npx is installed: not found in PATH]`.
+None. The "backend unavailable" line was settled in step 3: the session event
+`BackendUnavailable{Backend, Err}`, shown as
+`[codex unavailable: npx is installed: not found in PATH]`.

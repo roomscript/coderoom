@@ -38,11 +38,11 @@ func newHandoffInterpreter(t *testing.T, blocker session.Observer, bystanders ..
 	t.Helper()
 	ready := make(chan participant.Alias, 4)
 	backend := &lifecycleAgent{Client: echo.New(), release: make(chan struct{})}
-	sess := &lifecycleSession{Session: session.New(session.WithObserver(lifecycleReadyObserver{ready}), session.WithAgentFactory(func(_ *session.Session, config roomconfig.ParticipantConfig, _ session.AgentBackend) agent.Agent {
+	sess := &lifecycleSession{Session: session.New(session.WithObserver(lifecycleReadyObserver{ready}), session.WithAgentFactory(func(_ *session.Session, config roomconfig.ParticipantConfig) (agent.Agent, error) {
 		if config.Alias == "ada" {
-			return backend
+			return backend, nil
 		}
-		return echo.New()
+		return echo.New(), nil
 	}))}
 	if blocker != nil {
 		sess.AddObserver(blocker)

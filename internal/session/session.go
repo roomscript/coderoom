@@ -17,23 +17,14 @@ import (
 	"github.com/roomscript/coderoom/internal/policy"
 )
 
-// AgentFactory constructs the adapter selected by the session for a participant
-// config. The application composition root maps backend values to concrete
-// packages and wires session-owned facilities before returning.
+// AgentFactory constructs the agent for a participant's configured backend.
+// The application composition root wires session-owned facilities before
+// returning. It is not called when the EchoInvites policy is on: the session
+// builds echo agents itself.
 //
 // The session is passed to allow factories to use session-owned facilities
 // (e.g., approval routing) without requiring UI-owned glue code.
-type AgentFactory func(s *Session, cfg roomconfig.ParticipantConfig, backend AgentBackend) agent.Agent
-
-// AgentBackend identifies the adapter implementation requested by room policy.
-type AgentBackend string
-
-const (
-	// AgentBackendDefault requests the application's ordinary agent adapter.
-	AgentBackendDefault AgentBackend = "default"
-	// AgentBackendEcho requests the deterministic echo adapter.
-	AgentBackendEcho AgentBackend = "echo"
-)
+type AgentFactory func(s *Session, cfg roomconfig.ParticipantConfig) (agent.Agent, error)
 
 type agentRuntime struct {
 	agentCancel context.CancelFunc
@@ -57,6 +48,12 @@ type Session struct {
 	approvals       *approvalHub
 	lastExecutionID ExecutionID
 	lifecycle       sessionLifecycle
+	checks          dependencyChecks
+}
+
+type dependencyChecks struct {
+	running map[string]*dependencyCheck // by backend name; guarded by mu
+	wg      sync.WaitGroup
 }
 
 type sessionLifecycle struct {
@@ -124,6 +121,7 @@ func New(opts ...Option) *Session {
 		keepaliveTick: 30 * time.Second,
 		policies:      policy.NewSet(),
 	}
+	s.checks.running = make(map[string]*dependencyCheck)
 	s.lifecycle.ctx, s.lifecycle.cancelFn = context.WithCancel(context.Background()) //nolint:gosec // cancel stored and invoked by Shutdown
 	s.approvals = newApprovalHub(s.notify)
 	for _, o := range opts {
@@ -209,6 +207,8 @@ func (s *Session) snapshotAgentsToStop() []agent.Agent {
 func (s *Session) Shutdown() {
 	s.lifecycle.shutdownOnce.Do(func() {
 		s.stopBackgroundLoops()
+		s.cancelAllDependencyChecks()
+		s.checks.wg.Wait()
 		s.cancelAllAgentContexts()
 		// Note: participants in StatusStarting do not have Agent set yet (it is
 		// bound by AttachAgent when they transition to StatusAttached). Those

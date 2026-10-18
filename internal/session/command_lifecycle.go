@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/roomscript/coderoom/internal/agent"
+	"github.com/roomscript/coderoom/internal/agent/echo"
 	roomconfig "github.com/roomscript/coderoom/internal/config"
 	"github.com/roomscript/coderoom/internal/participant"
 	"github.com/roomscript/coderoom/internal/policy"
@@ -17,10 +18,6 @@ type InviteCommand struct {
 }
 
 func (c InviteCommand) execute(s *Session, _ ExecutionID) error {
-	backend := AgentBackendDefault
-	if s.policies.Enabled(policy.EchoInvites) {
-		backend = AgentBackendEcho
-	}
 	if s.agentFactory == nil {
 		return fmt.Errorf("no agent factory configured on session")
 	}
@@ -32,14 +29,36 @@ func (c InviteCommand) execute(s *Session, _ ExecutionID) error {
 	if err := s.addParticipant(p); err != nil {
 		return err
 	}
-	s.hasInvited = true
 	s.CreateAgentRuntime(p.Alias)
-	a := s.agentFactory(s, cfg, backend)
+	a, err := s.buildAgent(cfg)
+	if err != nil {
+		s.abandonInvite(p.Alias)
+		return fmt.Errorf("invite %q: %w", p.Alias.Name, err)
+	}
+	s.hasInvited = true
 	s.notify(ParticipantStatusChanged{Alias: p.Alias, From: "", To: p.Status, Since: p.Since, ActiveExecutionID: p.ActiveExecutionID})
 	s.notifyChangedConfig(p.Alias)
 	s.notify(AgentStarting{Alias: p.Alias})
 	startInvitedAgent(p.Alias, a, s)
 	return nil
+}
+
+// buildAgent builds echo when the EchoInvites policy is on, and the
+// configured backend otherwise. Starting a backend's agent tests more than
+// its dependency check, so a check still running for it is cancelled.
+func (s *Session) buildAgent(cfg roomconfig.ParticipantConfig) (agent.Agent, error) {
+	if s.policies.Enabled(policy.EchoInvites) {
+		return echo.New(), nil
+	}
+	s.cancelDependencyCheck(cfg.Backend.Name)
+	return s.agentFactory(s, cfg)
+}
+
+// abandonInvite removes a participant whose agent could not be built. Nothing
+// about it has been announced yet.
+func (s *Session) abandonInvite(alias participant.Alias) {
+	s.cancelAgentContext(alias)
+	s.changeParticipants(func() { s.removeParticipantLocked(alias) })
 }
 
 func (s *Session) resolveParticipantConfig(alias string) (roomconfig.ParticipantConfig, error) {

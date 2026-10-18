@@ -173,8 +173,8 @@ func TestUserCommand_closeCancelsNamedWorker(t *testing.T) {
 func TestUserCommand_definitionIsSharedWithLoop(t *testing.T) {
 	ready := make(chan participant.Alias, 4)
 	backend := &lifecycleAgent{Client: echo.New(), release: make(chan struct{})}
-	sess := &lifecycleSession{Session: session.New(session.WithObserver(lifecycleReadyObserver{ready}), session.WithAgentFactory(func(*session.Session, roomconfig.ParticipantConfig, session.AgentBackend) agent.Agent {
-		return echo.New()
+	sess := &lifecycleSession{Session: session.New(session.WithObserver(lifecycleReadyObserver{ready}), session.WithAgentFactory(func(*session.Session, roomconfig.ParticipantConfig) (agent.Agent, error) {
+		return echo.New(), nil
 	}))}
 	events := make(chan Event, 128)
 	calls := make(chan string, 2)

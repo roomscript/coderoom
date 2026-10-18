@@ -48,6 +48,7 @@ Supported fields:
 
 - `alias`
 - `role`
+- `backend`
 
 Rules:
 
@@ -58,6 +59,24 @@ Rules:
 
 If `role` is omitted, empty, or `null`, the participant starts without a role
 prompt.
+
+## Backends
+
+`backend` selects the agent CLI that runs the participant. The only backend
+today is `codex`.
+
+When a file does not set `backend`, or an alias has no file, the participant
+uses the default: the `CODEROOM_BACKEND` environment variable if set, otherwise
+`codex`. The environment variable is per user, so people sharing a repository
+can use different defaults.
+
+After startup, coderoom checks in the background that the tools each backend in
+use needs are installed. A failure appears in the room and does not block
+anything:
+
+```text
+[codex unavailable: npx is installed: not found in PATH]
+```
 
 ## Role Prompts
 
@@ -96,6 +115,7 @@ Startup fails when:
 - `alias` is empty
 - the filename does not match `alias`
 - the configured role prompt file is missing
+- a participant file or `CODEROOM_BACKEND` names an unknown backend
 
 These failures should be fixed in repo configuration rather than worked around
 at runtime.

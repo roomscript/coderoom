@@ -64,8 +64,8 @@ func initializeSendPlanner(t *testing.T, d *sendDelivery) {
 	if d.planner != nil {
 		return
 	}
-	d.planner = session.New(session.WithAgentFactory(func(*session.Session, roomconfig.ParticipantConfig, session.AgentBackend) agent.Agent {
-		return echo.New()
+	d.planner = session.New(session.WithAgentFactory(func(*session.Session, roomconfig.ParticipantConfig) (agent.Agent, error) {
+		return echo.New(), nil
 	}))
 	t.Cleanup(d.planner.Shutdown)
 	for _, alias := range []string{"ada", "tim"} {

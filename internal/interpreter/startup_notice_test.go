@@ -92,8 +92,8 @@ func newStartupNoticeInterpreter(t *testing.T) (*session.Session, *Interpreter, 
 			notices:              make(chan string, 4),
 		}
 	}
-	sess := session.New(session.WithObserver(observer), session.WithAgentFactory(func(_ *session.Session, cfg roomconfig.ParticipantConfig, _ session.AgentBackend) agent.Agent {
-		return backends[cfg.Alias]
+	sess := session.New(session.WithObserver(observer), session.WithAgentFactory(func(_ *session.Session, cfg roomconfig.ParticipantConfig) (agent.Agent, error) {
+		return backends[cfg.Alias], nil
 	}))
 	events := make(chan Event, 128)
 	interp := New(context.Background(), sess, t.TempDir(), WithObserver(routingObserver{events: events}))

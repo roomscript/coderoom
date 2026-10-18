@@ -65,12 +65,12 @@ func prepareReplacementSendCase(t *testing.T, stale bool) (*sendSessionHost, run
 	host := &sendSessionHost{ready: make(chan struct{}, 2), routing: make(chan session.RoutingResult, 1)}
 	replacement := &replacementSendAgent{Client: echo.New(), sent: make(chan string, 1)}
 	first := true
-	host.Session = session.New(session.WithObserver(gate), session.WithObserver(host), session.WithAgentFactory(func(*session.Session, roomconfig.ParticipantConfig, session.AgentBackend) agent.Agent {
+	host.Session = session.New(session.WithObserver(gate), session.WithObserver(host), session.WithAgentFactory(func(*session.Session, roomconfig.ParticipantConfig) (agent.Agent, error) {
 		if first {
 			first = false
-			return echo.New()
+			return echo.New(), nil
 		}
-		return replacement
+		return replacement, nil
 	}))
 	t.Cleanup(host.Shutdown)
 	t.Cleanup(gate.unblock)

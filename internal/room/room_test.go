@@ -66,6 +66,19 @@ func TestOnEvent_agentLifecycleAppendsSystemRecords(t *testing.T) {
 	}
 }
 
+func TestOnEvent_backendUnavailableAppendsSystemRecord(t *testing.T) {
+	room, updates := newTestRoom(t)
+
+	room.OnEvent(session.BackendUnavailable{Backend: "codex", Err: errors.New("npx is installed: not found in PATH")})
+	waitUpdate(t, updates)
+
+	records := room.Snapshot().Records
+	want := "[codex unavailable: npx is installed: not found in PATH]"
+	if len(records) != 1 || records[0].Kind != KindSystem || records[0].Text != want {
+		t.Fatalf("records = %#v, want one system record %q", records, want)
+	}
+}
+
 func TestOnEvent_participantConfigChangedAppendsNotice(t *testing.T) {
 	tests := []struct {
 		name    string

@@ -194,8 +194,8 @@ func stageHandoffWithCompletedAdaOutput(t *testing.T, agents map[string]agent.Ag
 	t.Helper()
 
 	ada := agents["ada"].(*testAgent)
-	s := session.New(session.WithAgentFactory(func(_ *session.Session, cfg roomconfig.ParticipantConfig, _ session.AgentBackend) agent.Agent {
-		return agents[cfg.Alias]
+	s := session.New(session.WithAgentFactory(func(_ *session.Session, cfg roomconfig.ParticipantConfig) (agent.Agent, error) {
+		return agents[cfg.Alias], nil
 	}))
 	t.Cleanup(s.Shutdown)
 	m := newTestModelWithSession(t, s)
@@ -234,8 +234,8 @@ func TestBarrierBatch_stagesThenDispatchesWhenIdle(t *testing.T) {
 		"ada":    newTestAgent(),
 		"turing": newTestAgent(),
 	}
-	s := session.New(session.WithAgentFactory(func(_ *session.Session, cfg roomconfig.ParticipantConfig, _ session.AgentBackend) agent.Agent {
-		return agents[cfg.Alias]
+	s := session.New(session.WithAgentFactory(func(_ *session.Session, cfg roomconfig.ParticipantConfig) (agent.Agent, error) {
+		return agents[cfg.Alias], nil
 	}))
 	t.Cleanup(s.Shutdown)
 	m := newTestModelWithSession(t, s)
@@ -287,8 +287,8 @@ func TestBarrierBatch_directSendIgnoresUnrelatedBusyParticipantByDefault(t *test
 		"ada":    newTestAgent(),
 		"turing": newTestAgent(),
 	}
-	s := session.New(session.WithAgentFactory(func(_ *session.Session, cfg roomconfig.ParticipantConfig, _ session.AgentBackend) agent.Agent {
-		return agents[cfg.Alias]
+	s := session.New(session.WithAgentFactory(func(_ *session.Session, cfg roomconfig.ParticipantConfig) (agent.Agent, error) {
+		return agents[cfg.Alias], nil
 	}))
 	t.Cleanup(s.Shutdown)
 	m := newTestModelWithSession(t, s)
@@ -320,8 +320,8 @@ func TestBarrierBatch_sendNoticesPolicyIncludesBusyListener(t *testing.T) {
 		"ben":    newTestAgent(),
 		"turing": newTestAgent(),
 	}
-	s := session.New(session.WithAgentFactory(func(_ *session.Session, cfg roomconfig.ParticipantConfig, _ session.AgentBackend) agent.Agent {
-		return agents[cfg.Alias]
+	s := session.New(session.WithAgentFactory(func(_ *session.Session, cfg roomconfig.ParticipantConfig) (agent.Agent, error) {
+		return agents[cfg.Alias], nil
 	}))
 	t.Cleanup(s.Shutdown)
 	m := newTestModelWithSession(t, s)
@@ -402,8 +402,8 @@ func TestBarrierBatch_failedDispatchDoesNotCommitUserInput(t *testing.T) {
 	}
 	agents["ada"].sendErr = errors.New("send failed")
 
-	s := session.New(session.WithAgentFactory(func(_ *session.Session, cfg roomconfig.ParticipantConfig, _ session.AgentBackend) agent.Agent {
-		return agents[cfg.Alias]
+	s := session.New(session.WithAgentFactory(func(_ *session.Session, cfg roomconfig.ParticipantConfig) (agent.Agent, error) {
+		return agents[cfg.Alias], nil
 	}))
 	t.Cleanup(s.Shutdown)
 	m := newTestModelWithSession(t, s)
@@ -434,8 +434,8 @@ func TestBarrierBatch_failedDispatchDoesNotRetryOnRollbackIdle(t *testing.T) {
 	}
 	agents["ada"].sendErr = errors.New("send failed")
 
-	s := session.New(session.WithAgentFactory(func(_ *session.Session, cfg roomconfig.ParticipantConfig, _ session.AgentBackend) agent.Agent {
-		return agents[cfg.Alias]
+	s := session.New(session.WithAgentFactory(func(_ *session.Session, cfg roomconfig.ParticipantConfig) (agent.Agent, error) {
+		return agents[cfg.Alias], nil
 	}))
 	t.Cleanup(s.Shutdown)
 	m := newTestModelWithSession(t, s)
@@ -471,8 +471,8 @@ func TestBarrierBatch_partialDispatchCommitsUserInput(t *testing.T) {
 	}
 	agents["ada"].sendErr = errors.New("send failed")
 
-	s := session.New(session.WithAgentFactory(func(_ *session.Session, cfg roomconfig.ParticipantConfig, _ session.AgentBackend) agent.Agent {
-		return agents[cfg.Alias]
+	s := session.New(session.WithAgentFactory(func(_ *session.Session, cfg roomconfig.ParticipantConfig) (agent.Agent, error) {
+		return agents[cfg.Alias], nil
 	}))
 	t.Cleanup(s.Shutdown)
 	m := newTestModelWithSession(t, s)
@@ -503,8 +503,8 @@ func TestBarrierBatch_discardedTargetRestoresDraft(t *testing.T) {
 		"ada": newTestAgent(),
 	}
 
-	s := session.New(session.WithAgentFactory(func(_ *session.Session, cfg roomconfig.ParticipantConfig, _ session.AgentBackend) agent.Agent {
-		return agents[cfg.Alias]
+	s := session.New(session.WithAgentFactory(func(_ *session.Session, cfg roomconfig.ParticipantConfig) (agent.Agent, error) {
+		return agents[cfg.Alias], nil
 	}))
 	t.Cleanup(s.Shutdown)
 	m := newTestModelWithSession(t, s)
@@ -668,8 +668,8 @@ func newTwoAgentBarrierBatchModel(t *testing.T) (map[string]*testAgent, *session
 		"ada":    newTestAgent(),
 		"turing": newTestAgent(),
 	}
-	s := session.New(session.WithAgentFactory(func(_ *session.Session, cfg roomconfig.ParticipantConfig, _ session.AgentBackend) agent.Agent {
-		return agents[cfg.Alias]
+	s := session.New(session.WithAgentFactory(func(_ *session.Session, cfg roomconfig.ParticipantConfig) (agent.Agent, error) {
+		return agents[cfg.Alias], nil
 	}))
 	t.Cleanup(s.Shutdown)
 	m := newTestModelWithSession(t, s)
@@ -751,8 +751,8 @@ func stageDiscardedTargetHandoff(t *testing.T) (*testAgent, *session.Session, Mo
 		"ada":    newTestAgent(),
 		"turing": newTestAgent(),
 	}
-	s := session.New(session.WithAgentFactory(func(_ *session.Session, cfg roomconfig.ParticipantConfig, _ session.AgentBackend) agent.Agent {
-		return agents[cfg.Alias]
+	s := session.New(session.WithAgentFactory(func(_ *session.Session, cfg roomconfig.ParticipantConfig) (agent.Agent, error) {
+		return agents[cfg.Alias], nil
 	}))
 	t.Cleanup(s.Shutdown)
 	m := newTestModelWithSession(t, s)

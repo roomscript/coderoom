@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/roomscript/coderoom/internal/agent"
-	"github.com/roomscript/coderoom/internal/agent/echo"
 	roomconfig "github.com/roomscript/coderoom/internal/config"
 	"github.com/roomscript/coderoom/internal/participant"
 	"github.com/roomscript/coderoom/internal/policy"
@@ -241,7 +240,7 @@ func enableSendNotices(t *testing.T, s *session.Session) {
 
 // fixedFactory returns a session option whose factory always returns the given agent.
 func fixedFactory(a agent.Agent) session.Option {
-	return session.WithAgentFactory(func(_ *session.Session, _ roomconfig.ParticipantConfig, _ session.AgentBackend) agent.Agent { return a })
+	return session.WithAgentFactory(func(_ *session.Session, _ roomconfig.ParticipantConfig) (agent.Agent, error) { return a, nil })
 }
 
 func participantStatus(t *testing.T, s *session.Session, alias string) participant.Status {
@@ -290,8 +289,8 @@ func expectTurnMessageForwarded(t *testing.T, obs *testObserver) {
 
 // mappedFactory returns a session option whose factory looks up agents by alias.
 func mappedFactory(agents map[string]agent.Agent) session.Option {
-	return session.WithAgentFactory(func(_ *session.Session, cfg roomconfig.ParticipantConfig, _ session.AgentBackend) agent.Agent {
-		return agents[cfg.Alias]
+	return session.WithAgentFactory(func(_ *session.Session, cfg roomconfig.ParticipantConfig) (agent.Agent, error) {
+		return agents[cfg.Alias], nil
 	})
 }
 
@@ -399,8 +398,8 @@ func TestCancel_unknownAlias(t *testing.T) {
 }
 
 func TestInvite_duplicateAlias(t *testing.T) {
-	s := newSession(t, session.WithAgentFactory(func(_ *session.Session, _ roomconfig.ParticipantConfig, _ session.AgentBackend) agent.Agent {
-		return newMockAgent()
+	s := newSession(t, session.WithAgentFactory(func(_ *session.Session, _ roomconfig.ParticipantConfig) (agent.Agent, error) {
+		return newMockAgent(), nil
 	}))
 	t.Cleanup(func() { _, _ = s.Execute(session.RemoveCommand{Alias: resolvedAlias(s, "ada")}) })
 
@@ -411,19 +410,14 @@ func TestInvite_duplicateAlias(t *testing.T) {
 	}
 }
 
-func TestInvite_usesEchoFactoryWhenPolicyEnabled(t *testing.T) {
+func TestInvite_buildsEchoWithoutFactoryWhenPolicyEnabled(t *testing.T) {
 	obs := newTestObserver()
-	normal := newMockAgent()
-	echoAgent := newMockAgent()
-	var used string
+	factoryCalled := false
 	s := newSession(t,
 		session.WithObserver(obs),
-		session.WithAgentFactory(func(_ *session.Session, _ roomconfig.ParticipantConfig, backend session.AgentBackend) agent.Agent {
-			used = string(backend)
-			if backend == session.AgentBackendEcho {
-				return echoAgent
-			}
-			return normal
+		session.WithAgentFactory(func(_ *session.Session, _ roomconfig.ParticipantConfig) (agent.Agent, error) {
+			factoryCalled = true
+			return newMockAgent(), nil
 		}),
 	)
 	if _, err := s.Execute(session.EnablePolicyCommand{Name: policy.EchoInvites}); err != nil {
@@ -436,27 +430,64 @@ func TestInvite_usesEchoFactoryWhenPolicyEnabled(t *testing.T) {
 	if _, err := s.Execute(session.EnablePolicyCommand{Name: policy.EchoInvites}); err != nil {
 		t.Fatalf("idempotent EnablePolicyCommand: %v", err)
 	}
-	if used != "echo" {
-		t.Fatalf("factory = %q, want echo", used)
+	if factoryCalled {
+		t.Fatal("factory called, want the session to build echo")
 	}
 }
 
-func TestInvite_usesNormalFactoryByDefault(t *testing.T) {
+func TestInvite_passesConfiguredBackendToFactory(t *testing.T) {
+	root := t.TempDir()
+	writeSessionConfigFile(t, root, ".coderoom/participants/ada.yaml", "alias: ada\nbackend: claude\n")
 	obs := newTestObserver()
-	var used string
+	var requested []string
 	s := newSession(t,
 		session.WithObserver(obs),
-		session.WithAgentFactory(func(_ *session.Session, _ roomconfig.ParticipantConfig, backend session.AgentBackend) agent.Agent {
-			used = string(backend)
-			return newMockAgent()
+		session.WithConfig(loadSessionConfig(t, root)),
+		session.WithAgentFactory(func(_ *session.Session, cfg roomconfig.ParticipantConfig) (agent.Agent, error) {
+			requested = append(requested, cfg.Backend.Name)
+			return newMockAgent(), nil
+		}),
+	)
+	t.Cleanup(func() {
+		_, _ = s.Execute(session.RemoveCommand{Alias: resolvedAlias(s, "ada")})
+		_, _ = s.Execute(session.RemoveCommand{Alias: resolvedAlias(s, "tim")})
+	})
+
+	invite(t, s, "ada")
+	mustReceive[session.AgentReady](t, obs.ch)
+	invite(t, s, "tim")
+	mustReceive[session.AgentReady](t, obs.ch)
+	if !slices.Equal(requested, []string{"claude", "codex"}) {
+		t.Fatalf("requested backends = %v, want [claude codex]", requested)
+	}
+}
+
+func TestInvite_factoryErrorRemovesParticipant(t *testing.T) {
+	obs := newTestObserver()
+	fail := true
+	s := newSession(t,
+		session.WithObserver(obs),
+		session.WithAgentFactory(func(_ *session.Session, _ roomconfig.ParticipantConfig) (agent.Agent, error) {
+			if fail {
+				return nil, errors.New("unknown backend")
+			}
+			return newMockAgent(), nil
 		}),
 	)
 	t.Cleanup(func() { _, _ = s.Execute(session.RemoveCommand{Alias: resolvedAlias(s, "ada")}) })
 
+	if _, err := s.Execute(session.InviteCommand{Alias: "ada"}); err == nil {
+		t.Fatal("expected invite error")
+	}
+	if _, ok := s.ParticipantByName("ada"); ok {
+		t.Fatal("participant still registered after failed invite")
+	}
+
+	fail = false
 	invite(t, s, "ada")
 	mustReceive[session.AgentReady](t, obs.ch)
-	if used != string(session.AgentBackendDefault) {
-		t.Fatalf("factory = %q, want default", used)
+	if _, err := s.Execute(session.EnablePolicyCommand{Name: policy.EchoInvites}); err == nil {
+		t.Fatal("expected enabling echo-invites after a successful invitation to fail")
 	}
 }
 
@@ -478,12 +509,7 @@ func TestEchoInvite_completesAnchoredTurnWithUnchangedOutput(t *testing.T) {
 	obs := newTestObserver()
 	s := newSession(t,
 		session.WithObserver(obs),
-		session.WithAgentFactory(func(_ *session.Session, _ roomconfig.ParticipantConfig, backend session.AgentBackend) agent.Agent {
-			if backend == session.AgentBackendEcho {
-				return echo.New()
-			}
-			return newMockAgent()
-		}),
+		fixedFactory(newMockAgent()),
 	)
 	if _, err := s.Execute(session.EnablePolicyCommand{Name: policy.EchoInvites}); err != nil {
 		t.Fatalf("EnablePolicyCommand: %v", err)
@@ -1174,15 +1200,15 @@ func TestParticipantSendPlanDiscardUnavailableNoticeRecipientsExcludesSameAliasR
 	rejoinedBob := newMockAgent()
 	bobInvites := 0
 	s := newSession(t, session.WithObserver(obs), session.WithAgentFactory(
-		func(_ *session.Session, cfg roomconfig.ParticipantConfig, _ session.AgentBackend) agent.Agent {
+		func(_ *session.Session, cfg roomconfig.ParticipantConfig) (agent.Agent, error) {
 			if cfg.Alias == "ada" {
-				return ada
+				return ada, nil
 			}
 			bobInvites++
 			if bobInvites == 1 {
-				return firstBob
+				return firstBob, nil
 			}
-			return rejoinedBob
+			return rejoinedBob, nil
 		},
 	))
 	t.Cleanup(func() {
