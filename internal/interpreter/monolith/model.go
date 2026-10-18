@@ -3,7 +3,6 @@ package monolith
 import (
 	"fmt"
 
-	"github.com/roomscript/coderoom/internal/interpreter/runtime"
 	"github.com/roomscript/coderoom/internal/participant"
 	"github.com/roomscript/coderoom/internal/promptlang"
 	"github.com/roomscript/coderoom/internal/room"
@@ -17,8 +16,6 @@ type interpreterModel struct {
 	transcriptChanges    []TranscriptChanged
 	room                 *room.Room
 	commands             *promptlang.Registry
-	modules              *runtime.Registry
-	workflows            workflowCollection
 	approval             *Approval
 	onCompletedExecution func()
 }
@@ -26,69 +23,16 @@ type interpreterModel struct {
 type modelSnapshot struct {
 	room     room.Snapshot
 	approval *Approval
-	stage    *StagedSubmission
-}
-
-func (m *interpreterModel) TakeStageForEdit() (instructionSequence, string, bool) {
-	return m.workflows.stage.takeForEdit()
-}
-
-func (m *interpreterModel) DiscardStage() (instructionSequence, bool) {
-	return m.workflows.stage.discard()
-}
-
-func (m *interpreterModel) InterruptAndDispatchStage() (instructionSequence, bool) {
-	source := m.workflows.stage.statement()
-	sequence, ok := m.workflows.stage.interruptAndDispatch()
-	return withSubmissionSource(sequence, source), ok
 }
 
 func newInterpreterModel() *interpreterModel {
-	model := &interpreterModel{commands: promptlang.NewRegistry(), modules: newModuleRegistry()}
+	model := &interpreterModel{commands: promptlang.NewRegistry()}
 	model.room = room.New(room.WithObserver(transcriptObserver{model: model}))
 	return model
 }
 
-func (m *interpreterModel) prepareCommand(raw string, statement promptlang.Statement) (instructionSequence, bool) {
-	if command, ok := m.modules.Lookup(promptlang.ParsedStatement{Located: promptlang.Located[promptlang.Statement]{Value: statement}}); ok {
-		return append(acceptedInputSequence(raw), goInvocationInstruction{
-			command: command, outcome: submissionOutcome{raw: raw, operation: command.Name()},
-		}), true
-	}
-	for _, definition := range nativeCommandDefinitions {
-		if definition.matches(statement) && definition.submit != nil {
-			return definition.submit(m, raw, statement), true
-		}
-	}
-	return nil, false
-}
-
-func sessionSubmissionSequence(raw, operation string, command session.Command) instructionSequence {
-	return append(acceptedInputSequence(raw), executeCommandInstruction{
-		command: command,
-		outcome: submissionOutcome{raw: raw, operation: operation},
-	})
-}
-
-func submissionResultSequence(outcome submissionOutcome) instructionSequence {
-	sequence := instructionSequence{publishSnapshotInstruction{}}
-	if outcome.err != nil {
-		sequence = append(sequence, publishEventInstruction{event: SubmissionFailed{
-			Raw: outcome.raw, Operation: outcome.operation,
-			Code: ErrorExecutionFailed, Err: outcome.err,
-		}})
-		return withSubmissionSource(sequence, outcome.statement)
-	}
-	sequence = append(sequence, publishEventInstruction{event: SubmissionSucceeded{Raw: outcome.raw}})
-	return withSubmissionSource(sequence, outcome.statement)
-}
-
 func (m *interpreterModel) AppendRecord(record room.Record) {
 	m.room.AppendRecord(record)
-}
-
-func (m *interpreterModel) ReadHandoffSource(alias participant.Alias) (session.HandoffSource, bool) {
-	return m.room.LatestHandoffSource(alias)
 }
 
 func (m *interpreterModel) ResolveCommand(invocation promptlang.UserCommand) (promptlang.Shell, error) {
@@ -107,25 +51,11 @@ func (m *interpreterModel) Snapshot() modelSnapshot {
 	return modelSnapshot{
 		room:     m.room.Snapshot(),
 		approval: cloneApproval(m.approval),
-		stage:    m.workflows.stage.snapshot(),
 	}
 }
 
 func (m *interpreterModel) Close() {
 	m.room.Close()
-}
-
-func newModuleRegistry() *runtime.Registry {
-	registry := runtime.NewRegistry()
-	for _, definition := range nativeCommandDefinitions {
-		if definition.module == nil {
-			continue
-		}
-		if err := registry.Register(definition.module); err != nil {
-			panic(err)
-		}
-	}
-	return registry
 }
 
 // LatestOutput reads completed canonical output for the exact participant instance.

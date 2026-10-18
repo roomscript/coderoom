@@ -1,4 +1,4 @@
-package monolith
+package interpreter
 
 import (
 	"context"
@@ -53,21 +53,21 @@ func TestSubmit_planningDuringIdleBeforeSessionReadyWaitsForStartup(t *testing.T
 				return backend
 			}))
 			events := make(chan Event, 32)
-			interp := New(context.Background(), sess, t.TempDir(), WithObserver(submitContractObserver{events: events}))
+			interp := New(context.Background(), sess, t.TempDir(), WithObserver(routingObserver{events: events}))
 			t.Cleanup(interp.Close)
 			var releaseOnce sync.Once
 			release := func() { releaseOnce.Do(func() { close(gate.release) }) }
 			t.Cleanup(release)
-			receiveSubmitEvent[StateChanged](t, events)
+			awaitStartupWindowEvent[StateChanged](t, events)
 			if _, err := sess.Execute(session.InviteCommand{Alias: "ben"}); err != nil {
 				t.Fatal(err)
 			}
-			receiveSignal(t, gate.entered, "idle startup window")
+			awaitShellSignal(t, gate.entered)
 			assertIdleStartupWindow(t, sess)
 			assertSessionRejectsStartupDelivery(t, sess)
-			mustSubmit(t, interp.Submit(raw))
+			mustSubmitStartup(t, interp.Submit(raw))
 			awaitStartupWindowEvent[SubmissionSucceeded](t, events)
-			stage := awaitStartupWindowEvent[StateChanged](t, events).Snapshot.Stage
+			stage := interp.Snapshot().Stage
 			if stage == nil || len(stage.NotReadyAliases) != 1 || stage.NotReadyAliases[0] != "ben" {
 				t.Fatalf("stage = %#v", stage)
 			}
@@ -154,4 +154,11 @@ func startupParticipantAlias(t *testing.T, sess *session.Session, name string) p
 		t.Fatalf("missing participant %s", name)
 	}
 	return view.Alias
+}
+
+func mustSubmitStartup(t *testing.T, err error) {
+	t.Helper()
+	if err != nil {
+		t.Fatal(err)
+	}
 }

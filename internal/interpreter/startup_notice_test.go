@@ -1,4 +1,4 @@
-package monolith
+package interpreter
 
 import (
 	"context"
@@ -49,10 +49,10 @@ func TestSubmit_sendNoticesWaitsForStartingListenerAndFreezesRecipients(t *testi
 	if _, err := sess.Execute(session.InviteCommand{Alias: "ben"}); err != nil {
 		t.Fatal(err)
 	}
-	receiveSignal(t, observer.gate.entered, "listener startup window")
-	mustSubmit(t, interp.Submit("@ada hello"))
+	awaitShellSignal(t, observer.gate.entered)
+	mustSubmitStartup(t, interp.Submit("@ada hello"))
 	awaitStartupWindowEvent[SubmissionSucceeded](t, events)
-	stage := awaitStartupWindowEvent[StateChanged](t, events).Snapshot.Stage
+	stage := interp.Snapshot().Stage
 	if stage == nil || !slices.Equal(stage.NotReadyAliases, []string{"ben"}) {
 		t.Fatalf("stage = %#v", stage)
 	}
@@ -96,7 +96,7 @@ func newStartupNoticeInterpreter(t *testing.T) (*session.Session, *Interpreter, 
 		return backends[cfg.Alias]
 	}))
 	events := make(chan Event, 128)
-	interp := New(context.Background(), sess, t.TempDir(), WithObserver(submitContractObserver{events: events}))
+	interp := New(context.Background(), sess, t.TempDir(), WithObserver(routingObserver{events: events}))
 	t.Cleanup(interp.Close)
 	var once sync.Once
 	release := func() { once.Do(func() { close(observer.gate.release) }) }

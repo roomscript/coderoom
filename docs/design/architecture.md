@@ -142,7 +142,7 @@ No routing template or alias correlation is required. The monolith supplies
 capabilities and canonical publication; it stores no
 migrated lifecycle and receives no command-orchestration callback.
 All public commands use modular dispatch. The SubmitCommand bridge is removed;
-direct legacy handlers remain only for compatibility tests.
+direct legacy dispatch, handlers, workflows and their module runner are removed.
 
 Native sends remain serialized, with terminal events scoped to the owning
 invocation. Session owns participant availability; the former SubmitCommand
@@ -179,10 +179,10 @@ Session observer, preparation phase or generic readiness gate is introduced.
 This arrangement is temporary. New invocation lifecycle and staging
 orchestration belong to `internal/interpreter` and its runtime components.
 The monolith exposes narrow admission, subscription, publication and lifetime
-capabilities while retaining direct legacy workflow callers for compatibility tests.
-Public input and staging are detached from those workflows. SubmitCommand and its
-private reservation wrapper are removed. Transfer remaining execution/publication
-capability implementations and retire legacy dispatch before removing the monolith
+capabilities. Legacy dispatch, handlers, workflows, the module runner and
+SubmitCommand are removed. Help metadata is owned by the public interpreter and
+reads its runtime registry; registry unification is deferred. Transfer remaining
+execution/publication capability implementations before removing the monolith
 (checkpoint 9). Runtime mechanics remain driven by the interpreter throughout.
 
 See [`pkg-interpreter.md`](pkg-interpreter.md).

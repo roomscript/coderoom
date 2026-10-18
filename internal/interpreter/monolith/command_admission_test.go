@@ -46,9 +46,6 @@ func TestCommandSubmission_nativeCausalPublication(t *testing.T) {
 			}
 			interp.Close()
 			assertNativeSendRecords(t, interp.Snapshot().Room.Records, scenario)
-			if len(interp.executor.commandSessions) != 0 || len(interp.executor.pendingInvocations) != 0 {
-				t.Fatal("capability path registered monolith-owned invocation state")
-			}
 		})
 	}
 }

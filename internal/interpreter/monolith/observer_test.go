@@ -40,7 +40,7 @@ func TestWithObserver_deliversInitialStateToEveryConfiguredObserver(t *testing.T
 	t.Cleanup(interp.Close)
 	receiveSubmitEvent[StateChanged](t, first)
 	receiveSubmitEvent[StateChanged](t, second)
-	mustSubmit(t, interp.Submit("/undefined"))
+	mustSubmit(t, interp.Schedule(func() { interp.Publish(UnknownCommand{Raw: "/undefined", Name: "undefined"}) }))
 	receiveSubmitEvent[UnknownCommand](t, first)
 	receiveSubmitEvent[UnknownCommand](t, second)
 }

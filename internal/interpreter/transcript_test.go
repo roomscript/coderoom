@@ -1,33 +1,34 @@
-package monolith
+package interpreter_test
 
 import (
 	"context"
 	"testing"
 	"time"
 
+	"github.com/roomscript/coderoom/internal/interpreter"
 	"github.com/roomscript/coderoom/internal/session"
 	"github.com/roomscript/coderoom/internal/shell"
 )
 
-type transcriptTestObserver struct{ events chan Event }
+type transcriptTestObserver struct{ events chan interpreter.Event }
 
-func (o transcriptTestObserver) OnEvent(event Event) { o.events <- event }
+func (o transcriptTestObserver) OnEvent(event interpreter.Event) { o.events <- event }
 
 func TestTranscriptStream_acceptancePrecedesRecordsAndCausalUpdatesPrecedeCompletion(t *testing.T) {
-	sess := newSubmitContractSession()
-	sess.execute = func(_ session.Command, observer session.Observer) {
+	sess := newRecordingSession()
+	sess.executeHook = func(_ session.Command, observer session.Observer) {
 		observer.OnEvent(session.AgentLog{Alias: testAlias("ada"), Text: "causal output"})
 	}
-	events := make(chan Event, 32)
-	interp := New(context.Background(), sess, ".", WithObserver(transcriptTestObserver{events: events}))
-	receiveSubmitEvent[StateChanged](t, events)
+	events := make(chan interpreter.Event, 32)
+	interp := interpreter.New(context.Background(), sess, ".", interpreter.WithObserver(transcriptTestObserver{events: events}))
+	receiveEvent[interpreter.StateChanged](t, events)
 	t.Cleanup(interp.Close)
 	if err := interp.Submit("/cancel ada"); err != nil {
 		t.Fatal(err)
 	}
 
 	if event := receiveTranscriptTestEvent(t, events); !isInputAccepted(event) {
-		t.Fatalf("first event = %T, want InputAccepted", event)
+		t.Fatalf("first event = %T, want interpreter.InputAccepted", event)
 	}
 	texts, versions := collectSubmissionTranscript(t, events)
 	if len(texts) != 2 || texts[0] != "/cancel ada" || texts[1] != "causal output" {
@@ -38,12 +39,12 @@ func TestTranscriptStream_acceptancePrecedesRecordsAndCausalUpdatesPrecedeComple
 	}
 }
 
-func isInputAccepted(event Event) bool {
-	_, ok := event.(InputAccepted)
+func isInputAccepted(event interpreter.Event) bool {
+	_, ok := event.(interpreter.InputAccepted)
 	return ok
 }
 
-func receiveTranscriptTestEvent(t *testing.T, events <-chan Event) Event {
+func receiveTranscriptTestEvent(t *testing.T, events <-chan interpreter.Event) interpreter.Event {
 	t.Helper()
 	select {
 	case event := <-events:
@@ -54,18 +55,18 @@ func receiveTranscriptTestEvent(t *testing.T, events <-chan Event) Event {
 	}
 }
 
-func collectSubmissionTranscript(t *testing.T, events <-chan Event) ([]string, []uint64) {
+func collectSubmissionTranscript(t *testing.T, events <-chan interpreter.Event) ([]string, []uint64) {
 	t.Helper()
 	var texts []string
 	var versions []uint64
 	for {
 		switch event := receiveTranscriptTestEvent(t, events).(type) {
-		case TranscriptChanged:
+		case interpreter.TranscriptChanged:
 			versions = append(versions, event.Delta.Version)
 			for _, update := range event.Delta.RecordUpdates {
 				texts = append(texts, update.Record.Text)
 			}
-		case SubmissionSucceeded:
+		case interpreter.SubmissionSucceeded:
 			return texts, versions
 		}
 	}
@@ -75,16 +76,16 @@ func TestTranscriptStream_shellInputAppearsBeforeCompletion(t *testing.T) {
 	for _, raw := range []string{"/shell sleep 60", "/slow"} {
 		t.Run(raw, func(t *testing.T) {
 			release := make(chan struct{})
-			runner := ShellRunnerFunc(func(ctx context.Context, _, _ string) shell.Result {
+			runner := interpreter.ShellRunnerFunc(func(ctx context.Context, _, _ string) shell.Result {
 				select {
 				case <-release:
 				case <-ctx.Done():
 				}
 				return shell.Result{Status: shell.StatusSuccess}
 			})
-			events := make(chan Event, 32)
-			interp := New(context.Background(), newSubmitContractSession(), ".", WithShellRunner(runner), WithObserver(transcriptTestObserver{events: events}))
-			receiveSubmitEvent[StateChanged](t, events)
+			events := make(chan interpreter.Event, 32)
+			interp := interpreter.New(context.Background(), newRecordingSession(), ".", interpreter.WithShellRunner(runner), interpreter.WithObserver(transcriptTestObserver{events: events}))
+			receiveEvent[interpreter.StateChanged](t, events)
 			t.Cleanup(interp.Close)
 			t.Cleanup(func() { close(release) })
 			if err := interp.Submit("/def slow /shell sleep 60"); err != nil {
@@ -99,13 +100,13 @@ func TestTranscriptStream_shellInputAppearsBeforeCompletion(t *testing.T) {
 	}
 }
 
-func waitForShellInput(t *testing.T, events <-chan Event, raw string) {
+func waitForShellInput(t *testing.T, events <-chan interpreter.Event, raw string) {
 	t.Helper()
 	for {
 		switch event := receiveTranscriptTestEvent(t, events).(type) {
-		case ShellCompleted:
+		case interpreter.ShellCompleted:
 			t.Fatal("shell completed while its runner was blocked")
-		case TranscriptChanged:
+		case interpreter.TranscriptChanged:
 			for _, update := range event.Delta.RecordUpdates {
 				if update.Record.Text == raw {
 					return

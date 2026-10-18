@@ -250,33 +250,3 @@ func assertEmptyPublicStage(t *testing.T, interp *Interpreter) {
 		t.Fatal("empty public stage operation reported work")
 	}
 }
-
-func TestStage_publicAPIsIgnoreLegacyWorkflowState(t *testing.T) {
-	interp, sess, _, events, alias := newLifecycleInterpreter(t)
-	if _, err := sess.Execute(session.SendToParticipantCommand{Plan: sess.CreateParticipantSendPlan(alias), Message: "busy"}); err != nil {
-		t.Fatal(err)
-	}
-	// Only a direct compatibility caller can create legacy staging now. It must
-	// neither gate modular commands nor appear through the public stage API.
-	if err := interp.fallback.Submit("legacy"); err != nil {
-		t.Fatal(err)
-	}
-	awaitLifecycleEvent(t, events, func(event Event) bool {
-		succeeded, ok := event.(SubmissionSucceeded)
-		return ok && succeeded.Raw == "legacy"
-	})
-	assertEmptyPublicStage(t, interp)
-	if err := interp.Submit("/who"); err != nil {
-		t.Fatal(err)
-	}
-	awaitLifecycleEvent(t, events, func(event Event) bool {
-		if rejected, ok := event.(InputRejected); ok {
-			t.Fatalf("legacy stage gated modular input: %#v", rejected)
-		}
-		succeeded, ok := event.(SubmissionSucceeded)
-		return ok && succeeded.Raw == "/who"
-	})
-	if raw, ok := interp.fallback.TakeStageForEdit(); raw != "legacy" || !ok {
-		t.Fatalf("legacy stage changed=%q, %v", raw, ok)
-	}
-}

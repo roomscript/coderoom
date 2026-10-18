@@ -27,19 +27,13 @@ func TestHelp_publishesCatalogueBeforeSubmissionCompletion(t *testing.T) {
 		usages = append(usages, entry.Usage)
 	}
 	want := []string{
-		"/policy enable send-notices", "/policy enable echo-invites", "/invite <alias>",
+		"/policy enable <name>", "/invite <alias>",
 		"/remove <alias>", "/cancel <alias>", "/handoff <from> <to>", "/shell <program>",
 		"/def <name> /shell <program>", "/<name>",
-		"/loop @<alias> <prompt> /until /<name> /max <turns>", "/who", "/help",
+		"/loop @<alias> <prompt> /until /<name> /max <turns>", "/who", "/help", "@<alias> <text>", "<text>",
 	}
 	if !reflect.DeepEqual(usages, want) {
 		t.Fatalf("command usages=%v", usages)
-	}
-	if !reflect.DeepEqual(listing.Messages, []interpreter.HelpEntry{
-		{Usage: "@<alias> <text>", Description: "send to one agent"},
-		{Usage: "<text>", Description: "broadcast to all agents"},
-	}) {
-		t.Fatalf("message entries=%#v", listing.Messages)
 	}
 	assertHelpSubmissionOutcome(t, events)
 	interp.Close()

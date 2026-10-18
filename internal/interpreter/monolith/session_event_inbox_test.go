@@ -1,6 +1,7 @@
 package monolith
 
 import (
+	"sync"
 	"testing"
 
 	"github.com/roomscript/coderoom/internal/session"
@@ -61,5 +62,32 @@ func TestSessionEventInbox_takePreservesPendingDrain(t *testing.T) {
 	}
 	if inbox.Record(session.AgentReady{Alias: testAlias("turing")}) {
 		t.Fatal("causal take cleared the pending drain marker")
+	}
+}
+
+func TestSessionEventInbox_executorDrainsCoalescedWakeups(t *testing.T) {
+	interp, sess, _ := newSubmitContractInterpreter(t)
+	entered, release := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	unblock := func() { once.Do(func() { close(release) }) }
+	t.Cleanup(unblock)
+	mustSubmit(t, interp.Schedule(func() { close(entered); <-release }))
+	receiveSignal(t, entered, "blocked lane")
+	sess.mu.Lock()
+	observer := sess.observer
+	sess.mu.Unlock()
+	for id := range 1000 {
+		observer.OnEvent(session.ApprovalCleared{ID: int64(id + 1)})
+	}
+	drained := make(chan struct{})
+	mustSubmit(t, interp.Schedule(func() { close(drained) }))
+	unblock()
+	receiveSignal(t, drained, "event drain")
+	interp.executor.inbox.mu.Lock()
+	pending := interp.executor.inbox.drainPending
+	remaining := len(interp.executor.inbox.events)
+	interp.executor.inbox.mu.Unlock()
+	if pending || remaining != 0 {
+		t.Fatalf("inbox pending=%v remaining=%d", pending, remaining)
 	}
 }

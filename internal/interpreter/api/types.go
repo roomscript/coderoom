@@ -151,7 +151,6 @@ type HelpEntry struct {
 // HelpListed reports the command metadata requested by /help.
 type HelpListed struct {
 	Commands []HelpEntry
-	Messages []HelpEntry
 }
 
 // ShellCompleted reports the structured result of a local shell command.

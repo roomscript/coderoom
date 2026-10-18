@@ -54,14 +54,18 @@ keeps worker cancellation and canonical projection until those move in a later
 checkpoint; it never adopts new lifecycle or stage policy.
 
 All commands use this path, including loops, policy, participant commands and help.
-The test-only SubmitCommand bridge and its private reservation wrapper are removed. The destination is the new interpreter replacing and removing
+SubmitCommand, its private reservation wrapper, direct legacy dispatch, handlers,
+workflows and the old module runner are removed. Help metadata now lives in the
+public interpreter, independently of handler wiring. The destination is the new interpreter replacing and removing
 the monolith. Real-Session tests cover busy/startup waiting, departures, cleanup,
 direct/partial delivery and causal ordering. Scheduled turns drain their admitted
 native executions before the next queued input can inspect readiness, preserving
 submission order without adding an execution lane.
 
-Existing implementation-file references below describe the `monolith` package
-unless qualified otherwise.
+The detailed migration history below includes superseded legacy implementation
+references. Current public command execution is entirely modular; only live
+infrastructure remains in monolith. The final documentation checkpoint will
+reconcile the historical sections.
 
 ## Current responsibility map
 
@@ -760,3 +764,25 @@ hook replaces legacy projection even when it returns nil. Legacy Submit and stag
 APIs remain only for direct compatibility tests. Scheduling, capabilities, canonical
 publication, shutdown and the existing help catalogue remain in the monolith for
 subsequent transfer. No runtime contract or registry unification changes here.
+
+### Legacy execution removal
+
+Help lists commands directly from the runtime registry in registration order,
+using Usage and Description consistently for every entry. Policy names are
+described in the policy command description; send and broadcast share the same
+list as other commands. The promptlang registry still owns named
+definitions; no registry unification or new runtime capability is introduced.
+
+Legacy Submit, stage APIs, command handlers, preparation/outcome routing, workflow
+state machines, module runner and lifecycle maps are deleted. The retained runner
+only publishes records, events and snapshots and projects Session event bursts.
+Canonical room/approval projection, execution scopes, shell workers, ordered
+publication, completion intake and shutdown remain live infrastructure for transfer.
+
+Legacy command/workflow tests are replaced by the modular public/std/runtime
+regressions established during cutover. Startup-idle-window, starting-listener and
+transcript-ordering proofs now exercise public Submit. Slow-observer shutdown,
+initial observer ordering, execution-scope isolation and inbox draining remain
+covered at their owners. The transcript port caught an ordinary-command regression:
+InputAccepted must precede its input transcript delta. Publishing acceptance and
+its caller-selected input record in one burst restores that established order.

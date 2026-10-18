@@ -13,22 +13,10 @@ func withSubmissionSource(sequence instructionSequence, statement promptlang.Par
 		return sequence
 	}
 	for index, item := range sequence {
-		switch item := item.(type) {
-		case publishEventInstruction:
+		if item, ok := item.(publishEventInstruction); ok {
 			item.event = eventWithSubmissionSource(item.event, statement)
 			sequence[index] = item
-		case executeParticipantCommandInstruction:
-			item.outcome.statement = statement
-			sequence[index] = item
-		case executeCommandInstruction:
-			item.outcome.statement = statement
-			sequence[index] = item
-		case startUserShellInstruction:
-			item.statement = statement
-			sequence[index] = item
-		case goInvocationInstruction:
-			item.outcome.statement = statement
-			sequence[index] = item
+
 		}
 	}
 	return sequence
@@ -118,18 +106,4 @@ func shellErrorSpan(statement promptlang.ParsedStatement) promptlang.Span {
 		return loop.Condition.Span
 	}
 	return executionErrorSpan(statement)
-}
-
-func (w *stageWorkflow) statement() promptlang.ParsedStatement {
-	if w.active == nil {
-		return promptlang.ParsedStatement{}
-	}
-	return w.active.source
-}
-
-func (w *loopWorkflow) statement() promptlang.ParsedStatement {
-	if w.active == nil {
-		return promptlang.ParsedStatement{}
-	}
-	return w.active.source
 }

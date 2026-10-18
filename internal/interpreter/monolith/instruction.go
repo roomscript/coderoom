@@ -1,101 +1,17 @@
 package monolith
 
-import (
-	"github.com/roomscript/coderoom/internal/interpreter/runtime"
-	"github.com/roomscript/coderoom/internal/participant"
-	"github.com/roomscript/coderoom/internal/promptlang"
-	"github.com/roomscript/coderoom/internal/room"
-	"github.com/roomscript/coderoom/internal/session"
-)
+import "github.com/roomscript/coderoom/internal/room"
 
-// Instructions describe work for the serialized runner. Preparation reads return
-// immediately; shell-launch instructions start asynchronous work.
+// Instructions describe canonical records, semantic events and snapshots on the lane.
 type instruction interface{ instruction() }
-
-type executeSessionInstruction struct {
-	target  workflowRef
-	request sessionRequest
-	// recordsOnSuccess are applied on acceptance (including partial delivery)
-	// before causal events; non-routing commands require a nil execution error.
-	recordsOnSuccess []room.Record
-}
-
-type startShellInstruction struct {
-	target  workflowRef
-	request shellRequest
-}
-
-type executeCommandInstruction struct {
-	command session.Command
-	outcome submissionOutcome
-}
-
-type startUserShellInstruction struct {
-	program   string
-	statement promptlang.ParsedStatement
-	raw       string
-	command   string
-}
-
-type executeParticipantCommandInstruction struct {
-	name    string
-	remove  bool
-	outcome submissionOutcome
-}
-
-type resolveParticipantInstruction struct {
-	target workflowRef
-	name   string
-}
-
-type prepareHandoffInstruction struct {
-	target workflowRef
-	from   string
-	to     string
-}
-
-type goInvocationInstruction struct {
-	command runtime.Command
-	context runtime.Context
-	outcome submissionOutcome
-}
-
-type prepareSendInstruction struct {
-	target workflowRef
-	alias  string
-}
-type planBroadcastInstruction struct{ target workflowRef }
-type readParticipantStateInstruction struct{ target workflowRef }
-type readHandoffSourceInstruction struct {
-	target workflowRef
-	alias  participant.Alias
-}
 type publishSnapshotInstruction struct{}
 type requestSnapshotInstruction struct{}
-
 type appendRecordInstruction struct{ record room.Record }
 type publishEventInstruction struct{ event Event }
 
-func (executeSessionInstruction) instruction()       {}
-func (startShellInstruction) instruction()           {}
-func (executeCommandInstruction) instruction()       {}
-func (startUserShellInstruction) instruction()       {}
-func (goInvocationInstruction) instruction()         {}
-func (prepareSendInstruction) instruction()          {}
-func (planBroadcastInstruction) instruction()        {}
-func (readParticipantStateInstruction) instruction() {}
-func (readHandoffSourceInstruction) instruction()    {}
-func (publishSnapshotInstruction) instruction()      {}
-func (requestSnapshotInstruction) instruction()      {}
-func (appendRecordInstruction) instruction()         {}
-func (publishEventInstruction) instruction()         {}
+func (publishSnapshotInstruction) instruction() {}
+func (requestSnapshotInstruction) instruction() {}
+func (appendRecordInstruction) instruction()    {}
+func (publishEventInstruction) instruction()    {}
 
 type instructionSequence []instruction
-
-func (executeParticipantCommandInstruction) instruction() {}
-func (resolveParticipantInstruction) instruction()        {}
-func (prepareHandoffInstruction) instruction()            {}
-
-func (s *instructionSequence) append(next instructionSequence) {
-	*s = append(*s, next...)
-}

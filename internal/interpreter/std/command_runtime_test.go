@@ -1,27 +1,12 @@
 package std_test
 
 import (
-	"reflect"
 	"testing"
 
 	"github.com/roomscript/coderoom/internal/interpreter/runtime"
 	"github.com/roomscript/coderoom/internal/interpreter/std"
-	"github.com/roomscript/coderoom/internal/participant"
 	"github.com/roomscript/coderoom/internal/promptlang"
-	"github.com/roomscript/coderoom/internal/room"
 )
-
-func TestCommandRunner_WhoCompletesImmediately(t *testing.T) {
-	var results []runtime.CommandResult
-	err := (runtime.CommandRunner{}).Go(std.WhoCommand{}, promptlang.ParsedStatement{Located: promptlang.Located[promptlang.Statement]{Value: promptlang.Who{}}}, runtime.Context{Participants: participantReader{views: []participant.View{{Alias: newTestAlias("ada")}}}}, func(c runtime.CommandResult) { results = append(results, c) })
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := []runtime.CommandResult{{Records: []room.Record{{Kind: room.KindSystem, Text: "[agents] ada"}}}}
-	if !reflect.DeepEqual(results, want) {
-		t.Fatalf("completions = %#v, want %#v", results, want)
-	}
-}
 
 func TestRegistry_Lookup(t *testing.T) {
 	registry := runtime.NewRegistry()

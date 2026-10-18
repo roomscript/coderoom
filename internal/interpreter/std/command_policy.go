@@ -20,7 +20,9 @@ func (PolicyCommand) Name() string { return "policy" }
 func (PolicyCommand) Usage() string { return "/policy enable <name>" }
 
 // Description supplies the command's help description.
-func (PolicyCommand) Description() string { return "enable a room-local policy" }
+func (PolicyCommand) Description() string {
+	return "enable send-notices (notify listeners after direct sends) or echo-invites (use deterministic echo agents)"
+}
 
 // Statement identifies the accepted parsed statement.
 func (PolicyCommand) Statement() promptlang.Statement { return promptlang.PolicyEnable{} }

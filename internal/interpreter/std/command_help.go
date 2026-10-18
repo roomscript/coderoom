@@ -39,7 +39,6 @@ func (c HelpCommand) Prepare(parsed promptlang.ParsedStatement, ctx runtime.Cont
 	}
 	listing := c.ReadHelp()
 	listing.Commands = slices.Clone(listing.Commands)
-	listing.Messages = slices.Clone(listing.Messages)
 	return &helpInvocation{listing: listing, publication: ctx.Publication}, nil
 }
 

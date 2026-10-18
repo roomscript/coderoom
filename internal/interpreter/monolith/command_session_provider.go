@@ -13,7 +13,6 @@ import (
 // The interpreter drives publication on its lane; workers may queue completions.
 type commandSessionProvider struct {
 	executor       *interpreterExecutor
-	invocation     *ownedCommand // direct legacy module ownership
 	mu             sync.Mutex
 	closed         bool
 	executions     map[*commandSession]struct{}
@@ -71,13 +70,6 @@ func (s *commandSessionProvider) close() {
 	}
 }
 
-func (s *commandSessionProvider) complete(completion invocationCompletion) {
-	s.queueCompletionWork(func() {
-		sequence := s.executor.settleInvocation(completion)
-		s.publishOutput(sequence, len(completion.completion.Records))
-	})
-}
-
 func (s *commandSessionProvider) queueCompletionWork(work func()) {
 	s.mu.Lock()
 	if s.dispatching {
@@ -124,11 +116,4 @@ func (s *commandSessionProvider) publishDelivery(e *interpreterExecutor, events 
 	items = append(items, instructionItems(after)...)
 
 	e.runner.runItems(items)
-}
-
-func (s *commandSessionProvider) release() {
-	if s.invocation != nil {
-		s.invocation.close()
-	}
-	s.close()
 }

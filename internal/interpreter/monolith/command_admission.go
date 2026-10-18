@@ -63,6 +63,17 @@ func (i *Interpreter) AdmitCommand(name string, statement promptlang.ParsedState
 	}
 }
 
+// PublishInput publishes caller-selected acceptance and input records in one burst.
+// Keeping them together lets acceptance precede the records' transcript delta.
+func (s *CommandSubmission) PublishInput(event InputAccepted, records ...room.Record) {
+	sequence := make(instructionSequence, 0, len(records)+1)
+	for _, record := range records {
+		sequence = append(sequence, appendRecordInstruction{record: record})
+	}
+	sequence = append(sequence, publishEventInstruction{event: event})
+	s.executor.runner.Run(withSubmissionSource(sequence, s.Statement))
+}
+
 // Publish publishes a caller-selected event with the submission's source metadata.
 func (s *CommandSubmission) Publish(event Event) {
 	s.executor.runner.Run(withSubmissionSource(instructionSequence{
@@ -131,8 +142,8 @@ func (s *CommandSubmission) CancelParticipant(alias participant.Alias) error {
 	return err //nolint:wrapcheck // Preserve cancellation error identity.
 }
 
-// WithNamedCommands shares the interpreter-owned definition registry with legacy
-// loop and resolution callers. Remove this bridge when those consumers migrate.
+// WithNamedCommands supplies the interpreter-owned definition registry to the
+// queued ResolveCommand read. No legacy command dispatch consumes it.
 func WithNamedCommands(commands *promptlang.Registry) Option {
 	return func(i *Interpreter) { i.model.commands = commands }
 }

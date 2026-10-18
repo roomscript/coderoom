@@ -32,12 +32,6 @@ type executorModelPort interface {
 	runtime.HistoryReader
 	Room() *room.Room
 	instructionModelPort
-	CheckInputAllowed(string) instructionSequence
-	PrepareRequest(string, promptlang.ParsedStatement) instructionSequence
-	ApplyShellResult(string, string, string, shell.Result, runtime.CommandResult, promptlang.ParsedStatement) instructionSequence
-	TakeStageForEdit() (instructionSequence, string, bool)
-	DiscardStage() (instructionSequence, bool)
-	InterruptAndDispatchStage() (instructionSequence, bool)
 	ResolveApprovalChoice(int64, ApprovalChoice) (agent.ApprovalOption, error)
 	ClearApproval(int64) bool
 	ResolveCommand(promptlang.UserCommand) (promptlang.Shell, error)
@@ -71,11 +65,8 @@ type interpreterExecutor struct {
 	shutdownCompletions []operation
 	completionsClosed   bool
 
-	nativeDeliveries   []nativeDeliveryOperation // protected by enqueueMu
-	sessionDown        bool
-	nextInvocationID   uint64
-	pendingInvocations map[uint64]submissionOutcome
-	commandSessions    map[uint64]*commandSessionProvider
+	nativeDeliveries []nativeDeliveryOperation // protected by enqueueMu
+	sessionDown      bool
 }
 
 func newInterpreterExecutor(
@@ -235,42 +226,6 @@ func (e *interpreterExecutor) participants() []participant.View {
 	return append([]participant.View(nil), e.session.Participants()...)
 }
 
-func (e *interpreterExecutor) createParticipantSendPlan(name string) session.ParticipantSendPlan {
-	return e.session.CreateParticipantSendPlan(e.participantByName(name))
-}
-
-func (e *interpreterExecutor) participantByName(name string) participant.Alias {
-	if view, ok := e.session.ParticipantByName(name); ok {
-		return view.Alias
-	}
-	return participant.Alias{Name: name}
-}
-
-func (e *interpreterExecutor) planBroadcast() []participant.Alias {
-	var targets []participant.Alias
-	for _, value := range e.session.Participants() {
-		if value.Status != participant.StatusCrashed {
-			targets = append(targets, value.Alias)
-		}
-	}
-	sortParticipantAliases(targets)
-	return targets
-}
-
-func (e *interpreterExecutor) participantState() []participantState {
-	return participantStates(e.session.Participants())
-}
-
-// Preserve actual lifecycle status and startup readiness in one planning read.
-// Crashed participants remain present so unknown aliases can be distinguished.
-func participantStates(participants []participant.View) []participantState {
-	states := make([]participantState, 0, len(participants))
-	for _, value := range participants {
-		states = append(states, participantState{alias: value.Alias, status: value.Status, executionID: value.ActiveExecutionID, startupPending: !value.StartupReady})
-	}
-	return states
-}
-
 func (op snapshotOperation) apply(e *interpreterExecutor) {
 	op.result <- e.refreshSnapshot()
 }
@@ -291,7 +246,6 @@ func (shutdownOperation) apply(e *interpreterExecutor) {
 	if e.onShutdown != nil {
 		e.onShutdown()
 	}
-	e.failPendingInvocations()
 	e.operations.Close()
 	e.refreshSnapshot()
 	e.model.Close()
@@ -313,7 +267,6 @@ func (e *interpreterExecutor) refreshSnapshot() Snapshot {
 		Room:         model.room,
 		Participants: append([]participant.View(nil), e.session.Participants()...),
 		Approval:     model.approval,
-		Stage:        model.stage,
 	}
 	if e.stageSnapshot != nil {
 		snapshot.Stage = e.stageSnapshot()

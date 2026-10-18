@@ -231,7 +231,7 @@ User command checkpoint:
 - Existing legacy handlers remain for direct monolith compatibility until removal
   at checkpoint 9. Registry ownership and public command execution have moved out.
 
-Current checkpoint: public legacy input/stage fallback and SubmitCommand are removed. Continue checkpoint 9 by transferring live infrastructure with its tests and retiring direct legacy dispatch/runner consumers before monolith removal.
+Current checkpoint: public fallback, SubmitCommand, direct legacy dispatch, handlers, workflows and the old module runner are removed. Help metadata is public-interpreter-owned. Continue checkpoint 9 with live infrastructure transfer and monolith package removal.
 
 Checkpoint 6, first agreed substep: runtime.ExecutionCompleted now carries the
 ExecutionID returned by Session.Execute alongside the actual routing outcome,
@@ -537,8 +537,9 @@ SubmitCommand and its private primary-reservation provider are now removed.
 Only the public interpreter package imports monolith in production. It still needs
 that package's scheduling, execution scopes, shell workers, room projection,
 approvals, snapshots, source-aware publication, event dispatcher and shutdown.
-Help still reads the existing catalogue there. These are live infrastructure,
-not removable legacy handlers.
+Help now lists the existing runtime registry directly in registration order;
+each command supplies its Usage and Description for one unified help list. Monolith contains live
+infrastructure only.
 
 The first focused removal diff detached public input, stage APIs and admission
 from legacy workflows while preserving stage-before-validation rejection, source
@@ -553,10 +554,32 @@ and capability protocol tests replace the bridge's duplicate delivery cases.
 The old mixed legacy/native primary-reservation test is retired with that private
 restriction; native same-primary admission and serialized public send tests remain.
 SubmitCommand, its submission operation, reservation wrapper, map and scope close
-hook are removed. The direct legacy module runner still has callers (who/shell
-and legacy tests), so its lifecycle ownership stays until legacy dispatch removal.
-Next, transfer cohesive live infrastructure with its tests and retire remaining
-legacy-only consumers; do not remove the runner while those callers remain.
+hook are removed. Direct legacy dispatch and its consumers are now also removed:
+old Submit/stage APIs, handlers, workflow preparation/outcome routing, module runner,
+owned-command wrappers and pending lifecycle maps. The now-unused runtime
+CommandRunner helper and its launcher-only tests are also removed; lifecycle
+fixtures and direct shell-launch failure coverage remain. The retained instruction runner
+only publishes records/events/snapshots and projects Session event bursts.
+
+Legacy-test disposition:
+
+- Parser/handler/help checks: public dispatch, submit API and help catalogue tests.
+- Definition/shell/source checks: public user, shell, submission-source and transcript tests.
+- Loop/stage/handoff checks: public, std and runtime regressions from each cutover.
+- Startup-window and starting-listener proofs: ported to public Submit.
+- Transcript order and blocked-shell input proofs: ported to public Submit.
+- Slow-observer accepted-submission flushing: ported to public Submit/Close.
+- Initial observers, dispatcher FIFO/slow observers, execution scopes, protocol
+  validation, causal publication and inbox wakeup/draining proofs remain with owners.
+- The legacy coexistence test is retired because there is no legacy stage left.
+
+The transcript port exposed an existing migration regression for ordinary commands:
+InputAccepted followed its input transcript delta. Acceptance and caller-selected
+records now publish in one burst, restoring acceptance-before-transcript ordering.
+This is a correction to the preserved contract, not a runtime capability change.
+Help uses registry order and each command's Usage and Description in one list,
+without registry unification or an additional help metadata interface.
+Next, transfer cohesive live infrastructure with its tests and remove monolith.
 
 ## Pre-removal test coverage checkpoint
 

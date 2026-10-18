@@ -10,9 +10,9 @@ The public `internal/interpreter` entry point owns all command dispatch,
 invocation lifecycles and staging. It retains current methods and option signatures.
 The monolith temporarily supplies execution, projection, publication and shutdown
 infrastructure. Public input no longer falls back to legacy handlers. SubmitCommand
-and its private primary-reservation wrapper are removed; direct legacy handlers
-and their runner remain for compatibility tests until removal. Front ends keep
-their existing imports.
+and its private primary-reservation wrapper are removed. Direct legacy dispatch,
+handlers, workflows and the module runner are also removed. Help lists runtime registry entries in registration order. Commands supply Usage and Description for one unified help list; there is no
+separate command catalogue or help metadata interface. Front ends keep their existing imports.
 Shared events, snapshots, errors and record inspection live in
 `internal/interpreter/api`, with aliases on both interfaces to preserve one set of
 contracts and avoid a parent-package import cycle.

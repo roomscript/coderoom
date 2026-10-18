@@ -98,7 +98,8 @@ and rejects late callbacks.
 
 ## Current proof and next step
 
-Contracts and `CommandRunner` live in `runtime`; commands live in `std`.
+Contracts and InvocationLifecycle live in `runtime`; commands live in `std`.
+The unused legacy CommandRunner helper is removed.
 The new interpreter owns `InvocationLifecycle` construction, Start, ProcessEvents,
 Complete and Close, including its pending identity map. It schedules its own algorithm on the
 shared lane and calls monolith admission/capability/publication APIs explicitly.
@@ -123,7 +124,7 @@ The UI receives transcript deltas, with no `/who` result branch.
 
 `/shell` uses the same path and returns its command record on completion. The
 shell capability retains `ShellCompleted` for compatibility. Execution failures
-are separate from submission success; loop execution remains legacy.
+are separate from submission success; loop execution uses the modular lifecycle.
 `runtime.Registry.Register(command)` indexes the type returned by `Statement()`.
 `Lookup(parsed)` selects the command; metadata comes from the command itself.
 All seven commands are registered. `SendCommand` retains Session's send plan,
@@ -142,8 +143,8 @@ delivery, queued completion work runs before causal events; accepted input recor
 publish before those events, terminal outcomes afterward. `WithShutdown` notifies
 the new interpreter after execution/results drain so it can close its remaining
 lifecycles. Explicit close and context cancellation follow the same path.
-The SubmitCommand bridge is removed. Direct legacy handlers retain their runner
-until the remaining monolith implementation is removed.
+SubmitCommand, direct legacy dispatch, handlers, workflows and their module runner
+are removed. The monolith contains execution/projection/publication infrastructure only.
 
 Real-Session tests through the new interpreter prove busy/startup waiting,
 required departure, close while waiting, direct/partial delivery, causal ordering
@@ -179,8 +180,8 @@ same submission milestones and partial-routing publication as addressed sends.
 Context.NamedCommands exposes Define and Resolve through NamedCommandRegistry.
 promptlang.Registry remains the implementation and owns validation and unevaluated
 bodies. The interpreter owns one registry per instance; the temporary monolith
-WithNamedCommands bridge shares it with legacy loop and queued ResolveCommand calls.
-All access runs on the serialized lane. Remove the bridge when those callers migrate.
+WithNamedCommands bridge supplies it to queued ResolveCommand reads only.
+All access runs on the serialized lane. Move that read with the infrastructure.
 
 DefineCommand prepares a definition invocation; Go stores the body and queues its
 confirmation record. The interpreter publishes that record before submission

@@ -407,8 +407,6 @@ func (m Model) renderHelp(help interpreter.HelpListed) Model {
 	text.WriteString("[help]\n\nCommands:\n")
 	writeHelpEntries(&text, help.Commands)
 	writeHelpEntries(&text, m.applicationHelpEntries())
-	text.WriteString("\nSending messages:\n")
-	writeHelpEntries(&text, help.Messages)
 	text.WriteString("\n")
 	text.WriteString(helpKeysText)
 	m.room = m.room.AppendSystem(text.String())

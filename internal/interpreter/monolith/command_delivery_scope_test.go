@@ -296,7 +296,7 @@ func TestExecutionCapability_shutdownDrainsAdmittedDelivery(t *testing.T) {
 	submission.session.mu.Lock()
 	retained := len(submission.session.executions)
 	submission.session.mu.Unlock()
-	if retained != 0 || len(interp.executor.pendingInvocations) != 0 {
-		t.Fatal("shutdown retained execution scopes or created legacy invocation ownership")
+	if retained != 0 {
+		t.Fatal("shutdown retained execution scopes")
 	}
 }

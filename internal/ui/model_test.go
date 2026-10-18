@@ -290,8 +290,10 @@ func TestWho_noAgents(t *testing.T) {
 func TestRenderHelp_includesMetadataAndUIShortcuts(t *testing.T) {
 	m := makeReadyModel(t)
 	m = m.renderHelp(interpreter.HelpListed{
-		Commands: []interpreter.HelpEntry{{Usage: "/example", Description: "run example"}},
-		Messages: []interpreter.HelpEntry{{Usage: "@<alias> <text>", Description: "send message"}},
+		Commands: []interpreter.HelpEntry{
+			{Usage: "/example", Description: "run example"},
+			{Usage: "@<alias> <text>", Description: "send message"},
+		},
 	})
 	for _, text := range []string{"/example", "run example", "@<alias> <text>", "Ctrl+O"} {
 		if !hasRecord(m, record.KindSystem, text) {

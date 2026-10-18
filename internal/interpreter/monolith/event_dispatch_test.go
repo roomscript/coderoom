@@ -78,61 +78,10 @@ func TestClose_flushesPublishedEventsThroughObservers(t *testing.T) {
 	}
 }
 
-func TestClose_flushesAcceptedSubmissionOutcome(t *testing.T) {
-	entered := make(chan struct{})
-	release := make(chan struct{})
-	delivered := make(chan Event, 3)
-	interp, sess := newSubmitContractInterpreterWithoutCleanup(t, WithObserver(blockingAcceptedObserver{
-		entered:   entered,
-		release:   release,
-		delivered: delivered,
-	}))
-	receiveSubmitEvent[StateChanged](t, delivered)
-
-	mustSubmit(t, interp.Submit("/cancel ada"))
-	receiveSignal(t, entered, "input acceptance delivery")
-	receiveSubmitCommand(t, sess.executed)
-	closed := make(chan struct{})
-	go func() {
-		interp.Close()
-		close(closed)
-	}()
-	assertNoSignal(t, closed, "Close returned before submission outcome was delivered")
-	close(release)
-	receiveSignal(t, closed, "Close")
-
-	if _, ok := (<-delivered).(InputAccepted); !ok {
-		t.Fatal("first event was not InputAccepted")
-	}
-	if _, ok := (<-delivered).(StateChanged); !ok {
-		t.Fatal("second event was not StateChanged")
-	}
-	if _, ok := (<-delivered).(SubmissionSucceeded); !ok {
-		t.Fatal("terminal event was not SubmissionSucceeded")
-	}
-}
-
 type blockingEventObserver struct {
 	entered   chan struct{}
 	release   chan struct{}
 	delivered chan Event
-}
-
-type blockingAcceptedObserver struct {
-	entered   chan struct{}
-	release   chan struct{}
-	delivered chan Event
-}
-
-func (o blockingAcceptedObserver) OnEvent(event Event) {
-	if _, transcript := event.(TranscriptChanged); transcript {
-		return
-	}
-	if _, accepted := event.(InputAccepted); accepted {
-		close(o.entered)
-		<-o.release
-	}
-	o.delivered <- event
 }
 
 func (o blockingEventObserver) OnEvent(event Event) {

@@ -1,79 +1,9 @@
 package monolith
 
-import (
-	"github.com/roomscript/coderoom/internal/participant"
-	"github.com/roomscript/coderoom/internal/promptlang"
-	"github.com/roomscript/coderoom/internal/session"
-	"github.com/roomscript/coderoom/internal/shell"
-)
-
-// Preparation facts return synchronously on the serialized runner.
-type preparationResult interface{ preparationResult() }
-
-// Execution outcomes arrive after causal session events or asynchronous shell work.
-type executionOutcome interface{ executionOutcome() }
-
-type sessionOutcome struct {
-	routing session.RoutingResult
-	target  workflowRef
-	err     error
-}
-
-type shellOutcome struct {
-	target  workflowRef
-	request shellRequest
-	result  shell.Result
-	cwd     string
-}
+import "github.com/roomscript/coderoom/internal/promptlang"
 
 type submissionOutcome struct {
 	statement promptlang.ParsedStatement
 	raw       string
 	operation string
-	err       error
 }
-
-type sendPlanResult struct {
-	participants []participantState
-	target       workflowRef
-	plan         session.ParticipantSendPlan
-}
-
-type broadcastPlanResult struct {
-	target  workflowRef
-	targets []participant.Alias
-}
-
-type participantStateResult struct {
-	target                workflowRef
-	readinessRequirements []participantState
-}
-
-type handoffSourceResult struct {
-	target workflowRef
-	source session.HandoffSource
-	ok     bool
-}
-
-type participantAliasResult struct {
-	target workflowRef
-	alias  participant.Alias
-}
-
-type handoffPlanResult struct {
-	target       workflowRef
-	from         participant.Alias
-	to           participant.Alias
-	participants []participantState
-}
-
-func (participantAliasResult) preparationResult() {}
-func (handoffPlanResult) preparationResult()      {}
-
-func (sessionOutcome) executionOutcome()          {}
-func (shellOutcome) executionOutcome()            {}
-func (submissionOutcome) executionOutcome()       {}
-func (sendPlanResult) preparationResult()         {}
-func (broadcastPlanResult) preparationResult()    {}
-func (participantStateResult) preparationResult() {}
-func (handoffSourceResult) preparationResult()    {}

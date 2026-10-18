@@ -33,7 +33,7 @@ func New(ctx context.Context, sess SessionController, cwd string, opts ...Option
 
 func newInterpreter(ctx context.Context, sess SessionController, cwd string, definitions *promptlang.Registry, opts ...Option) *Interpreter {
 	i := &Interpreter{namedCommands: definitions}
-	i.commands = newCommandRegistry(func() HelpListed { return i.fallback.ReadHelp() })
+	i.commands = newCommandRegistry(i.readHelp)
 	i.fallback = monolith.New(ctx, sess, cwd, func(fallback *monolith.Interpreter) {
 		i.fallback = fallback
 		monolith.WithNamedCommands(i.namedCommands)(fallback)
@@ -51,8 +51,8 @@ func newCommandRegistry(readHelp func() HelpListed) *runtime.Registry {
 	registry := runtime.NewRegistry()
 	for _, command := range []runtime.Command{
 		std.PolicyCommand{}, std.InviteCommand{}, std.RemoveCommand{}, std.CancelCommand{},
-		std.HelpCommand{ReadHelp: readHelp}, std.WhoCommand{}, std.ShellCommand{}, std.SendCommand{}, std.BroadcastCommand{},
-		std.HandoffCommand{}, std.DefineCommand{}, std.UserCommand{}, std.LoopCommand{},
+		std.HandoffCommand{}, std.ShellCommand{}, std.DefineCommand{}, std.UserCommand{}, std.LoopCommand{},
+		std.WhoCommand{}, std.HelpCommand{ReadHelp: readHelp}, std.SendCommand{}, std.BroadcastCommand{},
 	} {
 		if err := registry.Register(command); err != nil {
 			panic(err)

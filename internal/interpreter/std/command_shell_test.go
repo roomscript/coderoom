@@ -101,7 +101,12 @@ func TestShellCommand_DirectInputSuppliesDisplayCommand(t *testing.T) {
 func TestShellCommand_LaunchFailure(t *testing.T) {
 	failure := errors.New("launch failure")
 	launcher := &shellLauncher{err: failure}
-	err := (runtime.CommandRunner{}).Go(std.ShellCommand{}, shellStatement("true"), runtime.Context{Shell: launcher}, func(runtime.CommandResult) {
+	invocation, err := (std.ShellCommand{}).Prepare(shellStatement("true"), runtime.Context{Shell: launcher})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer invocation.Close()
+	err = invocation.Go(func(runtime.CommandResult) {
 		t.Fatal("launch failure must not report execution completion")
 	})
 	if !errors.Is(err, failure) {

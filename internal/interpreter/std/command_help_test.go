@@ -9,7 +9,7 @@ import (
 )
 
 func TestHelpCommand_capturesDetachedListingAndPublishesBeforeCompletion(t *testing.T) {
-	listing := api.HelpListed{Commands: []api.HelpEntry{{Usage: "/test"}}, Messages: []api.HelpEntry{{Usage: "text"}}}
+	listing := api.HelpListed{Commands: []api.HelpEntry{{Usage: "/test"}, {Usage: "text"}}}
 	publication := &loopPublication{}
 	reads := 0
 	command := std.HelpCommand{ReadHelp: func() api.HelpListed { reads++; return listing }}
@@ -18,7 +18,7 @@ func TestHelpCommand_capturesDetachedListingAndPublishesBeforeCompletion(t *test
 		t.Fatal(err)
 	}
 	defer invocation.Close()
-	listing.Commands[0].Usage, listing.Messages[0].Usage = "changed", "changed"
+	listing.Commands[0].Usage, listing.Commands[1].Usage = "changed", "changed"
 	if reads != 1 || len(publication.events) != 0 || invocation.Staging() != nil {
 		t.Fatal("preparation did not perform only a catalogue read")
 	}
@@ -57,7 +57,7 @@ func TestHelpCommand_requiresStatementReadAndPublication(t *testing.T) {
 func assertDetachedHelp(t *testing.T, events []api.Event, count int) {
 	t.Helper()
 	result := events[0].(api.HelpListed)
-	if count != 1 || result.Commands[0].Usage != "/test" || result.Messages[0].Usage != "text" {
+	if count != 1 || result.Commands[0].Usage != "/test" || result.Commands[1].Usage != "text" {
 		t.Fatalf("listing=%#v completions=%d", result, count)
 	}
 }

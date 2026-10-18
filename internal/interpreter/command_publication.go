@@ -37,14 +37,15 @@ func (p *invocationPublication) Publish(records []room.Record, events ...Event) 
 func (p *invocationPublication) publishInput(staging *runtime.Staging) {
 	submission := p.submission
 	event := InputAccepted{Raw: submission.Statement.Raw}
+	var records []room.Record
 	if isDeliveryStatement(submission.Statement) {
 		for _, alias := range stagingRouting(staging) {
 			event.Routing = append(event.Routing, alias.Name)
 		}
 	} else {
-		p.interpreter.fallback.AppendRecord(room.Record{Kind: room.KindUserInput, Text: event.Raw})
+		records = []room.Record{{Kind: room.KindUserInput, Text: event.Raw}}
 	}
-	submission.Publish(event)
+	submission.PublishInput(event, records...)
 }
 
 func (p *invocationPublication) publishSubmission(err error) {
