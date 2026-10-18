@@ -83,14 +83,14 @@ alias: ada
 role: reviewer
 ```
 
-Supported fields in V1:
+Supported fields:
 
 - `alias`
 - `role`
+- `backend` (added later; see `docs/design/multi-backend-config.md`)
 
-No additional fields are read in the initial implementation. A participant
-definition is optional; `/invite <alias>` may still be used without a matching
-YAML file.
+A participant definition is optional; `/invite <alias>` may still be used
+without a matching YAML file.
 
 ### Validation
 
@@ -163,8 +163,8 @@ from the YAML definition and should not be constrained by a built-in enum or
 hardcoded role list. Role validity comes from the presence of the corresponding
 role prompt file.
 
-Version 1 assumes a single backend: `codex`. Backend selection is not part of
-participant configuration in this design.
+Version 1 assumed a single backend, `codex`. Backend selection was added to
+participant configuration later, in `docs/design/multi-backend-config.md`.
 
 The session remains the owner of:
 

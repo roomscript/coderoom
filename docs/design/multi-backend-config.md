@@ -1,7 +1,8 @@
 # Design: multi-backend participant configuration
 
-Status: **draft**. Decisions agreed in discussion are marked **Decided**;
-everything else is a proposal.
+Status: **implemented**, apart from registering Claude, which follows as its
+own step (see Delivery). Decisions agreed in discussion are marked
+**Decided**; the rest records how it was built.
 
 With the Claude Code adapter (`pkg-agent-claude.md`), coderoom has more than
 one real agent backend. This document covers how a participant's backend is
@@ -32,7 +33,7 @@ configured, validated, built and shown.
 
 ---
 
-## Today
+## Before this change
 
 - `config.Config.ForParticipant(alias)` reads
   `.coderoom/participants/<alias>.yaml` and the role prompt **at invite
@@ -123,7 +124,7 @@ repository root.
 `ConfiguredBackends` returns built-in types rather than `[]BackendRequest` so
 the registry can consume it without importing `config`.
 
-`Load` fails on anything that fails today at invite (malformed YAML, alias
+`Load` fails on anything that used to fail at invite (malformed YAML, alias
 and filename mismatch, missing role prompt), but for every file, at startup.
 It reports every broken file, not only the first. Only `*.yaml` files directly
 in the participants directory are read. `Participant` only rejects an invalid
@@ -305,10 +306,10 @@ exist only to warn early. **Decided.**
   ```
 
 - There is no timeout. A check that hangs only means no early warning, which
-  is today's behaviour. Checks run under the session context, so their
+  was the behaviour before. Checks run under the session context, so their
   processes are killed when coderoom exits.
 - `/invite` never waits for a check and never re-runs one. It starts the agent
-  as today; a missing tool shows up as the adapter's own start error.
+  as before; a missing tool shows up as the adapter's own start error.
 - Inviting a participant **cancels the check for its backend**. Starting the
   agent tests more than the check does, a late "unavailable" line would
   contradict what the user already sees, and two first-time `npx` runs of the
@@ -396,8 +397,8 @@ Registering Claude follows as its own step.
 | Package | Change |
 |---|---|
 | `internal/agent` | `Agent.Name()`; `ExternalDependencies`, `Dependency`; test fakes implement `Name()` |
-| `internal/agent/{codex,claude,echo}` | `Name()`; Codex and Claude list their dependencies; `claude.NewLogObserver` |
-| `internal/agent/registry` (new) | constructors, `Build`, `ValidateConfig`, `VerifyDependencies` |
+| `internal/agent/{codex,claude,echo}` | `Name()`; Codex lists its dependencies. Pending, with Claude's registration: Claude's dependencies, `claude.NewLogObserver` |
+| `internal/agent/registry` (new) | constructors, `NewDefault`, `Build`, `ValidateConfig`, `VerifyDependencies` |
 | `internal/config` | `backend` field, `BackendRequest`, `Defaults`, `Load`, `Config`, change detection |
 | `internal/session` | uses the loaded `Config`; `AgentBackend` removed; factory returns an error; invite rollback; name copied into `View`; change notice; runs and cancels dependency checks; a "backend unavailable" event |
 | `internal/participant` | `View` gains the backend name |
