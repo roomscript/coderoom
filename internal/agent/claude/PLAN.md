@@ -4,20 +4,20 @@ The working plan for the Claude Code backend. Written on 15 October 2026; kept n
 
 ## Status
 
-Updated on 18 October 2026.
+Updated on 19 October 2026.
 
 - Phase 1 (spike): **done.** Report: `docs/playground/poc-claude-stream-json.md`. Playground: `playground/claude-stream-json/`.
 - Integration approach: **decided.** Direct integration with the claude CLI over stream-json from Go (option A below), the same pattern as Codex app-server.
 - Phase 2 (gap analysis): **done.** Design: `docs/design/pkg-agent-claude.md`. Decided on 16 October 2026: keepalive postponed, `acceptForSession` supported, backend in the participant config, `AskUserQuestion` disallowed, self-started turns prevented and defended, `agent-record` instead of `claude-record`, tools that reach outside the room disallowed.
 - Phase 3 (implementation): **adapter done, not wired in.** See the phase 3 list for what is left and where it moved.
-- Multi-backend configuration: **done** on the `backend-config` branch, awaiting review and merge. Codex is the only registered backend.
+- Multi-backend configuration: **merged** to main. Codex is the only registered backend; registering Claude is next.
 
 ## Merge order
 
 The remaining work is split so that shared changes reach main in small steps instead of piling up on this branch.
 
 1. **Adapter package, not wired in.** Independent review, then merge `internal/agent/claude` to main. Nothing calls it, so users see no change.
-2. **Multi-backend configuration** (done, branch `backend-config`): `docs/design/multi-backend-config.md`. Steps, one commit each:
+2. **Multi-backend configuration** (merged): `docs/design/multi-backend-config.md`. Steps, one commit each:
    1. `agent.Agent` gains `Name()`; the optional `agent.ExternalDependencies` interface (Codex, echo, test fakes; Claude has `Name()` only).
    2. `config`: `backend` field, `CODEROOM_BACKEND` default, load at startup, change notice on `/invite`.
    3. `internal/agent/registry`: backend registry, startup validation, dependency checks reported in the room; one factory in `cmd/coderoom`.

@@ -23,7 +23,8 @@ fix introduces.
 For stateful changes, trace ownership and transitions across layers. Examine
 admission, waiting, execution, completion, failure, cancellation, and shutdown
 where applicable. Flag duplicated decisions, contradictory states, and cleanup
-paths that obscure lifecycle guarantees.
+paths that obscure lifecycle guarantees. Check that no lock is held while
+observers or callbacks run (see `docs/code-review.md`).
 
 Assess structural complexity against the repository's review guide. Report
 concrete consequences for correctness, extension, or maintainability rather

@@ -90,6 +90,25 @@ if !condition {
 
 ---
 
+## Concurrency
+
+### No foreign code under a lock
+
+Do not call observers, callbacks, or any function passed in from outside the
+package while holding a lock. Release the lock first. A callback may call back
+into the code that holds the lock, so holding it invites deadlocks and imposes
+a rule on every caller.
+
+If an ordering guarantee seems to need the lock held across the call, weigh it
+against those costs. Prefer making the guarantee best effort, or moving the
+ordering to a single queue, over keeping the lock. Document any exception next
+to the lock.
+
+For example, `session.Session` copies its observer list under its mutex and
+calls the observers after releasing it.
+
+---
+
 ## Testing
 
 ### Table-driven vs named test functions
