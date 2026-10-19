@@ -29,10 +29,21 @@ func thinkingDeltaLine(text string) string {
 	return `{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"` + text + `"}}}`
 }
 
-// replayLine is Claude echoing a prompt back (--replay-user-messages).
+// replayLine is Claude echoing the test's first prompt back
+// (--replay-user-messages).
 func replayLine(prompt string) string {
+	return replayLineID(prompt, promptID(1))
+}
+
+// replayLineID is Claude echoing a prompt sent with uuid id.
+func replayLineID(prompt, id string) string {
 	b, _ := json.Marshal(prompt)
-	return `{"type":"user","message":{"role":"user","content":` + string(b) + `},"isReplay":true}`
+	return `{"type":"user","uuid":"` + id + `","message":{"role":"user","content":` + string(b) + `},"isReplay":true}`
+}
+
+// promptID is the uuid startPeer's client sends with its nth prompt.
+func promptID(n int) string {
+	return "prompt-" + strconv.Itoa(n)
 }
 
 func toolUseLine(id, name, input string) string {
@@ -374,8 +385,8 @@ func TestDecode_replaySignalled(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out.signal != signalReplay {
-		t.Errorf("signal = %v, want signalReplay", out.signal)
+	if out.signal != signalReplay || out.replayID != promptID(1) {
+		t.Errorf("decoded = %+v, want signalReplay with the prompt's uuid", out)
 	}
 }
 

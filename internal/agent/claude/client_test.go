@@ -38,6 +38,8 @@ func startPeer(t *testing.T, script string, opts ...Option) *Client {
 	t.Helper()
 	opts = append([]Option{WithCommand("sh", "-c", script)}, opts...)
 	c := New(t.TempDir(), opts...)
+	var n int
+	c.newPromptID = func() string { n++; return promptID(n) }
 	if err := c.Start(); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -383,7 +385,7 @@ func TestRead_replayNotOursSummarisedOnce(t *testing.T) {
 	// Then the test's own turn marks the end.
 	c := startPeer(t, peerScript(
 		[]string{lineInitOK, lineSystemInit, lineMessageStart, lineTextStart, textDeltaLine("tick"), lineBlockStop,
-			replayLine("not ours"), lineResultOK},
+			replayLineID("not ours", "someone-else"), lineResultOK},
 		[]string{lineSystemInit, replayLine("hi"), lineResultOK},
 	))
 	readUntil(t, c, isLog)
@@ -536,6 +538,54 @@ func TestInterrupt_releasesPromptWithoutTurn(t *testing.T) {
 	}
 	if _, err := c.Send("next"); err != nil {
 		t.Errorf("Send after Interrupt: %v", err)
+	}
+}
+
+func TestRead_lateReplayOfReleasedPrompt(t *testing.T) {
+	// Interrupt releases "old"; Claude answers it after "new" was sent.
+	// The old turn must not complete the new prompt's turn.
+	oldFailed := `{"type":"result","subtype":"error_during_execution","is_error":true,"terminal_reason":"aborted_streaming"}`
+	tests := []struct {
+		name    string
+		oldTurn []string // after the old prompt's replay
+	}{
+		{"old answer streams", []string{lineMessageStart, lineTextStart, textDeltaLine("old answer"), lineBlockStop, lineResultOK}},
+		{"old turn ends without output", []string{oldFailed}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			late := append([]string{lineSystemInit, replayLineID("old", promptID(1))}, tt.oldTurn...)
+			late = append(late, lineSystemInit, replayLineID("new", promptID(2)), lineMessageStart, lineTextStart,
+				textDeltaLine("new answer"), lineBlockStop, lineResultOK)
+			c := startPeer(t, peerScript(
+				[]string{lineInitOK},
+				[]string{lineSystemInit, lineMessageStart, lineTextStart, textDeltaLine("tick"), lineBlockStop, lineResultOK},
+				[]string{}, // the interrupt
+				late,
+			))
+			if _, err := c.Send("old"); err != nil {
+				t.Fatal(err)
+			}
+			readUntil(t, c, isLog) // the self-started turn's summary
+			if err := c.Interrupt(); err != nil {
+				t.Fatal(err)
+			}
+			readUntil(t, c, isAnchorFlush) // the release
+			if _, err := c.Send("new"); err != nil {
+				t.Fatal(err)
+			}
+
+			msgs := readUntil(t, c, isAnchorFlush)
+			var reply []agent.Message
+			for _, m := range msgs[:len(msgs)-1] {
+				if !isLog(m) {
+					reply = append(reply, m)
+				}
+			}
+			if out, _ := accumulate(t, reply).Content.(agent.Output); out.Text != "new answer" {
+				t.Errorf("reply = %q, want the new answer (messages %+v)", out.Text, msgs)
+			}
+		})
 	}
 }
 

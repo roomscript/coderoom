@@ -98,8 +98,14 @@ The adapter owns the turn boundary: every turn ends with exactly one `result`.
 - `SendNotice` returns `claude:notice-turn`, flushed the same way, as codex.
 - The replayed user message (`isReplay: true`, about 1 s after the write) decides
   whose turn it is: a turn is ours once Claude replays the prompt `Send` or
-  `SendNotice` wrote. The text is not compared: only one prompt can be
-  pending, and Claude may change it. Recordings show the order `system/init`,
+  `SendNotice` wrote. Each prompt is sent with a random `uuid`, which Claude
+  echoes in the replay (checked live on 2.1.303); the replay claims the turn
+  only if the uuid matches the pending prompt. The text is not compared,
+  since Claude may change it. A replay with another uuid is of a prompt
+  `Interrupt` released (below), and its turn is marked self-started at the
+  replay, so it cannot be claimed for the pending prompt even if it ends
+  without output. Without the uuid, a late answer to the released prompt
+  would complete the next prompt's turn. Recordings show the order `system/init`,
   replay, first output in every turn, so model output before the replay
   belongs to a turn Claude started on its own (see
   [Self-started turns](#self-started-turns)). Any `stream_event` counts as
@@ -119,7 +125,9 @@ The adapter owns the turn boundary: every turn ends with exactly one `result`.
   `Interrupt` recovers from it: a prompt that outlived a turn without being
   claimed is released with a `Log` and the anchor flush. A prompt that has
   seen no turn end yet is left alone, since Claude may be about to start its
-  turn; releasing it would leave the room idle while the turn runs.
+  turn; releasing it would leave the room idle while the turn runs. If
+  Claude answers a released prompt after all, its replay carries the old
+  uuid, so the answer is summarised instead of joining a later turn.
 
 This answers open question 8: the anchor is adapter-local and needs no protocol
 id.

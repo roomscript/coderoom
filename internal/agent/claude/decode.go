@@ -28,6 +28,7 @@ type decoded struct {
 	msgs            []agent.Message
 	streamed        bool // a stream_event: the model is producing output
 	signal          turnSignal
+	replayID        string // the replayed prompt's uuid, with signalReplay
 	result          resultLine
 	controlRequest  *controlRequestLine
 	controlResponse *controlResponseLine
@@ -248,7 +249,7 @@ func (d *decoder) decodeUser(raw []byte) (decoded, error) {
 		if !line.IsReplay {
 			return decoded{}, nil // a prompt we did not write, such as a sub-agent's
 		}
-		return decoded{signal: signalReplay}, nil
+		return decoded{signal: signalReplay, replayID: line.UUID}, nil
 	}
 	var blocks []toolResultBlock
 	if err := json.Unmarshal(line.Message.Content, &blocks); err != nil {

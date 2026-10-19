@@ -5,6 +5,7 @@ package claude
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -49,8 +50,9 @@ const (
 
 // pendingPrompt is a prompt written to Claude and not replayed yet.
 type pendingPrompt struct {
-	notice   bool // written by SendNotice
-	outlived bool // a turn ended without answering it
+	id       string // the uuid sent with it, echoed in its replay
+	notice   bool   // written by SendNotice
+	outlived bool   // a turn ended without answering it
 }
 
 // Client implements agent.Agent for Claude Code. Calls must not be made
@@ -63,6 +65,7 @@ type Client struct {
 
 	startTimeout time.Duration
 	stopGrace    time.Duration
+	newPromptID  func() string // replaced by tests for predictable replays
 	queue        *queue[agent.Message]
 	dec          *decoder // stdout reader goroutine only
 
@@ -152,7 +155,10 @@ func WithCommand(name string, args ...string) Option {
 // New returns a Client that will run Claude Code in the given working
 // directory.
 func New(cwd string, opts ...Option) *Client {
-	c := &Client{proc: newProc(cwd), obs: noopObserver{}, startTimeout: defaultStartTimeout, stopGrace: stopGracePeriod}
+	c := &Client{
+		proc: newProc(cwd), obs: noopObserver{}, newPromptID: newUUID,
+		startTimeout: defaultStartTimeout, stopGrace: stopGracePeriod,
+	}
 	for _, o := range opts {
 		o(c)
 	}
@@ -233,10 +239,11 @@ func (c *Client) SendNotice(prompt string) (agent.StreamID, error) {
 }
 
 func (c *Client) writePrompt(prompt string, notice bool) error {
-	if err := c.admitPrompt(notice); err != nil {
+	id := c.newPromptID()
+	if err := c.admitPrompt(id, notice); err != nil {
 		return err
 	}
-	if err := c.writeJSON(newUserMessage(prompt)); err != nil {
+	if err := c.writeJSON(newUserMessage(prompt, id)); err != nil {
 		c.dropPrompt()
 		return err
 	}
@@ -338,7 +345,7 @@ func (c *Client) waitExited(d time.Duration) bool {
 
 // admitPrompt records the prompt about to be written. Only one prompt
 // can be waiting or running, and none while Claude runs a turn of its own.
-func (c *Client) admitPrompt(notice bool) error {
+func (c *Client) admitPrompt(id string, notice bool) error {
 	if c.queue == nil {
 		return errors.New("claude: client not started")
 	}
@@ -347,7 +354,7 @@ func (c *Client) admitPrompt(notice bool) error {
 	if c.turn.owner != ownerNone || c.turn.pending != nil {
 		return agent.ErrTurnInProgress
 	}
-	c.turn.pending = &pendingPrompt{notice: notice}
+	c.turn.pending = &pendingPrompt{id: id, notice: notice}
 	return nil
 }
 
@@ -399,4 +406,13 @@ func (c *Client) withStderrTail(err error) error {
 		return err
 	}
 	return fmt.Errorf("%w; stderr: %s", err, strings.Join(c.stderrTail.lines, "\n"))
+}
+
+// newUUID returns a random version 4 UUID.
+func newUUID() string {
+	var b [16]byte
+	_, _ = rand.Read(b[:]) // crypto/rand.Read never returns an error
+	b[6] = b[6]&0x0f | 0x40
+	b[8] = b[8]&0x3f | 0x80
+	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
 }

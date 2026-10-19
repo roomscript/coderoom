@@ -117,7 +117,7 @@ func (c *Client) handleLine(line []byte) {
 	case signalInit:
 		c.noteTurnStart()
 	case signalReplay:
-		c.notePromptReplayed()
+		c.notePromptReplayed(d.replayID)
 	case signalNone, signalResult:
 	}
 	c.deliver(d)
@@ -173,13 +173,15 @@ func (c *Client) noteTurnStart() {
 	}
 }
 
-// notePromptReplayed claims the turn when Claude replays our prompt. Only
-// our prompt can be pending, so the text is not compared: Claude may change
-// it. A replay inside a turn Claude started on its own takes over that turn:
-// the output so far is summarised, and items still open are dropped, so
-// their remaining output is ignored instead of joining our turn.
-func (c *Client) notePromptReplayed() {
-	if !c.claimReplayedTurn() {
+// notePromptReplayed claims the turn when Claude replays the pending prompt,
+// recognised by the uuid sent with it; the text is not compared, since
+// Claude may change it. A replay with another uuid is of a prompt Interrupt
+// released; its turn is handled as self-started. A replay inside a turn
+// Claude started on its own takes over that turn: the output so far is
+// summarised, and items still open are dropped, so their remaining output
+// is ignored instead of joining our turn.
+func (c *Client) notePromptReplayed(id string) {
+	if !c.claimReplayedTurn(id) {
 		return
 	}
 	c.dec.flushOpen()
@@ -187,12 +189,19 @@ func (c *Client) notePromptReplayed() {
 	c.selfTurnText.Reset()
 }
 
-// claimReplayedTurn claims the turn for the pending prompt. It reports
-// whether that took over a turn Claude started on its own.
-func (c *Client) claimReplayedTurn() (tookOver bool) {
+// claimReplayedTurn claims the turn for the pending prompt if id is its
+// uuid. It reports whether that took over a turn Claude started on its own.
+// A replay of another prompt marks a turn with no owner yet as self-started
+// at once, so it cannot be claimed for the pending prompt when it ends with
+// no output.
+func (c *Client) claimReplayedTurn(id string) (tookOver bool) {
 	c.turn.mu.Lock()
 	defer c.turn.mu.Unlock()
-	if c.turn.pending == nil {
+	if c.turn.pending == nil || c.turn.pending.id != id {
+		if c.turn.owner == ownerUnknown || c.turn.owner == ownerNone {
+			c.turn.owner = ownerSelf
+			c.selfTurnText.Reset()
+		}
 		return false
 	}
 	tookOver = c.turn.owner == ownerSelf

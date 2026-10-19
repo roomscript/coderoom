@@ -92,6 +92,7 @@ type userLine struct {
 	} `json:"message"`
 	ToolUseResult json.RawMessage `json:"tool_use_result"`
 	IsReplay      bool            `json:"isReplay"`
+	UUID          string          `json:"uuid"` // on a replay, the uuid we sent
 }
 
 type toolResultBlock struct {
@@ -182,6 +183,7 @@ type hunk struct {
 
 type userMessage struct {
 	Type            string          `json:"type"`
+	UUID            string          `json:"uuid"` // echoed in the replay
 	Message         userMessageBody `json:"message"`
 	ParentToolUseID *string         `json:"parent_tool_use_id"`
 	SessionID       string          `json:"session_id"`
@@ -192,9 +194,10 @@ type userMessageBody struct {
 	Content string `json:"content"`
 }
 
-func newUserMessage(text string) userMessage {
+func newUserMessage(text, id string) userMessage {
 	return userMessage{
 		Type:      typeUser,
+		UUID:      id,
 		Message:   userMessageBody{Role: "user", Content: text},
 		SessionID: "default",
 	}

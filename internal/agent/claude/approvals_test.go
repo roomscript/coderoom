@@ -375,7 +375,7 @@ func TestPermission_pendingRequestEndsWithItsTurn(t *testing.T) {
 		[]string{lineSystemInit, replayLine("one"), canUseToolLineID("perm-1", "Bash", `{"command":"ls"}`, `[]`)},
 		// The interrupt ends the turn while perm-1 is still pending.
 		[]string{lineResultOK},
-		[]string{lineSystemInit, replayLine("two"), canUseToolLineID("perm-2", "Bash", `{"command":"ls"}`, `[]`)},
+		[]string{lineSystemInit, replayLineID("two", promptID(2)), canUseToolLineID("perm-2", "Bash", `{"command":"ls"}`, `[]`)},
 		[]string{lineResultOK},
 	), WithApprovalListener(l), WithObserver(obs))
 
