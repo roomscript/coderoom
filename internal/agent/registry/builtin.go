@@ -3,6 +3,7 @@ package registry
 import (
 	"github.com/roomscript/coderoom/internal/agent"
 	"github.com/roomscript/coderoom/internal/agent/codex"
+	"github.com/roomscript/coderoom/internal/agent/wirelog"
 )
 
 // NewDefault returns a registry of the backends users can configure.
@@ -20,7 +21,7 @@ func Codex(cwd string, o Options) agent.Agent {
 		opts = append(opts, codex.WithContext(o.Context))
 	}
 	if o.Log != nil {
-		opts = append(opts, codex.WithObserver(codex.NewLogObserver(o.Log, o.Alias)))
+		opts = append(opts, codex.WithObserver(wirelog.New(o.Log, o.Alias)))
 	}
 	return codex.New(cwd, opts...)
 }

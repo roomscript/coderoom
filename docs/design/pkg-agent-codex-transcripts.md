@@ -118,7 +118,7 @@ adapter behavior that tests care about:
 - normalized approval request / decision pairs
 
 The fixture format is **not** the same as the current debug wire log. The
-current `LogObserver` is intended for humans. Transcript fixtures need a stable
+current `wirelog.Observer` is intended for humans. Transcript fixtures need a stable
 machine-readable schema.
 
 ---

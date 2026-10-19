@@ -10,6 +10,7 @@ import (
 
 	"github.com/roomscript/coderoom/internal/agent"
 	"github.com/roomscript/coderoom/internal/agent/codex"
+	"github.com/roomscript/coderoom/internal/agent/wirelog"
 )
 
 var logDir = flag.String("logdir", "", "directory to write Codex wire logs into (if empty, uses the test temp dir)")
@@ -35,7 +36,7 @@ func wireObserverForTest(t *testing.T) codex.ProtocolObserver {
 	}
 	t.Logf("codex wire log: %s", f.Name())
 	t.Cleanup(func() { _ = f.Close() })
-	return codex.NewLogObserver(f, "codex")
+	return wirelog.New(f, "codex")
 }
 
 func startClient(t *testing.T, c agent.Agent) {

@@ -259,8 +259,8 @@ The constructors live in the registry package (`registry.Codex`), which maps
 registry.
 
 `--agent-log` works for every backend: each constructor wraps `Options.Log`
-in its own protocol log observer (`codex.NewLogObserver`, and a new
-`claude.NewLogObserver`), tagged with `Options.Alias`.
+in the shared protocol log observer (`wirelog.New`), tagged with
+`Options.Alias`. Its methods match every adapter's `ProtocolObserver`.
 
 ---
 
@@ -410,7 +410,8 @@ Registering Claude follows as its own step.
 | Package | Change |
 |---|---|
 | `internal/agent` | `Agent.Name()`; `ExternalDependencies`, `Dependency`; test fakes implement `Name()` |
-| `internal/agent/{codex,claude,echo}` | `Name()`; Codex lists its dependencies. Pending, with Claude's registration: Claude's dependencies, `claude.NewLogObserver` |
+| `internal/agent/{codex,claude,echo}` | `Name()`; Codex lists its dependencies. Pending, with Claude's registration: Claude's dependencies |
+| `internal/agent/depcheck`, `internal/agent/wirelog` (new) | dependency checks and the `--agent-log` observer, moved out of `codex` so Claude shares them |
 | `internal/agent/registry` (new) | constructors, `NewDefault`, `Build`, `ValidateConfig`, `VerifyDependencies` |
 | `internal/config` | `backend` field, `BackendRequest`, `Defaults`, `Load`, `Config`, change detection |
 | `internal/session` | uses the loaded `Config`; `AgentBackend` removed; factory returns an error; invite rollback; name copied into `View`; change notice; runs and cancels dependency checks; a "backend unavailable" event |

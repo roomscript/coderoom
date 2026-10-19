@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 )
 
 // writeFakeNpx puts an npx script on a PATH of its own. The script succeeds
@@ -68,73 +67,5 @@ func TestExternalDependencies(t *testing.T) {
 				t.Fatalf("first failing check = %d, want %d", got, tt.wantFailure)
 			}
 		})
-	}
-}
-
-func TestExternalDependenciesCancelKillsChildren(t *testing.T) {
-	dir := t.TempDir()
-	started := filepath.Join(dir, "started")
-	beat := filepath.Join(dir, "beat")
-	// npx stands in for a launcher whose child outlives it unless killed.
-	script := "#!/bin/sh\n" +
-		"(while :; do echo x >> '" + beat + "'; sleep 0.02; done) &\n" +
-		"touch '" + started + "'\n" +
-		"wait\n"
-	if err := os.WriteFile(filepath.Join(dir, "npx"), []byte(script), 0o755); err != nil { //nolint:gosec // test script must be executable
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
-	t.Setenv("CODEX_VERSION_OVERRIDE", "")
-
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	deps := New(t.TempDir()).ExternalDependencies()
-	go func() { done <- deps[1].Verify(ctx) }()
-	waitForFile(t, started)
-	waitForFile(t, beat)
-	cancel()
-	if err := <-done; err == nil {
-		t.Fatal("expected error from a cancelled check")
-	}
-
-	before := fileSize(t, beat)
-	time.Sleep(200 * time.Millisecond)
-	if after := fileSize(t, beat); after != before {
-		t.Fatalf("child still running after cancellation: heartbeat grew from %d to %d bytes", before, after)
-	}
-}
-
-func waitForFile(t *testing.T, path string) {
-	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		if _, err := os.Stat(path); err == nil {
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("timed out waiting for %s", path)
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-}
-
-func fileSize(t *testing.T, path string) int64 {
-	t.Helper()
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return info.Size()
-}
-
-func TestExternalDependenciesStopsOnCancel(t *testing.T) {
-	writeFakeNpx(t, "@openai/codex")
-	t.Setenv("CODEX_VERSION_OVERRIDE", "")
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	deps := New(t.TempDir()).ExternalDependencies()
-	if err := deps[1].Verify(ctx); err == nil {
-		t.Fatal("expected error from a cancelled check")
 	}
 }
