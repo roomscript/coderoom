@@ -189,29 +189,55 @@ func TestPermission_declinedWithoutValidDecision(t *testing.T) {
 }
 
 func TestPermission_selfStartedTurnDenied(t *testing.T) {
-	obs := &recordingObserver{}
-	l := &fakeListener{choice: agent.OptionAccept}
-	// After the handshake Claude starts a turn on its own and asks to run a
-	// command; the turn ends once the request is answered.
-	c := startPeer(t, peerScript(
-		[]string{lineInitOK, lineSystemInit, toolUseLine("toolu_1", "Bash", `{"command":"ls"}`),
-			canUseToolLine("Bash", `{"command":"ls"}`, `[]`)},
-		[]string{lineResultOK},
-	), WithApprovalListener(l), WithObserver(obs))
+	webFetchStart := `{"type":"stream_event","event":{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_1","name":"WebFetch"}}}`
+	tests := []struct {
+		name      string
+		sendFirst bool // a prompt is pending when the turn starts
+		turn      []string
+	}{
+		{"mapped tool", false, []string{lineSystemInit, toolUseLine("toolu_1", "Bash", `{"command":"ls"}`),
+			canUseToolLine("Bash", `{"command":"ls"}`, `[]`)}},
+		// The decoder maps nothing for WebFetch; the stream event alone shows
+		// the turn is not ours.
+		{"unmapped tool", false, []string{lineSystemInit, lineMessageStart, webFetchStart,
+			toolUseLine("toolu_1", "WebFetch", `{"url":"https://example.com"}`),
+			canUseToolLine("WebFetch", `{"url":"https://example.com"}`, `[]`)}},
+		{"unmapped tool before the replay", true, []string{lineSystemInit, lineMessageStart, webFetchStart,
+			toolUseLine("toolu_1", "WebFetch", `{"url":"https://example.com"}`),
+			canUseToolLine("WebFetch", `{"url":"https://example.com"}`, `[]`)}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			obs := &recordingObserver{}
+			l := &fakeListener{choice: agent.OptionAccept}
+			// Claude starts a turn on its own and asks for a tool; the turn
+			// ends once the request is answered.
+			steps := [][]string{append([]string{lineInitOK}, tt.turn...), {lineResultOK}}
+			if tt.sendFirst {
+				steps = [][]string{{lineInitOK}, tt.turn, {lineResultOK}}
+			}
+			c := startPeer(t, peerScript(steps...), WithApprovalListener(l), WithObserver(obs))
+			if tt.sendFirst {
+				if _, err := c.Send("hi"); err != nil {
+					t.Fatal(err)
+				}
+			}
 
-	msgs := readUntil(t, c, func(m agent.Message) bool {
-		log, ok := m.Content.(agent.Log)
-		return ok && strings.Contains(log.Text, "on its own:")
-	})
-	if !slices.ContainsFunc(msgs[:len(msgs)-1], isLog) {
-		t.Errorf("messages = %+v, want a log for the denial before the turn summary", msgs)
-	}
-	sent := obs.sentLines()
-	if answer := parseSentPermission(t, sent[len(sent)-1]); answer.Behavior != "deny" || answer.Message != selfTurnMessage {
-		t.Errorf("response = %+v, want deny for a self-started turn", answer)
-	}
-	if n := len(l.requests()); n != 0 {
-		t.Errorf("listener called %d times, want 0", n)
+			msgs := readUntil(t, c, func(m agent.Message) bool {
+				log, ok := m.Content.(agent.Log)
+				return ok && strings.Contains(log.Text, "on its own:")
+			})
+			if !slices.ContainsFunc(msgs[:len(msgs)-1], isLog) {
+				t.Errorf("messages = %+v, want a log for the denial before the turn summary", msgs)
+			}
+			sent := obs.sentLines()
+			if answer := parseSentPermission(t, sent[len(sent)-1]); answer.Behavior != "deny" || answer.Message != selfTurnMessage {
+				t.Errorf("response = %+v, want deny for a self-started turn", answer)
+			}
+			if n := len(l.requests()); n != 0 {
+				t.Errorf("listener called %d times, want 0", n)
+			}
+		})
 	}
 }
 

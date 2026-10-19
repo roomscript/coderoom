@@ -26,6 +26,7 @@ const (
 // decoded is everything the client needs from one stdout line.
 type decoded struct {
 	msgs            []agent.Message
+	streamed        bool // a stream_event: the model is producing output
 	signal          turnSignal
 	result          resultLine
 	controlRequest  *controlRequestLine
@@ -139,11 +140,11 @@ func (d *decoder) decodeStreamEvent(raw []byte) (decoded, error) {
 	case eventContentBlockStart:
 		d.startBlock(ev)
 	case eventContentBlockDelta:
-		return decoded{msgs: d.blockDelta(ev)}, nil
+		return decoded{msgs: d.blockDelta(ev), streamed: true}, nil
 	case eventContentBlockStop:
-		return decoded{msgs: d.stopBlock(ev.Index)}, nil
+		return decoded{msgs: d.stopBlock(ev.Index), streamed: true}, nil
 	}
-	return decoded{}, nil
+	return decoded{streamed: true}, nil
 }
 
 func (d *decoder) startBlock(ev streamEvent) {

@@ -378,6 +378,52 @@ func TestRead_replayDuringSelfStartedTurn(t *testing.T) {
 	}
 }
 
+func TestRead_replayNotOursSummarisedOnce(t *testing.T) {
+	// A replay arrives in a self-started turn while no prompt is pending.
+	// Then the test's own turn marks the end.
+	c := startPeer(t, peerScript(
+		[]string{lineInitOK, lineSystemInit, lineMessageStart, lineTextStart, textDeltaLine("tick"), lineBlockStop,
+			replayLine("not ours"), lineResultOK},
+		[]string{lineSystemInit, replayLine("hi"), lineResultOK},
+	))
+	readUntil(t, c, isLog)
+	if _, err := c.Send("hi"); err != nil {
+		t.Fatal(err)
+	}
+
+	msgs := readUntil(t, c, isAnchorFlush)
+	if slices.ContainsFunc(msgs, isLog) {
+		t.Errorf("messages = %+v, want the self-started turn summarised once", msgs)
+	}
+}
+
+func TestRead_replayTakesOverWithOpenCommand(t *testing.T) {
+	// A command from the self-started part is still running when the replay
+	// arrives; its result must not surface in our turn.
+	c := startPeer(t, peerScript(
+		[]string{lineInitOK},
+		[]string{
+			lineSystemInit, lineMessageStart, toolUseLine("toolu_1", "Bash", `{"command":"ls"}`),
+			replayLine("hi"),
+			toolResultLine("toolu_1", `"a.txt"`, false, `{"stdout":"a.txt","stderr":""}`),
+			lineMessageStart, lineTextStart, textDeltaLine("ok"), lineBlockStop, lineResultOK,
+		},
+	))
+
+	if _, err := c.Send("hi"); err != nil {
+		t.Fatal(err)
+	}
+	msgs := readUntil(t, c, isAnchorFlush)
+	for _, m := range msgs {
+		if m.StreamID == "claude:command:toolu_1" {
+			t.Errorf("self-started command delivered in our turn: %+v", m)
+		}
+	}
+	if out, _ := accumulate(t, msgs[1:len(msgs)-1]).Content.(agent.Output); out.Text != "ok" {
+		t.Errorf("reply = %q, want ok", out.Text)
+	}
+}
+
 // A turn that ends with no replay and no output answers the pending
 // prompt, as a local slash command does.
 func TestRead_turnWithoutReplayIsOurs(t *testing.T) {

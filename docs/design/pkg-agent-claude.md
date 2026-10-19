@@ -3,11 +3,10 @@
 Status: **implemented**, registered as backend `claude`. Decisions agreed on
 16 October 2026 are marked **Decided**. Evidence: `docs/playground/poc-claude-stream-json.md` (E1 to E10).
 
-Scope of the current step: a new `agent.Agent` implementation in
-`internal/agent/claude`, with **no changes to other packages**. Where the
-analysis shows that another package should change, it is listed under
-[Changes outside the package](#changes-outside-the-package) for discussion, and
-the adapter-only fallback is described.
+The adapter was built in `internal/agent/claude` without changes to other
+packages. Backend selection and registration came after it
+(`multi-backend-config.md`). [Changes outside the package](#changes-outside-the-package)
+lists what is done and what remains.
 
 ---
 
@@ -101,11 +100,15 @@ The adapter owns the turn boundary: every turn ends with exactly one `result`.
   whose turn it is: a turn is ours once Claude replays the prompt `Send` or
   `SendNotice` wrote. The text is not compared: only one prompt can be
   pending, and Claude may change it. Recordings show the order `system/init`,
-  replay, first output in every turn, so output before the replay belongs to
-  a turn Claude started on its own (see
-  [Self-started turns](#self-started-turns)). If the replay arrives inside
-  such a turn, the turn becomes ours from there; the output before it is
-  summarised. A turn that ends before any replay or output is ours if our
+  replay, first output in every turn, so model output before the replay
+  belongs to a turn Claude started on its own (see
+  [Self-started turns](#self-started-turns)). Any `stream_event` counts as
+  model output, even one the decoder maps to nothing, such as an unmapped
+  tool. A local slash command's synthetic assistant message has no stream
+  events, so it does not count. If the replay arrives inside a self-started
+  turn, the turn becomes ours from there: the output before it is
+  summarised, and items still open are dropped, so their remaining output
+  is ignored instead of joining our turn. A turn that ends before any replay or output is ours if our
   prompt is pending: an API error or a local slash command ends it without a
   replay. A `result` with no `system/init` counts the same. A `user` message
   with string content but no `isReplay` (a sub-agent's prompt) is ignored.
@@ -127,6 +130,10 @@ its own commands instead of passing it to the model. Checked live on 2.1.303:
   events, no model call. Before the turn claiming rules above, this left the
   client busy until `Stop`.
 - `/nonexistent` (not a command) reached the model and was replayed.
+- `!touch bang.txt` and `#remember …`, the bash and memory shortcuts of the
+  interactive mode, reached the model and were replayed. Nothing ran
+  locally: the model chose a Bash call for the first, which asked for
+  approval through `can_use_tool`. Only a leading `/` needs escaping.
 - `/clear`, `/compact` and `/model` would act on the participant's session
   behind the room's back.
 
@@ -288,7 +295,7 @@ Adapter-only approach:
    the background switch removes `run_in_background` from Bash, so the call
    fails validation. The model may then fall back to a shell `(...) &`, which
    Claude does not track and cannot start a turn from.
-2. **Defend:** a turn whose first output arrives before our prompt is
+2. **Defend:** a turn whose first stream event arrives before our prompt is
    replayed is self-started (see [Turn anchor](#turn-anchor)). The adapter
    suppresses its stream messages, emits one `Log` summarising it ("agent
    started a turn on its own: …" with the final text), and returns
@@ -336,16 +343,11 @@ cheap; none of these has a role in a room. Broader isolation stays with #59.
 
 ## Changes outside the package
 
-Not part of the current step. Listed because they are needed for the phase 3
-"done when" or for full fidelity.
+Needed for the phase 3 "done when" or for full fidelity.
 
 | Change | Package | Why | Adapter-only fallback |
 |---|---|---|---|
-| Select the Claude backend on `/invite` | `config` (a `backend` field in `.coderoom/participants/<alias>.yaml`, default `codex`), `session` (`AgentBackend`), `cmd/coderoom` (factory) | **Required** to use the adapter in a room at all. Today `/invite` always builds Codex unless the echo policy is on. **Decided:** backend lives in the participant config, and is shown wherever the participant appears (invite line, `/who`) so it is not hidden. An `/invite` flag can be added later as an override | none; without it the adapter is only reachable from tests |
+| Select the Claude backend on `/invite` | `config`, `internal/agent/registry`, `session`, `cmd/coderoom` | **Done:** the `backend` field in the participant config, shown wherever the participant appears (invite line, `/who`). See `multi-backend-config.md`. An `/invite` flag can be added later as an override | not needed |
 | Generic transcript recorder | rename `cmd/codex-record` to `cmd/agent-record`; `internal/transcript` (backend-neutral `Config` and version field, existing Codex fixtures stay readable) | phase 3 replay fixtures. The actions, expectations, observer and record loop are already backend-neutral; only config, version field, client construction and a hard-coded notice anchor are Codex-specific. Replay peers stay per backend. **Decided:** `agent-record`. Discuss the concrete changes when it is needed | a test helper inside the package |
 | Question approvals (free-form options, answers in the decision) | `agent` (`ApprovalRequest`/`ApprovalDecision`), `session`, `ui` | structured `AskUserQuestion` (later, optional) | disallowed; the model asks in its reply (above) |
 | Agent-initiated turns | `agent` (a way to signal one), `session` (accept output while idle, mark the participant working) | background work and cron | prevent + defend (above) |
-
-The first row is the only one the current step cannot do without. Proposal:
-implement and test the adapter in isolation, then make the `/invite` change as a
-small, separate step once the adapter passes its replay and integration tests.

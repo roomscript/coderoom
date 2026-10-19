@@ -99,6 +99,7 @@ type Client struct {
 	exited   chan struct{}
 
 	lifecycle struct {
+		parent   context.Context // ends when the caller ends the lifecycle
 		ctx      context.Context
 		cancelFn context.CancelFunc
 		readers  sync.WaitGroup
@@ -118,6 +119,7 @@ func WithObserver(obs ProtocolObserver) Option {
 // Cancelling it stops the process, as Stop does.
 func WithContext(ctx context.Context) Option {
 	return func(c *Client) {
+		c.lifecycle.parent = ctx
 		c.lifecycle.ctx, c.lifecycle.cancelFn = context.WithCancel(ctx) //nolint:gosec // cancel stored in cancelFn, called on process exit and in Stop()
 	}
 }
@@ -154,6 +156,7 @@ func New(cwd string, opts ...Option) *Client {
 		o(c)
 	}
 	if c.lifecycle.ctx == nil {
+		c.lifecycle.parent = context.Background()
 		c.lifecycle.ctx, c.lifecycle.cancelFn = context.WithCancel(context.Background()) // #nosec G118 -- cancel called on process exit and in Stop()
 	}
 	return c
@@ -343,9 +346,11 @@ func (c *Client) writeJSON(v any) error {
 	if err != nil {
 		return fmt.Errorf("claude encode: %w", err)
 	}
+	// The observer runs outside the lock, so the order of logged lines
+	// between concurrent writers is best effort.
+	c.obs.OnSend(string(b))
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
-	c.obs.OnSend(string(b))
 	if _, err := c.proc.stdin.Write(append(b, '\n')); err != nil {
 		return fmt.Errorf("claude write: %w", err)
 	}

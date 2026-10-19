@@ -32,12 +32,17 @@ func (c *Client) startWorkers() {
 	}()
 }
 
-// stopOnCancel stops the process when the lifecycle context ends. The
-// approval worker exits then, so a running process would wait forever on
-// its next permission request.
+// stopOnCancel stops the process when the parent context ends. The approval
+// worker exits with the lifecycle, so a running process would wait forever
+// on its next permission request. It watches the parent, not the lifecycle
+// context, which process exit also cancels.
+//
+// It may call Stop while Start is still in the handshake. That is safe,
+// unlike an outside Stop during Start: the go statement in startWorkers
+// comes after Start has set every field Stop reads.
 func (c *Client) stopOnCancel() {
 	select {
-	case <-c.lifecycle.ctx.Done():
+	case <-c.lifecycle.parent.Done():
 		_ = c.Stop()
 	case <-c.exited:
 	}
@@ -115,7 +120,7 @@ func (c *Client) handleLine(line []byte) {
 		c.notePromptReplayed()
 	case signalNone, signalResult:
 	}
-	c.deliver(d.msgs)
+	c.deliver(d)
 	if d.signal == signalResult {
 		c.endTurn(d.result)
 	}
@@ -170,24 +175,29 @@ func (c *Client) noteTurnStart() {
 
 // notePromptReplayed claims the turn when Claude replays our prompt. Only
 // our prompt can be pending, so the text is not compared: Claude may change
-// it. A replay inside a turn Claude started on its own takes over that turn;
-// the output so far is summarised.
+// it. A replay inside a turn Claude started on its own takes over that turn:
+// the output so far is summarised, and items still open are dropped, so
+// their remaining output is ignored instead of joining our turn.
 func (c *Client) notePromptReplayed() {
-	if c.claimReplayedTurn() == ownerSelf {
-		c.queue.push(logMessage(describeSelfTurn(c.selfTurnText.String(), resultLine{})))
+	if !c.claimReplayedTurn() {
+		return
 	}
+	c.dec.flushOpen()
+	c.queue.push(logMessage(describeSelfTurn(c.selfTurnText.String(), resultLine{})))
+	c.selfTurnText.Reset()
 }
 
-// claimReplayedTurn claims the turn for the pending prompt and returns the
-// previous owner.
-func (c *Client) claimReplayedTurn() turnOwner {
+// claimReplayedTurn claims the turn for the pending prompt. It reports
+// whether that took over a turn Claude started on its own.
+func (c *Client) claimReplayedTurn() (tookOver bool) {
 	c.turn.mu.Lock()
 	defer c.turn.mu.Unlock()
-	owner := c.turn.owner
-	if c.turn.pending != nil {
-		c.claimPromptLocked()
+	if c.turn.pending == nil {
+		return false
 	}
-	return owner
+	tookOver = c.turn.owner == ownerSelf
+	c.claimPromptLocked()
+	return tookOver
 }
 
 // claimPromptLocked makes the running turn the answer to the pending
@@ -203,12 +213,15 @@ func (c *Client) claimPromptLocked() {
 
 // deliver queues messages for Read(). A notice turn's reply goes through
 // the notice filter. A self-started turn's output is summarised at its end
-// instead: the session drops stream fragments for idle participants. Output
-// before our prompt is replayed means Claude started the turn on its own.
-func (c *Client) deliver(msgs []agent.Message) {
-	if len(msgs) == 0 {
+// instead: the session drops stream fragments for idle participants. Model
+// output before our prompt is replayed means Claude started the turn on its
+// own. Any stream event counts, even one the decoder maps to nothing (an
+// unmapped tool), so the turn's permission requests are denied.
+func (c *Client) deliver(d decoded) {
+	if len(d.msgs) == 0 && !d.streamed {
 		return
 	}
+	msgs := d.msgs
 	switch c.claimOutput() {
 	case ownerSelf:
 		for _, m := range msgs {
