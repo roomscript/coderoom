@@ -27,7 +27,6 @@ const (
 type decoded struct {
 	msgs            []agent.Message
 	signal          turnSignal
-	replay          string // the replayed prompt, with signalReplay
 	result          resultLine
 	controlRequest  *controlRequestLine
 	controlResponse *controlResponseLine
@@ -248,7 +247,7 @@ func (d *decoder) decodeUser(raw []byte) (decoded, error) {
 		if !line.IsReplay {
 			return decoded{}, nil // a prompt we did not write, such as a sub-agent's
 		}
-		return decoded{signal: signalReplay, replay: prompt}, nil
+		return decoded{signal: signalReplay}, nil
 	}
 	var blocks []toolResultBlock
 	if err := json.Unmarshal(line.Message.Content, &blocks); err != nil {

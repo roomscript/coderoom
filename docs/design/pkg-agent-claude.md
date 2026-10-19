@@ -82,7 +82,7 @@ ListAgents,SendMessage,PushNotification,RemoteTrigger
 | Method | Fit | Claude mechanism |
 |---|---|---|
 | `Start()` | fits | spawn; send `control_request{subtype: initialize}`; block until the matching `control_response` (under 3 s in E1). Unlike Codex, there is no thread to create: the session id appears only with the first turn's `system/init` |
-| `Send(prompt)` | fits | write `{"type":"user","message":{"role":"user","content":prompt},…}`; return the turn anchor (below). `ErrTurnInProgress` while a turn is in flight, as codex |
+| `Send(prompt)` | fits | write `{"type":"user","message":{"role":"user","content":prompt},…}`; return the turn anchor (below). `ErrTurnInProgress` while a turn is in flight, as codex. A leading `/` is escaped, see [Prompts starting with /](#prompts-starting-with-) |
 | `SendNotice(prompt)` | fits with a weaker guarantee | same prompt prefix and `{` heuristic as codex: reply text starting with `{` is held until the turn ends and dropped if it is a JSON object with `"acknowledge": true`; any other reply is relayed as `Reasoning` on `claude:notice-relay`. Thinking is dropped; tool calls, approvals and logs pass through, as with Codex delivery notices. **Gap:** Codex also sends a per-turn output schema; Claude's `--json-schema` is per process and not enforced (E7), so the instruction is prompt-only. Haiku complied in the live test |
 | `Read()` | fits | translate stdout lines (mapping below); stderr lines as `Log`; error only when the process exits. Lines have no length limit (one line can carry a whole file); a read error is logged and the process killed, so `Read()` returns an error instead of hanging |
 | `Interrupt()` | fits | `control_request{subtype: interrupt}`. The turn then ends with `result{subtype: error_during_execution, terminal_reason: aborted_streaming}`, or `aborted_tools` when interrupted during an approval; the adapter treats it as a normal turn end (Log + anchor flush), not a `Read()` error. No-op when idle |
@@ -98,16 +98,48 @@ The adapter owns the turn boundary: every turn ends with exactly one `result`.
   flushing any open item streams.
 - `SendNotice` returns `claude:notice-turn`, flushed the same way, as codex.
 - The replayed user message (`isReplay: true`, about 1 s after the write) decides
-  whose turn it is: a turn is ours once Claude replays the exact prompt `Send`
-  or `SendNotice` wrote. Recordings show the order `system/init`, replay, first output in
-  every turn, so output before the replay belongs to a turn Claude started on
-  its own (see [Self-started turns](#self-started-turns)). A turn that ends
-  before any replay or output is ours only if it failed while our prompt was
-  pending (an API error can end it before the replay). A `user` message with
-  string content but no `isReplay` (a sub-agent's prompt) is ignored.
+  whose turn it is: a turn is ours once Claude replays the prompt `Send` or
+  `SendNotice` wrote. The text is not compared: only one prompt can be
+  pending, and Claude may change it. Recordings show the order `system/init`,
+  replay, first output in every turn, so output before the replay belongs to
+  a turn Claude started on its own (see
+  [Self-started turns](#self-started-turns)). If the replay arrives inside
+  such a turn, the turn becomes ours from there; the output before it is
+  summarised. A turn that ends before any replay or output is ours if our
+  prompt is pending: an API error or a local slash command ends it without a
+  replay. A `result` with no `system/init` counts the same. A `user` message
+  with string content but no `isReplay` (a sub-agent's prompt) is ignored.
+- One case still leaves the client busy until `Stop`: a self-started turn with
+  output that ends while our prompt is pending, followed by a turn answering
+  the prompt without a replay. Not observed; self-started turns are prevented.
 
 This answers open question 8: the anchor is adapter-local and needs no protocol
 id.
+
+### Prompts starting with /
+
+Room text reaches `Send` unchanged, so "@ada /clear the cache" arrives as
+`/clear the cache`. Claude Code runs a prompt that starts with `/` as one of
+its own commands instead of passing it to the model. Checked live on 2.1.303:
+
+- `/cost` printed usage locally: `system/init`, one assistant message with
+  model `<synthetic>`, then a successful `result`. No replay, no stream
+  events, no model call. Before the turn claiming rules above, this left the
+  client busy until `Stop`.
+- `/nonexistent` (not a command) reached the model and was replayed.
+- `/clear`, `/compact` and `/model` would act on the participant's session
+  behind the room's back.
+
+`Send` puts a backslash before a leading `/` (`\/clear the cache`), and the
+model reads it as text. A visible escape was chosen over a leading space,
+which also worked, because a space is easy to miss in logs and diffs and
+would break if Claude started trimming prompts.
+
+`TestClientLiveSlashPrompt` guards this, since only a live run notices a
+change in Claude's rules. It sends `/cost …` and expects a reply: `/cost` is
+harmless, and run locally it streams no output, so an empty reply means the
+escape stopped working. If room users should ever run such commands, they
+need a coderoom command that the adapter maps, not text passed through.
 
 ---
 

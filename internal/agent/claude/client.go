@@ -23,6 +23,12 @@ const (
 
 	initRequestID = "coderoom-init"
 
+	// slashEscape goes before a prompt that starts with "/". Claude Code
+	// runs such a prompt as one of its own commands instead of passing it
+	// to the model: /clear would reset the participant's context. See
+	// TestClientLiveSlashPrompt and docs/design/pkg-agent-claude.md.
+	slashEscape = `\`
+
 	defaultStartTimeout = 60 * time.Second
 	stopGracePeriod     = 5 * time.Second
 	stderrTailLines     = 20
@@ -43,7 +49,6 @@ const (
 
 // pendingPrompt is a prompt written to Claude and not replayed yet.
 type pendingPrompt struct {
-	text   string
 	notice bool // written by SendNotice
 }
 
@@ -200,8 +205,12 @@ func (c *Client) initialize() error {
 	}
 }
 
-// Send writes a prompt and returns the turn anchor immediately.
+// Send writes a prompt and returns the turn anchor immediately. A leading
+// "/" is escaped with slashEscape.
 func (c *Client) Send(prompt string) (agent.StreamID, error) {
+	if strings.HasPrefix(prompt, "/") {
+		prompt = slashEscape + prompt
+	}
 	if err := c.writePrompt(prompt, false); err != nil {
 		return "", err
 	}
@@ -219,7 +228,7 @@ func (c *Client) SendNotice(prompt string) (agent.StreamID, error) {
 }
 
 func (c *Client) writePrompt(prompt string, notice bool) error {
-	if err := c.admitPrompt(prompt, notice); err != nil {
+	if err := c.admitPrompt(notice); err != nil {
 		return err
 	}
 	if err := c.writeJSON(newUserMessage(prompt)); err != nil {
@@ -297,7 +306,7 @@ func (c *Client) waitExited(d time.Duration) bool {
 
 // admitPrompt records the prompt about to be written. Only one prompt
 // can be waiting or running, and none while Claude runs a turn of its own.
-func (c *Client) admitPrompt(prompt string, notice bool) error {
+func (c *Client) admitPrompt(notice bool) error {
 	if c.queue == nil {
 		return errors.New("claude: client not started")
 	}
@@ -306,7 +315,7 @@ func (c *Client) admitPrompt(prompt string, notice bool) error {
 	if c.turn.owner != ownerNone || c.turn.pending != nil {
 		return agent.ErrTurnInProgress
 	}
-	c.turn.pending = &pendingPrompt{text: prompt, notice: notice}
+	c.turn.pending = &pendingPrompt{notice: notice}
 	return nil
 }
 

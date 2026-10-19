@@ -369,13 +369,13 @@ func TestDecode_lifecycleAndIgnoredLines(t *testing.T) {
 	}
 }
 
-func TestDecode_replayCarriesPrompt(t *testing.T) {
+func TestDecode_replaySignalled(t *testing.T) {
 	out, err := newDecoder().decode([]byte(replayLine("it's \"quoted\"")))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out.replay != `it's "quoted"` {
-		t.Errorf("replay = %q", out.replay)
+	if out.signal != signalReplay {
+		t.Errorf("signal = %v, want signalReplay", out.signal)
 	}
 }
 

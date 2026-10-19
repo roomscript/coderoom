@@ -112,7 +112,7 @@ func (c *Client) handleLine(line []byte) {
 	case signalInit:
 		c.noteTurnStart()
 	case signalReplay:
-		c.notePromptReplayed(d.replay)
+		c.notePromptReplayed()
 	case signalNone, signalResult:
 	}
 	c.deliver(d.msgs)
@@ -168,13 +168,26 @@ func (c *Client) noteTurnStart() {
 	}
 }
 
-// notePromptReplayed claims the turn when Claude replays our prompt.
-func (c *Client) notePromptReplayed(text string) {
+// notePromptReplayed claims the turn when Claude replays our prompt. Only
+// our prompt can be pending, so the text is not compared: Claude may change
+// it. A replay inside a turn Claude started on its own takes over that turn;
+// the output so far is summarised.
+func (c *Client) notePromptReplayed() {
+	if c.claimReplayedTurn() == ownerSelf {
+		c.queue.push(logMessage(describeSelfTurn(c.selfTurnText.String(), resultLine{})))
+	}
+}
+
+// claimReplayedTurn claims the turn for the pending prompt and returns the
+// previous owner.
+func (c *Client) claimReplayedTurn() turnOwner {
 	c.turn.mu.Lock()
 	defer c.turn.mu.Unlock()
-	if c.turn.owner == ownerUnknown && c.turn.pending != nil && text == c.turn.pending.text {
+	owner := c.turn.owner
+	if c.turn.pending != nil {
 		c.claimPromptLocked()
 	}
+	return owner
 }
 
 // claimPromptLocked makes the running turn the answer to the pending
@@ -225,7 +238,7 @@ func (c *Client) claimOutput() turnOwner {
 // reaction to the flush is accepted.
 func (c *Client) endTurn(result resultLine) {
 	c.endApprovalTurn()
-	owner := c.closeTurn(result)
+	owner := c.closeTurn()
 	switch owner {
 	case ownerPrompt, ownerNotice:
 		anchor := turnStreamID
@@ -245,16 +258,16 @@ func (c *Client) endTurn(result resultLine) {
 }
 
 // closeTurn ends the turn and returns its owner. A turn that ends before
-// any replay or output is ours only if it failed while our prompt was
-// pending: Claude replays a prompt before answering it, so a failure is the
-// only way our turn ends without one.
-func (c *Client) closeTurn(result resultLine) turnOwner {
+// any replay or output is ours if our prompt is pending: a failure or a
+// local slash command ends it without a replay. A result with no
+// system/init counts as such a turn.
+func (c *Client) closeTurn() turnOwner {
 	c.turn.mu.Lock()
 	defer c.turn.mu.Unlock()
-	if c.turn.owner == ownerUnknown {
-		if c.turn.pending != nil && result.IsError {
+	if c.turn.owner == ownerUnknown || c.turn.owner == ownerNone {
+		if c.turn.pending != nil {
 			c.claimPromptLocked()
-		} else {
+		} else if c.turn.owner == ownerUnknown {
 			c.turn.owner = ownerSelf
 			c.selfTurnText.Reset()
 		}

@@ -303,6 +303,93 @@ func TestRead_selfStartedTurnAfterSend(t *testing.T) {
 	}
 }
 
+func TestRead_replayClaimsTurnWhateverItsText(t *testing.T) {
+	c := startPeer(t, peerScript(
+		[]string{lineInitOK},
+		[]string{lineSystemInit, replayLine("hi, reworded"), lineMessageStart, lineTextStart, textDeltaLine("ok"), lineBlockStop, lineResultOK},
+	))
+
+	if _, err := c.Send("hi"); err != nil {
+		t.Fatal(err)
+	}
+	msgs := readUntil(t, c, isAnchorFlush)
+	if out, _ := accumulate(t, msgs[:len(msgs)-1]).Content.(agent.Output); out.Text != "ok" {
+		t.Errorf("reply = %q, want ok", out.Text)
+	}
+	if _, err := c.Send("next"); err != nil {
+		t.Errorf("Send after the reply: %v", err)
+	}
+}
+
+func TestRead_replayDuringSelfStartedTurn(t *testing.T) {
+	// Claude takes the prompt into a turn it started on its own. Output
+	// before the replay is the self-started part.
+	c := startPeer(t, peerScript(
+		[]string{lineInitOK},
+		[]string{
+			lineSystemInit, lineMessageStart, lineTextStart, textDeltaLine("tick"), lineBlockStop,
+			replayLine("hi"), lineMessageStart, lineTextStart, textDeltaLine("ok"), lineBlockStop, lineResultOK,
+		},
+	))
+
+	if _, err := c.Send("hi"); err != nil {
+		t.Fatal(err)
+	}
+	msgs := readUntil(t, c, isAnchorFlush)
+	if !isLog(msgs[0]) || !strings.Contains(msgs[0].Content.(agent.Log).Text, "tick") {
+		t.Fatalf("first message = %+v, want the self-started part as a log", msgs[0])
+	}
+	if out, _ := accumulate(t, msgs[1:len(msgs)-1]).Content.(agent.Output); out.Text != "ok" {
+		t.Errorf("reply = %q, want ok", out.Text)
+	}
+	if _, err := c.Send("next"); err != nil {
+		t.Errorf("Send after the reply: %v", err)
+	}
+}
+
+// A turn that ends with no replay and no output answers the pending
+// prompt, as a local slash command does.
+func TestRead_turnWithoutReplayIsOurs(t *testing.T) {
+	synthetic := `{"type":"assistant","message":{"model":"<synthetic>","content":[{"type":"text","text":"usage"}]}}`
+	tests := []struct {
+		name  string
+		lines []string
+	}{
+		{"local command", []string{lineSystemInit, synthetic, lineResultOK}},
+		{"result without init", []string{lineResultOK}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := startPeer(t, peerScript([]string{lineInitOK}, tt.lines))
+
+			if _, err := c.Send("hi"); err != nil {
+				t.Fatal(err)
+			}
+			readUntil(t, c, isAnchorFlush)
+			if _, err := c.Send("next"); err != nil {
+				t.Errorf("Send after the turn: %v", err)
+			}
+		})
+	}
+}
+
+func TestSend_escapesLeadingSlash(t *testing.T) {
+	obs := &recordingObserver{}
+	c := startPeer(t, peerScript([]string{lineInitOK}), WithObserver(obs))
+
+	if _, err := c.Send("/clear the cache"); err != nil {
+		t.Fatal(err)
+	}
+	sent := obs.sentLines()
+	var msg userMessage
+	if err := json.Unmarshal([]byte(sent[len(sent)-1]), &msg); err != nil {
+		t.Fatal(err)
+	}
+	if msg.Message.Content != `\/clear the cache` {
+		t.Errorf("sent %q, want the slash escaped", msg.Message.Content)
+	}
+}
+
 func TestRead_lineLongerThanReadBuffer(t *testing.T) {
 	const n = 200_000
 	longDelta := "printf '%s' '{\"type\":\"stream_event\",\"event\":{\"type\":\"content_block_delta\",\"index\":0," +

@@ -215,6 +215,24 @@ func TestClientLiveNotice(t *testing.T) {
 	}
 }
 
+// TestClientLiveSlashPrompt checks that a prompt starting with "/" reaches
+// the model. Claude Code runs such a prompt as one of its own commands: on
+// 2.1.303, "/cost" printed usage locally, with no replay and no model call,
+// and "/clear" would reset the participant's context. Send escapes the
+// slash. /cost is used because it is harmless and, run locally, makes no
+// model call: its turn ends with no streamed output, so an empty reply
+// means the escape no longer works.
+func TestClientLiveSlashPrompt(t *testing.T) {
+	c, _, _ := startLiveClient(t)
+	reply, err := agent.SendAndWait(c, "/cost Ignore the command. Reply with just: ok")
+	if err != nil {
+		t.Fatalf("SendAndWait: %v", err)
+	}
+	if strings.TrimSpace(reply) == "" {
+		t.Error("empty reply: Claude ran the prompt as a slash command instead of passing it to the model")
+	}
+}
+
 func send(t *testing.T, c interface {
 	Send(string) (agent.StreamID, error)
 }, prompt string,
