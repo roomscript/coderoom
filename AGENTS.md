@@ -14,7 +14,8 @@ This repo is **coderoom**: a CLI-native multi-agent coding workspace. Agents col
 make build              # build ./cmd/coderoom
 make lint               # run golangci-lint
 make test               # unit tests
-make test-integration   # integration tests (requires Codex and Claude Code installed)
+make test-integration-lint # lint with the integration build tag
+make test-integration   # integration lint + tests (requires Codex and Claude Code installed)
 make test-integration-codex   # Codex adapter integration tests only
 make test-integration-claude  # Claude adapter integration tests only (live, uses quota)
 make pre-commit         # lint + test

@@ -140,6 +140,7 @@ Prefer hand-written fakes that implement the full interface over mocking librari
 ### Integration tests
 
 Tag integration tests with `//go:build integration`. They require external processes (Codex) and run via `make test-integration`, not the default `make test`.
+The integration target first runs `make test-integration-lint` to lint with the integration build tag.
 The integration target runs packages sequentially, uncached, with streaming
 verbose progress and a 10-minute
 per-package timeout. Override it with

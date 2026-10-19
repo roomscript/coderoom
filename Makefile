@@ -28,8 +28,12 @@ test-race:
 
 INTEGRATION_TEST := go test -tags integration -p 1 -v -count=1 -timeout=$(INTEGRATION_TEST_TIMEOUT)
 
+.PHONY: test-integration-lint
+test-integration-lint:
+	golangci-lint run --build-tags integration ./...
+
 .PHONY: test-integration
-test-integration:
+test-integration: test-integration-lint
 	$(INTEGRATION_TEST) ./...
 
 .PHONY: test-integration-codex

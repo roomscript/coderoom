@@ -32,7 +32,7 @@ func TestSession_sharedSendMarksWorkingUntilFlush(t *testing.T) {
 		t.Fatalf("expected ada to be working during turn, got %q", p.Status)
 	}
 
-	waitForIdleThenFlush(t, b, "ada", 60*time.Second)
+	waitForIdleThenFlush(t, b, "ada")
 	p, _ = s.ParticipantByName("ada")
 	if p.Status != participant.StatusIdle {
 		t.Fatalf("expected ada to be idle after flush, got %q", p.Status)
@@ -51,7 +51,7 @@ func TestSession_cancelInterruptEndsTurnAndReturnsIdle(t *testing.T) {
 	}
 
 	waitForFirstStreamOutputThenCancel(t, b, s, "ada", 30*time.Second)
-	waitForIdleThenFlush(t, b, "ada", 60*time.Second)
+	waitForIdleThenFlush(t, b, "ada")
 
 	p, ok := s.ParticipantByName("ada")
 	if !ok {
@@ -79,7 +79,7 @@ func TestSession_privateSendMarksWorkingUntilFlush(t *testing.T) {
 		t.Fatalf("expected ada to be working during private turn, got %q", p.Status)
 	}
 
-	waitForIdleThenFlush(t, b, "ada", 60*time.Second)
+	waitForIdleThenFlush(t, b, "ada")
 	p, _ = s.ParticipantByName("ada")
 	if p.Status != participant.StatusIdle {
 		t.Fatalf("expected ada to be idle after flush, got %q", p.Status)
@@ -108,8 +108,8 @@ func TestSession_broadcastMarksAllWorkingUntilFlush(t *testing.T) {
 	waitForFirstStreamOutput(t, b, "ada", 30*time.Second)
 	waitForFirstStreamOutput(t, b, "turing", 30*time.Second)
 
-	waitForIdleThenFlush(t, b, "ada", 60*time.Second)
-	waitForIdleThenFlush(t, b, "turing", 60*time.Second)
+	waitForIdleThenFlush(t, b, "ada")
+	waitForIdleThenFlush(t, b, "turing")
 
 	p, _ = s.ParticipantByName("ada")
 	if p.Status != participant.StatusIdle {
@@ -152,10 +152,10 @@ func TestSession_sharedSendNoticeMarksListenerWorkingUntilFlush(t *testing.T) {
 	}
 }
 
-func waitForIdleThenFlush(t *testing.T, b *eventBuf, alias string, timeout time.Duration) {
+func waitForIdleThenFlush(t *testing.T, b *eventBuf, alias string) {
 	t.Helper()
 	var seenIdle bool
-	b.waitFor(t, timeout, func(ev session.Event) bool {
+	b.waitFor(t, 60*time.Second, func(ev session.Event) bool {
 		status, ok := ev.(session.ParticipantStatusChanged)
 		if ok && status.Alias.Name == alias && status.From == participant.StatusWorking && status.To == participant.StatusIdle {
 			seenIdle = true

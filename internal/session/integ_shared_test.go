@@ -23,29 +23,29 @@ func newEventBuf(ch <-chan session.Event) *eventBuf {
 	return &eventBuf{ch: ch}
 }
 
-func (b *eventBuf) waitFor(t *testing.T, timeout time.Duration, pred func(session.Event) bool) session.Event {
+func (b *eventBuf) waitFor(t *testing.T, timeout time.Duration, pred func(session.Event) bool) {
 	t.Helper()
 	deadline := time.After(timeout)
 	for {
 		for i, ev := range b.buf {
 			if pred(ev) {
 				b.buf = append(b.buf[:i], b.buf[i+1:]...)
-				return ev
+				return
 			}
 		}
 		select {
 		case ev, ok := <-b.ch:
 			if !ok {
 				t.Fatal("events channel closed while waiting for event")
-				return nil
+				return
 			}
 			if pred(ev) {
-				return ev
+				return
 			}
 			b.buf = append(b.buf, ev)
 		case <-deadline:
 			t.Fatalf("timed out after %s waiting for event", timeout)
-			return nil
+			return
 		}
 	}
 }
@@ -67,13 +67,13 @@ func (o chanObserver) OnEvent(e session.Event) {
 // intermediate deltas before waiting for a lifecycle event.
 func drainUntilType[T session.Event](t *testing.T, ch <-chan session.Event, timeout time.Duration) T {
 	t.Helper()
+	var zero T
 	deadline := time.After(timeout)
 	for {
 		select {
 		case ev, ok := <-ch:
 			if !ok {
 				t.Fatalf("events channel closed while waiting for %T", *new(T))
-				var zero T
 				return zero
 			}
 			if typed, ok := ev.(T); ok {
@@ -81,7 +81,6 @@ func drainUntilType[T session.Event](t *testing.T, ch <-chan session.Event, time
 			}
 		case <-deadline:
 			t.Fatalf("timed out after %s waiting for %T event", timeout, *new(T))
-			var zero T
 			return zero
 		}
 	}
