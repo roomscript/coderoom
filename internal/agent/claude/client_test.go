@@ -509,7 +509,8 @@ func TestInterrupt(t *testing.T) {
 	if !strings.Contains(obs.sentLines()[2], `"subtype":"interrupt"`) {
 		t.Errorf("interrupt request not sent: %v", obs.sentLines())
 	}
-	if len(msgs) != 2 || !isLog(msgs[0]) {
+	// A pending prompt that has seen no turn end must not be released.
+	if len(msgs) != 2 || msgs[0].Content != (agent.Log{Text: "claude: turn interrupted"}) {
 		t.Errorf("messages = %+v, want an interrupted log then the anchor flush", msgs)
 	}
 }
