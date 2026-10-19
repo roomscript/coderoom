@@ -3,6 +3,7 @@ package registry
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 
 	"github.com/roomscript/coderoom/internal/agent"
@@ -166,12 +167,23 @@ func TestVerifyDependenciesUnknownBackend(t *testing.T) {
 	}
 }
 
-func TestNewDefaultRegistersCodexOnly(t *testing.T) {
+// Every default backend reports its dependencies: without them,
+// VerifyDependencies passes silently.
+func TestNewDefault(t *testing.T) {
 	r, err := NewDefault(t.TempDir())
 	if err != nil {
 		t.Fatalf("NewDefault: %v", err)
 	}
-	if got := r.names(); len(got) != 1 || got[0] != "codex" {
-		t.Fatalf("backends = %v, want [codex]", got)
+	if got := r.names(); !slices.Equal(got, []string{"claude", "codex"}) {
+		t.Fatalf("backends = %v, want [claude codex]", got)
+	}
+	for _, name := range r.names() {
+		a, err := r.Build(name, Options{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if deps, ok := a.(agent.ExternalDependencies); !ok || len(deps.ExternalDependencies()) == 0 {
+			t.Errorf("%s reports no external dependencies", name)
+		}
 	}
 }

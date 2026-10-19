@@ -9,8 +9,9 @@ Updated on 19 October 2026.
 - Phase 1 (spike): **done.** Report: `docs/playground/poc-claude-stream-json.md`. Playground: `playground/claude-stream-json/`.
 - Integration approach: **decided.** Direct integration with the claude CLI over stream-json from Go (option A below), the same pattern as Codex app-server.
 - Phase 2 (gap analysis): **done.** Design: `docs/design/pkg-agent-claude.md`. Decided on 16 October 2026: keepalive postponed, `acceptForSession` supported, backend in the participant config, `AskUserQuestion` disallowed, self-started turns prevented and defended, `agent-record` instead of `claude-record`, tools that reach outside the room disallowed.
-- Phase 3 (implementation): **adapter done, not wired in.** See the phase 3 list for what is left and where it moved.
-- Multi-backend configuration: **merged** to main. Codex is the only registered backend; registering Claude is next.
+- Phase 3 (implementation): **adapter done and registered.** See the phase 3 list for what is left and where it moved.
+- Multi-backend configuration: **merged** to main.
+- Register Claude: **done.** `claude` is a valid backend. Agent testing is next.
 
 ## Merge order
 
@@ -22,7 +23,7 @@ The remaining work is split so that shared changes reach main in small steps ins
    2. `config`: `backend` field, `CODEROOM_BACKEND` default, load at startup, change notice on `/invite`.
    3. `internal/agent/registry`: backend registry, startup validation, dependency checks reported in the room; one factory in `cmd/coderoom`.
    4. Display: backend name in `View`, the starting line and `/who`.
-3. **Register Claude:** `ExternalDependencies` on the Claude client (`claude --version`), `--agent-log` (the observer and version check are shared with Codex: `internal/agent/wirelog`, `internal/agent/depcheck`), a `registry.Claude` constructor added to `registry.NewDefault`. Before Claude can be invited, also handle these findings from the review of 17 October 2026:
+3. **Register Claude** (done): `ExternalDependencies` on the Claude client (`claude --version`), `--agent-log` (the observer and version check are shared with Codex: `internal/agent/wirelog`, `internal/agent/depcheck`), a `registry.Claude` constructor added to `registry.NewDefault`. Before Claude can be invited, also handle these findings from the review of 17 October 2026:
    - **Done.** A prompt whose replay is never matched leaves the client busy until `Stop`: a replay that arrives during a self-started turn, a replay Claude changed, or a prompt starting with `/` run as a slash command. Checked live: a leading `/` runs a local command with no replay; `Send` now escapes it.
    - **Done.** Cancelling the parent context (`WithContext`) drops queued approvals without answering them, so the turn hangs until `Stop`. It now stops the process.
    - **Done.** `Stop` during `Start` may race with the fields `Start` sets. Confirmed by reading, but no caller does it: the session attaches an agent only after `Start` returns. Documented as unsupported; cancelling the parent context aborts a start, and a test covers that.

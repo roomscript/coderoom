@@ -1,6 +1,6 @@
 # Package design: internal/agent/claude
 
-Status: **implemented, not wired into the app yet**. Decisions agreed on
+Status: **implemented**, registered as backend `claude`. Decisions agreed on
 16 October 2026 are marked **Decided**. Evidence: `docs/playground/poc-claude-stream-json.md` (E1 to E10).
 
 Scope of the current step: a new `agent.Agent` implementation in

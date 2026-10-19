@@ -1,8 +1,8 @@
 # Design: multi-backend participant configuration
 
-Status: **implemented**, apart from registering Claude, which follows as its
-own step (see Delivery). Decisions agreed in discussion are marked
-**Decided**; the rest records how it was built.
+Status: **implemented**, with `codex` and `claude` registered. Decisions
+agreed in discussion are marked **Decided**; the rest records how it was
+built.
 
 With the Claude Code adapter (`pkg-agent-claude.md`), coderoom has more than
 one real agent backend. This document covers how a participant's backend is
@@ -198,7 +198,7 @@ type Dependency struct {
 | Backend | Checks |
 |---|---|
 | `codex` | `npx` is installed; `npx <package>@<version> --version` runs; later: a valid session |
-| `claude` | `claude --version` runs; later: a valid session |
+| `claude` | `claude` is installed; `claude --version` runs; later: a valid session |
 
 coderoom does not sign users in, so a valid session check is the natural next
 entry on each list.
@@ -401,7 +401,9 @@ Small steps to main, each leaving it working (see
    in `cmd/coderoom`. Only `codex` is registered.
 4. Display: the name in `View`, the starting line, `/who`.
 
-Registering Claude follows as its own step.
+5. Registering Claude: Claude's dependencies, `registry.Claude` in
+   `NewDefault`. The dependency checks and the `--agent-log` observer moved
+   to shared packages first.
 
 ---
 
@@ -410,7 +412,7 @@ Registering Claude follows as its own step.
 | Package | Change |
 |---|---|
 | `internal/agent` | `Agent.Name()`; `ExternalDependencies`, `Dependency`; test fakes implement `Name()` |
-| `internal/agent/{codex,claude,echo}` | `Name()`; Codex lists its dependencies. Pending, with Claude's registration: Claude's dependencies |
+| `internal/agent/{codex,claude,echo}` | `Name()`; Codex and Claude list their dependencies |
 | `internal/agent/depcheck`, `internal/agent/wirelog` (new) | dependency checks and the `--agent-log` observer, moved out of `codex` so Claude shares them |
 | `internal/agent/registry` (new) | constructors, `NewDefault`, `Build`, `ValidateConfig`, `VerifyDependencies` |
 | `internal/config` | `backend` field, `BackendRequest`, `Defaults`, `Load`, `Config`, change detection |

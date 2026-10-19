@@ -62,8 +62,18 @@ prompt.
 
 ## Backends
 
-`backend` selects the agent CLI that runs the participant. The only backend
-today is `codex`.
+`backend` selects the agent CLI that runs the participant:
+
+- `codex`: OpenAI Codex, run through `npx`.
+- `claude`: Claude Code, the `claude` command on `PATH`.
+
+Each backend uses the login and default model configured in its own CLI.
+
+```yaml
+alias: tim
+role: reviewer
+backend: claude
+```
 
 When a file does not set `backend`, or an alias has no file, the participant
 uses the default: the `CODEROOM_BACKEND` environment variable if set, otherwise
@@ -83,6 +93,7 @@ anything:
 
 ```text
 [codex unavailable: npx is installed: not found in PATH]
+[claude unavailable: claude is installed: not found in PATH]
 ```
 
 ## Role Prompts
