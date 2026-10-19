@@ -25,7 +25,7 @@ The remaining work is split so that shared changes reach main in small steps ins
 3. **Register Claude:** `ExternalDependencies` on the Claude client (`claude --version`), `claude.NewLogObserver`, a `registry.Claude` constructor added to `registry.NewDefault`. Before Claude can be invited, also handle these findings from the review of 17 October 2026:
    - **Done.** A prompt whose replay is never matched leaves the client busy until `Stop`: a replay that arrives during a self-started turn, a replay Claude changed, or a prompt starting with `/` run as a slash command. Checked live: a leading `/` runs a local command with no replay; `Send` now escapes it.
    - **Done.** Cancelling the parent context (`WithContext`) drops queued approvals without answering them, so the turn hangs until `Stop`. It now stops the process.
-   - `Stop` during `Start` may race with the fields `Start` sets (unconfirmed).
+   - **Done.** `Stop` during `Start` may race with the fields `Start` sets. Confirmed by reading, but no caller does it: the session attaches an agent only after `Start` returns. Documented as unsupported; cancelling the parent context aborts a start, and a test covers that.
    - **Done.** Missing tests: the process exiting mid-turn while a listener is blocked; parent context cancellation.
 4. **Agent testing**, for both backends: a design doc with requirements first (the capabilities both adapters guarantee), then generic transcript recording and replay (`agent-record`), replacing the Codex-only `docs/design/pkg-agent-codex-transcripts.md`.
 5. **README**, once Claude participants can be invited.

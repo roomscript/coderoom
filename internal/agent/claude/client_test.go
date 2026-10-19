@@ -1,6 +1,7 @@
 package claude
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"slices"
@@ -184,6 +185,36 @@ func TestStart_timeout(t *testing.T) {
 	if err := c.Start(); err == nil {
 		_ = c.Stop()
 		t.Fatal("expected error")
+	}
+}
+
+// sendSignal closes sent on the first line written to the peer.
+type sendSignal struct {
+	once sync.Once
+	sent chan struct{}
+}
+
+func (o *sendSignal) OnSend(string)    { o.once.Do(func() { close(o.sent) }) }
+func (o *sendSignal) OnReceive(string) {}
+
+func TestStart_parentContextCancelledDuringHandshake(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	obs := &sendSignal{sent: make(chan struct{})}
+	// The peer never answers initialize.
+	c := New(t.TempDir(), WithCommand("sh", "-c", "cat >/dev/null"), WithContext(ctx), WithObserver(obs))
+
+	errc := make(chan error, 1)
+	go func() { errc <- c.Start() }()
+	waitClosed(t, obs.sent, "initialize not sent")
+	cancel()
+	select {
+	case err := <-errc:
+		if err == nil {
+			t.Fatal("expected Start to fail")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Start still waiting after the parent context ended")
 	}
 }
 

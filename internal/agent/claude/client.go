@@ -54,7 +54,8 @@ type pendingPrompt struct {
 
 // Client implements agent.Agent for Claude Code. Calls must not be made
 // concurrently, except Stop() which may be called from another goroutine to
-// interrupt a blocked Read().
+// interrupt a blocked Read(). Stop() must not run concurrently with Start();
+// to abort a Start() in progress, cancel the WithContext parent.
 type Client struct {
 	proc *process
 	obs  ProtocolObserver
@@ -267,7 +268,7 @@ func (c *Client) Interrupt() error {
 // Stop closes stdin and waits for the process to exit, escalating to SIGTERM
 // and then SIGKILL if it does not. A pending approval is abandoned: the
 // listener's context is cancelled. May be called from a different goroutine
-// to interrupt a blocked Read().
+// to interrupt a blocked Read(), but not during Start().
 func (c *Client) Stop() error {
 	if c.proc.cmd == nil {
 		return nil
