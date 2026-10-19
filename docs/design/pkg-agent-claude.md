@@ -68,7 +68,7 @@ ListAgents,SendMessage,PushNotification,RemoteTrigger
 
 | Option | Claude mapping |
 |---|---|
-| `WithContext` | worker lifecycle, as codex |
+| `WithContext` | worker lifecycle. Unlike codex, cancelling it also stops the process: the approval worker ends with the lifecycle, so a running process would wait forever on its next permission request |
 | `WithObserver(ProtocolObserver)` | every raw stdin/stdout line, as codex |
 | `WithApprovalListener` | `can_use_tool` requests, see [Approvals](#approvals) |
 | `WithSystemPrompt` | `--append-system-prompt`. Appends to Claude Code's own system prompt instead of replacing it, so tools and conventions keep working. Same role as Codex `developerInstructions`: not visible in the conversation |
@@ -205,7 +205,8 @@ is written under the project's `.claude/`.
   from the client lifecycle context. Claude withdraws a pending request with
   `control_cancel_request` when the turn is interrupted (verified live); that
   cancels the request's context. The end of the turn cancels whatever is
-  left, and `Stop()` and process exit cancel everything. A withdrawn request
+  left, and `Stop()`, process exit and the end of the parent context cancel
+  everything. A withdrawn request
   is not answered (Claude ignores late answers), is not logged as declined,
   and is dropped without asking the listener if it was still queued. This is
   best effort: a withdrawal that lands between the worker's check and its

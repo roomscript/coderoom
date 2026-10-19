@@ -254,6 +254,42 @@ func TestPermission_pendingDecisionDoesNotBlockRead(t *testing.T) {
 	}
 }
 
+func TestPermission_parentContextCancelledStopsProcess(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	l := newFirstBlocksListener()
+	c := startPeer(t, peerScript(
+		[]string{lineInitOK},
+		[]string{lineSystemInit, replayLine("go"), canUseToolLine("Bash", `{"command":"ls"}`, `[]`)},
+	), WithApprovalListener(l), WithContext(ctx))
+	if _, err := c.Send("go"); err != nil {
+		t.Fatal(err)
+	}
+	waitClosed(t, l.asked, "listener not asked")
+
+	cancel()
+	waitClosed(t, l.withdrawn, "listener still waiting after the parent context ended")
+	readUntilExit(t, c)
+}
+
+func TestPermission_processExitMidTurn(t *testing.T) {
+	l := newFirstBlocksListener()
+	script := "read -r _; printf '%s\\n' '" + lineInitOK + "'; read -r _; printf '%s\\n' '" + lineSystemInit + "' '" +
+		replayLine("go") + "' '" + canUseToolLine("Bash", `{"command":"ls"}`, `[]`) + "'; read -r _; exit 1"
+	c := startPeer(t, script, WithApprovalListener(l))
+	if _, err := c.Send("go"); err != nil {
+		t.Fatal(err)
+	}
+	waitClosed(t, l.asked, "listener not asked")
+
+	// The peer exits once the test writes another line.
+	if err := c.Interrupt(); err != nil {
+		t.Fatal(err)
+	}
+	waitClosed(t, l.withdrawn, "listener still waiting after the process exited")
+	readUntilExit(t, c)
+}
+
 func TestPermission_declinedFileChangeEndToEnd(t *testing.T) {
 	write := toolUseLine("toolu_1", "Write", `{"file_path":"/w/a.txt","content":"a"}`)
 	c := startPeer(t, peerScript(

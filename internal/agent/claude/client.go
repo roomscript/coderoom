@@ -109,6 +109,7 @@ func WithObserver(obs ProtocolObserver) Option {
 }
 
 // WithContext sets the parent context for the client's worker lifecycle.
+// Cancelling it stops the process, as Stop does.
 func WithContext(ctx context.Context) Option {
 	return func(c *Client) {
 		c.lifecycle.ctx, c.lifecycle.cancelFn = context.WithCancel(ctx) //nolint:gosec // cancel stored in cancelFn, called on process exit and in Stop()

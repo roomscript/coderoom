@@ -21,6 +21,7 @@ func (c *Client) startWorkers() {
 	go c.readStdout()
 	go c.readStderr()
 	go c.runApprovals()
+	go c.stopOnCancel()
 	go func() {
 		c.lifecycle.readers.Wait()
 		_ = c.proc.cmd.Wait()
@@ -29,6 +30,17 @@ func (c *Client) startWorkers() {
 		c.queue.close()
 		close(c.exited)
 	}()
+}
+
+// stopOnCancel stops the process when the lifecycle context ends. The
+// approval worker exits then, so a running process would wait forever on
+// its next permission request.
+func (c *Client) stopOnCancel() {
+	select {
+	case <-c.lifecycle.ctx.Done():
+		_ = c.Stop()
+	case <-c.exited:
+	}
 }
 
 func (c *Client) readStdout() {

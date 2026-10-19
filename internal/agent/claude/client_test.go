@@ -89,6 +89,22 @@ func readUntil(t *testing.T, c *Client, stop func(agent.Message) bool) []agent.M
 	}
 }
 
+// readUntilExit reads messages until Read reports the process exited,
+// failing after a timeout.
+func readUntilExit(t *testing.T, c *Client) {
+	t.Helper()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			if _, err := c.Read(); err != nil {
+				return
+			}
+		}
+	}()
+	waitClosed(t, done, "Read did not report the process exit")
+}
+
 func isAnchorFlush(m agent.Message) bool {
 	return m.StreamID == turnStreamID && m.Mode == agent.ModeFlush
 }
