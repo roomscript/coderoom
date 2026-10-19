@@ -117,7 +117,7 @@ func (c *Config) loadParticipant(alias string) (loadedParticipant, error) {
 			Alias:          def.Alias,
 			Role:           def.Role,
 			Backend:        backend,
-			Prompt:         buildPrompt(def.Alias, def.Role, rolePrompt),
+			Prompt:         buildPrompt(def.Alias, rolePrompt),
 			LoadedFromDisk: true,
 		},
 		sources: sources,
@@ -154,7 +154,7 @@ func (c *Config) Participant(alias string) (ParticipantConfig, error) {
 	return ParticipantConfig{
 		Alias:   alias,
 		Backend: c.defaults.Backend,
-		Prompt:  buildPrompt(alias, "", ""),
+		Prompt:  buildPrompt(alias, ""),
 	}, nil
 }
 

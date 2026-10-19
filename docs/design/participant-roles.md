@@ -218,11 +218,10 @@ The system should emit a record indicating whether it:
 
 ## Prompt Synthesis
 
-The system prompt should be assembled from at most three layers:
+The system prompt should be assembled from at most two layers:
 
 1. identification
-2. data from participant YAML
-3. role prompt from `.coderoom/prompts/roles/<role>.md`
+2. role prompt from `.coderoom/prompts/roles/<role>.md`
 
 Identification is always included. Suggested form:
 
@@ -231,15 +230,10 @@ Your name is ada.
 You will be referred to as ada or @ada.
 ```
 
-If a participant definition exists, the system may include a short generated
-statement derived from YAML fields. Example:
-
-```text
-You are a builder.
-```
-
 If a role is configured, the corresponding role prompt file is appended after
-the identification and YAML-derived statements.
+the identification. The role prompt file is responsible for stating the role
+(for example, "You are a reviewer."). If the file leaves it out, nothing is
+added for it.
 
 The synthesized participant prompt is startup configuration, not a normal room
 message. For Codex, Version 1 should deliver it during `thread/start` using

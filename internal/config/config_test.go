@@ -31,12 +31,27 @@ var successParticipantConfigTests = []participantConfigTest{
 		alias: "ada",
 		files: map[string]string{
 			".coderoom/participants/ada.yaml":     "alias: ada\nrole: reviewer\n",
-			".coderoom/prompts/roles/reviewer.md": "Focus on correctness.",
+			".coderoom/prompts/roles/reviewer.md": "You are a reviewer.\n\nFocus on correctness.",
 		},
 		want: ParticipantConfig{
 			Alias:          "ada",
 			Role:           "reviewer",
 			Prompt:         "Your name is ada.\nYou will be referred to as ada or @ada.\n\nYou are a reviewer.\n\nFocus on correctness.",
+			Backend:        BackendRequest{Name: "codex", Source: "default"},
+			LoadedFromDisk: true,
+		},
+	},
+	{
+		name:  "role prompt without role sentence adds no generated statement",
+		alias: "ada",
+		files: map[string]string{
+			".coderoom/participants/ada.yaml":     "alias: ada\nrole: reviewer\n",
+			".coderoom/prompts/roles/reviewer.md": "Focus on correctness.",
+		},
+		want: ParticipantConfig{
+			Alias:          "ada",
+			Role:           "reviewer",
+			Prompt:         "Your name is ada.\nYou will be referred to as ada or @ada.\n\nFocus on correctness.",
 			Backend:        BackendRequest{Name: "codex", Source: "default"},
 			LoadedFromDisk: true,
 		},

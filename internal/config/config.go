@@ -137,12 +137,9 @@ func validatePathSegment(value string, kind error) error {
 	return nil
 }
 
-func buildPrompt(alias, role, rolePrompt string) string {
+func buildPrompt(alias, rolePrompt string) string {
 	parts := []string{
 		fmt.Sprintf("Your name is %s.\nYou will be referred to as %s or @%s.", alias, alias, alias),
-	}
-	if role != "" {
-		parts = append(parts, fmt.Sprintf("You are a %s.", role))
 	}
 	if rolePrompt != "" {
 		parts = append(parts, rolePrompt)
