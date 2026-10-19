@@ -287,6 +287,9 @@ func (c *Client) closeTurn() turnOwner {
 	}
 	owner := c.turn.owner
 	c.turn.owner = ownerNone
+	if c.turn.pending != nil {
+		c.turn.pending.outlived = true
+	}
 	return owner
 }
 

@@ -84,7 +84,7 @@ ListAgents,SendMessage,PushNotification,RemoteTrigger
 | `Send(prompt)` | fits | write `{"type":"user","message":{"role":"user","content":prompt},…}`; return the turn anchor (below). `ErrTurnInProgress` while a turn is in flight, as codex. A leading `/` is escaped, see [Prompts starting with /](#prompts-starting-with-) |
 | `SendNotice(prompt)` | fits with a weaker guarantee | same prompt prefix and `{` heuristic as codex: reply text starting with `{` is held until the turn ends and dropped if it is a JSON object with `"acknowledge": true`; any other reply is relayed as `Reasoning` on `claude:notice-relay`. Thinking is dropped; tool calls, approvals and logs pass through, as with Codex delivery notices. **Gap:** Codex also sends a per-turn output schema; Claude's `--json-schema` is per process and not enforced (E7), so the instruction is prompt-only. Haiku complied in the live test |
 | `Read()` | fits | translate stdout lines (mapping below); stderr lines as `Log`; error only when the process exits. Lines have no length limit (one line can carry a whole file); a read error is logged and the process killed, so `Read()` returns an error instead of hanging |
-| `Interrupt()` | fits | `control_request{subtype: interrupt}`. The turn then ends with `result{subtype: error_during_execution, terminal_reason: aborted_streaming}`, or `aborted_tools` when interrupted during an approval; the adapter treats it as a normal turn end (Log + anchor flush), not a `Read()` error. No-op when idle |
+| `Interrupt()` | fits | `control_request{subtype: interrupt}`. The turn then ends with `result{subtype: error_during_execution, terminal_reason: aborted_streaming}`, or `aborted_tools` when interrupted during an approval; the adapter treats it as a normal turn end (Log + anchor flush), not a `Read()` error. No-op when idle. With no turn running, it releases a prompt that outlived a turn unanswered (see [Turn anchor](#turn-anchor)) |
 | `Stop()` | fits | close stdin (exits in about 1 s, E8); after a grace period SIGTERM, then kill; always reap. After the kill, our pipe ends are closed too, so a child that inherited them (a wrapper, an MCP server) cannot keep `Stop()` waiting. Not safe during `Start()`, which the session never does: it attaches an agent only after `Start()` returns. Cancelling the `WithContext` parent aborts a `Start()` in progress |
 | `Keepaliver` | **postponed** | `Keepaliver` exists to keep a backend warm (Codex takes about 5 min from cold to warm). No equivalent cold state has been seen for Claude: the session lives in the process and the local transcript. The only idle effect observed is prompt-cache expiry (1 h cache in the E1 to E10 runs): the first turn after a long idle re-reads the context uncached, costing seconds and money, not minutes. Not measured on a large context. If Claude turns out to have a pause or cold mode, or cache misses hurt, implement it (for the cache, a minimal turn every ~50 min). The session treats `Keepaliver` as optional, so nothing breaks meanwhile |
 
@@ -108,13 +108,18 @@ The adapter owns the turn boundary: every turn ends with exactly one `result`.
   events, so it does not count. If the replay arrives inside a self-started
   turn, the turn becomes ours from there: the output before it is
   summarised, and items still open are dropped, so their remaining output
-  is ignored instead of joining our turn. A turn that ends before any replay or output is ours if our
-  prompt is pending: an API error or a local slash command ends it without a
-  replay. A `result` with no `system/init` counts the same. A `user` message
-  with string content but no `isReplay` (a sub-agent's prompt) is ignored.
-- One case still leaves the client busy until `Stop`: a self-started turn with
-  output that ends while our prompt is pending, followed by a turn answering
-  the prompt without a replay. Not observed; self-started turns are prevented.
+  is ignored instead of joining our turn. A turn that ends before any
+  replay or output is ours if our prompt is pending: an API error or a local
+  slash command ends it without a replay. A `result` with no `system/init`
+  counts the same. A `user` message with string content but no `isReplay` (a
+  sub-agent's prompt) is ignored.
+- One case leaves the prompt unanswered: a self-started turn with output
+  that ends while our prompt is pending, followed by a turn answering the
+  prompt without a replay. Not observed; self-started turns are prevented.
+  `Interrupt` recovers from it: a prompt that outlived a turn without being
+  claimed is released with a `Log` and the anchor flush. A prompt that has
+  seen no turn end yet is left alone, since Claude may be about to start its
+  turn; releasing it would leave the room idle while the turn runs.
 
 This answers open question 8: the anchor is adapter-local and needs no protocol
 id.

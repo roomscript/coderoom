@@ -514,6 +514,30 @@ func TestInterrupt(t *testing.T) {
 	}
 }
 
+func TestInterrupt_releasesPromptWithoutTurn(t *testing.T) {
+	// A self-started turn ends while the prompt is pending, and no turn
+	// answers it: only Interrupt can free the client.
+	c := startPeer(t, peerScript(
+		[]string{lineInitOK},
+		[]string{lineSystemInit, lineMessageStart, lineTextStart, textDeltaLine("tick"), lineBlockStop, lineResultOK},
+	))
+	if _, err := c.Send("hi"); err != nil {
+		t.Fatal(err)
+	}
+	readUntil(t, c, isLog) // the self-started turn's summary
+
+	if err := c.Interrupt(); err != nil {
+		t.Fatal(err)
+	}
+	msgs := readUntil(t, c, isAnchorFlush)
+	if len(msgs) != 2 || !isLog(msgs[0]) {
+		t.Errorf("messages = %+v, want a log then the anchor flush", msgs)
+	}
+	if _, err := c.Send("next"); err != nil {
+		t.Errorf("Send after Interrupt: %v", err)
+	}
+}
+
 func TestStop_unblocksRead(t *testing.T) {
 	c := startPeer(t, peerScript([]string{lineInitOK}))
 

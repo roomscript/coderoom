@@ -49,7 +49,8 @@ const (
 
 // pendingPrompt is a prompt written to Claude and not replayed yet.
 type pendingPrompt struct {
-	notice bool // written by SendNotice
+	notice   bool // written by SendNotice
+	outlived bool // a turn ended without answering it
 }
 
 // Client implements agent.Agent for Claude Code. Calls must not be made
@@ -256,16 +257,43 @@ func (c *Client) Read() (agent.Message, error) {
 }
 
 // Interrupt asks Claude to stop the turn in flight. The turn then ends with a
-// result like any other. It is a no-op when no turn is in flight.
+// result like any other. It is a no-op when no turn is in flight. A prompt
+// that outlived a turn without being answered is released, so Interrupt
+// frees the client even when Claude never answers the prompt.
 func (c *Client) Interrupt() error {
 	if c.queue == nil || c.isIdle() {
 		return nil
 	}
-	return c.writeJSON(controlRequest{
+	err := c.writeJSON(controlRequest{
 		Type:      typeControlRequest,
 		RequestID: c.nextRequestID("interrupt"),
 		Request:   map[string]any{"subtype": controlInterrupt},
 	})
+	c.releaseOutlivedPrompt()
+	return err
+}
+
+// releaseOutlivedPrompt ends the pending prompt's turn when no turn is
+// running and the prompt already outlived one. A prompt that has seen no
+// turn end may still be about to start, so it is left to the interrupt
+// request. If Claude answers a released prompt after all, the answer has no
+// pending prompt and is summarised as a self-started turn.
+func (c *Client) releaseOutlivedPrompt() {
+	c.turn.mu.Lock()
+	pending := c.turn.pending
+	if c.turn.owner != ownerNone || pending == nil || !pending.outlived {
+		c.turn.mu.Unlock()
+		return
+	}
+	c.turn.pending = nil
+	c.turn.mu.Unlock()
+
+	anchor := turnStreamID
+	if pending.notice {
+		anchor = noticeTurnStreamID
+	}
+	c.queue.push(logMessage("claude: prompt released, no turn answered it"),
+		agent.Message{StreamID: anchor, Mode: agent.ModeFlush, Content: agent.Output{}})
 }
 
 // Stop closes stdin and waits for the process to exit, escalating to SIGTERM
