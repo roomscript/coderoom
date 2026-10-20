@@ -224,6 +224,59 @@ command_lifecycle (state completed)
 
 Tools that never prompt (`ListAgents`, `CronCreate`, `ToolSearch`, the plan file write) can only be seen through the `tool_use` stream. They can only be blocked up front with `--disallowedTools`.
 
+### E11 to E13: model and effort within a session
+
+Run on 2.1.303 for #71. Design consequences are in `docs/design/pkg-agent-claude-models.md`.
+
+Three control requests, all answered within milliseconds and none starting a turn:
+
+```
+{"type":"control_request","request_id":"…","request":{"subtype":"set_model","model":"sonnet"}}
+{"type":"control_request","request_id":"…","request":{"subtype":"apply_flag_settings","settings":{"effortLevel":"high"}}}
+{"type":"control_request","request_id":"…","request":{"subtype":"get_settings"}}
+```
+
+`set_model` and `apply_flag_settings` answer `success` with a null response, or `error` with a message. `get_settings` answers with `effective` (the merged settings files), `sources` (one entry per settings file) and `applied`:
+
+```json
+"applied":{"model":"claude-sonnet-5-5","effort":"high","advisor":null,"ultracode":false,"ultracodeRequested":false,"ultracodeAvailable":false}
+```
+
+**E11: catalog and settings, no model turn.** The project's `.claude/settings.json` sets `{"model":"sonnet","effortLevel":"low"}` and no `--model` is passed, so the session starts from CLI-managed settings.
+
+- The `initialize` response has `models[]` but no current model. Each entry has `value`, `resolvedModel`, `displayName`, `description`, and, when the model supports effort, `supportsEffort: true` and `supportedEffortLevels`. Values are aliases (`default`, `opus`, `sonnet`, `fable`, `haiku`) and full IDs of older models. The current models' full IDs appear only as `resolvedModel` of an alias.
+- `applied` at startup is `{model: claude-sonnet-5-5, effort: low}`: the configured values, with the model resolved to its full ID.
+- `effective` did not follow any runtime change in this run. It reflects the settings files, so `applied` is the field to read.
+
+| Step | Reply | `applied` afterwards |
+|---|---|---|
+| `set_model opus` | success | `claude-opus-5-5`, `low` |
+| `set_model sonet` | error `Model 'sonet' not found` | unchanged |
+| `set_model` with `model: null` | success | unchanged: a no-op, not a reset |
+| effort `high` | success | `claude-opus-5-5`, `high` |
+| effort `bogus` | success | unchanged: ignored without an error |
+| `set_model sonnet` | success | `claude-sonnet-5-5`, `high`: effort carries over |
+| `set_model claude-haiku-4-5-20251001` (no effort support) | success | that model, effort `null` |
+| `set_model sonnet` | success | `claude-sonnet-5-5`, `high`: the selection comes back |
+| effort `null` | success | `claude-sonnet-5-5`, `medium`: not the configured `low` |
+| `set_model default` | success | `claude-opus-5-5`: the account default, not the configured `sonnet` |
+
+Clearing the effort falls back to `medium`, not to the project's `low`. The same happened with the effort passed in `--settings`, which is in the flag layer `apply_flag_settings` writes to. So in both cases a cleared effort does not return to the configured one.
+
+**E12: the conversation survives a model switch.** One `haiku` turn asked the model to remember a word, then `set_model sonnet`, then a second turn asked for the word. The second `system/init` reports `model: claude-sonnet-5-5`, the answer was correct, and the result's `modelUsage` lists both models.
+
+**E13: the effort reaches the API request.** Claude ran with `ANTHROPIC_BASE_URL` pointing to a local stub that records each Messages request's `model` and `output_config` (never headers) and answers with an error, so no quota is used. One turn per step:
+
+| Step | `output_config` sent |
+|---|---|
+| startup (`--model sonnet`, no effort configured) | `{"effort":"medium"}` |
+| effort `low` | `{"effort":"low"}` |
+| effort `max` | `{"effort":"max"}` |
+| effort `bogus` | `{"effort":"max"}`: the previous value |
+| effort `null` | `{"effort":"medium"}` |
+
+So `applied.effort` is what the request carries, and an invalid value is never sent.
+
 ---
 
 ## Open questions for phase 2
@@ -244,7 +297,7 @@ Tools that never prompt (`ListAgents`, `CronCreate`, `ToolSearch`, the plan file
 ```
 cd playground
 make pg-claude-stream-json        # all experiments (live, uses your Claude login)
-make pg-claude-stream-json-e3     # one experiment (e1..e10)
+make pg-claude-stream-json-e3     # one experiment (e1..e13)
 cd claude-stream-json && go run . -redact-fixtures   # re-apply redaction to existing fixtures
 ```
 

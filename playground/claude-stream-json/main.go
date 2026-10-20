@@ -36,10 +36,13 @@ var experiments = map[string]experiment{
 	"e8":  {"stop and resume", e8StopResume},
 	"e9":  {"--safe-mode versus personal config", e9SafeMode},
 	"e10": {"tools that ask, act outside a turn, or reach outside the room", e10Tools},
+	"e11": {"model and effort settings through control requests", e11ModelSettings},
+	"e12": {"conversation across a model switch", e12ModelSwitch},
+	"e13": {"selected effort in the API request", e13EffortRequest},
 }
 
 func main() {
-	exp := flag.String("exp", "", "experiment to run (e1..e10 or all)")
+	exp := flag.String("exp", "", "experiment to run (e1..e13 or all)")
 	redactOnly := flag.Bool("redact-fixtures", false, "rewrite existing fixtures through the redaction filter and exit")
 	flag.Parse()
 
@@ -64,7 +67,7 @@ func main() {
 	for _, n := range names {
 		e, ok := experiments[n]
 		if !ok {
-			fmt.Fprintf(os.Stderr, "unknown experiment %q; use one of e1..e10 or all\n", n)
+			fmt.Fprintf(os.Stderr, "unknown experiment %q; use one of e1..e13 or all\n", n)
 			os.Exit(2)
 		}
 		logf("\n=== %s: %s ===", n, e.name)
