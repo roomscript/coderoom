@@ -28,7 +28,8 @@ func TestHelp_publishesCatalogueBeforeSubmissionCompletion(t *testing.T) {
 	}
 	want := []string{
 		"/policy enable <name>", "/invite <alias>",
-		"/remove <alias>", "/cancel <alias>", "/handoff <from> <to>", "/shell <program>",
+		"/remove <alias>", "/cancel <alias>", "/model <alias> [<model> [<effort>]]",
+		"/handoff <from> <to>", "/shell <program>",
 		"/def <name> /shell <program>", "/<name>",
 		"/loop @<alias> <prompt> /until /<name> /max <turns>", "/who", "/help", "@<alias> <text>", "<text>",
 	}

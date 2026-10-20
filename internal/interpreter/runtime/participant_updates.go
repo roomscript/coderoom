@@ -96,7 +96,7 @@ func (s *participantState) applyStatus(event session.ParticipantStatusChanged) {
 
 func isPastStartup(status participant.Status) bool {
 	switch status {
-	case participant.StatusPreparing, participant.StatusWorking, participant.StatusKeepalive:
+	case participant.StatusPreparing, participant.StatusWorking, participant.StatusKeepalive, participant.StatusChangingModel:
 		return true
 	default:
 		return false

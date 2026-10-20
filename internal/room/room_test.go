@@ -78,6 +78,59 @@ func TestOnEvent_agentStartingShowsBackend(t *testing.T) {
 	}
 }
 
+func TestOnEvent_modelEventsAppendSystemRecords(t *testing.T) {
+	ada := newTestAlias("ada")
+	settings := agent.Settings{Backend: "claude", Model: "claude-opus-5-5", Effort: "high"}
+	catalog := []agent.ModelOption{
+		{Name: "opus", ID: "claude-opus-5-5", Efforts: []string{"low", "high"}},
+		{Name: "claude-haiku-4-5", ID: "claude-haiku-4-5"},
+	}
+	tests := []struct {
+		name  string
+		event session.Event
+		want  string
+	}{
+		{
+			name:  "listing",
+			event: session.ModelsListed{Alias: ada, Settings: settings, Status: participant.StatusIdle, Models: catalog},
+			want:  "[ada · claude · model: claude-opus-5-5 · effort: high]\nmodels:\n  opus (claude-opus-5-5): low, high\n  claude-haiku-4-5: no effort",
+		},
+		{
+			name:  "listing during a change",
+			event: session.ModelsListed{Alias: ada, Settings: agent.Settings{Backend: "claude"}, Status: participant.StatusChangingModel},
+			want:  "[ada · claude · model: claude-managed · effort: claude-managed · changing model]\nmodels:",
+		},
+		{
+			name:  "failed listing",
+			event: session.ModelsListed{Alias: ada, Err: errors.New("no catalog")},
+			want:  "[ada model list failed: no catalog]",
+		},
+		{
+			name:  "changed",
+			event: session.ModelChangeFinished{Alias: ada, Settings: settings},
+			want:  "[ada model changed · model: claude-opus-5-5 · effort: high]",
+		},
+		{
+			name:  "failed change",
+			event: session.ModelChangeFinished{Alias: ada, Settings: agent.Settings{Backend: "claude", Model: "claude-opus-5-5"}, Err: errors.New("effort failed")},
+			want:  "[ada model change failed: effort failed · model: claude-opus-5-5 · effort: claude-managed]",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			room, updates := newTestRoom(t)
+
+			room.OnEvent(tt.event)
+			waitUpdate(t, updates)
+
+			records := room.Snapshot().Records
+			if len(records) != 1 || records[0].Kind != KindSystem || records[0].Text != tt.want {
+				t.Fatalf("records = %#v, want %q", records, tt.want)
+			}
+		})
+	}
+}
+
 func TestOnEvent_agentReadyShowsSettings(t *testing.T) {
 	tests := []struct {
 		name     string

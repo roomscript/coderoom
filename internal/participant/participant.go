@@ -35,6 +35,8 @@ var (
 	ErrNotActive = errors.New("participant is not active")
 	// ErrNotKeepalive is returned when an operation requires the participant to be in keepalive state.
 	ErrNotKeepalive = errors.New("participant is not in keepalive state")
+	// ErrNotChangingModel is returned when an operation requires a model change in progress.
+	ErrNotChangingModel = errors.New("participant is not changing its model")
 	// ErrInvalidExecutionID is returned when a work preparation has no Session execution identity.
 	ErrInvalidExecutionID = errors.New("participant execution ID must be non-zero")
 )
@@ -54,13 +56,14 @@ type Status string
 
 // Supported status values.
 const (
-	StatusIdle      Status = "idle"
-	StatusStarting  Status = "starting"
-	StatusAttached  Status = "attached"  // agent process running, AgentReady not yet dispatched
-	StatusPreparing Status = "preparing" // committed to a Send; anchor being established
-	StatusKeepalive Status = "keepalive"
-	StatusWorking   Status = "working"
-	StatusCrashed   Status = "crashed"
+	StatusIdle          Status = "idle"
+	StatusStarting      Status = "starting"
+	StatusAttached      Status = "attached"  // agent process running, AgentReady not yet dispatched
+	StatusPreparing     Status = "preparing" // committed to a Send; anchor being established
+	StatusKeepalive     Status = "keepalive"
+	StatusChangingModel Status = "changing-model" // reserved for a /model change
+	StatusWorking       Status = "working"
+	StatusCrashed       Status = "crashed"
 )
 
 // ExecutionID identifies one Session command execution. Session allocates IDs;
@@ -147,7 +150,8 @@ func (v View) IsRemovable() bool {
 	if v.Status == StatusCrashed {
 		return true
 	}
-	return v.StartupReady && (v.Status == StatusIdle || v.HasActiveTurn() || v.Status == StatusKeepalive)
+	return v.StartupReady && (v.Status == StatusIdle || v.HasActiveTurn() ||
+		v.Status == StatusKeepalive || v.Status == StatusChangingModel)
 }
 
 // IsSendable adds the runtime handle guard to the shared view predicate.
@@ -242,7 +246,7 @@ func (p *Participant) PrepareForWork(now time.Time, executionID ExecutionID) err
 	switch p.Status {
 	case StatusStarting, StatusAttached, StatusCrashed:
 		return ErrNotReadyForWork
-	case StatusWorking, StatusPreparing, StatusKeepalive:
+	case StatusWorking, StatusPreparing, StatusKeepalive, StatusChangingModel:
 		return ErrWorkAlreadyStarted
 	case StatusIdle:
 		// Ready to prepare.
@@ -272,6 +276,28 @@ func (p *Participant) BeginKeepalive(now time.Time) error {
 func (p *Participant) FinishKeepalive(now time.Time) error {
 	if p.Status != StatusKeepalive {
 		return ErrNotKeepalive
+	}
+	p.Status = StatusIdle
+	p.Since = now
+	return nil
+}
+
+// BeginModelChange transitions the participant from Idle into ChangingModel,
+// reserving it for a /model change until FinishModelChange.
+func (p *Participant) BeginModelChange(now time.Time) error {
+	if p.Status != StatusIdle {
+		return ErrNotIdle
+	}
+	p.Status = StatusChangingModel
+	p.Since = now
+	return nil
+}
+
+// FinishModelChange transitions the participant from ChangingModel back to
+// Idle, whatever the outcome of the change.
+func (p *Participant) FinishModelChange(now time.Time) error {
+	if p.Status != StatusChangingModel {
+		return ErrNotChangingModel
 	}
 	p.Status = StatusIdle
 	p.Since = now

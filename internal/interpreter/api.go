@@ -50,7 +50,7 @@ func newInterpreter(ctx context.Context, sess SessionController, cwd string, def
 func newCommandRegistry(readHelp func() HelpListed) *runtime.Registry {
 	registry := runtime.NewRegistry()
 	for _, command := range []runtime.Command{
-		std.PolicyCommand{}, std.InviteCommand{}, std.RemoveCommand{}, std.CancelCommand{},
+		std.PolicyCommand{}, std.InviteCommand{}, std.RemoveCommand{}, std.CancelCommand{}, std.ModelCommand{},
 		std.HandoffCommand{}, std.ShellCommand{}, std.DefineCommand{}, std.UserCommand{}, std.LoopCommand{},
 		std.WhoCommand{}, std.HelpCommand{ReadHelp: readHelp}, std.SendCommand{}, std.BroadcastCommand{},
 	} {

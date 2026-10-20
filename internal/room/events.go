@@ -57,6 +57,17 @@ func (r *Room) handleLifecycleEventLocked(e session.Event) ([]int, bool) {
 	case session.BackendUnavailable:
 		return r.appendSystemRecordLocked("[" + e.Backend + " unavailable: " + e.Err.Error() + "]"), true
 	default:
+		return r.handleModelEventLocked(e)
+	}
+}
+
+func (r *Room) handleModelEventLocked(e session.Event) ([]int, bool) {
+	switch e := e.(type) {
+	case session.ModelsListed:
+		return r.appendSystemRecordLocked(modelsListedNotice(e)), true
+	case session.ModelChangeFinished:
+		return r.appendSystemRecordLocked(modelChangeNotice(e)), true
+	default:
 		return nil, false
 	}
 }
@@ -110,7 +121,46 @@ func joinedNotice(e session.AgentReady) string {
 	if e.Settings.Backend == "" {
 		return "[" + e.Alias.Name + " joined]"
 	}
-	return "[" + e.Alias.Name + " joined · model: " + e.Settings.ModelLabel() + " · effort: " + e.Settings.EffortLabel() + "]"
+	return "[" + e.Alias.Name + " joined" + settingsSuffix(e.Settings) + "]"
+}
+
+// modelsListedNotice shows the participant's settings and the catalog, one
+// entry per line with its efforts.
+func modelsListedNotice(e session.ModelsListed) string {
+	if e.Err != nil {
+		return "[" + e.Alias.Name + " model list failed: " + e.Err.Error() + "]"
+	}
+	header := "[" + e.Alias.Name + " · " + e.Settings.Backend + settingsSuffix(e.Settings)
+	if e.Status == participant.StatusChangingModel {
+		header += " · changing model"
+	}
+	lines := []string{header + "]", "models:"}
+	for _, opt := range e.Models {
+		lines = append(lines, "  "+modelOptionLine(opt))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func modelOptionLine(opt agent.ModelOption) string {
+	name := opt.Name
+	if opt.ID != "" && opt.ID != opt.Name {
+		name += " (" + opt.ID + ")"
+	}
+	if len(opt.Efforts) == 0 {
+		return name + ": no effort"
+	}
+	return name + ": " + strings.Join(opt.Efforts, ", ")
+}
+
+func modelChangeNotice(e session.ModelChangeFinished) string {
+	if e.Err != nil {
+		return "[" + e.Alias.Name + " model change failed: " + e.Err.Error() + settingsSuffix(e.Settings) + "]"
+	}
+	return "[" + e.Alias.Name + " model changed" + settingsSuffix(e.Settings) + "]"
+}
+
+func settingsSuffix(s agent.Settings) string {
+	return " · model: " + s.ModelLabel() + " · effort: " + s.EffortLabel()
 }
 
 // configChangedNotice tells the user that edited config files only apply

@@ -29,6 +29,11 @@ type AgentFactory func(s *Session, cfg roomconfig.ParticipantConfig) (agent.Agen
 type agentRuntime struct {
 	agentCancel context.CancelFunc
 	stop        chan struct{}
+	// pendingModelListings holds the purpose of each Models call whose
+	// ModelsListed has not arrived, in call order.
+	pendingModelListings []modelListingPurpose
+	// change is the /model change in progress, if any.
+	change *modelChange
 }
 
 // Session is the central orchestrator of a coderoom session.
@@ -426,9 +431,12 @@ func (s *Session) evictCrashedBeforeStart(alias participant.Alias) error {
 // startup sequence (AgentReady + commitStarted) has completed, so that
 // early agent output is never processed while the participant is still Attached.
 //
+// Startup settings, when the agent reports them, are recorded with the
+// attachment; the participant keeps its backend name.
+//
 // Returns (stop, from, true) on success, where from is the pre-transition
 // status (StatusStarting) used to build the ParticipantStatusChanged event.
-func (s *Session) attachParticipant(alias participant.Alias, a agent.Agent) (chan struct{}, participant.Status, bool) {
+func (s *Session) attachParticipant(alias participant.Alias, a agent.Agent, settings *agent.Settings) (chan struct{}, participant.Status, bool) {
 	var stop chan struct{}
 	var from participant.Status
 	var err error
@@ -445,6 +453,10 @@ func (s *Session) attachParticipant(alias participant.Alias, a agent.Agent) (cha
 		from = p.Status
 		if err = p.AttachAgent(a, s.now()); err != nil {
 			return
+		}
+		if settings != nil {
+			p.Settings.Model = settings.Model
+			p.Settings.Effort = settings.Effort
 		}
 		stop = make(chan struct{})
 		runtime.stop = stop
@@ -764,6 +776,15 @@ func (s *Session) handleAgentMessage(alias participant.Alias, msg agent.Message)
 
 	if _, ok := msg.Content.(agent.KeepAlive); ok {
 		s.finishParticipantKeepalive(alias)
+		return
+	}
+
+	switch c := msg.Content.(type) {
+	case agent.ModelsListed:
+		s.handleModelsListed(alias, c)
+		return
+	case agent.ModelSelected:
+		s.handleModelSelected(alias, c)
 		return
 	}
 

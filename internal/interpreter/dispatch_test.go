@@ -10,7 +10,7 @@ import (
 
 func TestDispatch_registryCoversParserForms(t *testing.T) {
 	examples := map[string]string{
-		"invite": "/invite ada", "remove": "/remove ada", "cancel": "/cancel ada",
+		"invite": "/invite ada", "remove": "/remove ada", "cancel": "/cancel ada", "model": "/model ada opus",
 		"handoff": "/handoff ada tim", "who": "/who", "help": "/help",
 		"shell": "/shell true", "policy": "/policy enable send-notices",
 		"def": "/def check /shell true", "loop": "/loop @ada work /until /check /max 1",

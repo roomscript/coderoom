@@ -68,6 +68,26 @@ type AgentMessage struct {
 	ExecutionID ExecutionID
 }
 
+// ModelsListed reports a model catalog requested by ListModelsCommand.
+// Settings and Status are the participant's when the listing arrived. Err is
+// non-nil when the backend could not list its models.
+type ModelsListed struct {
+	Alias    participant.Alias
+	Settings agent.Settings
+	Status   participant.Status
+	Models   []agent.ModelOption
+	Err      error
+}
+
+// ModelChangeFinished reports the outcome of a ChangeModelCommand that reached
+// the backend. Settings are the participant's settings afterwards; Err is
+// non-nil when the change did not fully apply.
+type ModelChangeFinished struct {
+	Alias    participant.Alias
+	Settings agent.Settings
+	Err      error
+}
+
 // ParticipantStatusChanged reports a session-driven participant status transition.
 type ParticipantStatusChanged struct {
 	Alias             participant.Alias
@@ -136,6 +156,8 @@ func (RoutingCompleted) sessionEvent()         {}
 func (HandoffDelivered) sessionEvent()         {}
 func (ApprovalRequested) sessionEvent()        {}
 func (ApprovalCleared) sessionEvent()          {}
+func (ModelsListed) sessionEvent()             {}
+func (ModelChangeFinished) sessionEvent()      {}
 
 // HandoffSource describes the room-owned source record selected for a handoff.
 type HandoffSource struct {

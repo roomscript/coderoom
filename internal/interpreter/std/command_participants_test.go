@@ -21,6 +21,10 @@ func TestParticipantCommands_captureIdentityBeforeExecution(t *testing.T) {
 		{"/cancel ada", std.CancelCommand{}, session.CancelCommand{Alias: alias}},
 		{"/remove missing", std.RemoveCommand{}, session.RemoveCommand{Alias: participant.Alias{Name: "missing"}}},
 		{"/cancel missing", std.CancelCommand{}, session.CancelCommand{Alias: participant.Alias{Name: "missing"}}},
+		{"/model ada", std.ModelCommand{}, session.ListModelsCommand{Alias: alias}},
+		{"/model ada opus", std.ModelCommand{}, session.ChangeModelCommand{Alias: alias, Model: "opus"}},
+		{"/model ada opus high", std.ModelCommand{}, session.ChangeModelCommand{Alias: alias, Model: "opus", Effort: "high"}},
+		{"/model missing", std.ModelCommand{}, session.ListModelsCommand{Alias: participant.Alias{Name: "missing"}}},
 	} {
 		t.Run(tt.raw, func(t *testing.T) {
 			host := &loopHost{sendDelivery: &sendDelivery{views: []participant.View{{Alias: alias}}}}
@@ -52,7 +56,7 @@ func TestParticipantCommands_captureIdentityBeforeExecution(t *testing.T) {
 }
 
 func TestParticipantCommands_requireStatementAndExecution(t *testing.T) {
-	for _, command := range []runtime.Command{std.InviteCommand{}, std.RemoveCommand{}, std.CancelCommand{}} {
+	for _, command := range []runtime.Command{std.InviteCommand{}, std.RemoveCommand{}, std.CancelCommand{}, std.ModelCommand{}} {
 		for _, raw := range []string{"/who", "/" + command.Name() + " ada"} {
 			invocation, err := command.Prepare(parseSendStatement(t, raw), runtime.Context{})
 			if err == nil || invocation != nil {

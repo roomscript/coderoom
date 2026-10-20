@@ -69,6 +69,7 @@ prompt_literal_character = ? any character except '"' or newline ? ;
 builtin_command        = invite
                        | remove
                        | cancel
+                       | model
                        | handoff
                        | who
                        | help
@@ -81,6 +82,9 @@ builtin_command        = invite
 invite                 = "/invite", identifier ;
 remove                 = "/remove", identifier ;
 cancel                 = "/cancel", identifier ;
+model                  = "/model", identifier, [ model_name, [ effort ] ] ;
+model_name             = ? non-whitespace token ? ;
+effort                 = ? non-whitespace token ? ;
 handoff                = "/handoff", identifier, identifier ;
 who                    = "/who" ;
 help                   = "/help" ;
@@ -501,6 +505,7 @@ Other executable statements produce results as follows:
 | `/invite` | Completes successfully when the participant is ready; startup failure produces `failure`. |
 | `/remove` | Completes successfully when removal finishes; an invalid target or stop failure produces `failure`. |
 | `/cancel` | Completes when the interrupt request is accepted; rejection produces `failure`. It does not wait for the target turn's eventual outcome. |
+| `/model` | Completes when the listing or change is accepted; rejection (busy, not ready, unsupported backend) produces `failure`. It does not wait for the outcome, which the room shows when it arrives (see `participant-models.md`). |
 | `/handoff` | Completes after the destination participant turn; source resolution or destination-turn failure produces `failure`. |
 | `/who` | Completes immediately with the participant list as output. |
 | `/loop` | Uses the loop result rules defined below. |

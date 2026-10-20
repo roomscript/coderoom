@@ -112,7 +112,7 @@ func startInvitedAgent(alias participant.Alias, a agent.Agent, s *Session) {
 			handleInviteStartError(alias, err, s)
 			return
 		}
-		stop, from, ok := s.attachParticipant(alias, a)
+		stop, from, ok := s.attachParticipant(alias, a, readStartupSettings(a))
 		if !ok {
 			s.cancelAgentContext(alias)
 			_ = a.Stop()
@@ -146,6 +146,17 @@ func startInvitedAgent(alias participant.Alias, a agent.Agent, s *Session) {
 		go s.readLoop(stop, alias, a)
 		s.notifyAgentReady(alias)
 	}()
+}
+
+// readStartupSettings returns the model and effort a started agent reports,
+// or nil when it cannot report them.
+func readStartupSettings(a agent.Agent) *agent.Settings {
+	selector, ok := a.(agent.ModelSelector)
+	if !ok {
+		return nil
+	}
+	settings := selector.Settings()
+	return &settings
 }
 
 // notifyAgentReady reports readiness with the participant's settings. A

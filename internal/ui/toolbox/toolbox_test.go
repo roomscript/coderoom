@@ -96,6 +96,10 @@ func TestParticipantsWantsTick(t *testing.T) {
 	if !keepalive.WantsTick() {
 		t.Fatal("expected true for keepalive participant")
 	}
+	changing, _ := New().SetParticipants([]participant.View{{Alias: participant.New("ada", "", participant.InitiativeManual).Alias, Status: participant.StatusChangingModel, Since: now}})
+	if !changing.WantsTick() {
+		t.Fatal("expected true for a participant changing its model")
+	}
 	starting, _ := New().SetParticipants([]participant.View{{Alias: participant.New("ada", "", participant.InitiativeManual).Alias, Status: participant.StatusStarting, Since: now}})
 	if !starting.WantsTick() {
 		t.Fatal("expected true for starting participant")
@@ -103,6 +107,17 @@ func TestParticipantsWantsTick(t *testing.T) {
 	crashed, _ := New().SetParticipants([]participant.View{{Alias: participant.New("ada", "", participant.InitiativeManual).Alias, Status: participant.StatusCrashed, Since: now}})
 	if !crashed.WantsTick() {
 		t.Fatal("expected true for crashed participant")
+	}
+}
+
+func TestCell_changingModelHasItsOwnGlyph(t *testing.T) {
+	now := time.Unix(100, 0)
+	ps := []participant.View{
+		{Alias: participant.New("ada", "", participant.InitiativeManual).Alias, Status: participant.StatusChangingModel, Since: now.Add(-5 * time.Second)},
+	}
+	out := ansi.Strip(renderParticipantCells(cellWidth()*4, now, ps))
+	if !strings.Contains(out, "◑ ada (5s)") {
+		t.Errorf("want the changing-model glyph with elapsed time; got %q", out)
 	}
 }
 

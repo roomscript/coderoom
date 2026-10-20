@@ -1,7 +1,7 @@
 # Participant model and effort
 
-Status: **draft**, for #71. This is the backend-neutral framework. Backend
-details: `pkg-agent-claude-models.md` (Claude) and `pkg-agent-codex-models.md`
+Status: **implemented** for #71; no backend implements `ModelSelector` yet.
+This is the backend-neutral framework. Backend details: `pkg-agent-claude-models.md` (Claude) and `pkg-agent-codex-models.md`
 (Codex, to come).
 
 ---
@@ -109,9 +109,9 @@ reinvite creates a new participant with the new process's startup settings.
 
 Statuses are matched explicitly in a few places, and each needs the new value:
 
-- `ui/toolbox`: glyph and activity tier. Proposed glyph: `◑`, next to
-  `preparing`'s `◐` and distinct from `keepalive`'s `◔`. Elapsed time is shown,
-  as for other busy states.
+- `ui/toolbox`: glyph `◑`, next to `preparing`'s `◐` and distinct from
+  `keepalive`'s `◔`, in `keepalive`'s activity tier. Elapsed time is shown, as
+  for other busy states.
 - `interpreter/runtime/participant_updates.go`: `isPastStartup`.
 - `pkg-participant.md` and `pkg-ui-toolbox-activity.md`: state lists.
 
@@ -135,7 +135,9 @@ type ModelOption struct {
 
 A model matches an entry by `Name` or `ID`. Claude lists aliases (`opus`,
 whose `ID` is `claude-opus-5-5`) next to full IDs. For entries without an
-alias, and for Codex, `ID` equals `Name`.
+alias, and for Codex, `ID` equals `Name`. A `Name` match wins over an `ID`
+match, and among `ID` matches the first entry wins, since several aliases can
+share an ID (Claude's `default` and `opus`).
 
 ### Capability
 
@@ -265,8 +267,9 @@ as `InviteCommand` does not wait for startup:
    the same lock and status check that admits work and keepalive, so `/model`
    is serialized against both, and the participant stays reserved from
    listing to outcome.
-3. After unlocking: `Models()`. If it returns an error, remove the queue entry
-   and finish the change with it.
+3. After unlocking: `Models()`. If it returns an error, remove the queue entry,
+   return the participant to idle and fail the command with the error. No
+   `ModelChangeFinished` is published, since nothing reached the backend.
 
 Rejections name the reason: not ready (starting), busy (working, preparing,
 keepalive, or `changing-model`), crashed. No change waits for later, and no
@@ -277,21 +280,22 @@ work is interrupted.
 `readLoop` handles both messages as it handles `agent.KeepAlive`.
 
 **`ModelsListed`.** Each participant's runtime keeps a FIFO queue of listing
-owners, one entry per `Models` call that started: a read request, or the
-pending change. Listings arrive in call order, so each `ModelsListed` answers
-the owner at the head of the queue, which is then removed. Owners are queued
-before `Models` is called, because a listing may arrive before the call
-returns; commands run serially, so queue order is call order. A listing never
-answers a request it was not started for, so a failed read cannot abort a
-change, nor a change's listing be shown as a read.
+purposes (`pendingModelListings`), one entry per `Models` call that started:
+display, for a read request, or the pending change. Listings arrive in call
+order, so each `ModelsListed` serves the purpose at the head of the queue,
+which is then removed. Purposes are queued before `Models` is called, because
+a listing may arrive before the call returns; commands run serially, so queue
+order is call order. A listing never serves a request it was not started for,
+so a failed read cannot abort a change, nor a change's listing be shown as a
+read.
 
-- **The owner is the pending change:**
+- **For the pending change:**
   - `Err` set: finish the change with it.
   - No entry matches `Model` by `Name` or `ID`, or `Effort` is not in the
     entry's `Efforts`: finish with an error that lists the valid values.
   - Otherwise `SelectModel(opt, Effort)`, called after releasing the lock. If
     it returns an error, finish with it.
-- **The owner is a read request:** publish `ModelsListed` with the
+- **For display:** publish `ModelsListed` with the
   participant's current `Settings` and status.
 - **The queue is empty:** drop the listing.
 

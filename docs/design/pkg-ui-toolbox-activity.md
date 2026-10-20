@@ -21,7 +21,7 @@ participant/session model, while **presentation** lives in the UI.
 
 Session/participant owns:
 
-- Participant status: `idle | starting | attached | keepalive | preparing | working | crashed`
+- Participant status: `idle | starting | attached | keepalive | changing-model | preparing | working | crashed`
 - `since` timestamp for the current status
 - Allowed state transitions (enforced centrally)
 
@@ -83,6 +83,7 @@ Examples:
 
 - Idle: `● ada`
 - Keepalive: `◔ ada (12s)`
+- Changing model: `◑ ada (1s)`
 - Working: `⏹ ada (10s)` and `◆ ada (11s)` (alternates each second)
 
 Status is communicated **only** via the leading glyph. We intentionally do not
@@ -143,6 +144,7 @@ Each participant has a state machine that drives the status glyph and
 - `starting`: agent process is starting
 - `attached`: agent process is live, but startup is not fully committed yet
 - `keepalive`: backend maintenance request in flight
+- `changing-model`: a `/model` change is in flight (see `participant-models.md`)
 - `preparing`: the session has committed to a send and is establishing turn state
 - `working`: agent is processing a request / streaming output
 - `crashed`: agent crashed
@@ -153,7 +155,7 @@ Idle cells do not show an elapsed field (no `(…)` suffix).
 ### What counts as “busy”
 
 A participant is considered busy for dispatch/routing purposes if it is in any
-non-idle runtime state, including `keepalive`.
+non-idle runtime state, including `keepalive` and `changing-model`.
 
 `keepalive` is special:
 
@@ -172,6 +174,7 @@ That means:
   turn anchor
 - `working` means a real turn is in flight
 - `keepalive` means backend maintenance is in flight without a user turn
+- `changing-model` means a `/model` change is in flight without a user turn
 
 ### Start/stop rules
 
@@ -181,7 +184,9 @@ That means:
 - Transition `preparing -> working` when the turn anchor is established.
 - Enter `keepalive` when session claims the participant for backend
   maintenance.
-- Return to `idle` when the active turn or keepalive round-trip completes.
+- Enter `changing-model` when session admits a `/model` change.
+- Return to `idle` when the active turn, keepalive round-trip or model change
+  completes.
 - Enter `crashed` when the agent exits unexpectedly.
 - Remove the participant from the activity monitor when it leaves the session.
 
@@ -191,6 +196,7 @@ Elapsed semantics:
 - `attached`: elapsed since the agent became live but not yet fully started.
 - `preparing`: elapsed since the send was committed.
 - `keepalive`: elapsed since backend maintenance started.
+- `changing-model`: elapsed since the model change was admitted.
 - `working`: elapsed since entering `working`.
 - `crashed`: elapsed since `agent.crashed`.
 - `idle`/`stopped`: no elapsed displayed.
@@ -198,7 +204,7 @@ Elapsed semantics:
 ## Tick / animation model
 
 The UI updates once per second **only if** any participant is in `starting`,
-`attached`, `keepalive`, `preparing`, `working` or `crashed`. Otherwise, no
+`attached`, `keepalive`, `changing-model`, `preparing`, `working` or `crashed`. Otherwise, no
 periodic ticks run.
 
 ### Spinner glyphs
@@ -225,6 +231,7 @@ themselves), e.g.:
 - `◌` starting / attached
 - `◐` preparing
 - `◔` keepalive
+- `◑` changing model
 - `⏹` / `◆` working
 - `✖` crashed
 
@@ -234,7 +241,7 @@ To keep the display useful when capped to one row, ordering is activity-first:
 
 1. `working`
 2. `preparing`
-3. `keepalive`
+3. `keepalive` / `changing-model`
 4. `starting` / `attached`
 5. `crashed`
 6. `idle`

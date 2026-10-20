@@ -18,6 +18,7 @@ func TestParse_sourceRanges(t *testing.T) {
 		{"remove", "  /remove ada  ", map[string]promptlang.Span{"Span": {Start: 2, End: 13}, "Value.Alias.Span": {Start: 10, End: 13}}},
 		{"cancel", "  /cancel ada  ", map[string]promptlang.Span{"Span": {Start: 2, End: 13}, "Value.Alias.Span": {Start: 10, End: 13}}},
 		{"handoff", "  /handoff ada turing  ", map[string]promptlang.Span{"Span": {Start: 2, End: 21}, "Value.FromAlias.Span": {Start: 11, End: 14}, "Value.ToAlias.Span": {Start: 15, End: 21}}},
+		{"model", "  /model ada opus high  ", map[string]promptlang.Span{"Span": {Start: 2, End: 22}, "Value.Alias.Span": {Start: 9, End: 12}, "Value.Model.Span": {Start: 13, End: 17}, "Value.Effort.Span": {Start: 18, End: 22}}},
 		{"policy", "  /policy enable send-notices  ", map[string]promptlang.Span{"Span": {Start: 2, End: 29}, "Value.Name.Span": {Start: 17, End: 29}}},
 		{"shell UTF-8", " \t/shell echo \"λ\" \n", map[string]promptlang.Span{"Span": {Start: 2, End: 18}, "Value.Program.Span": {Start: 9, End: 18}}},
 		{"definition", "/def tests /shell true", map[string]promptlang.Span{"Span": {Start: 0, End: 22}, "Value.Name.Span": {Start: 5, End: 10}, "Value.Body.Span": {Start: 11, End: 22}, "Value.Body.Value.Program.Span": {Start: 18, End: 22}}},

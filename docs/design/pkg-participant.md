@@ -134,6 +134,9 @@ Current participant statuses:
 - `attached`: the agent process is live, but startup has not fully committed
 - `keepalive`: backend maintenance is in flight; the participant is temporarily
   non-sendable but no user turn is active
+- `changing-model`: a `/model` change is in flight; like `keepalive`, the
+  participant takes no work and can still be removed (see
+  `participant-models.md`)
 - `preparing`: the session has committed to a new turn, but the participant has
   not entered `working` yet
 - `working`: a turn is in flight and turn-scoped stream fragments may arrive
@@ -145,6 +148,7 @@ The normal lifecycle is:
 starting -> attached -> idle
 idle -> preparing -> working -> idle
 idle -> keepalive -> idle
+idle -> changing-model -> idle
 * -> crashed
 ```
 
@@ -165,6 +169,7 @@ The participant package enforces these runtime rules:
 
 - a participant cannot start a new turn while already `preparing` or `working`
 - a participant cannot start a new turn while `keepalive` is in flight
+- a participant cannot start a new turn while `changing-model` is in flight
 - a participant cannot receive work while `starting`, `attached`, or `crashed`
 - a participant cannot become `idle` while its turn anchor is still open
 - a stream flush for an untracked stream is invalid
@@ -194,6 +199,8 @@ Exceptional paths:
 - `AbortWork` rolls back a `preparing` or `working` participant to `idle`
 - `BeginKeepalive` / `FinishKeepalive` bracket a maintenance-only
   `idle -> keepalive -> idle` transition
+- `BeginModelChange` / `FinishModelChange` bracket a `/model` change,
+  `idle -> changing-model -> idle`, whatever its outcome
 - `Crash` clears turn state and moves the participant to `crashed`
 
 ### Why `PrepareForWork` exists

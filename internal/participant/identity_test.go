@@ -52,6 +52,8 @@ func TestAlias_survivesRegistrationAndLifecycle(t *testing.T) {
 		{"cancellation", func() error { return p.AbortWork(testNow()) }},
 		{"maintenance", func() error { return p.BeginKeepalive(testNow()) }},
 		{"maintenance completion", func() error { return p.FinishKeepalive(testNow()) }},
+		{"model change", func() error { return p.BeginModelChange(testNow()) }},
+		{"model change completion", func() error { return p.FinishModelChange(testNow()) }},
 		{"crash", func() error { p.Crash(testNow()); return nil }},
 	}
 	for _, step := range steps {

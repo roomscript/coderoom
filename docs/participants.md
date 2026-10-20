@@ -96,6 +96,47 @@ anything:
 [claude unavailable: claude is installed: not found in PATH]
 ```
 
+## Model and Effort
+
+coderoom does not configure models. Each participant starts with the model and
+effort its CLI is configured with, and the room shows them when it joins:
+
+```text
+[ada joined · model: claude-opus-5-5 · effort: medium]
+```
+
+A value the backend does not report shows as managed by that backend, such as
+`claude-managed` or `codex-managed`.
+
+`/model` shows or changes them for the participant's current session:
+
+```text
+/model ada                  # settings and available models with their efforts
+/model ada sonnet           # change the model only
+/model ada sonnet high      # change model and effort
+```
+
+- The model must be one the backend lists, by name or full ID, and the effort
+  one that model supports. Otherwise the change fails and names the valid
+  values.
+- A model-only change sends no effort. The effort shown afterwards is whatever
+  the CLI reports, which may differ from before.
+- Changes need the participant idle. A busy, starting or crashed participant
+  rejects them; nothing is queued or interrupted. `/model ada` also works
+  while the participant is busy.
+- The room reports the outcome when it arrives:
+
+  ```text
+  [ada model changed · model: claude-sonnet-5-5 · effort: high]
+  ```
+
+- Changes keep the conversation and last until the participant is removed.
+  They never write participant files or CLI configuration, and a reinvited
+  participant starts from its CLI's settings again.
+
+A backend that does not support this yet reports `model selection not supported
+by <backend>`.
+
 ## Role Prompts
 
 Role prompts are plain Markdown files. Keep them short, concrete, and focused

@@ -25,7 +25,7 @@ func activityTier(k participant.Status) int {
 		return 1
 	case participant.StatusPreparing:
 		return 2
-	case participant.StatusKeepalive:
+	case participant.StatusKeepalive, participant.StatusChangingModel:
 		return 3
 	case participant.StatusStarting, participant.StatusAttached:
 		return 4
@@ -184,6 +184,8 @@ func participantGlyph(status participant.Status, now time.Time) (string, bool) {
 		return "◐", true
 	case participant.StatusKeepalive:
 		return "◔", true
+	case participant.StatusChangingModel:
+		return "◑", true
 	case participant.StatusWorking:
 		if int(now.Unix())%2 == 0 {
 			return "⏹", true

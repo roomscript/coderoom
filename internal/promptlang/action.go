@@ -35,6 +35,14 @@ type Handoff struct {
 	ToAlias   Located[string]
 }
 
+// Model shows or changes an agent's model and effort. Model and Effort are
+// empty when not given: both empty is the read form.
+type Model struct {
+	Alias  Located[string]
+	Model  Located[string]
+	Effort Located[string]
+}
+
 // Send sends a message to one agent in the shared room (@alias text).
 type Send struct {
 	Alias Located[string]
@@ -98,6 +106,7 @@ func (Invite) isStatement()         {}
 func (Remove) isStatement()         {}
 func (Cancel) isStatement()         {}
 func (Handoff) isStatement()        {}
+func (Model) isStatement()          {}
 func (Send) isStatement()           {}
 func (Broadcast) isStatement()      {}
 func (PolicyEnable) isStatement()   {}

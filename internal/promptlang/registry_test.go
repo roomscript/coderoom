@@ -31,6 +31,7 @@ func TestRegistry_rejectsInvalidDefinitions(t *testing.T) {
 		{Name: located("")},
 		{Name: located("1test")},
 		{Name: located("help")},
+		{Name: located("model")},
 		{Name: located("tests")},
 	}
 	registry := promptlang.NewRegistry()

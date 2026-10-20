@@ -48,6 +48,7 @@ var builtinParsers = map[string]func(sourceCursor, sourceCursor) (Statement, err
 	"/remove":  parseAliasStatement,
 	"/cancel":  parseAliasStatement,
 	"/handoff": parseHandoff,
+	"/model":   parseModel,
 	"/shell":   parseShell,
 	"/policy":  parsePolicy,
 	"/def":     parseDefinition,
@@ -110,6 +111,20 @@ func parseHandoff(_, rest sourceCursor) (Statement, error) {
 		return nil, extra.diagnostic(DiagnosticUnexpectedInput, "usage: /handoff <from> <to>")
 	}
 	return Handoff{FromAlias: from.locatedText(), ToAlias: to.locatedText()}, nil
+}
+
+func parseModel(_, rest sourceCursor) (Statement, error) {
+	const usage = "usage: /model <alias> [<model> [<effort>]]"
+	alias, remainder := rest.field()
+	model, remainder := remainder.field()
+	effort, extra := remainder.field()
+	if alias.text() == "" {
+		return nil, alias.diagnostic(DiagnosticMissingArgument, usage)
+	}
+	if extra.text() != "" {
+		return nil, extra.diagnostic(DiagnosticUnexpectedInput, usage)
+	}
+	return Model{Alias: alias.locatedText(), Model: model.locatedText(), Effort: effort.locatedText()}, nil
 }
 
 func parseShell(_, program sourceCursor) (Statement, error) {
@@ -197,7 +212,7 @@ func isIdentifierPart(char rune) bool {
 func isReservedCommand(name string) bool {
 	switch name {
 	case "invite", "remove", "cancel", "handoff", "who", "help",
-		"policy", "shell", "def", "loop":
+		"policy", "shell", "def", "loop", "model":
 		return true
 	default:
 		return false
