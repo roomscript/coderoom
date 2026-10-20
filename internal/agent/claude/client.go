@@ -21,6 +21,8 @@ const (
 	// turnStreamID is the anchor returned by Send and flushed on result.
 	turnStreamID = agent.StreamID("claude:turn")
 	logStreamID  = agent.StreamID("claude:log")
+	// modelsStreamID carries ModelsListed and ModelSelected.
+	modelsStreamID = agent.StreamID("claude:models")
 
 	initRequestID = "coderoom-init"
 
@@ -81,9 +83,23 @@ type Client struct {
 	reqSeq  int // guarded by writeMu
 
 	turn struct {
+		mu            sync.Mutex
+		owner         turnOwner
+		pending       *pendingPrompt // nil when no prompt waits for its replay
+		changingModel bool           // a SelectModel exchange is running
+	}
+
+	// control holds the handlers of our control requests awaiting an
+	// answer, by request ID.
+	control struct {
 		mu      sync.Mutex
-		owner   turnOwner
-		pending *pendingPrompt // nil when no prompt waits for its replay
+		pending map[string]controlHandler
+	}
+
+	models struct {
+		mu       sync.Mutex
+		catalog  []agent.ModelOption // read at startup
+		settings agent.Settings
 	}
 
 	// notice filters the reply of a notice turn. Stdout reader goroutine
@@ -99,8 +115,7 @@ type Client struct {
 		lines []string
 	}
 
-	initDone chan error
-	exited   chan struct{}
+	exited chan struct{}
 
 	lifecycle struct {
 		parent   context.Context // ends when the caller ends the lifecycle
@@ -159,6 +174,8 @@ func New(cwd string, opts ...Option) *Client {
 		proc: newProc(cwd), obs: noopObserver{}, newPromptID: newUUID,
 		startTimeout: defaultStartTimeout, stopGrace: stopGracePeriod,
 	}
+	c.control.pending = make(map[string]controlHandler)
+	c.models.settings = agent.Settings{Backend: c.Name()}
 	for _, o := range opts {
 		o(c)
 	}
@@ -172,7 +189,8 @@ func New(cwd string, opts ...Option) *Client {
 // Name returns "claude".
 func (c *Client) Name() string { return "claude" }
 
-// Start launches the process and completes the initialize handshake.
+// Start launches the process, completes the initialize handshake and reads
+// the model catalog and current settings.
 func (c *Client) Start() error {
 	if err := c.proc.start(); err != nil {
 		return err
@@ -184,36 +202,16 @@ func (c *Client) Start() error {
 	c.approvals.denied = newDeniedTools()
 	c.dec.declined = c.approvals.denied.take
 	c.newApprovalTurn()
-	c.initDone = make(chan error, 1)
 	c.exited = make(chan struct{})
 	c.startWorkers()
 
-	if err := c.initialize(); err != nil {
+	body, err := c.awaitControl(initRequestID, map[string]any{"subtype": controlInitialize, "hooks": nil})
+	if err != nil {
 		_ = c.Stop()
 		return c.withStderrTail(fmt.Errorf("claude initialize: %w", err))
 	}
+	c.readStartupModels(body)
 	return nil
-}
-
-func (c *Client) initialize() error {
-	err := c.writeJSON(controlRequest{
-		Type:      typeControlRequest,
-		RequestID: initRequestID,
-		Request:   map[string]any{"subtype": controlInitialize, "hooks": nil},
-	})
-	if err != nil {
-		return err
-	}
-	timer := time.NewTimer(c.startTimeout)
-	defer timer.Stop()
-	select {
-	case err := <-c.initDone:
-		return err
-	case <-c.exited:
-		return errors.New("process exited during handshake")
-	case <-timer.C:
-		return fmt.Errorf("no initialize response after %s", c.startTimeout)
-	}
 }
 
 // Send writes a prompt and returns the turn anchor immediately. A leading
@@ -351,7 +349,7 @@ func (c *Client) admitPrompt(id string, notice bool) error {
 	}
 	c.turn.mu.Lock()
 	defer c.turn.mu.Unlock()
-	if c.turn.owner != ownerNone || c.turn.pending != nil {
+	if c.turn.owner != ownerNone || c.turn.pending != nil || c.turn.changingModel {
 		return agent.ErrTurnInProgress
 	}
 	c.turn.pending = &pendingPrompt{id: id, notice: notice}

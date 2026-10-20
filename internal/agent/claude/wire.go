@@ -41,9 +41,12 @@ const (
 
 // Control request subtypes.
 const (
-	controlInitialize = "initialize"
-	controlInterrupt  = "interrupt"
-	controlCanUseTool = "can_use_tool"
+	controlInitialize        = "initialize"
+	controlInterrupt         = "interrupt"
+	controlCanUseTool        = "can_use_tool"
+	controlGetSettings       = "get_settings"
+	controlSetModel          = "set_model"
+	controlApplyFlagSettings = "apply_flag_settings"
 )
 
 type envelope struct {
@@ -130,10 +133,31 @@ type controlCancelLine struct {
 
 type controlResponseLine struct {
 	Response struct {
-		Subtype   string `json:"subtype"`
-		RequestID string `json:"request_id"`
-		Error     string `json:"error"`
+		Subtype   string          `json:"subtype"`
+		RequestID string          `json:"request_id"`
+		Error     string          `json:"error"`
+		Response  json.RawMessage `json:"response"`
 	} `json:"response"`
+}
+
+// initializeResponse is the body of the initialize answer: the model
+// catalog.
+type initializeResponse struct {
+	Models []struct {
+		Value                 string   `json:"value"`
+		ResolvedModel         string   `json:"resolvedModel"`
+		SupportsEffort        bool     `json:"supportsEffort"`
+		SupportedEffortLevels []string `json:"supportedEffortLevels"`
+	} `json:"models"`
+}
+
+// settingsResponse is the body of the get_settings answer. Only applied
+// follows runtime changes; effort is null for a model without effort.
+type settingsResponse struct {
+	Applied struct {
+		Model  string `json:"model"`
+		Effort string `json:"effort"`
+	} `json:"applied"`
 }
 
 // Tool inputs and results the decoder maps.

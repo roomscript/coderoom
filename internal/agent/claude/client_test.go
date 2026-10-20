@@ -14,22 +14,31 @@ import (
 	"github.com/roomscript/coderoom/internal/agent"
 )
 
-const lineInitOK = `{"type":"control_response","response":{"subtype":"success","request_id":"coderoom-init","response":{}}}`
+const (
+	lineInitOK     = `{"type":"control_response","response":{"subtype":"success","request_id":"coderoom-init","response":{}}}`
+	lineSettingsOK = `{"type":"control_response","response":{"subtype":"success","request_id":"coderoom-settings","response":{"applied":{"model":"claude-haiku-4-5","effort":null}}}}`
+
+	// peerNext reads the next stdin line, answering the startup
+	// get_settings request on the way. It fails at EOF.
+	peerNext = `next() { while read -r l; do case $l in *'"coderoom-settings"'*) printf '%s\n' '` + lineSettingsOK + `';; *) return 0;; esac; done; return 1; }; `
+)
 
 // peerScript returns a shell script for a fake claude process. Each step
-// reads one line from stdin, then prints its lines. After the last step the
-// peer drains stdin, so it exits when the client closes stdin. A test that
-// must act before the peer goes on starts a new step and then writes a line,
-// usually with Interrupt.
+// reads one line from stdin, then prints its lines. The startup get_settings
+// request is answered between steps and does not count as a step. After the
+// last step the peer drains stdin, so it exits when the client closes stdin.
+// A test that must act before the peer goes on starts a new step and then
+// writes a line, usually with Interrupt.
 func peerScript(steps ...[]string) string {
 	var sb strings.Builder
+	sb.WriteString(peerNext)
 	for _, step := range steps {
-		sb.WriteString("read -r _; ")
+		sb.WriteString("next; ")
 		for _, l := range step {
 			sb.WriteString("printf '%s\\n' '" + l + "'; ")
 		}
 	}
-	sb.WriteString("cat >/dev/null")
+	sb.WriteString("while next; do :; done")
 	return sb.String()
 }
 
@@ -142,22 +151,39 @@ func TestStart_handshake(t *testing.T) {
 	startPeer(t, peerScript([]string{lineInitOK}), WithObserver(obs))
 
 	sent := obs.sentLines()
-	if len(sent) != 1 {
-		t.Fatalf("sent %d lines, want the initialize request", len(sent))
+	want := []struct{ id, subtype string }{
+		{initRequestID, controlInitialize},
+		{settingsRequestID, controlGetSettings},
 	}
-	var req struct {
-		Type      string `json:"type"`
-		RequestID string `json:"request_id"`
-		Request   struct {
-			Subtype string `json:"subtype"`
-		} `json:"request"`
+	if len(sent) != len(want) {
+		t.Fatalf("sent %d lines, want initialize and get_settings", len(sent))
 	}
-	if err := json.Unmarshal([]byte(sent[0]), &req); err != nil {
-		t.Fatal(err)
+	for i, w := range want {
+		req := parseSentControl(t, sent[i])
+		if req.Type != "control_request" || req.RequestID != w.id || req.Request.Subtype != w.subtype {
+			t.Errorf("request %d = %+v, want %s %s", i, req, w.id, w.subtype)
+		}
 	}
-	if req.Type != "control_request" || req.RequestID != initRequestID || req.Request.Subtype != "initialize" {
-		t.Errorf("initialize request = %+v", req)
+}
+
+// sentControl is a control request the client wrote.
+type sentControl struct {
+	Type      string `json:"type"`
+	RequestID string `json:"request_id"`
+	Request   struct {
+		Subtype  string         `json:"subtype"`
+		Model    string         `json:"model"`
+		Settings map[string]any `json:"settings"`
+	} `json:"request"`
+}
+
+func parseSentControl(t *testing.T, line string) sentControl {
+	t.Helper()
+	var req sentControl
+	if err := json.Unmarshal([]byte(line), &req); err != nil {
+		t.Fatalf("parse request %s: %v", line, err)
 	}
+	return req
 }
 
 func TestStart_failures(t *testing.T) {
@@ -283,7 +309,7 @@ func TestRead_turnErrorLoggedBeforeAnchorFlush(t *testing.T) {
 }
 
 func TestRead_stderrAsLog(t *testing.T) {
-	c := startPeer(t, "read -r _; echo 'warning: something' >&2; printf '%s\\n' '"+lineInitOK+"'; cat >/dev/null")
+	c := startPeer(t, peerNext+"next; echo 'warning: something' >&2; printf '%s\\n' '"+lineInitOK+"'; while next; do :; done")
 
 	msgs := readUntil(t, c, isLog)
 	if log, _ := msgs[len(msgs)-1].Content.(agent.Log); log.Text != "warning: something" {
@@ -294,8 +320,8 @@ func TestRead_stderrAsLog(t *testing.T) {
 func TestRead_selfStartedTurnSummarisedAsLog(t *testing.T) {
 	// After the handshake the peer starts a turn on its own (as a finished
 	// background task or a cron prompt would), then waits for the test prompt.
-	script := "read -r _; printf '%s\\n' '" + lineInitOK + "' '" + lineSystemInit + "' '" + lineMessageStart + "' '" +
-		lineTextStart + "' '" + textDeltaLine("tick") + "' '" + lineBlockStop + "' '" + lineResultOK + "'; cat >/dev/null"
+	script := peerNext + "next; printf '%s\\n' '" + lineInitOK + "' '" + lineSystemInit + "' '" + lineMessageStart + "' '" +
+		lineTextStart + "' '" + textDeltaLine("tick") + "' '" + lineBlockStop + "' '" + lineResultOK + "'; while next; do :; done"
 	c := startPeer(t, script)
 
 	msgs := readUntil(t, c, isLog)
@@ -473,9 +499,9 @@ func TestRead_lineLongerThanReadBuffer(t *testing.T) {
 	const n = 200_000
 	longDelta := "printf '%s' '{\"type\":\"stream_event\",\"event\":{\"type\":\"content_block_delta\",\"index\":0," +
 		"\"delta\":{\"type\":\"text_delta\",\"text\":\"'; head -c " + strconv.Itoa(n) + " /dev/zero | tr '\\0' a; printf '\"}}}\\n'; "
-	script := "read -r _; printf '%s\\n' '" + lineInitOK + "'; read -r _; printf '%s\\n' '" + lineSystemInit + "' '" +
+	script := peerNext + "next; printf '%s\\n' '" + lineInitOK + "'; next; printf '%s\\n' '" + lineSystemInit + "' '" +
 		replayLine("hi") + "' '" + lineMessageStart + "' '" + lineTextStart + "'; " + longDelta +
-		"printf '%s\\n' '" + lineBlockStop + "' '" + lineResultOK + "'; cat >/dev/null"
+		"printf '%s\\n' '" + lineBlockStop + "' '" + lineResultOK + "'; while next; do :; done"
 	c := startPeer(t, script)
 
 	if _, err := c.Send("hi"); err != nil {
@@ -495,10 +521,11 @@ func TestInterrupt(t *testing.T) {
 		[]string{`{"type":"result","subtype":"error_during_execution","is_error":true,"terminal_reason":"aborted_streaming"}`},
 	), WithObserver(obs))
 
+	before := len(obs.sentLines())
 	if err := c.Interrupt(); err != nil {
 		t.Fatalf("Interrupt while idle: %v", err)
 	}
-	if n := len(obs.sentLines()); n != 1 {
+	if n := len(obs.sentLines()) - before; n != 0 {
 		t.Fatalf("idle Interrupt wrote to the peer: %d lines sent", n)
 	}
 	if _, err := c.Send("count to 400"); err != nil {
@@ -508,7 +535,7 @@ func TestInterrupt(t *testing.T) {
 		t.Fatal(err)
 	}
 	msgs := readUntil(t, c, isAnchorFlush)
-	if !strings.Contains(obs.sentLines()[2], `"subtype":"interrupt"`) {
+	if !strings.Contains(obs.sentLines()[before+1], `"subtype":"interrupt"`) {
 		t.Errorf("interrupt request not sent: %v", obs.sentLines())
 	}
 	// A pending prompt that has seen no turn end must not be released.
@@ -616,10 +643,10 @@ func TestStop_escalates(t *testing.T) {
 		script string
 	}{
 		// The peer ignores stdin EOF; Stop must fall back to signals.
-		{"stdin ignored", "read -r _; printf '%s\\n' '" + lineInitOK + "'; exec sleep 60"},
+		{"stdin ignored", peerNext + "next; printf '%s\\n' '" + lineInitOK + "'; next; exec sleep 60"},
 		// A child inherits the pipes and outlives the peer; Stop must not
 		// wait for it to close them.
-		{"pipes held by a child", "read -r _; printf '%s\\n' '" + lineInitOK + "'; sleep 5 & exec sleep 60"},
+		{"pipes held by a child", peerNext + "next; printf '%s\\n' '" + lineInitOK + "'; sleep 5 & next; exec sleep 60"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

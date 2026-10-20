@@ -94,12 +94,18 @@ against `opt.Efforts` once more, since Claude itself ignores invalid efforts.
 One `/model` mutation is one exchange, started by `SelectModel` and run while
 the client admits no prompt. Its outcome is one `ModelSelected` on `Read`:
 
-1. `set_model <opt.Name>`. If it fails, stop.
+1. `set_model <opt.ID>`. If it fails, skip step 2.
 2. If an effort was given: `apply_flag_settings {effortLevel: <effort>}`.
 3. `get_settings`, always, including after a failure in step 1 or 2.
    `ModelSelected` reports `applied` as the new current settings. If the readback
    fails, both fields become unknown: the earlier steps may or may not have
    applied.
+
+The ID is sent, not the name, as agreed on 20 October 2026. Aliases can share
+an ID (`default` and `opus` both resolve to `claude-opus-5-5`), and Claude
+picks the first catalog entry that matches, so what is sent is what the
+readback reports. The cost: selecting `default` pins the model it resolves to
+now, instead of following the account default.
 
 A model-only change sends no effort. The effort is whatever Claude runs with
 afterwards, as read back: today the previous effort carries over (E11), or

@@ -230,7 +230,10 @@ func TestPermission_selfStartedTurnDenied(t *testing.T) {
 			if !slices.ContainsFunc(msgs[:len(msgs)-1], isLog) {
 				t.Errorf("messages = %+v, want a log for the denial before the turn summary", msgs)
 			}
-			sent := obs.sentLines()
+			// The startup get_settings request may follow the answer.
+			sent := slices.DeleteFunc(obs.sentLines(), func(l string) bool {
+				return !strings.Contains(l, `"type":"control_response"`)
+			})
 			if answer := parseSentPermission(t, sent[len(sent)-1]); answer.Behavior != "deny" || answer.Message != selfTurnMessage {
 				t.Errorf("response = %+v, want deny for a self-started turn", answer)
 			}
@@ -255,8 +258,8 @@ func TestPermission_askUserQuestionNotForwarded(t *testing.T) {
 
 func TestPermission_pendingDecisionDoesNotBlockRead(t *testing.T) {
 	l := blockingListener{called: make(chan struct{})}
-	script := "read -r _; printf '%s\\n' '" + lineInitOK + "'; read -r _; printf '%s\\n' '" + lineSystemInit + "' '" + replayLine("go") + "' '" +
-		canUseToolLine("Bash", `{"command":"ls"}`, `[]`) + "'; echo 'still here' >&2; cat >/dev/null"
+	script := peerNext + "next; printf '%s\\n' '" + lineInitOK + "'; next; printf '%s\\n' '" + lineSystemInit + "' '" + replayLine("go") + "' '" +
+		canUseToolLine("Bash", `{"command":"ls"}`, `[]`) + "'; echo 'still here' >&2; while next; do :; done"
 	c := startPeer(t, script, WithApprovalListener(l))
 	if _, err := c.Send("go"); err != nil {
 		t.Fatal(err)
@@ -300,8 +303,8 @@ func TestPermission_parentContextCancelledStopsProcess(t *testing.T) {
 
 func TestPermission_processExitMidTurn(t *testing.T) {
 	l := newFirstBlocksListener()
-	script := "read -r _; printf '%s\\n' '" + lineInitOK + "'; read -r _; printf '%s\\n' '" + lineSystemInit + "' '" +
-		replayLine("go") + "' '" + canUseToolLine("Bash", `{"command":"ls"}`, `[]`) + "'; read -r _; exit 1"
+	script := peerNext + "next; printf '%s\\n' '" + lineInitOK + "'; next; printf '%s\\n' '" + lineSystemInit + "' '" +
+		replayLine("go") + "' '" + canUseToolLine("Bash", `{"command":"ls"}`, `[]`) + "'; next; exit 1"
 	c := startPeer(t, script, WithApprovalListener(l))
 	if _, err := c.Send("go"); err != nil {
 		t.Fatal(err)

@@ -26,6 +26,7 @@ func (c *Client) startWorkers() {
 		c.lifecycle.readers.Wait()
 		_ = c.proc.cmd.Wait()
 		c.lifecycle.cancelFn()
+		c.endModelChange()
 		c.approvals.queue.close()
 		c.queue.close()
 		close(c.exited)
@@ -135,20 +136,6 @@ func (c *Client) handleControl(d decoded) {
 	}
 	if d.controlCancel != nil {
 		c.withdrawPermission(d.controlCancel.RequestID)
-	}
-}
-
-func (c *Client) handleControlResponse(line *controlResponseLine) {
-	if line.Response.RequestID != initRequestID {
-		return
-	}
-	var err error
-	if line.Response.Subtype == "error" {
-		err = errors.New(line.Response.Error)
-	}
-	select {
-	case c.initDone <- err:
-	default:
 	}
 }
 
