@@ -43,7 +43,7 @@ func (r *Room) handleLifecycleEventLocked(e session.Event) ([]int, bool) {
 	case session.AgentStarting:
 		return r.appendSystemRecordLocked(startingNotice(e)), true
 	case session.AgentReady:
-		return r.handleJoinLocked(e.Alias)
+		return r.handleJoinLocked(e)
 	case session.AgentStopped:
 		return r.handleLeaveLocked(e.Alias, "left"), true
 	case session.AgentCrashed:
@@ -61,13 +61,14 @@ func (r *Room) handleLifecycleEventLocked(e session.Event) ([]int, bool) {
 	}
 }
 
-func (r *Room) handleJoinLocked(alias participant.Alias) ([]int, bool) {
+func (r *Room) handleJoinLocked(e session.AgentReady) ([]int, bool) {
+	alias := e.Alias
 	if r.departed[alias] {
 		return nil, false
 	}
 	r.members[alias] = struct{}{}
 	dirty := r.refreshLatestHandoffSourceLocked(alias)
-	dirty = append(dirty, r.appendSystemRecordLocked("["+alias.Name+" joined]")...)
+	dirty = append(dirty, r.appendSystemRecordLocked(joinedNotice(e))...)
 	slices.Sort(dirty)
 	return slices.Compact(dirty), true
 }
@@ -101,6 +102,15 @@ func startingNotice(e session.AgentStarting) string {
 		return "[" + e.Alias.Name + " starting]"
 	}
 	return "[" + e.Alias.Name + " starting · " + e.Backend + "]"
+}
+
+// joinedNotice shows the participant's model and effort, each with its
+// backend-managed fallback. Without a backend name it is the bare alias.
+func joinedNotice(e session.AgentReady) string {
+	if e.Settings.Backend == "" {
+		return "[" + e.Alias.Name + " joined]"
+	}
+	return "[" + e.Alias.Name + " joined · model: " + e.Settings.ModelLabel() + " · effort: " + e.Settings.EffortLabel() + "]"
 }
 
 // configChangedNotice tells the user that edited config files only apply

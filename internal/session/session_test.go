@@ -433,8 +433,8 @@ func TestInvite_buildsEchoWithoutFactoryWhenPolicyEnabled(t *testing.T) {
 	if factoryCalled {
 		t.Fatal("factory called, want the session to build echo")
 	}
-	if p, _ := s.ParticipantByName("ada"); p.Backend != "echo" {
-		t.Fatalf("Backend = %q, want echo", p.Backend)
+	if p, _ := s.ParticipantByName("ada"); p.Settings.Backend != "echo" {
+		t.Fatalf("Settings.Backend = %q, want echo", p.Settings.Backend)
 	}
 }
 
@@ -451,13 +451,16 @@ func TestInvite_recordsBackendTheAgentReports(t *testing.T) {
 
 	invite(t, s, "ada")
 	starting := mustReceive[session.AgentStarting](t, obs.ch)
-	mustReceive[session.AgentReady](t, obs.ch)
+	ready := mustReceive[session.AgentReady](t, obs.ch)
 
 	if starting.Backend != "fake" {
 		t.Fatalf("AgentStarting.Backend = %q, want fake", starting.Backend)
 	}
-	if p, _ := s.ParticipantByName("ada"); p.Backend != "fake" {
-		t.Fatalf("View.Backend = %q, want fake", p.Backend)
+	if ready.Settings.Backend != "fake" {
+		t.Fatalf("AgentReady.Settings.Backend = %q, want fake", ready.Settings.Backend)
+	}
+	if p, _ := s.ParticipantByName("ada"); p.Settings.Backend != "fake" {
+		t.Fatalf("View.Settings.Backend = %q, want fake", p.Settings.Backend)
 	}
 }
 

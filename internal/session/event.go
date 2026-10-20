@@ -24,7 +24,11 @@ type AgentStarting struct {
 
 // AgentReady reports that an agent is ready to receive messages. By the time
 // this event fires the participant is in StatusIdle and IsSendable returns true.
-type AgentReady struct{ Alias participant.Alias }
+// Settings are the participant's settings at readiness.
+type AgentReady struct {
+	Alias    participant.Alias
+	Settings agent.Settings
+}
 
 // AgentStopped reports that an agent exited during an intentional shutdown path.
 type AgentStopped struct{ Alias participant.Alias }

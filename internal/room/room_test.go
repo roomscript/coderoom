@@ -78,6 +78,31 @@ func TestOnEvent_agentStartingShowsBackend(t *testing.T) {
 	}
 }
 
+func TestOnEvent_agentReadyShowsSettings(t *testing.T) {
+	tests := []struct {
+		name     string
+		settings agent.Settings
+		want     string
+	}{
+		{"known", agent.Settings{Backend: "claude", Model: "claude-opus-5-5", Effort: "medium"}, "[ada joined · model: claude-opus-5-5 · effort: medium]"},
+		{"backend-managed", agent.Settings{Backend: "codex"}, "[ada joined · model: codex-managed · effort: codex-managed]"},
+		{"effort managed", agent.Settings{Backend: "claude", Model: "claude-haiku-4-5"}, "[ada joined · model: claude-haiku-4-5 · effort: claude-managed]"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			room, updates := newTestRoom(t)
+
+			room.OnEvent(session.AgentReady{Alias: newTestAlias("ada"), Settings: tt.settings})
+			waitUpdate(t, updates)
+
+			records := room.Snapshot().Records
+			if len(records) != 1 || records[0].Text != tt.want {
+				t.Fatalf("records = %#v, want %s", records, tt.want)
+			}
+		})
+	}
+}
+
 func TestOnEvent_backendUnavailableAppendsSystemRecord(t *testing.T) {
 	room, updates := newTestRoom(t)
 

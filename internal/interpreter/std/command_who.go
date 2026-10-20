@@ -51,8 +51,8 @@ func whoNotice(views []participant.View) string {
 	entries := make([]string, len(views))
 	for i, view := range views {
 		entries[i] = view.Alias.Name
-		if view.Backend != "" {
-			entries[i] += " (" + view.Backend + ")"
+		if view.Settings.Backend != "" {
+			entries[i] += " (" + view.Settings.Backend + ")"
 		}
 	}
 	return "[agents] " + strings.Join(entries, ", ")

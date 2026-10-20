@@ -357,7 +357,8 @@ separate field for it.
   participant it already added and reports the error. Nothing about the
   participant has been announced yet, so the room shows only the error.
 - After the agent is built, the session copies `a.Name()` into
-  `participant.View.Backend` before `ParticipantStatusChanged` and
+  `participant.View.Backend` (now `View.Settings.Backend`, see
+  `participant-models.md`) before `ParticipantStatusChanged` and
   `AgentStarting` are sent, and `AgentStarting` carries it too. The view holds
   the name the agent **declares**, not the name that was requested. If
   recording it fails, the invite is rolled back like a failed build.
@@ -373,7 +374,7 @@ facilities to `registry.Options`.
 
 The name shown is `View`'s copy of `Agent.Name()`. It is shown always, for
 every backend, so it is never hidden. **Decided.** The room builds the starting
-line from `AgentStarting.Backend`; `/who` reads `View.Backend` and sorts by
+line from `AgentStarting.Backend`; `/who` reads `View.Settings.Backend` and sorts by
 alias. Either falls back to the bare alias when the name is empty.
 
 | Where | Before | Now |

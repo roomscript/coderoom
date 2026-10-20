@@ -115,7 +115,7 @@ snapshots; the UI does not re-read session state.
 
 | Event type | Rendered as |
 |---|---|
-| `AgentReady` | `[ada joined]` |
+| `AgentReady` | `[ada joined · model: <model> · effort: <effort>]`, each field falling back to `<backend>-managed` (see `participant-models.md`); `[ada joined]` when the event has no backend name |
 | `AgentStopped` | `[ada left]` |
 | `AgentCrashed` | `[ada crashed]` |
 | `AgentLog` | `▸ <line>` in grey (lipgloss); de-emphasised diagnostic output; does not participate in streaming state; appended as a standalone line like any other event |

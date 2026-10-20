@@ -3,6 +3,7 @@ package std_test
 import (
 	"testing"
 
+	"github.com/roomscript/coderoom/internal/agent"
 	"github.com/roomscript/coderoom/internal/interpreter/runtime"
 	"github.com/roomscript/coderoom/internal/interpreter/std"
 	"github.com/roomscript/coderoom/internal/participant"
@@ -43,8 +44,8 @@ func whoCommandTests() []whoCommandTest {
 		{
 			name: "with backends",
 			views: []participant.View{
-				{Alias: newTestAlias("tim"), Backend: "codex"},
-				{Alias: newTestAlias("ada"), Backend: "claude"},
+				{Alias: newTestAlias("tim"), Settings: agent.Settings{Backend: "codex"}},
+				{Alias: newTestAlias("ada"), Settings: agent.Settings{Backend: "claude"}},
 			},
 			text: "[agents] ada (claude), tim (codex)",
 		},

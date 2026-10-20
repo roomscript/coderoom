@@ -55,14 +55,14 @@ func (s *Session) buildAgent(cfg roomconfig.ParticipantConfig) (agent.Agent, err
 }
 
 // createAgent builds the participant's agent and records the backend name it
-// reports in the participant's view.
+// reports in the participant's settings.
 func (s *Session) createAgent(alias participant.Alias, cfg roomconfig.ParticipantConfig) (agent.Agent, error) {
 	a, err := s.buildAgent(cfg)
 	if err != nil {
 		return nil, err
 	}
 	err = s.updateParticipant(alias, func(p *participant.Participant) (Event, error) {
-		p.Backend = a.Name()
+		p.Settings = agent.Settings{Backend: a.Name()}
 		return nil, nil
 	})
 	if err != nil {
@@ -144,8 +144,15 @@ func startInvitedAgent(alias participant.Alias, a agent.Agent, s *Session) {
 		// is drained immediately. The participant is already StatusIdle with
 		// StartupReady=true, so all invariants are satisfied.
 		go s.readLoop(stop, alias, a)
-		s.notify(AgentReady{Alias: alias})
+		s.notifyAgentReady(alias)
 	}()
+}
+
+// notifyAgentReady reports readiness with the participant's settings. A
+// participant removed in the meantime still gets its event, without settings.
+func (s *Session) notifyAgentReady(alias participant.Alias) {
+	view, _ := s.Participant(alias)
+	s.notify(AgentReady{Alias: alias, Settings: view.Settings})
 }
 
 func stopUnreadyParticipant(alias participant.Alias, a agent.Agent, s *Session) {

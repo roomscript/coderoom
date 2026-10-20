@@ -56,7 +56,7 @@ func deriveParticipantEvent(change participant.Change) Event {
 	case participant.StatusChanged:
 		return ParticipantStatusChanged{Alias: after.Alias, From: before.Status, To: after.Status, Since: after.Since, ActiveExecutionID: after.ActiveExecutionID}
 	case participant.BecameReady:
-		return AgentReady{Alias: after.Alias}
+		return AgentReady{Alias: after.Alias, Settings: after.Settings}
 	case participant.WorkCompleted:
 		return ParticipantWorkCompleted{Alias: before.Alias, ExecutionID: after.LastCompletedExecutionID}
 	case participant.Removed:

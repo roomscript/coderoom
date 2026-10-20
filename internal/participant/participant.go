@@ -73,10 +73,10 @@ type ExecutionID uint64
 type View struct {
 	Alias Alias
 	Role  string
-	// Backend is the name the participant's agent reports through
-	// agent.Agent.Name(), which may differ from the configured one. Empty
-	// until the agent is built.
-	Backend    string
+	// Settings carry the name the participant's agent reports through
+	// agent.Agent.Name(), which may differ from the configured one, and the
+	// model and effort its backend reports. Empty until the agent is built.
+	Settings   agent.Settings
 	Initiative Initiative
 	Status     Status
 	Color      string // hex colour code, e.g. "#4ade80"; empty means default terminal colour
