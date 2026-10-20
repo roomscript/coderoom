@@ -363,6 +363,7 @@ func TestDecode_lifecycleAndIgnoredLines(t *testing.T) {
 		{"system init", lineSystemInit, signalInit},
 		{"result", lineResultOK, signalResult},
 		{"replayed prompt", replayLine("hi"), signalReplay},
+		{"replayed local command output", replayLine("<local-command-stdout>Set model to `claude-haiku-5-5`</local-command-stdout>"), signalReplay},
 		{"sub-agent prompt", `{"type":"user","message":{"role":"user","content":"hi"},"parent_tool_use_id":"toolu_1"}`, signalNone},
 		{"permission denied with string message", `{"type":"system","subtype":"permission_denied","tool_name":"Write","message":"denied"}`, signalNone},
 		{"rate limit", `{"type":"rate_limit_event"}`, signalNone},

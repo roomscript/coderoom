@@ -363,20 +363,32 @@ func TestRead_selfStartedTurnAfterSend(t *testing.T) {
 }
 
 func TestRead_replayClaimsTurnWhateverItsText(t *testing.T) {
-	c := startPeer(t, peerScript(
-		[]string{lineInitOK},
-		[]string{lineSystemInit, replayLine("hi, reworded"), lineMessageStart, lineTextStart, textDeltaLine("ok"), lineBlockStop, lineResultOK},
-	))
+	tests := []struct {
+		name   string
+		prompt string
+		replay string
+	}{
+		{"reworded", "hi", "hi, reworded"},
+		{"pasted local command markup", "<local-command-stdout>pasted</local-command-stdout>", "<local-command-stdout>pasted</local-command-stdout>"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := startPeer(t, peerScript(
+				[]string{lineInitOK},
+				[]string{lineSystemInit, replayLine(tt.replay), lineMessageStart, lineTextStart, textDeltaLine("ok"), lineBlockStop, lineResultOK},
+			))
 
-	if _, err := c.Send("hi"); err != nil {
-		t.Fatal(err)
-	}
-	msgs := readUntil(t, c, isAnchorFlush)
-	if out, _ := accumulate(t, msgs[:len(msgs)-1]).Content.(agent.Output); out.Text != "ok" {
-		t.Errorf("reply = %q, want ok", out.Text)
-	}
-	if _, err := c.Send("next"); err != nil {
-		t.Errorf("Send after the reply: %v", err)
+			if _, err := c.Send(tt.prompt); err != nil {
+				t.Fatal(err)
+			}
+			msgs := readUntil(t, c, isAnchorFlush)
+			if out, _ := accumulate(t, msgs[:len(msgs)-1]).Content.(agent.Output); out.Text != "ok" {
+				t.Errorf("reply = %q, want ok", out.Text)
+			}
+			if _, err := c.Send("next"); err != nil {
+				t.Errorf("Send after the reply: %v", err)
+			}
+		})
 	}
 }
 

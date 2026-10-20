@@ -118,7 +118,7 @@ func (c *Client) handleLine(line []byte) {
 	case signalInit:
 		c.noteTurnStart()
 	case signalReplay:
-		c.notePromptReplayed(d.replayID)
+		c.notePromptReplayed(d.replayID, d.replayLocalCommand)
 	case signalNone, signalResult:
 	}
 	c.deliver(d)
@@ -167,8 +167,8 @@ func (c *Client) noteTurnStart() {
 // Claude started on its own takes over that turn: the output so far is
 // summarised, and items still open are dropped, so their remaining output
 // is ignored instead of joining our turn.
-func (c *Client) notePromptReplayed(id string) {
-	if !c.claimReplayedTurn(id) {
+func (c *Client) notePromptReplayed(id string, localCommand bool) {
+	if !c.claimReplayedTurn(id, localCommand) {
 		return
 	}
 	c.dec.flushOpen()
@@ -181,10 +181,13 @@ func (c *Client) notePromptReplayed(id string) {
 // A replay of another prompt marks a turn with no owner yet as self-started
 // at once, so it cannot be claimed for the pending prompt when it ends with
 // no output.
-func (c *Client) claimReplayedTurn(id string) (tookOver bool) {
+func (c *Client) claimReplayedTurn(id string, localCommand bool) (tookOver bool) {
 	c.turn.mu.Lock()
 	defer c.turn.mu.Unlock()
 	if c.turn.pending == nil || c.turn.pending.id != id {
+		if localCommand {
+			return false // control output has no turn, unless its UUID matches our prompt
+		}
 		if c.turn.owner == ownerUnknown || c.turn.owner == ownerNone {
 			c.turn.owner = ownerSelf
 			c.selfTurnText.Reset()

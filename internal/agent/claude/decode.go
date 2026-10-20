@@ -23,16 +23,21 @@ const (
 	signalResult            // result: the turn is over
 )
 
+// localCommandPrefix starts the replayed output of a local command Claude
+// runs for a control request, such as set_model. No turn follows it.
+const localCommandPrefix = "<local-command-"
+
 // decoded is everything the client needs from one stdout line.
 type decoded struct {
-	msgs            []agent.Message
-	streamed        bool // a stream_event: the model is producing output
-	signal          turnSignal
-	replayID        string // the replayed prompt's uuid, with signalReplay
-	result          resultLine
-	controlRequest  *controlRequestLine
-	controlResponse *controlResponseLine
-	controlCancel   *controlCancelLine
+	msgs               []agent.Message
+	streamed           bool // a stream_event: the model is producing output
+	signal             turnSignal
+	replayID           string // the replayed prompt's uuid, with signalReplay
+	replayLocalCommand bool   // local-command markup; UUID ownership still takes precedence
+	result             resultLine
+	controlRequest     *controlRequestLine
+	controlResponse    *controlResponseLine
+	controlCancel      *controlCancelLine
 }
 
 type blockKind int
@@ -249,7 +254,10 @@ func (d *decoder) decodeUser(raw []byte) (decoded, error) {
 		if !line.IsReplay {
 			return decoded{}, nil // a prompt we did not write, such as a sub-agent's
 		}
-		return decoded{signal: signalReplay, replayID: line.UUID}, nil
+		return decoded{
+			signal: signalReplay, replayID: line.UUID,
+			replayLocalCommand: strings.HasPrefix(prompt, localCommandPrefix),
+		}, nil
 	}
 	var blocks []toolResultBlock
 	if err := json.Unmarshal(line.Message.Content, &blocks); err != nil {

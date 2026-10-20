@@ -175,6 +175,24 @@ func TestSelectModel_holdsPromptGate(t *testing.T) {
 	}
 }
 
+func TestSelectModel_localCommandReplayLeavesClientIdle(t *testing.T) {
+	// Claude echoes set_model as a replayed local command, with no turn.
+	echo := replayLineID("<local-command-stdout>Set model to `claude-opus-5-5`</local-command-stdout>", "local-1")
+	c := startPeer(t, peerScript(
+		[]string{lineInitOK},
+		[]string{echo, controlSuccessLine("coderoom-set-model-1", "null")},
+		[]string{controlSuccessLine("coderoom-settings-2", appliedBody("claude-opus-5-5", "low"))},
+	))
+
+	if err := c.SelectModel(opus, ""); err != nil {
+		t.Fatal(err)
+	}
+	readModelMessage(t, c)
+	if err := c.SelectModel(opus, ""); err != nil {
+		t.Errorf("SelectModel after a change = %v, want accepted", err)
+	}
+}
+
 func TestSelectModel_refused(t *testing.T) {
 	tests := []struct {
 		name   string

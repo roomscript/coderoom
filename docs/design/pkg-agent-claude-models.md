@@ -42,6 +42,12 @@ Observed behaviour that shapes the design:
 - **There is no "back to the configured model".** `set_model` with `null` is a
   no-op, and `set_model default` selects the account default, not the
   configured model.
+- **`set_model` echoes a replayed user message.** Before its `success`, Claude
+  writes `isReplay: true` with content `<local-command-stdout>Set model to
+  ...</local-command-stdout>` and a fresh uuid, and no turn follows. The
+  client ignores such replays unless their UUID matches the pending prompt;
+  otherwise they would count as a self-started turn that never ends. Matching
+  UUIDs retain ownership even when a user pastes local-command markup.
 - **Nothing is persisted.** The settings files are not touched, and
   `~/.claude.json` only gains caches and usage statistics, as on every run.
 
