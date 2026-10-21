@@ -71,6 +71,8 @@ The listener:
 Important layering note:
 
 - `internal/ui/room/approval` is presentation-only (render + key navigation).
+  Panel sizing and request scrolling follow
+  [approval panel sizing](pkg-ui-input.md#approval-panel-sizing).
 - Approval transport/correlation (what request is pending, which decision
   completes it) must live outside the UI component layer.
 

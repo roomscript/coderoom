@@ -1,10 +1,12 @@
 package room
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/roomscript/coderoom/internal/interpreter"
 	"github.com/roomscript/coderoom/internal/ui/room/approval"
 )
@@ -253,5 +255,54 @@ func assertHistorySelectedText(t *testing.T, m Model, want string) {
 	afterText, ok := m.HistorySelectedText()
 	if !ok || afterText != want {
 		t.Fatalf("expected approval cancel to preserve selected text; before=%q after=%q active=%v", want, afterText, ok)
+	}
+}
+
+func TestApprovalMode_longRequestFitsFrame(t *testing.T) {
+	for _, size := range []struct{ width, height int }{{80, 20}, {30, 12}, {12, 8}} {
+		t.Run(fmt.Sprintf("%dx%d", size.width, size.height), func(t *testing.T) {
+			m := newTestModel(t).HandleResize(size.width, size.height)
+			m = m.ShowApproval(interpreter.Approval{
+				Prompt:  "[→ eve] approve command execution: python3 -I -c '\nprint(\"Monday\")\nprint(\"Tuesday\")\nprint(\"Wednesday\")\nprint(\"Thursday\")\nprint(\"Friday\")\n' (Run a five-line Python script that prints the work days)",
+				Options: []interpreter.ApprovalOption{{ID: "accept"}, {ID: "decline"}, {ID: "cancel"}},
+			})
+			for i := 0; i < 3; i++ {
+				view := ansi.Strip(m.View())
+				if rows := strings.Count(view, "\n") + 1; rows > size.height {
+					t.Fatalf("frame has %d rows, budget %d:\n%s", rows, size.height, view)
+				}
+				for _, line := range strings.Split(view, "\n") {
+					if ansi.StringWidth(line) > size.width {
+						t.Fatalf("line exceeds width %d: %q", size.width, line)
+					}
+				}
+				choice, _ := m.input.approval.SelectedOption()
+				if !strings.Contains(view, "> "+choice.OptionID) {
+					t.Fatalf("selected option %q not visible:\n%s", choice.OptionID, view)
+				}
+				m, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
+			}
+		})
+	}
+}
+
+func TestApprovalMode_pagingScrollsRequestInsteadOfHistory(t *testing.T) {
+	m := newTestModel(t).HandleResize(40, 12)
+	m = m.AppendSystem(strings.Repeat("history\n", 30))
+	m = m.ShowApproval(interpreter.Approval{
+		Prompt:  strings.Repeat("request\n", 10) + "request tail",
+		Options: []interpreter.ApprovalOption{{ID: "accept"}, {ID: "decline"}},
+	})
+	historyTop := m.YOffset()
+	for i := 0; i < 15; i++ {
+		m, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyPgDown}))
+	}
+	if !strings.Contains(m.View(), "request tail") || m.YOffset() != historyTop {
+		t.Fatalf("paging failed to scroll the approval independently: %q", m.View())
+	}
+	for _, label := range []string{"> accept", "  decline"} {
+		if !strings.Contains(m.View(), label) {
+			t.Fatalf("option %q is not pinned: %q", label, m.View())
+		}
 	}
 }

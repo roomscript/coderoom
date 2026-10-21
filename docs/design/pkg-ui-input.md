@@ -26,6 +26,30 @@ policies).
 See `docs/design/pkg-ui.md` for the overall layout. This spec focuses on the
 input row and its interaction with the viewport above it.
 
+## Approval panel sizing
+
+The room owns the available width and height. The approval component uses its
+natural height up to that limit, leaving one history row plus the header and
+separators. Options stay below the request; the complete request is visible
+whenever it fits. `Height()` and `View()` derive from the same wrapped layout.
+Tabs expand to eight-column stops before wrapping, counting option prefixes;
+wrapping measures ANSI-aware display widths.
+
+When the request does not fit, `PgUp`/`PgDn` scroll it while approval input is
+focused. `Up`/`Down` or `k`/`j` select options. History-focused paging and mouse
+wheel scrolling retain their history behavior. The status row marks hidden
+request rows with `R↑`/`R↓` and option rows with `O↑`/`O↓`, with navigation hints
+where width allows.
+
+Small panels prioritize a visible selected option, then a status row, then
+request text. When no request rows are visible, request paging is a no-op and
+its key hint is omitted; hidden-content indicators remain visible. An option window keeps every choice reachable. A one-row panel
+shares the selected label with overflow indicators; very narrow panels use `…`
+for hidden request text and `↕` for hidden options. Labels may be shortened to
+fit those indicators. Resizing preserves the selected choice and clamps request
+scrolling; replacement or dismissal resets request scrolling. Saved input,
+history selection, and focus restoration retain their existing ownership.
+
 ## Interaction model
 
 The input area is treated as the primary focus target at all times:
@@ -94,7 +118,8 @@ Normalization:
 ### Scrolling the viewport
 
 - Mouse wheel / trackpad scroll: scrolls the viewport (output area).
-- `PgUp` / `PgDown`: scroll the viewport by half a page.
+- `PgUp` / `PgDown`: scroll the viewport by half a page, except when approval
+  input is focused (see approval panel sizing above).
 
 Principles:
 

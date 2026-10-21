@@ -118,9 +118,11 @@ clears or changes it.
 
 ### PgUp / PgDn scope
 
-`PgUp` / `PgDn` always scroll the viewport, regardless of which focus is
-active. Arrow keys follow focus: in composer focus they move the cursor within
-the textarea; in viewport focus they move the history cursor. Viewport scrolling
+With approval input focused, `PgUp` / `PgDn` scroll the approval request while
+options remain pinned (see
+[approval panel sizing](pkg-ui-input.md#approval-panel-sizing)).
+Otherwise, `PgUp` / `PgDn` scroll the viewport. Arrow keys follow focus: in
+composer focus they move the cursor within the textarea; in viewport focus they move the history cursor. Viewport scrolling
 in history focus is a consequence of cursor movement rather than a separate
 primary interaction.
 

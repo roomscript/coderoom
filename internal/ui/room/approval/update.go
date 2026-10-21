@@ -26,6 +26,10 @@ func (m Model) handleKey(key tea.KeyPressMsg) (Model, tea.Cmd) {
 		return m.move(-1), nil
 	case tea.KeyDown, 'j':
 		return m.move(1), nil
+	case tea.KeyPgUp:
+		return m.scrollRequest(-1), nil
+	case tea.KeyPgDown:
+		return m.scrollRequest(1), nil
 	case tea.KeyEnter:
 		return m, func() tea.Msg { return ConfirmMsg{} }
 	case tea.KeyEsc:
@@ -44,5 +48,15 @@ func (m Model) move(delta int) Model {
 	if m.selected < 0 {
 		m.selected += n
 	}
+	return m
+}
+
+func (m Model) scrollRequest(direction int) Model {
+	layout := m.layout()
+	if layout.requestRows == 0 {
+		return m
+	}
+	step := layout.requestRows
+	m.requestTop = min(max(m.requestTop+direction*step, 0), layout.maxRequestTop())
 	return m
 }

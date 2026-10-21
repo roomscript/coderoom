@@ -74,7 +74,12 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		return m.toggleFocus()
 	}
 
-	// PgUp/PgDn always scroll history, regardless of focus.
+	// Approval paging scrolls the request while its options stay pinned.
+	if m.input.kind == inputApproval && m.activeFocus == focusInput {
+		return m.handleApprovalKey(msg)
+	}
+
+	// Outside approval input, paging scrolls history.
 	if next, handled := m.handlePagingKey(k); handled {
 		return next, nil
 	}

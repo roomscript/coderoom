@@ -50,10 +50,9 @@ type inputModel struct {
 	staged   stagedInput
 }
 
-func (m inputModel) height(totalH int) int {
+func (m inputModel) height() int {
 	if m.kind == inputApproval {
-		// Approval view is variable; keep it to 6 lines max and at least 3.
-		return min(6, max(totalH/3, 3))
+		return m.approval.Height()
 	}
 	return m.compose.Height()
 }
@@ -343,7 +342,10 @@ func (m Model) HandleResize(innerW, totalH int) Model {
 	//   top separator (1 line)
 	//   input (either composer or approval view; composer height is dynamic)
 	//   bottom separator (1 line)
-	inputH := m.input.height(totalH)
+	if m.input.kind == inputApproval {
+		m.input.approval = m.input.approval.SetSize(innerW, max(totalH-4, 1))
+	}
+	inputH := m.input.height()
 	if m.input.kind == inputStaged && m.input.staged.status != "" {
 		inputH++
 	}

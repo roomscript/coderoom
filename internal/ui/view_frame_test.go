@@ -3,6 +3,9 @@ package ui
 import (
 	"strings"
 	"testing"
+
+	"github.com/charmbracelet/x/ansi"
+	"github.com/roomscript/coderoom/internal/interpreter"
 )
 
 func TestView_doesNotEndWithNewline(t *testing.T) {
@@ -39,5 +42,23 @@ func TestView_doesNotExceedTerminalHeight(t *testing.T) {
 	}
 	if lines > height {
 		t.Fatalf("expected View() to render at most terminal height=%d lines, got %d", height, lines)
+	}
+}
+
+func TestView_longApprovalFitsTerminal(t *testing.T) {
+	const height = 20
+	m := makeReadyModelWithHeight(t, height)
+	m.room = m.room.ShowApproval(interpreter.Approval{
+		Prompt:  strings.Repeat("approval command line\n", 40),
+		Options: []interpreter.ApprovalOption{{ID: "accept"}, {ID: "decline"}, {ID: "cancel"}},
+	})
+	view := ansi.Strip(m.View().Content)
+	if rows := strings.Count(view, "\n") + 1; rows > height {
+		t.Fatalf("approval frame has %d rows, terminal height %d", rows, height)
+	}
+	for _, label := range []string{"> accept", "  decline", "  cancel"} {
+		if !strings.Contains(view, label) {
+			t.Fatalf("approval option %q is missing from frame:\n%s", label, view)
+		}
 	}
 }

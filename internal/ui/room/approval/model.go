@@ -7,9 +7,12 @@ import (
 
 // Model holds the approval prompt and selection state.
 type Model struct {
-	ask      string
-	options  []interpreter.ApprovalOption
-	selected int
+	ask        string
+	options    []interpreter.ApprovalOption
+	selected   int
+	width      int
+	maxHeight  int
+	requestTop int
 }
 
 // New returns an empty Model.
@@ -40,6 +43,7 @@ func (m Model) Set(req interpreter.Approval) Model {
 	m.ask = req.Prompt
 	m.options = append([]interpreter.ApprovalOption(nil), req.Options...)
 	m.selected = 0
+	m.requestTop = 0
 	return m
 }
 
@@ -48,5 +52,23 @@ func (m Model) Clear() Model {
 	m.ask = ""
 	m.options = nil
 	m.selected = 0
+	m.requestTop = 0
 	return m
+}
+
+// SetSize bounds the approval panel within the room's available space.
+func (m Model) SetSize(width, maxHeight int) Model {
+	m.width = max(width, 1)
+	m.maxHeight = max(maxHeight, 1)
+	layout := m.layout()
+	m.requestTop = min(m.requestTop, layout.maxRequestTop())
+	return m
+}
+
+// Height reports the rendered panel height using the same layout as View.
+func (m Model) Height() int {
+	if !m.Active() {
+		return 0
+	}
+	return m.layout().height()
 }
