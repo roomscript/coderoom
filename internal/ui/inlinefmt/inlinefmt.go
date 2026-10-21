@@ -96,11 +96,11 @@ func FormatWithStyles(s string, baseStyle, spanStyle lipgloss.Style) string {
 	for i := 0; i < len(s); {
 		openPos, ok := nextOpenerIndex(s, i)
 		if !ok {
-			out.WriteString(baseStyle.Render(s[i:]))
+			out.WriteString(RenderLines(s[i:], baseStyle))
 			break
 		}
 		if openPos > i {
-			out.WriteString(baseStyle.Render(s[i:openPos]))
+			out.WriteString(RenderLines(s[i:openPos], baseStyle))
 			i = openPos
 		}
 
@@ -112,7 +112,7 @@ func FormatWithStyles(s string, baseStyle, spanStyle lipgloss.Style) string {
 		}
 
 		consume := consumeUnclosableAt(s, i)
-		out.WriteString(baseStyle.Render(s[i : i+consume]))
+		out.WriteString(RenderLines(s[i:i+consume], baseStyle))
 		i += consume
 	}
 	return out.String()
@@ -154,14 +154,24 @@ func tryMatchAt(s string, i int, base lipgloss.Style) (string, int, bool) {
 func renderSpan(span string, c candidate, base lipgloss.Style) string {
 	switch c.typ {
 	case spanCode:
-		return base.Render(stripDelimiters(span, c))
+		return RenderLines(stripDelimiters(span, c), base)
 	case spanBold:
-		return base.Bold(true).Render(stripDelimiters(span, c))
+		return RenderLines(stripDelimiters(span, c), base.Bold(true))
 	case spanItalic:
-		return base.Italic(true).Render(span)
+		return RenderLines(span, base.Italic(true))
 	default:
-		return base.Render(span)
+		return RenderLines(span, base)
 	}
+}
+
+// RenderLines styles each logical line separately, preserving newline separators
+// without adding Lip Gloss block padding to inline fragments.
+func RenderLines(text string, style lipgloss.Style) string {
+	lines := strings.Split(text, "\n")
+	for i, line := range lines {
+		lines[i] = style.Render(line)
+	}
+	return strings.Join(lines, "\n")
 }
 
 func stripDelimiters(span string, c candidate) string {

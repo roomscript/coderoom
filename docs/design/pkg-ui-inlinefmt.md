@@ -183,6 +183,10 @@ Example:
 
 Known risk / constraint:
 
+- Lip Gloss pads multiline `Render` output to a rectangle. Style each logical
+  line separately using `inlinefmt.RenderLines`; never apply `Render` to an
+  inline fragment that contains newlines. Preserve newline separators and
+  original spaces rather than trimming the result.
 - Wrapping must be ANSI-aware. If wrapping is performed on strings that contain
   embedded ANSI escape sequences without accounting for escape sequences and
   display width, styles may bleed or wrap at incorrect columns. Implementations

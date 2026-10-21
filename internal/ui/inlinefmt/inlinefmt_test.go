@@ -188,3 +188,48 @@ func TestFormatWithStyles_plainTextUsesBaseStyle(t *testing.T) {
 		}
 	})
 }
+
+func TestFormat_multilineWhitespace(t *testing.T) {
+	withANSIProfile(t, func() {
+		base := lipgloss.NewStyle().Faint(true)
+		span := lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
+		formatters := []struct {
+			name   string
+			format func(string) string
+		}{
+			{"Format", func(s string) string { return Format(s, span) }},
+			{"FormatWithStyles", func(s string) string { return FormatWithStyles(s, base, span) }},
+		}
+		tests := []struct {
+			name  string
+			input string
+			want  string
+		}{
+			{"empty", "", ""},
+			{"unequal plain lines", "longer line\nx", "longer line\nx"},
+			{"contractions across paragraphs", "I'm checking the existing tests.\n\nI'll add coverage.", "I'm checking the existing tests.\n\nI'll add coverage."},
+			{"original whitespace", "  longer line  \n\n x \n", "  longer line  \n\n x \n"},
+			{"unmatched delimiter", "longer line\nx **unfinished", "longer line\nx **unfinished"},
+			{"span after short line", "longer line\nx **bold** tail", "longer line\nx bold tail"},
+			{"span before newline", "**bold** longer line\nx", "bold longer line\nx"},
+			{"multiline bold", "**longer line\nx** tail", "longer line\nx tail"},
+			{"multiline italic", "*longer line\nx* tail", "*longer line\nx* tail"},
+			{"multiline code", "`longer line\nx` tail", "longer line\nx tail"},
+			{"multiline fenced code", "```longer line\nx``` tail", "longer line\nx tail"},
+			{"multiline double quote", "\"longer line\nx\" tail", "\"longer line\nx\" tail"},
+			{"multiline single quote", "'longer line\nx' tail", "'longer line\nx' tail"},
+			{"multiline paired quote", "“longer line\nx” tail", "“longer line\nx” tail"},
+		}
+		for _, formatter := range formatters {
+			t.Run(formatter.name, func(t *testing.T) {
+				for _, tt := range tests {
+					t.Run(tt.name, func(t *testing.T) {
+						if got := ansi.Strip(formatter.format(tt.input)); got != tt.want {
+							t.Fatalf("whitespace changed:\nwant: %q\n got: %q", tt.want, got)
+						}
+					})
+				}
+			})
+		}
+	})
+}

@@ -216,7 +216,7 @@ func renderReasoning(r Record, width int, colors func(participant.Alias) string)
 	if color != "" {
 		bodyText = inlinefmt.FormatWithStyles(bodyText, systemStyle, lipgloss.NewStyle().Foreground(lipgloss.Color(color)))
 	} else {
-		bodyText = systemStyle.Render(bodyText)
+		bodyText = inlinefmt.RenderLines(bodyText, systemStyle)
 	}
 	wrapped := wrapLine(agentBodyIndent+bodyText, width, agentBodyIndent)
 	return header + "\n\n" + wrapped
