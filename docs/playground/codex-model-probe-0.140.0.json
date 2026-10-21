@@ -1,0 +1,532 @@
+[
+  {
+    "wire_log": "/tmp/codex-model-probe.jsonl",
+    "responses": [
+      {
+        "limit": 1,
+        "cursor": null,
+        "models": [
+          "gpt-5.5"
+        ],
+        "nextCursor": "1",
+        "error": null
+      },
+      {
+        "limit": 1,
+        "cursor": "1",
+        "models": [
+          "gpt-5.4"
+        ],
+        "nextCursor": "2",
+        "error": null
+      },
+      {
+        "limit": null,
+        "cursor": null,
+        "models": [
+          "gpt-5.5",
+          "gpt-5.4",
+          "gpt-5.4-mini",
+          "gpt-5.3-codex",
+          "gpt-5.2"
+        ],
+        "nextCursor": null,
+        "error": null
+      },
+      {
+        "limit": 1,
+        "cursor": null,
+        "models": [
+          "gpt-5.5"
+        ],
+        "nextCursor": "1",
+        "error": null
+      },
+      {
+        "limit": 1,
+        "cursor": null,
+        "models": [
+          "gpt-5.5"
+        ],
+        "nextCursor": "1",
+        "error": null
+      },
+      {
+        "limit": 1,
+        "cursor": null,
+        "models": [
+          "gpt-5.5"
+        ],
+        "nextCursor": "1",
+        "error": null
+      },
+      {
+        "limit": 1,
+        "cursor": null,
+        "models": [
+          "gpt-5.5"
+        ],
+        "nextCursor": "1",
+        "error": null
+      },
+      {
+        "limit": 1,
+        "cursor": null,
+        "models": [
+          "gpt-5.5"
+        ],
+        "nextCursor": "1",
+        "error": null
+      },
+      {
+        "limit": 1,
+        "cursor": null,
+        "models": [
+          "gpt-5.5"
+        ],
+        "nextCursor": "1",
+        "error": null
+      },
+      {
+        "limit": 1,
+        "cursor": null,
+        "models": [
+          "gpt-5.5"
+        ],
+        "nextCursor": "1",
+        "error": null
+      }
+    ],
+    "turns": [
+      {
+        "status": "failed",
+        "error": {
+          "message": "{\"type\":\"error\",\"status\":400,\"error\":{\"type\":\"invalid_request_error\",\"message\":\"The 'gpt-5.4-mini' model is not supported when using Codex with a ChatGPT account.\"}}",
+          "codexErrorInfo": "other",
+          "additionalDetails": null
+        }
+      },
+      {
+        "status": "failed",
+        "error": {
+          "message": "{\"type\":\"error\",\"status\":400,\"error\":{\"type\":\"invalid_request_error\",\"message\":\"The 'gpt-5.4-mini' model is not supported when using Codex with a ChatGPT account.\"}}",
+          "codexErrorInfo": "other",
+          "additionalDetails": null
+        }
+      },
+      {
+        "status": "failed",
+        "error": {
+          "message": "{\"type\":\"error\",\"status\":400,\"error\":{\"type\":\"invalid_request_error\",\"message\":\"The 'gpt-5.4-mini' model is not supported when using Codex with a ChatGPT account.\"}}",
+          "codexErrorInfo": "other",
+          "additionalDetails": null
+        }
+      },
+      {
+        "status": "interrupted",
+        "error": null
+      },
+      {
+        "status": "failed",
+        "error": {
+          "message": "{\"type\":\"error\",\"status\":400,\"error\":{\"type\":\"invalid_request_error\",\"message\":\"The 'gpt-5.4-mini' model is not supported when using Codex with a ChatGPT account.\"}}",
+          "codexErrorInfo": "other",
+          "additionalDetails": null
+        }
+      },
+      {
+        "status": "failed",
+        "error": {
+          "message": "{\"type\":\"error\",\"status\":400,\"error\":{\"type\":\"invalid_request_error\",\"message\":\"The 'gpt-5.4-mini' model is not supported when using Codex with a ChatGPT account.\"}}",
+          "codexErrorInfo": "other",
+          "additionalDetails": null
+        }
+      },
+      {
+        "status": "failed",
+        "error": {
+          "message": "{\"type\":\"error\",\"status\":400,\"error\":{\"type\":\"invalid_request_error\",\"message\":\"The 'gpt-5.4-mini' model is not supported when using Codex with a ChatGPT account.\"}}",
+          "codexErrorInfo": "other",
+          "additionalDetails": null
+        }
+      }
+    ],
+    "contexts": [
+      {
+        "model": "gpt-5.4-mini",
+        "effort": "low"
+      },
+      {
+        "model": "gpt-5.4-mini",
+        "effort": "low"
+      },
+      {
+        "model": "gpt-5.4-mini",
+        "effort": "low"
+      },
+      {
+        "model": "gpt-5.4-mini",
+        "effort": "medium"
+      },
+      {
+        "model": "gpt-5.4-mini",
+        "effort": "medium"
+      },
+      {
+        "model": "gpt-5.4-mini",
+        "effort": "bogus"
+      },
+      {
+        "model": "gpt-5.4-mini",
+        "effort": "bogus"
+      }
+    ],
+    "user_agent": "coderoom-model-probe/0.140.0 (Ubuntu 24.4.0; x86_64) VTE_7600_ (coderoom-model-probe; 0.1)",
+    "startup": {
+      "model": "gpt-6.1-sol",
+      "reasoningEffort": "low"
+    }
+  },
+  {
+    "wire_log": "/tmp/codex-model-probe-success.jsonl",
+    "responses": [
+      {
+        "limit": 1,
+        "cursor": null,
+        "models": [
+          "gpt-5.5"
+        ],
+        "nextCursor": "1",
+        "error": null
+      },
+      {
+        "limit": 1,
+        "cursor": "1",
+        "models": [
+          "gpt-5.4"
+        ],
+        "nextCursor": "2",
+        "error": null
+      },
+      {
+        "limit": null,
+        "cursor": null,
+        "models": [
+          "gpt-5.5",
+          "gpt-5.4",
+          "gpt-5.4-mini",
+          "gpt-5.3-codex",
+          "gpt-5.2"
+        ],
+        "nextCursor": null,
+        "error": null
+      },
+      {
+        "limit": 1,
+        "cursor": null,
+        "models": [
+          "gpt-5.5"
+        ],
+        "nextCursor": "1",
+        "error": null
+      },
+      {
+        "limit": 1,
+        "cursor": null,
+        "models": [
+          "gpt-5.5"
+        ],
+        "nextCursor": "1",
+        "error": null
+      },
+      {
+        "limit": 1,
+        "cursor": null,
+        "models": [
+          "gpt-5.5"
+        ],
+        "nextCursor": "1",
+        "error": null
+      },
+      {
+        "limit": 1,
+        "cursor": null,
+        "models": [
+          "gpt-5.5"
+        ],
+        "nextCursor": "1",
+        "error": null
+      },
+      {
+        "limit": 1,
+        "cursor": null,
+        "models": [
+          "gpt-5.5"
+        ],
+        "nextCursor": "1",
+        "error": null
+      },
+      {
+        "limit": 1,
+        "cursor": null,
+        "models": [
+          "gpt-5.5"
+        ],
+        "nextCursor": "1",
+        "error": null
+      },
+      {
+        "limit": 1,
+        "cursor": null,
+        "models": [
+          "gpt-5.5"
+        ],
+        "nextCursor": "1",
+        "error": null
+      }
+    ],
+    "turns": [
+      {
+        "status": "failed",
+        "error": {
+          "message": "{\"type\":\"error\",\"status\":400,\"error\":{\"type\":\"invalid_request_error\",\"message\":\"The 'gpt-5.5' model is not supported when using Codex with a ChatGPT account.\"}}",
+          "codexErrorInfo": "other",
+          "additionalDetails": null
+        }
+      },
+      {
+        "status": "failed",
+        "error": {
+          "message": "{\"type\":\"error\",\"status\":400,\"error\":{\"type\":\"invalid_request_error\",\"message\":\"The 'gpt-5.5' model is not supported when using Codex with a ChatGPT account.\"}}",
+          "codexErrorInfo": "other",
+          "additionalDetails": null
+        }
+      },
+      {
+        "status": "failed",
+        "error": {
+          "message": "{\"type\":\"error\",\"status\":400,\"error\":{\"type\":\"invalid_request_error\",\"message\":\"The 'gpt-5.5' model is not supported when using Codex with a ChatGPT account.\"}}",
+          "codexErrorInfo": "other",
+          "additionalDetails": null
+        }
+      },
+      {
+        "status": "failed",
+        "error": {
+          "message": "{\"type\":\"error\",\"status\":400,\"error\":{\"type\":\"invalid_request_error\",\"message\":\"The 'gpt-5.5' model is not supported when using Codex with a ChatGPT account.\"}}",
+          "codexErrorInfo": "other",
+          "additionalDetails": null
+        }
+      },
+      {
+        "status": "failed",
+        "error": {
+          "message": "{\"type\":\"error\",\"status\":400,\"error\":{\"type\":\"invalid_request_error\",\"message\":\"The 'gpt-5.5' model is not supported when using Codex with a ChatGPT account.\"}}",
+          "codexErrorInfo": "other",
+          "additionalDetails": null
+        }
+      },
+      {
+        "status": "failed",
+        "error": {
+          "message": "{\"type\":\"error\",\"status\":400,\"error\":{\"type\":\"invalid_request_error\",\"message\":\"The 'gpt-5.5' model is not supported when using Codex with a ChatGPT account.\"}}",
+          "codexErrorInfo": "other",
+          "additionalDetails": null
+        }
+      },
+      {
+        "status": "failed",
+        "error": {
+          "message": "{\"type\":\"error\",\"status\":400,\"error\":{\"type\":\"invalid_request_error\",\"message\":\"The 'gpt-5.5' model is not supported when using Codex with a ChatGPT account.\"}}",
+          "codexErrorInfo": "other",
+          "additionalDetails": null
+        }
+      }
+    ],
+    "contexts": [
+      {
+        "model": "gpt-5.5",
+        "effort": "low"
+      },
+      {
+        "model": "gpt-5.5",
+        "effort": "low"
+      },
+      {
+        "model": "gpt-5.5",
+        "effort": "low"
+      },
+      {
+        "model": "gpt-5.5",
+        "effort": "medium"
+      },
+      {
+        "model": "gpt-5.5",
+        "effort": "medium"
+      },
+      {
+        "model": "gpt-5.5",
+        "effort": "bogus"
+      },
+      {
+        "model": "gpt-5.5",
+        "effort": "bogus"
+      }
+    ],
+    "user_agent": "coderoom-model-probe/0.140.0 (Ubuntu 24.4.0; x86_64) VTE_7600_ (coderoom-model-probe; 0.1)",
+    "startup": {
+      "model": "gpt-6.1-sol",
+      "reasoningEffort": "low"
+    }
+  },
+  {
+    "wire_log": "/tmp/codex-model-probe-configured.jsonl",
+    "responses": [
+      {
+        "limit": 1,
+        "cursor": null,
+        "models": [
+          "gpt-5.5"
+        ],
+        "nextCursor": "1",
+        "error": null
+      },
+      {
+        "limit": 1,
+        "cursor": "1",
+        "models": [
+          "gpt-5.4"
+        ],
+        "nextCursor": "2",
+        "error": null
+      },
+      {
+        "limit": null,
+        "cursor": null,
+        "models": [
+          "gpt-5.5",
+          "gpt-5.4",
+          "gpt-5.4-mini",
+          "gpt-5.3-codex",
+          "gpt-5.2"
+        ],
+        "nextCursor": null,
+        "error": null
+      },
+      {
+        "limit": 1,
+        "cursor": null,
+        "models": [
+          "gpt-5.5"
+        ],
+        "nextCursor": "1",
+        "error": null
+      },
+      {
+        "limit": 1,
+        "cursor": null,
+        "models": [
+          "gpt-5.5"
+        ],
+        "nextCursor": "1",
+        "error": null
+      },
+      {
+        "limit": 1,
+        "cursor": null,
+        "models": [
+          "gpt-5.5"
+        ],
+        "nextCursor": "1",
+        "error": null
+      },
+      {
+        "limit": 1,
+        "cursor": null,
+        "models": [
+          "gpt-5.5"
+        ],
+        "nextCursor": "1",
+        "error": null
+      },
+      {
+        "limit": 1,
+        "cursor": null,
+        "models": [
+          "gpt-5.5"
+        ],
+        "nextCursor": "1",
+        "error": null
+      }
+    ],
+    "turns": [
+      {
+        "status": "failed",
+        "error": {
+          "message": "{\"type\":\"error\",\"status\":400,\"error\":{\"type\":\"invalid_request_error\",\"message\":\"The 'gpt-6.1-sol' model is not supported when using Codex with a ChatGPT account.\"}}",
+          "codexErrorInfo": "other",
+          "additionalDetails": null
+        }
+      },
+      {
+        "status": "failed",
+        "error": {
+          "message": "{\"type\":\"error\",\"status\":400,\"error\":{\"type\":\"invalid_request_error\",\"message\":\"The 'gpt-6.1-sol' model is not supported when using Codex with a ChatGPT account.\"}}",
+          "codexErrorInfo": "other",
+          "additionalDetails": null
+        }
+      },
+      {
+        "status": "failed",
+        "error": {
+          "message": "{\"type\":\"error\",\"status\":400,\"error\":{\"type\":\"invalid_request_error\",\"message\":\"The 'gpt-6.1-sol' model is not supported when using Codex with a ChatGPT account.\"}}",
+          "codexErrorInfo": "other",
+          "additionalDetails": null
+        }
+      },
+      {
+        "status": "failed",
+        "error": {
+          "message": "{\"type\":\"error\",\"status\":400,\"error\":{\"type\":\"invalid_request_error\",\"message\":\"The 'gpt-6.1-sol' model is not supported when using Codex with a ChatGPT account.\"}}",
+          "codexErrorInfo": "other",
+          "additionalDetails": null
+        }
+      },
+      {
+        "status": "failed",
+        "error": {
+          "message": "{\"type\":\"error\",\"status\":400,\"error\":{\"type\":\"invalid_request_error\",\"message\":\"The 'gpt-6.1-sol' model is not supported when using Codex with a ChatGPT account.\"}}",
+          "codexErrorInfo": "other",
+          "additionalDetails": null
+        }
+      }
+    ],
+    "contexts": [
+      {
+        "model": "gpt-6.1-sol",
+        "effort": "low"
+      },
+      {
+        "model": "gpt-6.1-sol",
+        "effort": "low"
+      },
+      {
+        "model": "gpt-6.1-sol",
+        "effort": "low"
+      },
+      {
+        "model": "gpt-6.1-sol",
+        "effort": "medium"
+      },
+      {
+        "model": "gpt-6.1-sol",
+        "effort": "medium"
+      }
+    ],
+    "user_agent": "coderoom-model-probe/0.140.0 (Ubuntu 24.4.0; x86_64) VTE_7600_ (coderoom-model-probe; 0.1)",
+    "startup": {
+      "model": "gpt-6.1-sol",
+      "reasoningEffort": "low"
+    }
+  }
+]

@@ -1,0 +1,97 @@
+{
+  "version": "0.163.0",
+  "wire_log": "/tmp/codex-model-probe-0.163.0-failures.jsonl",
+  "turns": [
+    {
+      "status": "completed",
+      "error": null,
+      "output": [
+        "OK"
+      ]
+    },
+    {
+      "status": "completed",
+      "error": null,
+      "output": [
+        "OK"
+      ]
+    },
+    {
+      "status": "completed",
+      "error": null,
+      "output": [
+        "OK"
+      ]
+    },
+    {
+      "status": "interrupted",
+      "error": null,
+      "output": []
+    },
+    {
+      "status": "completed",
+      "error": null,
+      "output": [
+        "juniper"
+      ]
+    },
+    {
+      "status": "failed",
+      "error": {
+        "message": "{\"type\":\"error\",\"status\":400,\"error\":{\"type\":\"invalid_request_error\",\"message\":\"The 'gpt-5.4-mini' model is not supported when using Codex with a ChatGPT account.\"}}",
+        "codexErrorInfo": "other",
+        "additionalDetails": null,
+        "misalignment": null
+      },
+      "output": []
+    },
+    {
+      "status": "completed",
+      "error": null,
+      "output": [
+        "OK"
+      ]
+    }
+  ],
+  "settings_reads": [
+    {
+      "model": "gpt-6.1-sol",
+      "reasoningEffort": "medium"
+    },
+    {
+      "model": "gpt-6.1-sol",
+      "reasoningEffort": "medium"
+    },
+    {
+      "model": "gpt-5.4-mini",
+      "reasoningEffort": "low"
+    }
+  ],
+  "settings_notifications": [
+    {
+      "model": "gpt-6-sol",
+      "effort": "low"
+    },
+    {
+      "model": "gpt-6.1-sol",
+      "effort": "medium"
+    },
+    {
+      "model": "gpt-5.4-mini",
+      "effort": "low"
+    },
+    {
+      "model": "gpt-6.1-sol",
+      "effort": "low"
+    }
+  ],
+  "rejections": [
+    {
+      "method": "turn/start",
+      "error": {
+        "code": -32600,
+        "message": "Invalid request: invalid type: string \"invalid\", expected a sequence"
+      }
+    }
+  ]
+}

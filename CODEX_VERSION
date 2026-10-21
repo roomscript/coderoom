@@ -1,3 +1,3 @@
 # Initial pinned version. Do not remove this comment — it marks the starting point.
-# Run `make upgrade-codex` to advance to a newer version.
-0.140.0
+# Run `make codex-upgrade-last` to advance to a newer version.
+0.163.0

@@ -1,0 +1,93 @@
+{
+  "version": "0.163.0",
+  "wire_log": "/tmp/codex-model-probe-0.163.0-switch.jsonl",
+  "turns": [
+    {
+      "requested": {
+        "effort": "low",
+        "model": "gpt-6.1-sol"
+      },
+      "status": "completed",
+      "error": null,
+      "output": [
+        "OK"
+      ],
+      "recorded_context": {
+        "model": "gpt-6.1-sol",
+        "effort": "low"
+      }
+    },
+    {
+      "requested": {},
+      "status": "completed",
+      "error": null,
+      "output": [
+        "OK"
+      ],
+      "recorded_context": {
+        "model": "gpt-6.1-sol",
+        "effort": "low"
+      }
+    },
+    {
+      "requested": {
+        "model": "gpt-6-sol"
+      },
+      "status": "completed",
+      "error": null,
+      "output": [
+        "OK"
+      ],
+      "recorded_context": {
+        "model": "gpt-6-sol",
+        "effort": "low"
+      }
+    },
+    {
+      "requested": {
+        "effort": "medium",
+        "model": "gpt-6.1-sol"
+      },
+      "status": "completed",
+      "error": null,
+      "output": [
+        "OK"
+      ],
+      "recorded_context": {
+        "model": "gpt-6.1-sol",
+        "effort": "medium"
+      }
+    },
+    {
+      "requested": {},
+      "status": "completed",
+      "error": null,
+      "output": [
+        "juniper"
+      ],
+      "recorded_context": {
+        "model": "gpt-6.1-sol",
+        "effort": "medium"
+      }
+    }
+  ],
+  "settings_notifications": [
+    {
+      "model": "gpt-6-sol",
+      "effort": "low"
+    },
+    {
+      "model": "gpt-6.1-sol",
+      "effort": "medium"
+    }
+  ],
+  "interrupt_responses": [
+    {
+      "result": null,
+      "error": {
+        "code": -32600,
+        "message": "no active turn to interrupt"
+      }
+    }
+  ]
+}

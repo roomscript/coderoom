@@ -1,11 +1,13 @@
 #!/bin/sh
-# upgrade-codex-next: advance the pinned Codex version by one stable release,
+# codex-upgrade-next: advance to the next or an explicitly targeted stable release,
 # re-record transcripts, compare broad behavioral signals, and run replay plus
 # live integration validation.
 #
-# Exit code 10 means CODEX_VERSION is already at the latest stable version.
+# Exit code 10 means CODEX_VERSION is already at the target or latest version.
 #
 # Tunables:
+#   TARGET_CODEX_VERSION: jump directly to this published stable version
+#                         instead of the next stable release
 #   RECORD_RETRIES: number of record+replay attempts per scenario (default: 2)
 #   ISOLATE_CODEX_HOME: 1 to use a fresh temporary CODEX_HOME per invocation
 #                       seeded from auth/config, 0 to use the current home
@@ -19,22 +21,38 @@ ISOLATE_CODEX_HOME=${ISOLATE_CODEX_HOME:-1}
 SOURCE_CODEX_HOME=${CODEX_HOME:-"$HOME/.codex"}
 
 CURRENT=$(grep -v '^\#' CODEX_VERSION | tr -d '[:space:]')
-LATEST=$(npm view @openai/codex version 2>/dev/null)
+TARGET_CODEX_VERSION=${TARGET_CODEX_VERSION:-}
 
-if [ "$CURRENT" = "$LATEST" ]; then
-    echo "codex is already at latest ($CURRENT)"
-    exit "$ALREADY_LATEST_EXIT"
+if [ -z "$TARGET_CODEX_VERSION" ]; then
+    LATEST=$(npm view @openai/codex version 2>/dev/null)
+    if [ "$CURRENT" = "$LATEST" ]; then
+        echo "codex is already at latest ($CURRENT)"
+        exit "$ALREADY_LATEST_EXIT"
+    fi
 fi
 
-NEXT=$(node -e "
-const versions = $(npm view @openai/codex versions --json 2>/dev/null);
-const current = '$CURRENT';
-const stable = versions.filter(v => /^\\d+\\.\\d+\\.\\d+$/.test(v));
+VERSIONS=$(npm view @openai/codex versions --json 2>/dev/null)
+NEXT=$(printf '%s\n' "$VERSIONS" | node -e '
+const [current, target] = process.argv.slice(1);
+const versions = JSON.parse(require("fs").readFileSync(0, "utf8"));
+const stable = versions.filter(v => /^\d+\.\d+\.\d+$/.test(v));
 const idx = stable.indexOf(current);
-if (idx === -1) throw new Error('current version not found in stable list: ' + current);
-if (idx + 1 >= stable.length) throw new Error('no stable version after current: ' + current);
+if (idx === -1) throw new Error("current version not found in stable list: " + current);
+if (target) {
+    const targetIdx = stable.indexOf(target);
+    if (targetIdx === -1) throw new Error("target is not a published stable version: " + target);
+    if (targetIdx < idx) throw new Error("target must not be older than current: " + current);
+    console.log(target);
+    process.exit(0);
+}
+if (idx + 1 >= stable.length) throw new Error("no stable version after current: " + current);
 console.log(stable[idx + 1]);
-")
+' "$CURRENT" "$TARGET_CODEX_VERSION")
+
+if [ "$NEXT" = "$CURRENT" ]; then
+    echo "codex is already at target ($CURRENT)"
+    exit "$ALREADY_LATEST_EXIT"
+fi
 
 echo "current: $CURRENT"
 echo "next:    $NEXT"

@@ -50,9 +50,13 @@ test-all: lint test-race test-integration
 .PHONY: pre-commit
 pre-commit: check-branding check-goleak lint test-race
 
-.PHONY: upgrade-codex
-upgrade-codex:
-	./scripts/upgrade-codex-latest.sh
+.PHONY: codex-upgrade-next
+codex-upgrade-next:
+	./scripts/codex-upgrade-next.sh
+
+.PHONY: codex-upgrade-last
+codex-upgrade-last:
+	./scripts/codex-upgrade-last.sh
 
 .PHONY: install-hooks
 install-hooks:

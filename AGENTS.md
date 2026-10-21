@@ -20,7 +20,8 @@ make test-integration-codex   # Codex adapter integration tests only
 make test-integration-claude  # Claude adapter integration tests only (live, uses quota)
 make pre-commit         # lint + test
 make test-all           # lint + test + test-integration
-make upgrade-codex      # advance pinned Codex version to latest
+make codex-upgrade-next # advance pinned Codex version by one stable release
+make codex-upgrade-last # jump directly to the latest stable Codex release
 make install-hooks      # install pre-commit hook
 ```
 

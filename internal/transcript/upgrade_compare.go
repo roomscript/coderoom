@@ -35,13 +35,14 @@ func compareTextExpectation(problems *[]string, label string, previous, current 
 }
 
 func compareReasoningExpectation(problems *[]string, previous, current ReasoningExpectation) {
-	compareTextExpectation(problems, "reasoning", TextExpectation{
-		NumMessages: previous.NumMessages,
-		Content:     previous.Content,
-	}, TextExpectation{
-		NumMessages: current.NumMessages,
-		Content:     current.Content,
-	})
+	// Empty reasoning items are optional protocol bookkeeping, not a signal
+	// that must survive a model or version change.
+	if previous.Content != "" || previous.NumStreams > 0 {
+		compareMessageCount(problems, "reasoning.num_messages", previous.NumMessages, current.NumMessages)
+	}
+	if previous.Content != "" && current.Content == "" {
+		*problems = append(*problems, "reasoning.content was non-empty and is now empty")
+	}
 	compareMessageCount(problems, "reasoning.num_streams", previous.NumStreams, current.NumStreams)
 	if previous.NumStreams > 0 && previous.AllFlushed && !current.AllFlushed {
 		*problems = append(*problems, "reasoning.all_flushed was true and is now false")

@@ -183,3 +183,18 @@ Integration tests (require external CLIs):
 ```bash
 make test-integration
 ```
+
+To upgrade Codex directly to a specific stable release, recording fresh
+fixtures and running the upgrade checks against the current pinned version:
+
+```bash
+TARGET_CODEX_VERSION=0.163.0 ./scripts/codex-upgrade-next.sh
+```
+
+This runs live agent calls and consumes quota. The pin changes only after all
+checks pass. Without the target option, the script advances one stable release;
+`make codex-upgrade-next` runs that single-step upgrade.
+
+Use `make codex-upgrade-last` to jump directly to the latest published release,
+recording and validating only that release against the current pin. It succeeds
+without recording when the latest version is already pinned.
