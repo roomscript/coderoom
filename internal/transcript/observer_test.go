@@ -76,3 +76,13 @@ func TestObserver_NormalizesInitializeMatch(t *testing.T) {
 		t.Fatalf("clientInfo[name] = %v, want coderoom", clientInfo["name"])
 	}
 }
+
+func TestObserver_PreservesModelSelectionOverrides(t *testing.T) {
+	obs := NewObserver()
+	obs.OnSend(`{"id":3,"method":"turn/start","params":{"threadId":"t1","model":"gpt-6-sol","effort":"low","input":[{"type":"text","text":"ack"}]}}`)
+	match := obs.Steps()[0].Match.(map[string]any)
+	params := match["params"].(map[string]any)
+	if params["model"] != "gpt-6-sol" || params["effort"] != "low" {
+		t.Fatalf("recording lost selection overrides: %+v", params)
+	}
+}

@@ -27,12 +27,16 @@ type threadStartParams struct {
 }
 
 type threadStartResult struct {
+	Model  string `json:"model"`
+	Effort string `json:"reasoningEffort"`
 	Thread struct {
 		ID string `json:"id"`
 	} `json:"thread"`
 }
 
 type turnStartParams struct {
+	Model        string          `json:"model,omitempty"`
+	Effort       string          `json:"effort,omitempty"`
 	ThreadID     string          `json:"threadId"`
 	Input        []turnInput     `json:"input"`
 	OutputSchema json.RawMessage `json:"outputSchema,omitempty"`
@@ -64,9 +68,10 @@ type notificationParams struct {
 type turnCompletedParams struct {
 	ThreadID string `json:"threadId"`
 	Turn     struct {
-		ID     string     `json:"id"`
-		Status string     `json:"status"`
-		Items  []itemKind `json:"items"`
+		ID     string          `json:"id"`
+		Status string          `json:"status"`
+		Error  *codexTurnError `json:"error"`
+		Items  []itemKind      `json:"items"`
 	} `json:"turn"`
 }
 

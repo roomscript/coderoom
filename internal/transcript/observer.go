@@ -6,8 +6,7 @@ import (
 )
 
 // Observer captures raw JSON-RPC traffic as replayable transcript steps.
-// It satisfies codex.ProtocolObserver by method set, without coupling this
-// package to internal/agent/codex.
+// It satisfies protocol observer interfaces by method set.
 type Observer struct {
 	mu    sync.Mutex
 	steps []Step
@@ -114,7 +113,7 @@ func normalizeTurnStartMatch(msg map[string]any) map[string]any {
 	if params == nil {
 		return out
 	}
-	out["params"] = copySelectedMapFields(params, "threadId", "input", "outputSchema")
+	out["params"] = copySelectedMapFields(params, "threadId", "input", "outputSchema", "model", "effort")
 	return out
 }
 

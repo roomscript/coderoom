@@ -5,6 +5,7 @@ package codex
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"strings"
@@ -37,9 +38,10 @@ type Client struct {
 
 	// rpc serializes requests written to codex stdin and assigns request IDs.
 	rpc struct {
-		mu    sync.Mutex
-		msgID int
-		obs   ProtocolObserver
+		mu      sync.Mutex
+		msgID   int
+		obs     ProtocolObserver
+		pending map[int]func(json.RawMessage, error)
 	}
 
 	// turn tracks the in-flight turn lifecycle within the current thread.
@@ -47,6 +49,13 @@ type Client struct {
 		mu       sync.Mutex
 		threadID string
 		state    turnState
+	}
+
+	// models is protected by turn.mu, sharing admission with ordinary turns.
+	models struct {
+		settings agent.Settings
+		change   *modelChange
+		listings []*modelListing
 	}
 
 	approvals struct {
@@ -76,6 +85,7 @@ const (
 	turnIdle turnStateKind = iota
 	turnInflightUnknownID
 	turnInflightKnownID
+	turnModelReadback // no turn is active, but model selection still owns admission
 )
 
 type turnState struct {

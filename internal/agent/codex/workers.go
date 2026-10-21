@@ -89,6 +89,12 @@ func handleStdoutReadError(ctx context.Context, c *Client, err error) bool {
 }
 
 func handleStdoutEnvelope(ctx context.Context, c *Client, msg rpcEnvelope) bool {
+	if c.handleRPCResponse(msg) {
+		return true
+	}
+	if handled, ok := c.handleModelEnvelope(ctx, msg); handled {
+		return ok
+	}
 	if shouldIgnoreStdoutEnvelope(msg) {
 		return true
 	}
@@ -110,6 +116,10 @@ func handleStdoutEnvelope(ctx context.Context, c *Client, msg rpcEnvelope) bool 
 		return false
 	case noticeUnhandled:
 	}
+	return deliverStdoutEnvelope(ctx, c, msg)
+}
+
+func deliverStdoutEnvelope(ctx context.Context, c *Client, msg rpcEnvelope) bool {
 	agentMsgs, err := messageFromEnvelope(msg)
 	if err != nil {
 		sendBufMessage(ctx, c, readMessage{err: err})

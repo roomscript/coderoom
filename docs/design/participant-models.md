@@ -1,8 +1,8 @@
 # Participant model and effort
 
-Status: **implemented** for #71; no backend implements `ModelSelector` yet.
+Status: **implemented** for #71; both Claude and Codex implement `ModelSelector`.
 This is the backend-neutral framework. Backend details: `pkg-agent-claude-models.md` (Claude) and `pkg-agent-codex-models.md`
-(Codex, to come).
+(Codex).
 
 ---
 
@@ -215,9 +215,9 @@ handshake and `ModelSelected` already established.
 
 | | Claude | Codex |
 |---|---|---|
-| `Models` | answered at once from the `initialize` catalog: `value` to `Name`, `resolvedModel` to `ID`, `supportedEffortLevels` to `Efforts` | `model/list`: `model` to `Name` and `ID`, `supportedReasoningEfforts` to `Efforts`. Whether it works during a turn is to be verified |
+| `Models` | answered at once from the `initialize` catalog: `value` to `Name`, `resolvedModel` to `ID`, `supportedEffortLevels` to `Efforts` | `model/list`: `model` to `Name` and `ID`, `supportedReasoningEfforts` to `Efforts`. Works during a turn; follows cursor pagination |
 | Startup settings | `get_settings` `applied` | `thread/start` response: `model`, `reasoningEffort` |
-| `SelectModel` | `set_model`, then `apply_flag_settings` when an effort is given, then `get_settings` | an acknowledgement turn with `model` (and `effort`) overrides |
+| `SelectModel` | `set_model`, then `apply_flag_settings` when an effort is given, then `get_settings` | an acknowledgement turn with `model` (and optional `effort`) overrides, then `thread/read` settings readback |
 
 Details: `pkg-agent-claude-models.md` and `pkg-agent-codex-models.md`.
 

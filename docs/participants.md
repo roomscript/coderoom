@@ -134,6 +134,12 @@ A value the backend does not report shows as managed by that backend, such as
   They never write participant files or CLI configuration, and a reinvited
   participant starts from its CLI's settings again.
 
+Codex model changes use a minimal acknowledgement turn, consuming quota and
+adding an exchange to its conversation. The reply is hidden. Codex reads the
+thread settings afterwards, including on failure: a failed or interrupted change
+may still have applied the selected values. Claude changes settings through
+control requests without a model turn.
+
 A backend that does not support this yet reports `model selection not supported
 by <backend>`.
 

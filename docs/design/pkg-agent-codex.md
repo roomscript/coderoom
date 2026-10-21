@@ -236,3 +236,10 @@ This package owns:
 - JSON-RPC framing over stdio
 - Translating Codex notifications into `agent.Message`
 - Wire-level observability (`ProtocolObserver`)
+
+## Session model selection
+
+Codex implements `agent.ModelSelector` for `/model`. It lists through
+`model/list`, changes settings with a guarded acknowledgement turn, and reads
+them back with `thread/read`. See [participant model and effort](pkg-agent-codex-models.md)
+for admission, outcome handling, quota implications, and recording/replay tests.

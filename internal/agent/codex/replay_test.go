@@ -39,34 +39,18 @@ func runTranscriptCase(t *testing.T, path string) {
 	repoRoot := mustRepoRoot(t)
 	listener := newReplayApprovalListener(file.Expect.Approvals)
 	command, args := replayCommand(t, path)
-	client := codex.New(
-		repoRoot,
+	activity := transcript.NewTurnActivityObserver(nil)
+	client := codex.New(repoRoot,
 		codex.WithAppServerCommand(command, args...),
 		codex.WithApprovalListener(listener),
 		codex.WithModel(file.Model),
 		codex.WithSystemPrompt(file.DeveloperInstructions),
+		codex.WithObserver(activity),
 	)
 	startReplayClient(t, client)
 
 	collector := &replayCollector{}
-	for _, action := range transcript.NormalizedActions(file) {
-		anchor, err := replaySendAction(client, action)
-		if err != nil {
-			t.Fatalf("send action: %v", err)
-		}
-		collector.turnAnchor = anchor
-
-		for {
-			msg, err := client.Read()
-			if err != nil {
-				t.Fatalf("Read: %v", err)
-			}
-			collector.observe(msg)
-			if msg.StreamID == anchor && msg.Mode == agent.ModeFlush {
-				break
-			}
-		}
-	}
+	runReplayActions(t, client, transcript.NormalizedActions(file), collector, activity)
 
 	if err := assertReplayExpectations(file.Expect, collector, listener); err != nil {
 		t.Fatalf("assert replay expectations: %v", err)
@@ -574,4 +558,34 @@ func startReplayClient(t *testing.T, c agent.Agent) {
 			t.Errorf("Stop: %v", err)
 		}
 	})
+}
+
+func runReplayActions(t *testing.T, client *codex.Client, actions []transcript.Action, collector *replayCollector, activity *transcript.TurnActivityObserver) {
+	t.Helper()
+	models := transcript.NewModelActions(client, activity)
+	for _, action := range actions {
+		if transcript.IsModelAction(action.Kind) {
+			if err := models.Run(action, collector.observe); err != nil {
+				t.Fatal(err)
+			}
+			continue
+		}
+		anchor, err := replaySendAction(client, action)
+		if err != nil {
+			t.Fatalf("send action: %v", err)
+		}
+		collector.turnAnchor = anchor
+
+		for {
+			msg, err := client.Read()
+			if err != nil {
+				t.Fatalf("Read: %v", err)
+			}
+			collector.observe(msg)
+			if msg.StreamID == anchor && msg.Mode == agent.ModeFlush {
+				break
+			}
+		}
+	}
+
 }

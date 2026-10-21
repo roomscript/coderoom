@@ -25,10 +25,12 @@ const transcriptRoot = "testdata/transcripts"
 // The goal is to catch adapter or protocol breakage while driving a realistic
 // conversation sequence, not to validate each scenario's startup configuration
 // in isolation. Scenario-level thread/start settings such as startup
-// instructions are therefore out of scope for this test.
+// instructions are therefore out of scope for this test. Cases containing model
+// actions run separately through the recorder, preserving this shared client
+// on its configured model and effort.
 func TestClientLiveTranscriptScenarios(t *testing.T) {
 	versionDir := latestTranscriptVersionDir(t, transcriptRoot)
-	cases := discoverTranscriptCases(t, versionDir)
+	cases := discoverSmokeTranscriptCases(t, versionDir)
 	if len(cases) == 0 {
 		t.Fatal("no transcript cases found")
 	}
@@ -60,11 +62,6 @@ func TestClientLiveTranscriptScenarios(t *testing.T) {
 
 	assertLiveTranscriptStats(t, cases, stats)
 	t.Logf("reasoning summary messages observed: %d", stats.reasoningMessages)
-}
-
-type liveTranscriptCase struct {
-	name  string
-	input transcript.Input
 }
 
 type liveTranscriptStats struct {
@@ -197,36 +194,6 @@ func chooseLiveApproval(options []agent.ApprovalOption) agent.ApprovalOption {
 		return agent.OptionDecline
 	}
 	return options[0]
-}
-
-func discoverTranscriptCases(t *testing.T, versionDir string) []liveTranscriptCase {
-	t.Helper()
-
-	entries, err := os.ReadDir(versionDir)
-	if err != nil {
-		t.Fatalf("ReadDir(%q): %v", versionDir, err)
-	}
-	var names []string
-	for _, entry := range entries {
-		if entry.IsDir() {
-			names = append(names, entry.Name())
-		}
-	}
-	slices.Sort(names)
-
-	cases := make([]liveTranscriptCase, 0, len(names))
-	for _, name := range names {
-		caseDir := filepath.Join(versionDir, name)
-		input, err := transcript.ReadInputDir(caseDir)
-		if err != nil {
-			t.Fatalf("ReadInputDir(%q): %v", caseDir, err)
-		}
-		cases = append(cases, liveTranscriptCase{
-			name:  name,
-			input: input,
-		})
-	}
-	return cases
 }
 
 func latestTranscriptVersionDir(t *testing.T, root string) string {

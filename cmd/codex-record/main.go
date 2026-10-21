@@ -90,21 +90,22 @@ func recordCase(caseDir, version, testCase string, input transcript.Input) error
 	defer restoreEnv()
 
 	recorder := transcript.NewObserver()
+	activity := transcript.NewTurnActivityObserver(recorder)
 	collector := &collector{workDir: workDir}
-	client, err := startClient(workDir, testCase, input.Config, recorder, collector)
+	client, err := startClient(workDir, testCase, input.Config, activity, collector)
 	if err != nil {
 		return err
 	}
 	defer stopClient(client)
 
-	if err := runScenario(client, input.Actions, collector); err != nil {
+	if err := runScenario(client, input.Actions, collector, activity); err != nil {
 		return err
 	}
 	fixture := buildFixture(version, testCase, input, collector)
 	return writeTranscript(filepath.Join(caseDir, "output.transcript"), fixture, recorder.Steps())
 }
 
-func startClient(workDir, _ string, input transcript.Config, recorder *transcript.Observer, collector *collector) (*codex.Client, error) {
+func startClient(workDir, _ string, input transcript.Config, observer codex.ProtocolObserver, collector *collector) (*codex.Client, error) {
 	listener := approvalListenerFunc(func(req agent.ApprovalRequest) agent.ApprovalDecision {
 		choice := chooseApproval(req.Options)
 		collector.approvals = append(collector.approvals, transcript.ApprovalExpectation{
@@ -114,7 +115,7 @@ func startClient(workDir, _ string, input transcript.Config, recorder *transcrip
 		return agent.ApprovalDecision{Choice: choice}
 	})
 	opts := []codex.Option{
-		codex.WithObserver(recorder),
+		codex.WithObserver(observer),
 		codex.WithApprovalListener(listener),
 		codex.WithModel(input.Model),
 		codex.WithSystemPrompt(input.DeveloperInstructions),
@@ -130,8 +131,15 @@ func startClient(workDir, _ string, input transcript.Config, recorder *transcrip
 	return client, nil
 }
 
-func runScenario(client *codex.Client, actions []transcript.Action, collector *collector) error {
+func runScenario(client *codex.Client, actions []transcript.Action, collector *collector, activity *transcript.TurnActivityObserver) error {
+	models := transcript.NewModelActions(client, activity)
 	for _, action := range actions {
+		if transcript.IsModelAction(action.Kind) {
+			if err := models.Run(action, collector.observe); err != nil {
+				return fmt.Errorf("run %s: %w", action.Kind, err)
+			}
+			continue
+		}
 		if err := runAction(client, action, collector); err != nil {
 			return err
 		}
