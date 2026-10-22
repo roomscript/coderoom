@@ -296,15 +296,33 @@ func describeTurnError(r resultLine) string {
 	if r.TerminalReason == "aborted_streaming" || r.TerminalReason == "aborted_tools" {
 		return "claude: turn interrupted"
 	}
-	text := fmt.Sprintf("claude: turn failed (%s", r.Subtype)
+	details := make([]string, 0, 1+len(r.Errors))
+	for _, detail := range append([]string{r.Result}, r.Errors...) {
+		if detail = strings.TrimSpace(detail); detail != "" {
+			details = append(details, detail)
+		}
+	}
+	if len(details) > 0 {
+		if strings.TrimSpace(r.Result) == "" {
+			return "claude: turn failed: " + strings.Join(details, "; ")
+		}
+		return "claude: " + strings.Join(details, "; ")
+	}
+	return describeTurnErrorFallback(r)
+}
+
+func describeTurnErrorFallback(r resultLine) string {
+	reasons := make([]string, 0, 2)
+	if r.Subtype != "" && r.Subtype != "success" {
+		reasons = append(reasons, r.Subtype)
+	}
 	if r.TerminalReason != "" {
-		text += ", " + r.TerminalReason
+		reasons = append(reasons, r.TerminalReason)
 	}
-	text += ")"
-	if len(r.Errors) > 0 {
-		text += ": " + strings.Join(r.Errors, "; ")
+	if len(reasons) > 0 {
+		return "claude: turn failed (" + strings.Join(reasons, ", ") + ")"
 	}
-	return text
+	return "claude: turn failed"
 }
 
 func describeSelfTurn(text string, r resultLine) string {

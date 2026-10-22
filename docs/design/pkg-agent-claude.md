@@ -180,7 +180,7 @@ Stream IDs are built from Claude ids and are opaque to consumers.
 | other `tool_use` (Read, Grep, Glob, WebFetch, Task, MCP tools, …) | **not mapped** in the first version, as Codex drops minor items. Option: a one-line `Log` per tool call for visibility |
 | `control_request{can_use_tool}` | `ApprovalListener`, see below; not a `Read()` message |
 | `result{is_error: false}` | flush open streams, then the anchor flush |
-| `result{is_error: true}` | `Log` with `errors[]` / `terminal_reason` (as `pkg-agent-codex-turn-errors.md`), then the anchor flush. `aborted_streaming` and `aborted_tools` (interrupted during an approval) log "turn interrupted" |
+| `result{is_error: true}` | `Log` with the provider's `result` explanation and any nonblank `errors[]` details, then the anchor flush. When only `errors[]` supplies text, prefix it with "turn failed: ". This applies even when `subtype` is `success`. Without explanatory text, log "turn failed" with the subtype (except `success`) and `terminal_reason` when available. `aborted_streaming` and `aborted_tools` (interrupted during an approval) still log "turn interrupted" |
 | tool call still open at `result` (cut off by an interrupt) | file change: `failed`; command: `ExitCode` -1; then the flush |
 | `system/init`, `system/status`, `rate_limit_event`, `system/thinking_tokens` | dropped (observer only) |
 | `system/permission_denied` | dropped; the decline already shows as a `declined` item |

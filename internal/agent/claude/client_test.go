@@ -35,7 +35,7 @@ func peerScript(steps ...[]string) string {
 	for _, step := range steps {
 		sb.WriteString("next; ")
 		for _, l := range step {
-			sb.WriteString("printf '%s\\n' '" + l + "'; ")
+			sb.WriteString("printf '%s\\n' '" + strings.ReplaceAll(l, "'", "'\"'\"'") + "'; ")
 		}
 	}
 	sb.WriteString("while next; do :; done")
@@ -522,6 +522,70 @@ func TestRead_lineLongerThanReadBuffer(t *testing.T) {
 	msgs := readUntil(t, c, isAnchorFlush)
 	if out, _ := accumulate(t, msgs[:len(msgs)-1]).Content.(agent.Output); len(out.Text) != n {
 		t.Errorf("output length = %d, want %d", len(out.Text), n)
+	}
+}
+
+func TestRead_failedTurnExplanation(t *testing.T) {
+	tests := []struct {
+		name   string
+		result string
+		want   string
+	}{
+		{
+			name:   "usage limit with success subtype",
+			result: `{"type":"result","subtype":"success","is_error":true,"terminal_reason":"api_error","api_error_status":429,"api_error":"usage_limit_reached","result":"You've hit your session limit · resets 4:30pm (Europe/Berlin)"}`,
+			want:   "claude: You've hit your session limit · resets 4:30pm (Europe/Berlin)",
+		},
+		{
+			name:   "diagnostic details with blank result",
+			result: `{"type":"result","subtype":"error_during_execution","is_error":true,"result":"  ","errors":[" ","[ede_diagnostic] request failed","Try again later"]}`,
+			want:   "claude: turn failed: [ede_diagnostic] request failed; Try again later",
+		},
+		{
+			name:   "result and error details",
+			result: `{"type":"result","is_error":true,"result":"Request rejected","errors":["Check your account"]}`,
+			want:   "claude: Request rejected; Check your account",
+		},
+		{
+			name:   "fallback reason without success",
+			result: `{"type":"result","subtype":"success","is_error":true,"terminal_reason":"api_error","result":" ","errors":[""]}`,
+			want:   "claude: turn failed (api_error)",
+		},
+		{
+			name:   "fallback subtype and reason",
+			result: `{"type":"result","subtype":"error_during_execution","is_error":true,"terminal_reason":"api_error"}`,
+			want:   "claude: turn failed (error_during_execution, api_error)",
+		},
+		{
+			name:   "fallback without explanation",
+			result: `{"type":"result","subtype":"success","is_error":true}`,
+			want:   "claude: turn failed",
+		},
+		{
+			name:   "interrupted tools",
+			result: `{"type":"result","is_error":true,"terminal_reason":"aborted_tools","result":"Ignored explanation"}`,
+			want:   "claude: turn interrupted",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			checkFailedTurn(t, tt.result, tt.want)
+		})
+	}
+}
+
+func checkFailedTurn(t *testing.T, result, want string) {
+	t.Helper()
+	c := startPeer(t, peerScript([]string{lineInitOK}, []string{result}))
+	if _, err := c.Send("hi"); err != nil {
+		t.Fatal(err)
+	}
+	msgs := readUntil(t, c, isAnchorFlush)
+	if len(msgs) != 2 || msgs[0].Content != (agent.Log{Text: want}) {
+		t.Errorf("messages = %+v, want log %q then anchor flush", msgs, want)
+	}
+	if _, err := c.Send("next turn"); err != nil {
+		t.Fatalf("Send after failed turn: %v", err)
 	}
 }
 
