@@ -1,9 +1,7 @@
 package codex
 
 import (
-	"bufio"
 	"bytes"
-	"context"
 	"io"
 	"strings"
 	"testing"
@@ -15,14 +13,11 @@ import (
 // that SendNotice has been called and the turn is in flight.
 func setupNoticeClient(t *testing.T, stdout string) *Client {
 	t.Helper()
-	c := newWithIO(t, nopWriteCloser{io.Discard}, bytes.NewBufferString(stdout), nil)
-	c.turn.mu.Lock()
+	c := newUnstartedWithIO(t, nopWriteCloser{io.Discard}, bytes.NewBufferString(stdout), nil)
 	c.turn.threadID = "t1"
 	c.turn.state = turnState{kind: turnInflightUnknownID}
-	c.turn.mu.Unlock()
-	c.notice.mu.Lock()
 	c.notice.state = noticePending
-	c.notice.mu.Unlock()
+	c.initWorkers()
 	return c
 }
 
@@ -33,21 +28,12 @@ func setupKeepaliveClient(t *testing.T, stdout string) *Client {
 
 func setupKeepaliveClientWithIO(t *testing.T, stdin io.WriteCloser, stdout io.Reader) *Client {
 	t.Helper()
-	c := &Client{proc: newProc("test")}
-	c.proc.codexIn = stdin
-	c.proc.codexOut = bufio.NewReader(stdout)
-	c.proc.codexErr = io.NopCloser(bytes.NewBuffer(nil))
-	c.rpc.obs = noopObserver{}
-	c.initRead()
+	c := newUnstartedWithIO(t, stdin, stdout, nil)
 	c.initApprovals()
-	c.lifecycle.ctx, c.lifecycle.cancelFn = context.WithCancel(context.Background()) // #nosec: G118
-	t.Cleanup(c.lifecycle.cancelFn)
 	c.turn.threadID = "t1"
 	c.turn.state = turnState{kind: turnInflightUnknownID}
-	c.notice.mu.Lock()
 	c.notice.state = noticePending
 	c.notice.kind = noticeTurnKeepalive
-	c.notice.mu.Unlock()
 	c.initWorkers()
 	return c
 }

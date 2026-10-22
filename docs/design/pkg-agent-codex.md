@@ -243,3 +243,60 @@ Codex implements `agent.ModelSelector` for `/model`. It lists through
 `model/list`, changes settings with a guarded acknowledgement turn, and reads
 them back with `thread/read`. See [participant model and effort](pkg-agent-codex-models.md)
 for admission, outcome handling, quota implications, and recording/replay tests.
+
+## Test fixture startup ordering
+
+Investigation on 2026-10-22: `TestNoticeFilter_compliantAck` intermittently
+returns `ModeStream` (numeric value zero) where it expects the synthetic notice
+`ModeFlush`.
+
+The cause was the initialization order in the test fixture:
+
+1. `setupNoticeClient` calls `newWithIO` with an already populated stdout buffer.
+2. `newWithIO` starts the workers before returning.
+3. `setupNoticeClient` then sets the thread, turn state, and `noticePending`.
+
+The stdout worker can consume the fake response before step 3. With the notice
+state still idle, `interceptNotice` returns `noticeUnhandled`. The ordinary
+agent-message decoder emits the acknowledgement as `Output + ModeStream`.
+Another possible ordering consumes `turn/started` while idle, then installs
+`noticePending` before the delta. The pending state has not become active, so
+the delta also falls through to ordinary output.
+
+Locks protect the state accesses, but do not require initialization to happen
+before the worker reads. This is an ordering race that need not trigger a Go
+data-race report. Changing the assertion to ignore streamed output would hide
+the fixture error.
+
+### Reproduction
+
+An initial 1,000 repetitions passed. The following unchanged-test run reproduced
+the exact failure four times across 20,000 repetitions, with no data-race
+warnings:
+
+```sh
+go test -race ./internal/agent/codex -run '^TestNoticeFilter_compliantAck$' -count=10000 -cpu=2,4
+```
+
+The test uses in-memory I/O and makes no live model calls.
+
+### Correction
+
+`newUnstartedWithIO` constructs the fixture without launching workers.
+`setupNoticeClient` installs the complete notice state before calling
+`initWorkers`. The keepalive fixture reuses the same construction helper and
+keeps its existing start-last ordering. `newWithIO` still constructs and starts
+workers for callers that need no additional initialization.
+
+The nearby `TestKeepAlive_startsHiddenAcknowledgementTurn` had the same ordering
+problem. It now sets the thread and admits its maintenance turn before starting
+workers to consume the preloaded response. Production code and assertions are
+unchanged. No sleeps or retries were added.
+
+Production `startNoticeTurn` installs `noticePending` before writing the
+`turn/start` request. The reproduced failure is in the test's simulated setup.
+
+The corrected notice test passed the same 20,000-run stress command above.
+The notice and keepalive tests then passed 40,000 combined repetitions with the
+race detector. `make pre-commit` passed, including lint and the full race-enabled
+test suite.

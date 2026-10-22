@@ -29,9 +29,18 @@ func turnCompletedLine(itemIDs ...string) string {
 	return line(`{"method":"turn/completed","params":{"threadId":"th1","turn":{"id":"t1","status":"completed","items":[` + strings.Join(items, ",") + `]}}}`)
 }
 
-// newWithIO constructs a Client with pre-wired I/O and starts the readStdout
-// goroutine, mirroring what Start() does after the handshake. Used in tests.
+// newWithIO constructs a Client with pre-wired I/O and starts its workers,
+// mirroring what Start() does after the handshake. Used in tests.
 func newWithIO(t *testing.T, stdin io.WriteCloser, stdout io.Reader, obs ProtocolObserver) *Client {
+	t.Helper()
+	c := newUnstartedWithIO(t, stdin, stdout, obs)
+	c.initWorkers()
+	return c
+}
+
+// newUnstartedWithIO lets fixtures install state before workers consume input.
+func newUnstartedWithIO(t *testing.T, stdin io.WriteCloser, stdout io.Reader, obs ProtocolObserver) *Client {
+	t.Helper()
 	if obs == nil {
 		obs = noopObserver{}
 	}
@@ -43,7 +52,6 @@ func newWithIO(t *testing.T, stdin io.WriteCloser, stdout io.Reader, obs Protoco
 	c.initRead()
 	c.lifecycle.ctx, c.lifecycle.cancelFn = context.WithCancel(context.Background()) // #nosec: G118
 	t.Cleanup(c.lifecycle.cancelFn)
-	c.initWorkers()
 	return c
 }
 
@@ -283,13 +291,14 @@ func TestKeepAlive_startsHiddenAcknowledgementTurn(t *testing.T) {
 			line(`{"method":"item/agentMessage/delta","params":{"delta":"{\"acknowledge\":true}"}}`) +
 			line(`{"method":"turn/completed","params":{}}`),
 	)
-	c := newWithIO(t, nopWriteCloser{stdin}, stdout, nil)
+	c := newUnstartedWithIO(t, nopWriteCloser{stdin}, stdout, nil)
 	c.turn.threadID = "th1"
 	c.turn.state = turnState{kind: turnIdle}
 
 	if err := c.KeepAlive(); err != nil {
 		t.Fatalf("KeepAlive(): %v", err)
 	}
+	c.initWorkers()
 	got := stdin.String()
 	if !strings.Contains(got, `"method":"turn/start"`) {
 		t.Fatalf("expected turn/start request, got %q", got)
