@@ -250,21 +250,12 @@ For room UX:
 - the chosen source should be identifiable by stable room state, not only by
   preview text; an append-only record index is sufficient for now
 
-For debugging:
-
-- a handoff attempt should emit enough diagnostic detail to explain acceptance
-  or rejection
-- this should include the source and destination aliases, the barrier
-  participants considered for dispatch, which participants were idle or busy,
-  the chosen source record, and the rejection reason when no source is
-  accepted
-- a compact log-line format is acceptable for now as long as it carries those
-  fields consistently for both accepted and rejected attempts
-
-Goal: if a participant appears idle but `/handoff` is rejected, the operator
-must be able to determine from the room state and logs whether the mismatch was
-caused by participant status, barrier membership, or source-record
-eligibility.
+For inspection, successful `HandoffDelivered` events retain the source and
+destination, readiness participants, and source record index as structured
+fields. Failed attempts return an ordinary error and a `RoutingCompleted`
+outcome. The room shows the handoff preview or failure message. It does not
+print internal acceptance/rejection log lines with barrier lists or record
+indices.
 
 ### Why this matters
 

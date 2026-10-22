@@ -607,8 +607,11 @@ func TestInterpreterHandoffSendNoticeFailureDoesNotCommitInput(t *testing.T) {
 	if got := m.room.ComposeValue(); got != "/handoff ada turing" {
 		t.Fatalf("composer = %q, want restored handoff", got)
 	}
-	if !hasRecord(m, record.KindLog, "handoff rejected:") {
-		t.Fatalf("expected rejected handoff audit log; records: %v", m.room.HistoryRecords())
+	if hasRecord(m, record.KindLog, "handoff rejected:") {
+		t.Fatalf("unexpected internal handoff diagnostic; records: %v", m.room.HistoryRecords())
+	}
+	if !hasRecord(m, record.KindSystem, "error:") {
+		t.Fatalf("handoff failure was not shown; records: %v", m.room.HistoryRecords())
 	}
 }
 

@@ -45,10 +45,7 @@ func sendBroadcastRecipient(alias participant.Alias, text string, s *Session, ex
 		return fmt.Errorf("broadcast to %q: %w", alias.Name, errParticipantNotFound)
 	}
 	if err := s.prepareParticipantForWork(p.Alias, executionID); err != nil {
-		if !errors.Is(err, errParticipantNotFound) {
-			s.notifyParticipantInvariant(p.Alias, err)
-		}
-		return fmt.Errorf("broadcast to %q: %w", p.Alias.Name, err)
+		return fmt.Errorf("broadcast to %q: %w", p.Alias.Name, reportParticipantPrepareError(p.Alias, err, s))
 	}
 	anchorID, err := p.Agent.Send(text)
 	if err != nil {
@@ -200,7 +197,7 @@ func (c SendToParticipantOutsideRoomCommand) execute(s *Session, executionID Exe
 // an already-working participant rejects the command.
 func acquireParticipantForDirectSend(alias participant.Alias, s *Session, executionID ExecutionID) (a agent.Agent, err error) {
 	if err := s.prepareParticipantForWork(alias, executionID); err != nil {
-		return nil, formatDirectSendPrepareError(alias, err, s)
+		return nil, reportParticipantPrepareError(alias, err, s)
 	}
 	p, ok := s.lookupParticipant(alias)
 	if !ok || p.Agent == nil || !p.IsSendable() {
@@ -227,9 +224,30 @@ func acquireParticipantForNotice(alias participant.Alias, s *Session, executionI
 	return a, true, nil
 }
 
-func formatDirectSendPrepareError(alias participant.Alias, err error, s *Session) error {
-	if errors.Is(err, errParticipantNotFound) {
-		return fmt.Errorf("participant %q not found", alias.Name)
+// participantAvailabilityError keeps the underlying state error available without
+// exposing internal transition details in the room.
+type participantAvailabilityError struct {
+	alias participant.Alias
+	cause error
+}
+
+func (e participantAvailabilityError) Error() string {
+	if errors.Is(e.cause, errParticipantNotFound) {
+		return fmt.Sprintf("participant %q not found", e.alias.Name)
+	}
+	state := "not ready"
+	if errors.Is(e.cause, participant.ErrWorkAlreadyStarted) {
+		state = "busy"
+	}
+	return fmt.Sprintf("participant %q is %s", e.alias.Name, state)
+}
+
+func (e participantAvailabilityError) Unwrap() error { return e.cause }
+
+func reportParticipantPrepareError(alias participant.Alias, err error, s *Session) error {
+	switch {
+	case errors.Is(err, errParticipantNotFound), errors.Is(err, participant.ErrWorkAlreadyStarted), errors.Is(err, participant.ErrNotReadyForWork):
+		return participantAvailabilityError{alias: alias, cause: err}
 	}
 	s.notifyParticipantInvariant(alias, err)
 	return fmt.Errorf("participant %q invalid working transition: %w", alias.Name, err)

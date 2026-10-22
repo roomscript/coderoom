@@ -1,0 +1,140 @@
+tip: type /help for commands and shortcuts
+
+❯ /shell printf 'ready\n'
+
+● shell:
+
+  $ printf 'ready\n'
+
+  status: success
+  stdout:
+  ready
+  exit 0
+
+❯ /def ready /shell printf 'ready\n'
+
+[defined] /ready
+
+❯ /ready
+
+● shell:
+
+  $ /ready
+
+  status: success
+  stdout:
+  ready
+  exit 0
+
+❯ /help
+
+[help]
+
+Commands:
+  /policy enable <name>
+                       enable send-notices (notify listeners after direct sends) or echo-invites (use deterministic echo agents)
+  /invite <alias>      start an agent
+  /remove <alias>      remove an agent
+  /cancel <alias>      interrupt an agent's current turn
+  /model <alias> [<model> [<effort>]]
+                       show an agent's model, effort and available models, or change them for its current session
+  /handoff <from> <to> transfer latest output between agents
+  /shell <program>     execute a shell program
+  /def <name> /shell <program>
+                       define a shell-backed command
+  /<name>              invoke a defined command
+  /loop @<alias> <prompt> /until /<name> /max <turns>
+                       run a bounded participant loop
+  /who                 list agents
+  /help                show this message
+  @<alias> <text>      send to one agent
+  <text>               broadcast to all agents
+  /quit                exit
+
+General keys:
+  Ctrl+O               toggle focus (compose ⇄ history)
+  PgUp / PgDn          scroll transcript (compose/history focus)
+
+Compose focus (separator label: compose):
+  Enter                submit
+  Ctrl+C               clear composer
+  Ctrl+V               paste system clipboard
+  Ctrl+G               open $EDITOR for multi-line compose
+  Ctrl+X               (when staged) interrupt + send
+  Esc                  (when staged) edit staged message
+
+History focus (separator label: history):
+  Arrow keys           move text cursor (view follows cursor)
+  Home / End           move to start / end of current line
+  Shift+arrows         select text
+  Ctrl+Shift+← / →     select by word
+  Esc                  clear selection; otherwise return to compose
+  Ctrl+G               open transcript in $EDITOR (read-only)
+  Ctrl+C               copy selected text (no selection: no action)
+
+Approval prompt (separator label: approval):
+  ↑/↓ or j/k           change selection
+  PgUp / PgDn          scroll request details
+  Enter                confirm selection
+  Esc / Ctrl+C         send Cancel if offered; otherwise Decline
+
+UI hints:
+  The separator label shows the current focus: compose/history/approval
+  In history focus, move the cursor and use Shift+arrows to select text
+
+❯ /policy enable echo-invites
+
+[policy] echo-invites enabled
+
+❯ /invite ada
+
+[ada starting · echo]
+
+[ada joined · model: echo-managed · effort: echo-managed]
+
+❯ @ada Hello
+  → ada
+
+● ada:
+
+  Hello
+
+❯ /invite turing
+
+[turing starting · echo]
+
+[turing joined · model: echo-managed · effort: echo-managed]
+
+❯ Hello everyone
+  → ada      → turing
+
+● ada:
+
+  Hello everyone
+
+● turing:
+
+  Hello everyone
+
+❯ /handoff ada turing
+  → turing
+
+[handoff ada -> turing]
+  ↦ source: ada latest output
+  > Hello everyone
+
+❯ /who
+
+[agents] ada (echo), turing (echo)
+
+❯ /remove ada
+
+[ada left]
+
+❯ /remove turing
+
+[turing left]
+
+❯ /who
+
+[no agents]

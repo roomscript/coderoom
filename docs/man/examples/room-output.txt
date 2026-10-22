@@ -1,0 +1,37 @@
+tip: type /help for commands and shortcuts
+
+❯ /policy enable echo-invites
+
+[policy] echo-invites enabled
+
+❯ /invite ada
+
+[ada starting · echo]
+
+[ada joined · model: echo-managed · effort: echo-managed]
+
+❯ /invite turing
+
+[turing starting · echo]
+
+[turing joined · model: echo-managed · effort: echo-managed]
+
+❯ @ada First line
+    nested line
+  Last line
+  → ada
+
+↦ ada:
+
+  First line
+    nested line
+  Last line
+
+❯ /handoff ada turing
+  → turing
+
+[handoff ada -> turing]
+  ↦ source: ada latest output
+  > First line
+  >   nested line
+  > Last line

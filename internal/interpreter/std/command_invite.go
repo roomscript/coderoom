@@ -9,6 +9,8 @@ import (
 )
 
 // InviteCommand captures one participant lifecycle request for Session execution.
+//
+// User documentation: ../../../docs/man/invite.md
 type InviteCommand struct{}
 
 var _ runtime.Command = InviteCommand{}

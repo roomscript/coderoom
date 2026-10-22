@@ -448,13 +448,11 @@ func renderRoutingFooter(aliases []string, colors func(string) string) string {
 }
 
 func renderCommandLine(prefix string, cmd string, width int) string {
-	if width <= 0 {
-		return prefix + cmd
-	}
-
 	displayWidth := ansi.StringWidth(prefix)
-	contentWidth := max(width-displayWidth, 1)
-	wrapped := ansi.Wrap(cmd, contentWidth, "")
+	wrapped := cmd
+	if width > 0 {
+		wrapped = ansi.Wrap(cmd, max(width-displayWidth, 1), "")
+	}
 	parts := strings.Split(wrapped, "\n")
 
 	indent := strings.Repeat(" ", displayWidth)
@@ -465,8 +463,5 @@ func renderCommandLine(prefix string, cmd string, width int) string {
 }
 
 func wrapLine(text string, width int, prefix string) string {
-	if width <= 0 {
-		return text
-	}
 	return renderCommandLine(prefix, strings.TrimPrefix(text, prefix), width)
 }

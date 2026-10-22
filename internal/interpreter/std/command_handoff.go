@@ -12,6 +12,8 @@ import (
 )
 
 // HandoffCommand transfers completed canonical output between frozen instances.
+//
+// User documentation: ../../../docs/man/handoff.md
 type HandoffCommand struct{}
 
 // Name identifies the command in the catalog.

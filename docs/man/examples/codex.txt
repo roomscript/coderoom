@@ -1,0 +1,76 @@
+tip: type /help for commands and shortcuts
+
+❯ /invite ada
+
+[ada starting · codex]
+
+[ada joined · model: gpt-6.1-sol · effort: low]
+
+❯ @ada Reply with exactly: Hello from Codex.
+  → ada
+
+● ada:
+
+  Hello from Codex.
+
+❯ /invite turing
+
+[turing starting · codex]
+
+[turing joined · model: gpt-6.1-sol · effort: low]
+
+❯ /handoff ada turing
+  → turing
+
+[handoff ada -> turing]
+  ↦ source: ada latest output
+  > Hello from Codex.
+
+❯ /who
+
+[agents] ada (codex), turing (codex)
+
+❯ Reply with exactly: ready.
+  → ada      → turing
+
+● ada:
+
+  ready.
+
+● turing:
+
+  ready.
+
+❯ /shell npx @openai/codex --version
+
+● shell:
+
+  $ npx @openai/codex --version
+
+  status: success
+  stdout:
+  codex-cli 0.163.0
+  exit 0
+
+❯ /policy enable send-notices
+
+[policy] send-notices enabled
+
+❯ @ada Reply with exactly: noted.
+  → ada      → turing
+
+● ada:
+
+  noted.
+
+❯ /remove turing
+
+[turing left]
+
+❯ /remove ada
+
+[ada left]
+
+❯ /who
+
+[no agents]

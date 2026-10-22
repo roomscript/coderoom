@@ -192,6 +192,10 @@ Known risk / constraint:
   display width, styles may bleed or wrap at incorrect columns. Implementations
   should verify how the current record renderer/wrapper handles ANSI, and adjust
   the pipeline accordingly before enabling this feature.
+- The record renderer owns body indentation. Its unwrapped transcript path
+  prefixes every logical line, including blank lines, while preserving source
+  spaces. Inline formatting adds no block padding. Wrapped and unwrapped paths
+  share the continuation-prefix logic.
 
 Implementation ordering:
 

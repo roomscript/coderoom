@@ -9,6 +9,8 @@ import (
 )
 
 // RemoveCommand captures one participant lifecycle request for Session execution.
+//
+// User documentation: ../../../docs/man/remove.md
 type RemoveCommand struct{}
 
 var _ runtime.Command = RemoveCommand{}

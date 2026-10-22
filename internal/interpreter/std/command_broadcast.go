@@ -13,6 +13,8 @@ import (
 )
 
 // BroadcastCommand sends to a frozen set of optional participant instances.
+//
+// User documentation: ../../../docs/man/broadcast.md
 type BroadcastCommand struct{}
 
 var _ runtime.Command = BroadcastCommand{}

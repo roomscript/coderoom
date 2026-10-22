@@ -220,6 +220,19 @@ func TestLoop_abortedWorkAndReplacement(t *testing.T) {
 }
 
 func TestLoop_failedDeliveryAndProtocol(t *testing.T) {
+	t.Run("session rejection retains cause", func(t *testing.T) {
+		p := newLoopProof(t, "1")
+		failure := participant.ErrWorkAlreadyStarted
+		p.host.scopes[0].handle(runtime.ExecutionCompleted{
+			ExecutionID: 41, Err: failure,
+			Result: session.RoutingResult{Kind: session.RoutingParticipantSend, Err: failure,
+				Recipients: []session.RecipientResult{{Alias: p.primary, Role: session.RecipientPrimary, Status: session.DeliveryFailed, Err: failure}}},
+		})
+		p.handler.HandlePendingEvents()
+		if len(p.results) != 1 || !errors.Is(p.results[0].Err, failure) || len(p.shell.programs) != 0 {
+			t.Fatalf("loop lost rejection or ran condition: %+v", p.results)
+		}
+	})
 	t.Run("primary failure", func(t *testing.T) {
 		p := newLoopProof(t, "1")
 		p.deliver(41, session.DeliveryFailed)

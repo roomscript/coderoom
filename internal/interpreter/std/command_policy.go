@@ -9,6 +9,8 @@ import (
 )
 
 // PolicyCommand enables room-local policies through Session execution.
+//
+// User documentation: ../../../docs/man/policy.md
 type PolicyCommand struct{}
 
 var _ runtime.Command = PolicyCommand{}

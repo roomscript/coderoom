@@ -10,6 +10,8 @@ type debugRowsRequested struct{}
 
 // ApplicationCommands supplies immutable, argument-free UI command registrations.
 // Callbacks enqueue messages; only the UI event loop changes presentation state.
+//
+// User documentation: ../../docs/man/quit.md and ../../docs/man/debug.md
 func (o *Observer) ApplicationCommands() []interpreter.ApplicationCommand {
 	return []interpreter.ApplicationCommand{
 		{Name: "quit", Description: "exit", Run: func() error { return o.dispatch(quitRequested{}) }},

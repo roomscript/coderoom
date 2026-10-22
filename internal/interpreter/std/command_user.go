@@ -10,6 +10,9 @@ import (
 )
 
 // DefineCommand stores shell-backed definitions without evaluating their bodies.
+//
+// User documentation: ../../../docs/man/def.md
+// Saved command invocation: ../../../docs/man/user-command.md
 type DefineCommand struct{}
 
 var _ runtime.Command = DefineCommand{}

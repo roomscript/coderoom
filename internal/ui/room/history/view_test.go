@@ -11,6 +11,20 @@ import (
 	rec "github.com/roomscript/coderoom/internal/ui/room/history/record"
 )
 
+func TestPlainText_preservesReplyIndentation(t *testing.T) {
+	alias := testAlias("ada")
+	m := New(nil, nil, "").SetSize(12, 4)
+	m = m.ReplaceSnapshot(roomstate.Snapshot{Records: []rec.Record{
+		roomstate.NewAgentRecord(alias, agent.Message{
+			Mode: agent.ModeSingle, Content: agent.Output{Text: "first\n\n  nested\nlast"},
+		}),
+	}})
+	got := ansi.Strip(m.PlainText())
+	if got != "● ada:\n\n  first\n  \n    nested\n  last" {
+		t.Fatalf("unexpected transcript export: %q", got)
+	}
+}
+
 func TestRenderCursorLine_preservesStyledContent(t *testing.T) {
 	styled := lipgloss.NewStyle().Foreground(lipgloss.Color("2")).Render("hello")
 

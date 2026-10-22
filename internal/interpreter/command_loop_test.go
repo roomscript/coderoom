@@ -41,6 +41,53 @@ func TestLoop_publicWorkflow(t *testing.T) {
 	assertNoSubmissionOutcome(t, events)
 }
 
+func TestLoop_busyTargetReportsAvailabilityFailure(t *testing.T) {
+	backend := &lifecycleAgent{Client: echo.New(), release: make(chan struct{})}
+	interp, sess, events := newLoopInterpreterWithAgent(t, backend)
+	t.Cleanup(backend.unblock)
+	if err := interp.Submit("@ada busy"); err != nil {
+		t.Fatal(err)
+	}
+	awaitLifecycleEvent(t, events, func(event Event) bool {
+		outcome, ok := event.(SubmissionSucceeded)
+		return ok && outcome.Raw == "@ada busy"
+	})
+	before, _ := sess.ParticipantByName("ada")
+	const raw = "/loop @ada next /until /tests /max 1"
+	if err := interp.Submit(raw); err != nil {
+		t.Fatal(err)
+	}
+	awaitBusyLoopRejection(t, events, raw)
+	after, _ := sess.ParticipantByName("ada")
+	if before.Status != participant.StatusWorking || after.Status != before.Status || after.ActiveExecutionID != before.ActiveExecutionID {
+		t.Fatal("rejected loop changed existing work")
+	}
+}
+
+func awaitBusyLoopRejection(t *testing.T, events <-chan Event, raw string) {
+	t.Helper()
+	awaitLifecycleEvent(t, events, func(event Event) bool {
+		var failure error
+		switch event := event.(type) {
+		case SubmissionFailed:
+			if event.Raw == raw {
+				failure = event.Err
+			}
+		case OperationFailed:
+			failure = event.Err
+		case ShellCompleted:
+			t.Fatal("rejected loop ran a condition")
+		}
+		if failure == nil {
+			return false
+		}
+		if !errors.Is(failure, participant.ErrWorkAlreadyStarted) {
+			t.Fatalf("loop lost busy cause: %v", failure)
+		}
+		return true
+	})
+}
+
 type publicLoopObservation struct {
 	raw                             string
 	acknowledged, conditions, turns int

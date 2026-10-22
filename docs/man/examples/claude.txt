@@ -1,0 +1,66 @@
+tip: type /help for commands and shortcuts
+
+❯ /invite ada
+
+[ada starting · claude]
+
+[ada joined · model: claude-opus-5-5 · effort: medium]
+
+❯ /model ada
+
+[ada · claude · model: claude-opus-5-5 · effort: medium]
+models:
+  default (claude-opus-5-5): low, medium, high, xhigh, max
+  opus (claude-opus-5-5): low, medium, high, xhigh, max
+  sonnet (claude-sonnet-5-5): low, medium, high, xhigh, max
+  fable (claude-fable-5-1): low, medium, high, xhigh, max
+  haiku (claude-haiku-5-5): low, medium, high, xhigh, max
+  claude-haiku-4-5-20251001: no effort
+  claude-sonnet-5: low, medium, high, xhigh, max
+  claude-opus-5: low, medium, high, xhigh, max
+  claude-fable-5: low, medium, high, xhigh, max
+  claude-opus-4-8: low, medium, high, xhigh, max
+  claude-opus-4-7: low, medium, high, xhigh, max
+  claude-opus-4-6: low, medium, high, max
+  claude-sonnet-4-6: low, medium, high, max
+
+❯ /model ada sonnet low
+
+[ada model changed · model: claude-sonnet-5-5 · effort: low]
+
+❯ @ada Calculate pi to 100 decimal places and verify the result. Do not use tools.
+  → ada
+
+❯ /cancel ada
+
+[→ ada] cancel requested
+
+▸ claude: turn interrupted
+
+❯ /def passes /shell true
+
+[defined] /passes
+
+❯ /loop @ada Reply with exactly: checked. Do not use tools. /until /passes /max 1
+
+[loop] turn 1/1 sent to @ada
+
+↦ ada:
+
+  checked.
+
+● shell:
+
+  $ /passes
+
+  status: success
+  exit code: 0
+  stdout:
+  (none)
+  stderr:
+  (none)
+  error:
+  (none)
+  exit 0
+
+[loop] condition /passes succeeded

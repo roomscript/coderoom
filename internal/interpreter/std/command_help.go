@@ -10,6 +10,8 @@ import (
 )
 
 // HelpCommand reads the existing catalogue without owning another registry.
+//
+// User documentation: ../../../docs/man/help.md
 type HelpCommand struct {
 	// ReadHelp runs on the interpreter lane during preparation.
 	ReadHelp func() api.HelpListed

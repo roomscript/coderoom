@@ -375,7 +375,7 @@ func (m Model) updateParticipantColors(participants []participant.View) Model {
 
 const helpKeysText = `General keys:
   Ctrl+O               toggle focus (compose ⇄ history)
-  PgUp / PgDn          scroll transcript (works in any focus)
+  PgUp / PgDn          scroll transcript (compose/history focus)
 
 Compose focus (separator label: compose):
   Enter                submit
@@ -386,21 +386,23 @@ Compose focus (separator label: compose):
   Esc                  (when staged) edit staged message
 
 History focus (separator label: history):
-  ↑ / ↓                scroll 1 line
-  Home / End           jump to top / jump to bottom
-  Esc                  return to compose focus
+  Arrow keys           move text cursor (view follows cursor)
+  Home / End           move to start / end of current line
+  Shift+arrows         select text
+  Ctrl+Shift+← / →     select by word
+  Esc                  clear selection; otherwise return to compose
   Ctrl+G               open transcript in $EDITOR (read-only)
-  Ctrl+C               copy to system clipboard
+  Ctrl+C               copy selected text (no selection: no action)
 
 Approval prompt (separator label: approval):
   ↑/↓ or j/k           change selection
+  PgUp / PgDn          scroll request details
   Enter                confirm selection
-  Esc                  dismiss prompt
-  Ctrl+C               cancel prompt
+  Esc / Ctrl+C         send Cancel if offered; otherwise Decline
 
 UI hints:
   The separator label shows the current focus: compose/history/approval
-  When history is focused, the first visible history row is highlighted`
+  In history focus, move the cursor and use Shift+arrows to select text`
 
 func (m Model) renderHelp(help interpreter.HelpListed) Model {
 	var text strings.Builder

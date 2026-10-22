@@ -11,6 +11,8 @@ import (
 // ModelCommand shows or changes a participant's model and effort through
 // Session execution. Both forms complete on admission; their outcomes arrive
 // as Session events, which the room renders.
+//
+// User documentation: ../../../docs/man/model.md
 type ModelCommand struct{}
 
 var _ runtime.Command = ModelCommand{}

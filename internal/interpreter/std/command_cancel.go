@@ -9,6 +9,8 @@ import (
 )
 
 // CancelCommand captures one participant lifecycle request for Session execution.
+//
+// User documentation: ../../../docs/man/cancel.md
 type CancelCommand struct{}
 
 var _ runtime.Command = CancelCommand{}

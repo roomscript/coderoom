@@ -2,11 +2,9 @@ package session_test
 
 import (
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -1538,12 +1536,74 @@ func TestSharedSend_notFound(t *testing.T) {
 	}
 }
 
+func TestSend_busyRejectionPreservesExistingTurn(t *testing.T) {
+	tests := []struct {
+		name    string
+		command func(*session.Session, participant.Alias) session.Command
+	}{
+		{"direct", func(s *session.Session, alias participant.Alias) session.Command {
+			return session.SendToParticipantCommand{Plan: s.CreateParticipantSendPlan(alias), Message: "next"}
+		}},
+		{"broadcast", func(_ *session.Session, alias participant.Alias) session.Command {
+			return session.BroadcastCommand{Aliases: []participant.Alias{alias}, Text: "next"}
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			obs := newTestObserver()
+			backend := newMockAgent()
+			s := newSession(t, session.WithObserver(obs), mappedFactory(map[string]agent.Agent{"ada": backend}))
+			invite(t, s, "ada")
+			mustReceive[session.AgentReady](t, obs.ch)
+			alias := resolvedAlias(s, "ada")
+			if _, err := s.Execute(session.SendToParticipantOutsideRoomCommand{Alias: alias, Text: "first"}); err != nil {
+				t.Fatal(err)
+			}
+			mustReceive[session.RoutingCompleted](t, obs.ch)
+			before, _ := s.Participant(alias)
+			if _, err := s.Execute(tt.command(s, alias)); !errors.Is(err, participant.ErrWorkAlreadyStarted) {
+				t.Fatalf("expected busy rejection, got %v", err)
+			}
+			after, _ := s.Participant(alias)
+			if after.Status != before.Status || after.ActiveExecutionID != before.ActiveExecutionID {
+				t.Fatal("busy rejection changed existing work")
+			}
+			assertFailedRoutingWithoutLogs(t, obs)
+			backend.mu.Lock()
+			defer backend.mu.Unlock()
+			if len(backend.sends) != 1 {
+				t.Fatalf("rejected work reached backend: %v", backend.sends)
+			}
+		})
+	}
+}
+
+func assertFailedRoutingWithoutLogs(t *testing.T, obs *testObserver) {
+	t.Helper()
+	for {
+		select {
+		case event := <-obs.ch:
+			switch event := event.(type) {
+			case session.AgentLog:
+				t.Fatalf("ordinary busy rejection emitted a diagnostic: %s", event.Text)
+			case session.RoutingCompleted:
+				if event.Result.Err == nil || len(event.Result.Recipients) != 1 || event.Result.Recipients[0].Status != session.DeliveryFailed {
+					t.Fatalf("unexpected rejection routing: %+v", event.Result)
+				}
+				return
+			}
+		case <-time.After(time.Second):
+			t.Fatal("no routing outcome")
+		}
+	}
+}
+
 func TestHandoff_sendsResolvedOutputAndEmitsEvent(t *testing.T) {
 	obs, turing, s := newHandoffTestSession(t)
 	executeResolvedHandoff(t, s, "final answer", 2)
 	assertHandoffEvent(t, obs, "final answer", 2)
 	assertHandoffNoticePayload(t, turing, "[HANDOFF from ada]\n\nfinal answer")
-	assertHandoffAcceptedLog(t, obs, 2)
+	assertHandoffRoutingWithoutLogs(t, obs, session.DeliveryDelivered)
 }
 
 func newHandoffTestSession(t *testing.T) (*testObserver, *noticeFlushAgent, *session.Session) {
@@ -1611,12 +1671,26 @@ func assertHandoffNoticePayload(t *testing.T, turing *noticeFlushAgent, want str
 	}
 }
 
-func assertHandoffAcceptedLog(t *testing.T, obs *testObserver, wantRecordIndex int) {
+func assertHandoffRoutingWithoutLogs(t *testing.T, obs *testObserver, want session.DeliveryStatus) {
 	t.Helper()
-
-	logEv := mustReceive[session.AgentLog](t, obs.ch)
-	if !strings.Contains(logEv.Text, "handoff accepted: from=ada to=turing") || !strings.Contains(logEv.Text, fmt.Sprintf("source_record=%d", wantRecordIndex)) {
-		t.Fatalf("unexpected accepted handoff log: %q", logEv.Text)
+	for {
+		event := mustReceive[session.Event](t, obs.ch)
+		switch event := event.(type) {
+		case session.AgentLog:
+			t.Fatalf("unexpected handoff diagnostic: %s", event.Text)
+		case session.HandoffDelivered:
+			if want != session.DeliveryDelivered {
+				t.Fatal("rejected handoff emitted delivery")
+			}
+		case session.RoutingCompleted:
+			if event.Result.Kind != session.RoutingHandoff {
+				continue
+			}
+			if len(event.Result.Recipients) != 1 || event.Result.Recipients[0].Status != want {
+				t.Fatalf("unexpected handoff routing: %+v", event.Result)
+			}
+			return
+		}
 	}
 }
 
@@ -1654,10 +1728,7 @@ func TestHandoff_requiresIdleParticipants(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected busy handoff error")
 	}
-	logEv := mustReceive[session.AgentLog](t, obs.ch)
-	if !strings.Contains(logEv.Text, "handoff rejected: from=ada to=turing") || !strings.Contains(logEv.Text, "busy=[turing]") {
-		t.Fatalf("unexpected busy handoff log: %q", logEv.Text)
-	}
+	assertHandoffRoutingWithoutLogs(t, obs, session.DeliveryFailed)
 }
 
 func TestHandoff_requiresCompletedSourceOutput(t *testing.T) {
@@ -1688,13 +1759,10 @@ func TestHandoff_requiresCompletedSourceOutput(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected missing source output error")
 	}
-	logEv := mustReceive[session.AgentLog](t, obs.ch)
-	if !strings.Contains(logEv.Text, "reason=no completed room-visible output") {
-		t.Fatalf("unexpected missing-source handoff log: %q", logEv.Text)
-	}
+	assertHandoffRoutingWithoutLogs(t, obs, session.DeliveryFailed)
 }
 
-func TestHandoff_rejectionLogCompactsMultilineReason(t *testing.T) {
+func TestHandoff_sendFailureReportsRoutingWithoutDiagnostic(t *testing.T) {
 	obs := newTestObserver()
 	ada := newMockAgent()
 	turing := newNoticeFlushAgent()
@@ -1726,13 +1794,7 @@ func TestHandoff_rejectionLogCompactsMultilineReason(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected handoff send error")
 	}
-	logEv := mustReceive[session.AgentLog](t, obs.ch)
-	if strings.Contains(logEv.Text, "\n") {
-		t.Fatalf("expected compact single-line handoff log, got %q", logEv.Text)
-	}
-	if !strings.Contains(logEv.Text, "reason=line one | line two | line three") {
-		t.Fatalf("unexpected compacted rejection reason: %q", logEv.Text)
-	}
+	assertHandoffRoutingWithoutLogs(t, obs, session.DeliveryFailed)
 }
 
 func TestHandoff_ignoresStartingBystanderOutsideBarrier(t *testing.T) {

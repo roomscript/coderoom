@@ -12,6 +12,8 @@ import (
 )
 
 // SendCommand prepares addressed sends with frozen delivery recipients.
+//
+// User documentation: ../../../docs/man/send.md
 type SendCommand struct{}
 
 var _ runtime.Command = SendCommand{}

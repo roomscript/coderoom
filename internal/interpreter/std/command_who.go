@@ -14,6 +14,8 @@ import (
 
 // WhoCommand contains no session-specific state. Each Prepare call captures a
 // system notice for an independent invocation, leaving publication to the coordinator.
+//
+// User documentation: ../../../docs/man/who.md
 type WhoCommand struct{}
 
 var _ runtime.Command = WhoCommand{}

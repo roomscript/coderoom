@@ -14,6 +14,8 @@ import (
 )
 
 // ShellCommand is stateless; Prepare captures arguments for each invocation.
+//
+// User documentation: ../../../docs/man/shell.md
 type ShellCommand struct{}
 
 var _ runtime.Command = ShellCommand{}

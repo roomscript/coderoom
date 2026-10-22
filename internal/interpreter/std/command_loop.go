@@ -12,6 +12,8 @@ import (
 
 // LoopCommand coordinates immediate participant delivery and a frozen condition.
 // It deliberately has no staging; Session owns execution-time availability.
+//
+// User documentation: ../../../docs/man/loop.md
 type LoopCommand struct{}
 
 // Name identifies the command in the catalog.
@@ -135,6 +137,10 @@ func (i *loopInvocation) acceptDelivery(outcome loopDeliveryResult) {
 	}
 	i.acknowledged = true
 	if !loopPrimaryDelivered(i.primary, result.Result) {
+		if result.Err != nil {
+			i.finish("", result.Err)
+			return
+		}
 		i.finish("[loop] stopped: participant turn could not start", nil)
 		return
 	}
