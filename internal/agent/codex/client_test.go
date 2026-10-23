@@ -8,6 +8,7 @@ import (
 	"io"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -77,6 +78,107 @@ func TestStart_noHangOnProtocolError(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("Start() hung — io.ReadAll(stderr) likely blocked on live process")
 	}
+}
+
+// TestStart_handshakeErrorWithInheritedStderr covers a peer that fails the
+// handshake and exits while a backgrounded sleep keeps stderr open. Start must
+// return and still report the stderr written before the failure.
+func TestStart_handshakeErrorWithInheritedStderr(t *testing.T) {
+	const stderrMsg = "codex failed to load"
+	c := New(".", WithAppServerCommand("sh", "-c",
+		`echo '`+stderrMsg+`' >&2; echo '{"id":999,"result":{}}'; sleep 10 & exit 0`))
+
+	done := make(chan error, 1)
+	go func() { done <- c.Start() }()
+
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("expected error from Start(), got nil")
+		}
+		if !strings.Contains(err.Error(), stderrMsg) {
+			t.Errorf("expected stderr content in error\ngot:  %v\nwant: contains %q", err, stderrMsg)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Start() hung draining stderr held open by a child")
+	}
+}
+
+// TestStart_abortsSilentPeer covers a peer that never answers the handshake.
+// The backgrounded sleep inherits the pipes and outlives the kill of sh, so
+// Start must also close its own pipe ends to return.
+func TestStart_abortsSilentPeer(t *testing.T) {
+	tests := []struct {
+		name         string
+		cancelParent bool
+		startTimeout time.Duration
+		wantCanceled bool
+	}{
+		{name: "start timeout", startTimeout: 100 * time.Millisecond},
+		{name: "parent cancelled", cancelParent: true, startTimeout: time.Minute, wantCanceled: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			c := New(".", WithContext(ctx), WithAppServerCommand("sh", "-c", "sleep 10 & wait"))
+			c.startTimeout = tt.startTimeout
+
+			done := make(chan error, 1)
+			go func() { done <- c.Start() }()
+			if tt.cancelParent {
+				cancel()
+			}
+
+			select {
+			case err := <-done:
+				if err == nil {
+					t.Fatal("expected error from Start(), got nil")
+				}
+				if errors.Is(err, context.Canceled) != tt.wantCanceled {
+					t.Fatalf("errors.Is(err, context.Canceled) = %v, want %v (err: %v)", !tt.wantCanceled, tt.wantCanceled, err)
+				}
+			case <-time.After(3 * time.Second):
+				t.Fatal("Start() did not abort")
+			}
+		})
+	}
+}
+
+// The hint must name the package coderoom launches, so users can run it as is.
+func TestStartTimeoutError_suggestsVersionCheck(t *testing.T) {
+	tests := []struct {
+		name     string
+		override string
+		opts     []Option
+		wantHint bool
+	}{
+		{name: "default package", wantHint: true},
+		{name: "pinned version", override: "0.99.0", wantHint: true},
+		{name: "custom command", opts: []Option{WithAppServerCommand("fake-codex")}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("CODEX_VERSION_OVERRIDE", tt.override)
+			err := New(".", tt.opts...).startTimeoutError()
+			hint := "npx " + codexPackage() + " --version"
+			if strings.Contains(err.Error(), hint) != tt.wantHint {
+				t.Fatalf("hint %q present = %v, want %v\nerr: %v", hint, !tt.wantHint, tt.wantHint, err)
+			}
+		})
+	}
+}
+
+func TestStop_concurrentCallsAreSafe(t *testing.T) {
+	c := New(".", WithAppServerCommand("sh", "-c", `echo '{"id":1,"result":{}}'; echo '{"id":2,"result":{"thread":{"id":"th1"}}}'; cat >/dev/null`))
+	if err := c.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	var wg sync.WaitGroup
+	for range 4 {
+		wg.Go(func() { _ = c.Stop() })
+	}
+	wg.Wait()
 }
 
 func TestStart_stderrCapturedOnHandshakeFailure(t *testing.T) {

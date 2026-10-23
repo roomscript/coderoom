@@ -211,8 +211,8 @@ func (s *Session) Shutdown() {
 		s.checks.wg.Wait()
 		s.cancelAllAgentContexts()
 		// Note: participants in StatusStarting do not have Agent set yet (it is
-		// bound by AttachAgent when they transition to StatusAttached). Those
-		// in-flight processes are not stoppable via Session.Shutdown.
+		// bound by AttachAgent when they transition to StatusAttached), so Stop
+		// cannot reach them. Cancelling their agent context aborts their Start.
 		for _, a := range s.snapshotAgentsToStop() {
 			_ = a.Stop()
 		}

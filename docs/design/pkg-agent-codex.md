@@ -59,7 +59,7 @@ The API follows the same model as the `http` package: calls are blocking. If the
 
 | Method | Behaviour |
 |---|---|
-| `Start()` | Launches the process; blocks until initialize + thread/start handshakes complete, including any configured thread-scoped startup instructions |
+| `Start()` | Launches the process; blocks until initialize + thread/start handshakes complete, including any configured thread-scoped startup instructions. Fails after 60 s without an answer, or when the `WithContext` parent is cancelled; either way the process is killed and our pipe ends are closed, so a child that inherited them cannot keep `Start()` waiting. A slow first `npx` download looks the same as a hang, so the timeout error tells the user to run `npx @openai/codex --version` in another terminal and reinvite once it prints a version; retrying inside coderoom restarts the download each time. When the handshake fails instead, the error carries the stderr tail, read for at most 2 s because a child can hold stderr open after the process exits |
 | `Send(prompt)` | Writes the turn/start request to stdin and returns immediately — no stdout read |
 | `Read()` | Blocks until a meaningful message is ready; translates Codex notifications into `agent.Message` |
 | `Stop()` | Closes stdin and waits for the process to exit; kills if it hangs |
@@ -213,7 +213,9 @@ sequenceDiagram
 
 ### Thread-safety contract
 
-Only one goroutine may call `Read()` at a time. `Stop()` may be called from a different goroutine to interrupt a blocked `Read()` — that is the one permitted concurrent pair. No other concurrent combinations are allowed.
+Only one goroutine may call `Read()` at a time. `Stop()` may be called from a different goroutine to interrupt a blocked `Read()` — that is the one permitted concurrent pair. Concurrent and repeated `Stop()` calls are safe. `Stop()` must not run during `Start()`, which the session never does: it attaches an agent only after `Start()` returns. To abort a `Start()` in progress, cancel the `WithContext` parent. No other concurrent combinations are allowed.
+
+The protocol observer is called outside the stdin write lock, so a slow observer does not delay other writers. The order of logged lines between concurrent writers is best effort.
 
 ### Shutdown
 

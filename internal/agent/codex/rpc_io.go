@@ -39,13 +39,25 @@ func isNullJSON(v json.RawMessage) bool {
 // rpcWrite writes a JSON-RPC request to the Codex process stdin.
 //
 // It is blocking and serialized via c.rpc.mu to ensure request IDs are
-// monotonic and writes are not interleaved.
+// monotonic and writes are not interleaved. The observer is called after the
+// lock is released, so the order of logged lines between concurrent writers
+// is best effort.
 func rpcWrite[T any](c *Client, method string, params T) error {
 	return rpcWriteHandled(c, method, params, nil)
 }
 
 // rpcWriteHandled installs a response handler before the request can be answered.
 func rpcWriteHandled[T any](c *Client, method string, params T, handler func(json.RawMessage, error)) error {
+	b, err := writeRequest(c, method, params, handler)
+	if b != nil {
+		c.rpc.obs.OnSend(string(b))
+	}
+	return err
+}
+
+// writeRequest assigns the request ID and writes under c.rpc.mu. It returns
+// the marshaled request, if any, for the observer.
+func writeRequest[T any](c *Client, method string, params T, handler func(json.RawMessage, error)) ([]byte, error) {
 	c.rpc.mu.Lock()
 	defer c.rpc.mu.Unlock()
 
@@ -56,7 +68,7 @@ func rpcWriteHandled[T any](c *Client, method string, params T, handler func(jso
 		Params: params,
 	})
 	if err != nil {
-		return fmt.Errorf("marshal rpc: %w", err)
+		return nil, fmt.Errorf("marshal rpc: %w", err)
 	}
 	if handler != nil {
 		if c.rpc.pending == nil {
@@ -64,12 +76,11 @@ func rpcWriteHandled[T any](c *Client, method string, params T, handler func(jso
 		}
 		c.rpc.pending[c.rpc.msgID] = handler
 	}
-	c.rpc.obs.OnSend(string(b))
 	if _, err := fmt.Fprintf(c.proc.codexIn, "%s\n", b); err != nil {
 		delete(c.rpc.pending, c.rpc.msgID)
-		return fmt.Errorf("write rpc: %w", err)
+		return b, fmt.Errorf("write rpc: %w", err)
 	}
-	return nil
+	return b, nil
 }
 
 func rpcWriteResponse[T any](c *Client, id int, result T) error {
@@ -89,13 +100,13 @@ func rpcWriteError(c *Client, id, code int, message string) error {
 }
 
 func rpcWriteReply(c *Client, reply any) error {
-	c.rpc.mu.Lock()
-	defer c.rpc.mu.Unlock()
 	b, err := json.Marshal(reply)
 	if err != nil {
 		return fmt.Errorf("marshal rpc response: %w", err)
 	}
 	c.rpc.obs.OnSend(string(b))
+	c.rpc.mu.Lock()
+	defer c.rpc.mu.Unlock()
 	if _, err := fmt.Fprintf(c.proc.codexIn, "%s\n", b); err != nil {
 		return fmt.Errorf("write rpc response: %w", err)
 	}

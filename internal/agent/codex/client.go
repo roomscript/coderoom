@@ -7,7 +7,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"strings"
 	"sync"
 	"time"
@@ -17,10 +16,14 @@ import (
 
 // Client implements agent.Agent for the Codex app-server.
 // Calls must not be made concurrently, except Stop() which may be called
-// from another goroutine to interrupt a blocked Read().
+// from another goroutine to interrupt a blocked Read(). Stop() must not run
+// concurrently with Start(); to abort a Start() in progress, cancel the
+// WithContext parent.
 type Client struct {
 	// proc holds the OS process and stdio pipes.
 	proc *process
+
+	startTimeout time.Duration
 
 	// read holds the output queues required by Read().
 	read struct {
@@ -76,6 +79,8 @@ type Client struct {
 		ctx       context.Context
 		cancelFn  context.CancelFunc
 		waitGroup sync.WaitGroup
+		stopOnce  sync.Once
+		stopErr   error
 	}
 }
 
@@ -163,7 +168,7 @@ func WithAppServerCommand(name string, args ...string) Option {
 
 // New returns a Client that will run Codex in the given working directory.
 func New(cwd string, opts ...Option) *Client {
-	c := &Client{proc: newProc(cwd)}
+	c := &Client{proc: newProc(cwd), startTimeout: defaultStartTimeout}
 	c.rpc.obs = noopObserver{}
 	for _, o := range opts {
 		o(c)
@@ -201,20 +206,19 @@ func (c *Client) Start() error {
 
 	c.initRead()
 	c.initApprovals()
+	if c.lifecycle.ctx == nil {
+		c.lifecycle.ctx, c.lifecycle.cancelFn = context.WithCancel(context.Background()) // #nosec: G118
+	}
 
-	threadID, err := rpcHandshake(c)
+	threadID, err := c.awaitHandshake()
 	if err != nil {
 		close(c.read.messages)
 		c.read.messages = nil
 		close(c.read.bufMessages)
 		c.read.bufMessages = nil
 		_ = c.Stop()
-		// Stop() waits for the process to exit, so the stderr pipe is fully
-		// written and safe to drain without blocking regardless of error type.
-		stderrBytes, _ := io.ReadAll(c.proc.codexErr)
-		_ = c.proc.codexErr.Close()
-		if len(stderrBytes) > 0 {
-			return fmt.Errorf("%w\n%s", err, strings.TrimRight(string(stderrBytes), "\r\n"))
+		if tail := c.proc.readStderrTail(); tail != "" {
+			return fmt.Errorf("%w\n%s", err, tail)
 		}
 		return err
 	}
@@ -223,11 +227,51 @@ func (c *Client) Start() error {
 	c.turn.state = turnState{kind: turnIdle}
 	c.turn.mu.Unlock()
 
-	if c.lifecycle.ctx == nil {
-		c.lifecycle.ctx, c.lifecycle.cancelFn = context.WithCancel(context.Background()) // #nosec: G118
-	}
 	c.initWorkers()
 	return nil
+}
+
+// awaitHandshake runs the handshake until it completes, the start timeout
+// passes, or the lifecycle context ends. On timeout or cancellation it kills
+// the process and closes our pipe ends, so the blocked handshake read returns
+// even when a child of the process holds the pipes open.
+func (c *Client) awaitHandshake() (string, error) {
+	type result struct {
+		threadID string
+		err      error
+	}
+	done := make(chan result, 1)
+	go func() {
+		threadID, err := rpcHandshake(c)
+		done <- result{threadID, err}
+	}()
+	timer := time.NewTimer(c.startTimeout)
+	defer timer.Stop()
+	var abortErr error
+	select {
+	case r := <-done:
+		return r.threadID, r.err
+	case <-c.lifecycle.ctx.Done():
+		abortErr = fmt.Errorf("codex start: %w", c.lifecycle.ctx.Err())
+	case <-timer.C:
+		abortErr = c.startTimeoutError()
+	}
+	c.proc.abort()
+	<-done
+	return "", abortErr
+}
+
+// startTimeoutError tells the user how to tell a broken install from a slow
+// first npx download. Retrying in coderoom does not help with the latter:
+// the abort discards the partial download.
+func (c *Client) startTimeoutError() error {
+	err := fmt.Errorf("codex start: no handshake response after %s", c.startTimeout)
+	if len(c.proc.appServerCmd) > 0 {
+		return err
+	}
+	return fmt.Errorf("%w\nCodex may be broken, or npx may still be downloading it.\n"+
+		"Run `npx %s --version` in another terminal. Once it prints a version, remove and reinvite the agent",
+		err, codexPackage())
 }
 
 func (c *Client) initWorkers() {
@@ -394,15 +438,24 @@ func (c *Client) updateTurnState(method string, p *turnStartedParams) {
 	}
 }
 
-const stopGracePeriod = 5 * time.Second
+const (
+	stopGracePeriod     = 5 * time.Second
+	defaultStartTimeout = 60 * time.Second
+)
 
 // Stop closes stdin and waits for the Codex process to exit.
 // If the process does not exit within stopGracePeriod it is killed.
-// May be called from a different goroutine to interrupt a blocked Read().
+// May be called from a different goroutine to interrupt a blocked Read(),
+// but not during Start(). Concurrent and repeated calls are safe; they all
+// return the outcome of the first.
 func (c *Client) Stop() error {
+	c.lifecycle.stopOnce.Do(func() { c.lifecycle.stopErr = c.stop() })
+	return c.lifecycle.stopErr
+}
+
+func (c *Client) stop() error {
 	if c.lifecycle.cancelFn != nil {
 		c.lifecycle.cancelFn()
-		c.lifecycle.cancelFn = nil
 	}
 	if c.proc.codexIn != nil {
 		_ = c.proc.codexIn.Close()

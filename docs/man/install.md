@@ -98,6 +98,7 @@ path from the repository you want to work on. Backend dependencies still apply.
 | `coderoom` is not found | Add its directory to `PATH`, or use its absolute path. |
 | `npx` or `claude` is not found | Run the version checks above in the same shell. |
 | Codex tries to start when you expected Claude | Check [backend selection](participants.md#backend-selection). |
+| Codex start fails with no handshake response after 1m0s | The first launch may still be downloading Codex, or the install is broken. Run `npx @openai/codex --version` in another terminal. Once it prints a version, remove and reinvite the agent. |
 | The agent reports a login failure | Complete login in that backend's CLI, then remove and reinvite the agent. |
 | coderoom reports configuration errors before opening | Fix the files listed in the error. See [participant validation](participants.md#validation). |
 

@@ -6,6 +6,8 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strings"
+	"time"
 )
 
 type process struct {
@@ -15,6 +17,7 @@ type process struct {
 	codexIn  io.WriteCloser
 	codexOut *bufio.Reader
 	codexErr io.ReadCloser
+	stdout   io.Closer // the pipe codexOut reads, closed by abort
 
 	askForApproval   AskForApprovalPolicy
 	sandboxMode      SandboxMode
@@ -65,8 +68,33 @@ func (p *process) start() error {
 	p.codexIn = stdin
 	p.codexOut = bufio.NewReader(stdout)
 	p.codexErr = stderrRead
+	p.stdout = stdout
 	p.cmd = cmd
 	return nil
+}
+
+// abort kills the process and closes our pipe ends, so blocked reads return
+// even when a child that inherited the pipes outlives the kill. The stderr
+// tail is lost.
+func (p *process) abort() {
+	_ = p.codexIn.Close()
+	_ = p.cmd.Process.Kill()
+	_ = p.stdout.Close()
+	_ = p.codexErr.Close()
+}
+
+const stderrDrainTimeout = 2 * time.Second
+
+// readStderrTail drains and closes stderr once the process has exited. A
+// child that inherited the pipe can keep it open, so the read stops at a
+// deadline and returns what arrived by then.
+func (p *process) readStderrTail() string {
+	if f, ok := p.codexErr.(*os.File); ok {
+		_ = f.SetReadDeadline(time.Now().Add(stderrDrainTimeout))
+	}
+	b, _ := io.ReadAll(p.codexErr)
+	_ = p.codexErr.Close()
+	return strings.TrimRight(string(b), "\r\n")
 }
 
 func (p *process) commandArgs() []string {
