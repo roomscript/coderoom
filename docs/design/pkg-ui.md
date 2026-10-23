@@ -134,6 +134,13 @@ and `UnsentRouting` render separately as failed and not sent. Frozen plan target
 remain stage-planning information, not proof of delivery. The UI never
 recalculates notice recipients or infers delivery from a request event.
 
+### Approval panel
+
+Approval request text and option display labels follow the
+[approval display escaping contract](pkg-ui-approval-display.md). Escaping
+belongs to presentation before layout; original requests and option IDs retain
+their interpreter and submission semantics.
+
 ---
 
 ## Command submission

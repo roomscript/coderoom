@@ -100,7 +100,7 @@ func (l panelLayout) height() int {
 }
 
 func (m Model) layout() panelLayout {
-	request := strings.Split(ansi.Wrap(expandTabs(m.ask, 0), m.width, ""), "\n")
+	request := strings.Split(ansi.Wrap(expandTabs(escapeApprovalText(m.ask), 0), m.width, ""), "\n")
 	options, selectedRow := m.optionLines()
 	if m.maxHeight == 0 {
 		return panelLayout{request: request, requestRows: len(request), separator: true, options: options}
@@ -139,7 +139,7 @@ func (m Model) optionLines() ([]string, int) {
 		if m.width > 0 {
 			width = max(m.width-2, 1)
 		}
-		label := strings.Split(ansi.Wrap(expandTabs(formatOption(opt), 2), width, ""), "\n")
+		label := strings.Split(ansi.Wrap(expandTabs(escapeApprovalText(formatOption(opt)), 2), width, ""), "\n")
 		for j, line := range label {
 			if j > 0 {
 				prefix = "  "
