@@ -49,6 +49,7 @@ func newUnstartedWithIO(t *testing.T, stdin io.WriteCloser, stdout io.Reader, ob
 	c.proc.codexOut = bufio.NewReader(stdout)
 	c.proc.codexErr = io.NopCloser(bytes.NewBuffer(nil))
 	c.rpc.obs = obs
+	c.turn.threadID = "th1" // Start() records the handshake thread before workers run.
 	c.initRead()
 	c.lifecycle.ctx, c.lifecycle.cancelFn = context.WithCancel(context.Background()) // #nosec: G118
 	t.Cleanup(c.lifecycle.cancelFn)
@@ -190,6 +191,38 @@ func TestRead_turnCompleted(t *testing.T) {
 	}
 	if msg.StreamID != activeTurnStreamID {
 		t.Fatalf("expected anchor stream ID %q, got %q", activeTurnStreamID, msg.StreamID)
+	}
+}
+
+func TestRead_subAgentTurnDoesNotEndRootTurn(t *testing.T) {
+	wire := line(`{"method":"turn/started","params":{"threadId":"th1","turn":{"id":"t1"}}}`) +
+		line(`{"method":"turn/started","params":{"threadId":"child","turn":{"id":"c1"}}}`) +
+		line(`{"method":"turn/completed","params":{"threadId":"child","turn":{"id":"c1","status":"interrupted","items":[]}}}`) +
+		line(`{"method":"item/agentMessage/delta","params":{"itemId":"msg1","turnId":"t1","delta":"root"}}`) +
+		line(`{"method":"turn/completed","params":{"threadId":"th1","turn":{"id":"t1","status":"completed","items":[]}}}`)
+	stdout := bytes.NewBufferString(wire)
+	c := newWithIO(t, nopWriteCloser{io.Discard}, stdout, nil)
+
+	msg, err := c.Read()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, ok := msg.Content.(agent.Output); !ok || msg.Mode != agent.ModeStream {
+		t.Fatalf("expected root output delta, got stream=%q mode=%v content=%T", msg.StreamID, msg.Mode, msg.Content)
+	}
+
+	msg, err = c.Read()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if msg.StreamID != activeTurnStreamID || msg.Mode != agent.ModeFlush {
+		t.Fatalf("expected root anchor flush, got stream=%q mode=%v", msg.StreamID, msg.Mode)
+	}
+	c.turn.mu.Lock()
+	state := c.turn.state
+	c.turn.mu.Unlock()
+	if state.kind != turnIdle {
+		t.Fatalf("expected idle after root turn/completed, got %+v", state)
 	}
 }
 

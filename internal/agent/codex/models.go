@@ -86,7 +86,7 @@ func (c *Client) handleModelEnvelope(ctx context.Context, msg rpcEnvelope) (bool
 	if !isModelNotification(msg.Method) {
 		return false, false
 	}
-	if readingSettings || isForeignModelThread(msg, threadID) {
+	if readingSettings || isForeignThread(msg, threadID) {
 		return true, ctx.Err() == nil
 	}
 	c.handleModelNotification(change, msg)
@@ -170,7 +170,7 @@ func (c *Client) finishModelChange(settings agent.Settings, err error) {
 	}})
 }
 
-func isForeignModelThread(msg rpcEnvelope, threadID string) bool {
+func isForeignThread(msg rpcEnvelope, threadID string) bool {
 	var scope struct {
 		ThreadID string `json:"threadId"`
 	}

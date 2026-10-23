@@ -95,7 +95,7 @@ func handleStdoutEnvelope(ctx context.Context, c *Client, msg rpcEnvelope) bool 
 	if handled, ok := c.handleModelEnvelope(ctx, msg); handled {
 		return ok
 	}
-	if shouldIgnoreStdoutEnvelope(msg) {
+	if c.shouldIgnoreStdoutEnvelope(msg) {
 		return true
 	}
 	if handled, ok := handleTurnErrorEnvelope(ctx, c, msg); ok {
@@ -161,14 +161,29 @@ func declineKeepaliveApproval(ctx context.Context, c *Client, msg rpcEnvelope) b
 	}})
 }
 
-func shouldIgnoreStdoutEnvelope(msg rpcEnvelope) bool {
+func (c *Client) shouldIgnoreStdoutEnvelope(msg rpcEnvelope) bool {
 	if msg.ID != nil && msg.Method == "" {
 		return true
 	}
 	if msg.Method == "" {
 		return true
 	}
-	return false
+	return c.isForeignTurnLifecycle(msg)
+}
+
+// isForeignTurnLifecycle reports turn lifecycle notifications from threads other
+// than the managed one, such as sub-agent threads. They must not drive the root
+// turn state or close its anchor.
+func (c *Client) isForeignTurnLifecycle(msg rpcEnvelope) bool {
+	switch msg.Method {
+	case methodTurnStarted, methodTurnCompleted, methodTurnFailed:
+	default:
+		return false
+	}
+	c.turn.mu.Lock()
+	threadID := c.turn.threadID
+	c.turn.mu.Unlock()
+	return isForeignThread(msg, threadID)
 }
 
 func handleTurnErrorEnvelope(ctx context.Context, c *Client, msg rpcEnvelope) (bool, bool) {
