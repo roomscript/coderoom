@@ -391,10 +391,14 @@ func assertLifecycleStartupView(t *testing.T, sess *lifecycleSession) {
 
 // Direct delivery reports its terminal submission outcome after causal projection
 // and the dispatch event; queued sends instead acknowledge before delivery.
+// The outcome only means the prompt reached the agent, so ada's reply is awaited
+// separately; it can land before or after the outcome.
 func awaitDirectSendDelivery(t *testing.T, events <-chan Event, partial bool) {
 	t.Helper()
 	var publications []string
+	output := false
 	awaitLifecycleEvent(t, events, func(event Event) bool {
+		output = output || hasLifecycleOutput(event)
 		publication := directSendPublication(t, event, partial)
 		if publication != "" {
 			publications = append(publications, publication)
@@ -407,6 +411,9 @@ func awaitDirectSendDelivery(t *testing.T, events <-chan Event, partial bool) {
 	}
 	if !slices.Equal(publications, []string{"accepted", "input", "dispatch", outcome}) {
 		t.Fatalf("direct send publications = %v", publications)
+	}
+	if !output {
+		awaitLifecycleEvent(t, events, hasLifecycleOutput)
 	}
 }
 
