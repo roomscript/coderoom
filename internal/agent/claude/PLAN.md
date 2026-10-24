@@ -4,14 +4,17 @@ The working plan for the Claude Code backend. Written on 15 October 2026; kept n
 
 ## Status
 
-Updated on 19 October 2026.
+Updated on 24 October 2026.
 
 - Phase 1 (spike): **done.** Report: `docs/playground/poc-claude-stream-json.md`. Playground: `playground/claude-stream-json/`.
 - Integration approach: **decided.** Direct integration with the claude CLI over stream-json from Go (option A below), the same pattern as Codex app-server.
 - Phase 2 (gap analysis): **done.** Design: `docs/design/pkg-agent-claude.md`. Decided on 16 October 2026: keepalive postponed, `acceptForSession` supported, backend in the participant config, `AskUserQuestion` disallowed, self-started turns prevented and defended, `agent-record` instead of `claude-record`, tools that reach outside the room disallowed.
 - Phase 3 (implementation): **adapter done and registered.** See the phase 3 list for what is left and where it moved.
 - Multi-backend configuration: **merged** to main.
-- Register Claude: **done.** `claude` is a valid backend. Agent testing is next.
+- Register Claude: **done.** `claude` is a valid backend.
+- Since registration, on main: replays matched to prompts by uuid, runtime model and effort selection (#71), provider explanations on failed turns, and participant details on join and in `/who` (#25, #24).
+- README: **done.** It lists Claude Code as a backend.
+- Agent testing: **next.** The adapter has scripted-peer unit tests and live integration tests, but no recorded transcript replay suite.
 
 ## Merge order
 
@@ -29,7 +32,7 @@ The remaining work is split so that shared changes reach main in small steps ins
    - **Done.** `Stop` during `Start` may race with the fields `Start` sets. Confirmed by reading, but no caller does it: the session attaches an agent only after `Start` returns. Documented as unsupported; cancelling the parent context aborts a start, and a test covers that.
    - **Done.** Missing tests: the process exiting mid-turn while a listener is blocked; parent context cancellation.
 4. **Agent testing**, for both backends: a design doc with requirements first (the capabilities both adapters guarantee), then generic transcript recording and replay (`agent-record`), replacing the Codex-only `docs/design/pkg-agent-codex-transcripts.md`.
-5. **README**, once Claude participants can be invited.
+5. **README** (done): Claude Code is listed as a backend.
 6. **Demo** (phase 3 "done when").
 
 ## Why
@@ -56,14 +59,14 @@ claude --print --verbose \
 | Topic | Decision |
 |---|---|
 | Integration | Option A: speak stream-json directly from Go. No SDK sidecar, no ACP. ACP may come later as a generic backend for tools that speak it natively (Gemini CLI) |
-| Claude Code version | Target only the installed version (2.1.300). Pinning and upgrades come later |
+| Claude Code version | Target only the installed version (2.1.300 at the spike; later live checks ran on 2.1.301 to 2.1.303). Pinning and upgrades come later |
 | Personal config | Load it, as coderoom does for Codex. No `--safe-mode`. It stays documented (E9) as context for the sandbox work (#59) |
 | Models in live runs | Start with haiku; use a stronger model only when haiku cannot show the behaviour |
 | Fixtures | Playground recordings stay local (git-ignored). Phase 3 records its own replay transcripts in the Codex style |
 
 ## Ground rules
 
-- Work in the `claude-backend` worktree and branch (`~/Development/coderoom-claude-backend`).
+- Work on main. The `claude-backend` worktree and branch were used until the adapter merged.
 - Never stage or commit. The human does all git staging and commits.
 - Live runs use the human's Claude login and cost usage: use a cheap model, small prompts. Live runs are fine while preparing playgrounds; otherwise run them only when asked.
 - Follow the existing conventions: playground programs as their own Go module with `pg-…` targets in `playground/Makefile`; reports as `docs/playground/poc-….md`.
