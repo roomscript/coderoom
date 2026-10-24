@@ -431,12 +431,13 @@ func (s *Session) evictCrashedBeforeStart(alias participant.Alias) error {
 // startup sequence (AgentReady + commitStarted) has completed, so that
 // early agent output is never processed while the participant is still Attached.
 //
-// Startup settings, when the agent reports them, are recorded with the
-// attachment; the participant keeps its backend name.
+// Startup metadata the agent reports is recorded with the attachment: its
+// settings, when reported, and its resume ID. The participant keeps its
+// backend name.
 //
 // Returns (stop, from, true) on success, where from is the pre-transition
 // status (StatusStarting) used to build the ParticipantStatusChanged event.
-func (s *Session) attachParticipant(alias participant.Alias, a agent.Agent, settings *agent.Settings) (chan struct{}, participant.Status, bool) {
+func (s *Session) attachParticipant(alias participant.Alias, a agent.Agent, startup startupMetadata) (chan struct{}, participant.Status, bool) {
 	var stop chan struct{}
 	var from participant.Status
 	var err error
@@ -454,10 +455,11 @@ func (s *Session) attachParticipant(alias participant.Alias, a agent.Agent, sett
 		if err = p.AttachAgent(a, s.now()); err != nil {
 			return
 		}
-		if settings != nil {
-			p.Settings.Model = settings.Model
-			p.Settings.Effort = settings.Effort
+		if startup.settings != nil {
+			p.Settings.Model = startup.settings.Model
+			p.Settings.Effort = startup.settings.Effort
 		}
+		p.ResumeID = startup.resumeID
 		stop = make(chan struct{})
 		runtime.stop = stop
 		s.agents[alias] = runtime

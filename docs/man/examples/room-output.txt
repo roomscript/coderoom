@@ -8,13 +8,13 @@ tip: type /help for commands and shortcuts
 
 [ada starting · echo]
 
-[ada joined · model: echo-managed · effort: echo-managed]
+[ada joined · role: none · backend: echo, model: echo-managed, effort: echo-managed]
 
 ❯ /invite turing
 
 [turing starting · echo]
 
-[turing joined · model: echo-managed · effort: echo-managed]
+[turing joined · role: none · backend: echo, model: echo-managed, effort: echo-managed]
 
 ❯ @ada First line
     nested line

@@ -66,6 +66,9 @@ The API follows the same model as the `http` package: calls are blocking. If the
 
 `Send` is a pure write. It does not read stdout.
 
+`ResumeID()` (`agent.Resumable`) returns the thread ID from `thread/start`, the
+ID Codex accepts to resume the thread. It is empty before `Start()`.
+
 When startup instructions are configured, `Start()` is also responsible for
 delivering them during `thread/start`. In Version 1, the intended mapping is
 the synthesized participant system prompt -> Codex `developerInstructions`.

@@ -181,6 +181,20 @@ func TestStop_concurrentCallsAreSafe(t *testing.T) {
 	wg.Wait()
 }
 
+func TestStart_resumeIDIsThreadID(t *testing.T) {
+	c := New(".", WithAppServerCommand("sh", "-c", `echo '{"id":1,"result":{}}'; echo '{"id":2,"result":{"thread":{"id":"019a-thread"}}}'; cat >/dev/null`))
+	if got := c.ResumeID(); got != "" {
+		t.Errorf("ResumeID before Start = %q, want empty", got)
+	}
+	if err := c.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(func() { _ = c.Stop() })
+	if got := c.ResumeID(); got != "019a-thread" {
+		t.Errorf("ResumeID = %q, want the thread/start thread ID", got)
+	}
+}
+
 func TestStart_stderrCapturedOnHandshakeFailure(t *testing.T) {
 	const stderrMsg = "Missing optional dependency @openai/codex-linux-x64"
 	c := New(".", WithAppServerCommand("sh", "-c", "echo '"+stderrMsg+"' >&2; exit 1"))

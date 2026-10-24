@@ -27,7 +27,7 @@ func startupCallbackCases() []identityCallbackCase {
 			handleInviteStartError(old, errors.New("start failed"), s)
 		}},
 		{"late attachment", participant.StatusStarting, func(t *testing.T, s *Session, old participant.Alias) {
-			if _, _, ok := s.attachParticipant(old, echo.New(), nil); ok {
+			if _, _, ok := s.attachParticipant(old, echo.New(), startupMetadata{}); ok {
 				t.Fatal("old startup attached to replacement")
 			}
 		}},

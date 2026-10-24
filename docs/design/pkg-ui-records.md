@@ -80,7 +80,7 @@ The header line is `● <alias>:` — the filled circle and alias text are both 
 
 ```
 
-Single line, dimmed. Used for lifecycle events (`joined`, `left`, `crashed`). Listener routing notices are not rendered as separate system records; the sender record footer already shows the full routing list.
+Single line, dimmed. Used for lifecycle events (`starting`, `joined`, `left`, `crashed`). The `starting` and `joined` records carry the participant's alias and render in its assigned colour, still dimmed; other system records use the default colour. Listener routing notices are not rendered as separate system records; the sender record footer already shows the full routing list.
 
 **Exception**: `/help` output is a multi-line system record for readability. Splitting it into individual records would insert blank lines between each help line, making the output hard to scan.
 

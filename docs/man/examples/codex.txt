@@ -4,7 +4,7 @@ tip: type /help for commands and shortcuts
 
 [ada starting · codex]
 
-[ada joined · model: gpt-6.1-sol · effort: low]
+[ada joined · role: none · backend: codex, model: gpt-6.1-sol, effort: low · resume-id: 01a16e16-a606-75c1-ab51-452e6edfec03]
 
 ❯ @ada Reply with exactly: Hello from Codex.
   → ada
@@ -17,7 +17,7 @@ tip: type /help for commands and shortcuts
 
 [turing starting · codex]
 
-[turing joined · model: gpt-6.1-sol · effort: low]
+[turing joined · role: none · backend: codex, model: gpt-6.1-sol, effort: low · resume-id: 01a16e17-079e-75f2-8ca1-f0ed09ce7f0f]
 
 ❯ /handoff ada turing
   → turing

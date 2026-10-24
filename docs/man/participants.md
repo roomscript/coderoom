@@ -96,7 +96,7 @@ own repository instructions.
 ## Models and effort
 
 Each participant starts with the model and effort configured by its backend.
-The room shows these when it joins. Unreported values appear as `codex-managed`
+The room shows these when it joins, with its role, backend and resume ID. Unreported values appear as `codex-managed`
 or `claude-managed`.
 
 Use [`/model`](model.md) to inspect or change a participant's current settings.

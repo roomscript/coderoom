@@ -43,6 +43,7 @@ var addedEnv = []string{
 
 type process struct {
 	cwd          string
+	sessionID    string // passed with --session-id; the ID --resume accepts
 	model        string
 	systemPrompt string
 	command      []string // overrides the claude invocation, for tests
@@ -86,12 +87,13 @@ func (p *process) commandArgs() []string {
 	if len(p.command) > 0 {
 		return append([]string(nil), p.command...)
 	}
-	return claudeArgs(p.model, p.systemPrompt)
+	return claudeArgs(p.sessionID, p.model, p.systemPrompt)
 }
 
 // claudeArgs returns the command and arguments for a participant process.
-func claudeArgs(model, systemPrompt string) []string {
+func claudeArgs(sessionID, model, systemPrompt string) []string {
 	args := append([]string{"claude"}, baseArgs...)
+	args = append(args, "--session-id", sessionID)
 	args = append(args, "--disallowedTools", strings.Join(disallowedTools, ","))
 	if model != "" {
 		args = append(args, "--model", model)

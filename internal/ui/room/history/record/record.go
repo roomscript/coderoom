@@ -117,7 +117,7 @@ func renderViewport(r Record, width int, colors func(participant.Alias) string, 
 	case KindAgentOutput:
 		return renderAgentOutput(r, width, colors)
 	case KindSystem:
-		return inlinefmt.RenderLines(ansi.Wrap(r.Text, width, ""), systemStyle)
+		return inlinefmt.RenderLines(ansi.Wrap(r.Text, width, ""), systemRecordStyle(colors(r.Alias)))
 	case KindLog:
 		return inlinefmt.RenderLines(renderLogBody(r.Text, width), logStyle)
 	case KindReasoning:
@@ -138,6 +138,15 @@ func renderTranscript(r Record, colors func(participant.Alias) string, nameColor
 		return renderFileChangeTranscript(r, colors)
 	}
 	return renderViewport(r, 0, colors, nameColors)
+}
+
+// systemRecordStyle dims a system record, in its participant's color when it
+// has one.
+func systemRecordStyle(color string) lipgloss.Style {
+	if color == "" {
+		return systemStyle
+	}
+	return systemStyle.Foreground(lipgloss.Color(color))
 }
 
 func renderLogBody(body string, width int) string {

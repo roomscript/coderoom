@@ -41,7 +41,7 @@ func (r *Room) applyEvent(e session.Event) (Update, bool) {
 func (r *Room) handleLifecycleEventLocked(e session.Event) ([]int, bool) {
 	switch e := e.(type) {
 	case session.AgentStarting:
-		return r.appendSystemRecordLocked(startingNotice(e)), true
+		return r.appendParticipantRecordLocked(e.Alias, startingNotice(e)), true
 	case session.AgentReady:
 		return r.handleJoinLocked(e)
 	case session.AgentStopped:
@@ -79,7 +79,7 @@ func (r *Room) handleJoinLocked(e session.AgentReady) ([]int, bool) {
 	}
 	r.members[alias] = struct{}{}
 	dirty := r.refreshLatestHandoffSourceLocked(alias)
-	dirty = append(dirty, r.appendSystemRecordLocked(joinedNotice(e))...)
+	dirty = append(dirty, r.appendParticipantRecordLocked(alias, joinedNotice(e))...)
 	slices.Sort(dirty)
 	return slices.Compact(dirty), true
 }
@@ -102,6 +102,12 @@ func (r *Room) appendSystemRecordLocked(text string) []int {
 	return r.appendRecordLocked(Record{Kind: KindSystem, Text: text})
 }
 
+// appendParticipantRecordLocked appends a system record about one
+// participant, rendered in its color.
+func (r *Room) appendParticipantRecordLocked(alias participant.Alias, text string) []int {
+	return r.appendRecordLocked(Record{Kind: KindSystem, Alias: alias, Text: text})
+}
+
 func (r *Room) appendRecordLocked(record Record) []int {
 	idx := len(r.records)
 	r.records = append(r.records, record)
@@ -115,13 +121,23 @@ func startingNotice(e session.AgentStarting) string {
 	return "[" + e.Alias.Name + " starting · " + e.Backend + "]"
 }
 
-// joinedNotice shows the participant's model and effort, each with its
-// backend-managed fallback. Without a backend name it is the bare alias.
+// joinedNotice shows the participant's role, backend settings with their
+// backend-managed fallbacks, and resume ID when it has one. Without a backend
+// name it is the bare alias.
 func joinedNotice(e session.AgentReady) string {
 	if e.Settings.Backend == "" {
 		return "[" + e.Alias.Name + " joined]"
 	}
-	return "[" + e.Alias.Name + " joined" + settingsSuffix(e.Settings) + "]"
+	role := e.Role
+	if role == "" {
+		role = "none"
+	}
+	notice := "[" + e.Alias.Name + " joined · role: " + role + " · backend: " + e.Settings.Backend +
+		", model: " + e.Settings.ModelLabel() + ", effort: " + e.Settings.EffortLabel()
+	if e.ResumeID != "" {
+		notice += " · resume-id: " + e.ResumeID
+	}
+	return notice + "]"
 }
 
 // modelsListedNotice shows the participant's settings and the catalog, one

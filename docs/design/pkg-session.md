@@ -197,8 +197,16 @@ type Event interface {
     sessionEvent()
 }
 
-type AgentStarting struct{ Alias participant.Alias }
-type AgentReady struct{ Alias participant.Alias }
+type AgentStarting struct {
+    Alias   participant.Alias
+    Backend string
+}
+type AgentReady struct {
+    Alias    participant.Alias
+    Role     string
+    Settings agent.Settings
+    ResumeID string
+}
 type AgentStopped struct{ Alias participant.Alias }
 type AgentCrashed struct{ Alias participant.Alias }
 
@@ -296,8 +304,10 @@ does not replace Session membership checks or the send plan's Session binding.
 `InviteCommand` constructs the participant, which generates its UUID-backed
 `participant.Alias` before registration. Session preserves that identity and calls
 `Group.Add`, which assigns the participant's deterministic color. It then
-starts the agent. On success, it emits `AgentReady` and launches a reader
-goroutine for that agent. A participant removed later does not release its
+starts the agent. On success, it records the startup metadata the adapter
+reports (settings from `agent.ModelSelector`, resume ID from `agent.Resumable`)
+in the participant's `View`, emits `AgentReady` with the participant's role,
+settings and resume ID, and launches a reader goroutine for that agent. A participant removed later does not release its
 color for reuse during the session.
 
 Agent process lifecycle is rooted in the session lifecycle context. The

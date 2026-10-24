@@ -79,7 +79,11 @@ type View struct {
 	// Settings carry the name the participant's agent reports through
 	// agent.Agent.Name(), which may differ from the configured one, and the
 	// model and effort its backend reports. Empty until the agent is built.
-	Settings   agent.Settings
+	Settings agent.Settings
+	// ResumeID is the ID the backend CLI accepts with --resume, distinct
+	// from Alias.ID and execution IDs. Empty until the agent is attached, and
+	// for agents that cannot be resumed.
+	ResumeID   string
 	Initiative Initiative
 	Status     Status
 	Color      string // hex colour code, e.g. "#4ade80"; empty means default terminal colour

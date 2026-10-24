@@ -43,7 +43,7 @@ claude --print --verbose \
   --replay-user-messages --include-partial-messages \
   --permission-prompts host --permission-prompt-tool stdio \
   --thinking-display summarized \
-  --disallowedTools <list> \
+  --session-id <uuid> --disallowedTools <list> \
   [--model <model>] [--append-system-prompt <participant prompt>]
 ```
 
@@ -62,6 +62,10 @@ ListAgents,SendMessage,PushNotification,RemoteTrigger
   `CLAUDE_EFFORT`, so a coderoom started from inside Claude Code does not spawn
   a nested session. Plus the switches in [Self-started turns](#self-started-turns).
 - Personal config loads, as with Codex.
+- `--session-id`: `New` generates a random UUID and passes it, so the session
+  ID is known at launch instead of from the first turn's `system/init`.
+  `ResumeID()` returns it (`agent.Resumable`); it is the ID `claude --resume`
+  accepts. `TestClientLiveSessionID` checks that `system/init` echoes it.
 
 ### Options (mirroring codex)
 
@@ -80,7 +84,7 @@ ListAgents,SendMessage,PushNotification,RemoteTrigger
 
 | Method | Fit | Claude mechanism |
 |---|---|---|
-| `Start()` | fits | spawn; send `control_request{subtype: initialize}`; block until the matching `control_response` (under 3 s in E1). Unlike Codex, there is no thread to create: the session id appears only with the first turn's `system/init` |
+| `Start()` | fits | spawn; send `control_request{subtype: initialize}`; block until the matching `control_response` (under 3 s in E1). Unlike Codex, there is no thread to create: the session id is the one passed with `--session-id`, echoed by the first turn's `system/init` |
 | `Send(prompt)` | fits | write `{"type":"user","message":{"role":"user","content":prompt},…}`; return the turn anchor (below). `ErrTurnInProgress` while a turn is in flight, as codex. A leading `/` is escaped, see [Prompts starting with /](#prompts-starting-with-) |
 | `SendNotice(prompt)` | fits with a weaker guarantee | same prompt prefix and `{` heuristic as codex: reply text starting with `{` is held until the turn ends and dropped if it is a JSON object with `"acknowledge": true`; any other reply is relayed as `Reasoning` on `claude:notice-relay`. Thinking is dropped; tool calls, approvals and logs pass through, as with Codex delivery notices. **Gap:** Codex also sends a per-turn output schema; Claude's `--json-schema` is per process and not enforced (E7), so the instruction is prompt-only. Haiku complied in the live test |
 | `Read()` | fits | translate stdout lines (mapping below); stderr lines as `Log`; error only when the process exits. Lines have no length limit (one line can carry a whole file); a read error is logged and the process killed, so `Read()` returns an error instead of hanging |

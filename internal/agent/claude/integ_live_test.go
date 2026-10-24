@@ -47,6 +47,23 @@ func TestClientLiveToolSurface(t *testing.T) {
 	}
 }
 
+// TestClientLiveSessionID checks that Claude uses the ID passed with
+// --session-id: the first turn's system/init echoes ResumeID.
+func TestClientLiveSessionID(t *testing.T) {
+	c, obs, _ := startLiveClient(t)
+	readTurn(t, c, send(t, c, `Reply "hi" only.`))
+
+	var init struct {
+		SessionID string `json:"session_id"`
+	}
+	if err := json.Unmarshal(obs.initLine(), &init); err != nil {
+		t.Fatalf("parse system/init: %v", err)
+	}
+	if init.SessionID == "" || init.SessionID != c.ResumeID() {
+		t.Errorf("system/init session_id = %q, want ResumeID %q", init.SessionID, c.ResumeID())
+	}
+}
+
 // TestClientLiveTurn runs one turn with a successful command, a failing
 // command and an approved file write. Read-only commands are auto-approved by
 // Claude; only the write reaches the listener.

@@ -112,7 +112,7 @@ func startInvitedAgent(alias participant.Alias, a agent.Agent, s *Session) {
 			handleInviteStartError(alias, err, s)
 			return
 		}
-		stop, from, ok := s.attachParticipant(alias, a, readStartupSettings(a))
+		stop, from, ok := s.attachParticipant(alias, a, readStartupMetadata(a))
 		if !ok {
 			s.cancelAgentContext(alias)
 			_ = a.Stop()
@@ -148,22 +148,31 @@ func startInvitedAgent(alias participant.Alias, a agent.Agent, s *Session) {
 	}()
 }
 
-// readStartupSettings returns the model and effort a started agent reports,
-// or nil when it cannot report them.
-func readStartupSettings(a agent.Agent) *agent.Settings {
-	selector, ok := a.(agent.ModelSelector)
-	if !ok {
-		return nil
-	}
-	settings := selector.Settings()
-	return &settings
+// startupMetadata is what a started agent reports about its session.
+type startupMetadata struct {
+	settings *agent.Settings // nil when the agent cannot report them
+	resumeID string          // empty when the agent is not resumable
 }
 
-// notifyAgentReady reports readiness with the participant's settings. A
-// participant removed in the meantime still gets its event, without settings.
+// readStartupMetadata returns the settings and resume ID a started agent
+// reports.
+func readStartupMetadata(a agent.Agent) startupMetadata {
+	var startup startupMetadata
+	if selector, ok := a.(agent.ModelSelector); ok {
+		settings := selector.Settings()
+		startup.settings = &settings
+	}
+	if resumable, ok := a.(agent.Resumable); ok {
+		startup.resumeID = resumable.ResumeID()
+	}
+	return startup
+}
+
+// notifyAgentReady reports readiness with the participant's details. A
+// participant removed in the meantime still gets its event, without details.
 func (s *Session) notifyAgentReady(alias participant.Alias) {
 	view, _ := s.Participant(alias)
-	s.notify(AgentReady{Alias: alias, Settings: view.Settings})
+	s.notify(newAgentReady(alias, view))
 }
 
 func stopUnreadyParticipant(alias participant.Alias, a agent.Agent, s *Session) {

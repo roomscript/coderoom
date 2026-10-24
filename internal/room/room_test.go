@@ -52,10 +52,10 @@ func TestOnEvent_agentLifecycleAppendsSystemRecords(t *testing.T) {
 	if len(snapshot.Records) != 3 {
 		t.Fatalf("expected 3 records, got %d", len(snapshot.Records))
 	}
-	if snapshot.Records[0].Kind != KindSystem || snapshot.Records[0].Text != "[ada starting]" {
+	if snapshot.Records[0].Kind != KindSystem || snapshot.Records[0].Text != "[ada starting]" || snapshot.Records[0].Alias != ada {
 		t.Fatalf("unexpected first record: %#v", snapshot.Records[0])
 	}
-	if snapshot.Records[1].Text != "[ada joined]" {
+	if snapshot.Records[1].Text != "[ada joined]" || snapshot.Records[1].Alias != ada {
 		t.Fatalf("unexpected second record: %#v", snapshot.Records[1])
 	}
 	if snapshot.Records[2].Text != "[ada left]" {
@@ -131,25 +131,48 @@ func TestOnEvent_modelEventsAppendSystemRecords(t *testing.T) {
 	}
 }
 
-func TestOnEvent_agentReadyShowsSettings(t *testing.T) {
+func TestOnEvent_agentReadyShowsDetails(t *testing.T) {
 	tests := []struct {
-		name     string
-		settings agent.Settings
-		want     string
+		name  string
+		event session.AgentReady
+		want  string
 	}{
-		{"known", agent.Settings{Backend: "claude", Model: "claude-opus-5-5", Effort: "medium"}, "[ada joined · model: claude-opus-5-5 · effort: medium]"},
-		{"backend-managed", agent.Settings{Backend: "codex"}, "[ada joined · model: codex-managed · effort: codex-managed]"},
-		{"effort managed", agent.Settings{Backend: "claude", Model: "claude-haiku-4-5"}, "[ada joined · model: claude-haiku-4-5 · effort: claude-managed]"},
+		{
+			"known settings",
+			session.AgentReady{Role: "architect", Settings: agent.Settings{Backend: "claude", Model: "claude-opus-5-5", Effort: "medium"}, ResumeID: "0b5f4c2e-1d3a-4b6c-8e9f-a1b2c3d4e5f6"},
+			"[ada joined · role: architect · backend: claude, model: claude-opus-5-5, effort: medium · resume-id: 0b5f4c2e-1d3a-4b6c-8e9f-a1b2c3d4e5f6]",
+		},
+		{
+			"backend-managed",
+			session.AgentReady{Role: "builder", Settings: agent.Settings{Backend: "codex"}, ResumeID: "019a-thread"},
+			"[ada joined · role: builder · backend: codex, model: codex-managed, effort: codex-managed · resume-id: 019a-thread]",
+		},
+		{
+			"effort managed",
+			session.AgentReady{Role: "reviewer", Settings: agent.Settings{Backend: "claude", Model: "claude-haiku-4-5"}, ResumeID: "id"},
+			"[ada joined · role: reviewer · backend: claude, model: claude-haiku-4-5, effort: claude-managed · resume-id: id]",
+		},
+		{
+			"no role",
+			session.AgentReady{Settings: agent.Settings{Backend: "codex", Model: "gpt-6.1-sol", Effort: "low"}, ResumeID: "019a-thread"},
+			"[ada joined · role: none · backend: codex, model: gpt-6.1-sol, effort: low · resume-id: 019a-thread]",
+		},
+		{
+			"not resumable",
+			session.AgentReady{Role: "builder", Settings: agent.Settings{Backend: "echo"}},
+			"[ada joined · role: builder · backend: echo, model: echo-managed, effort: echo-managed]",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			room, updates := newTestRoom(t)
+			tt.event.Alias = newTestAlias("ada")
 
-			room.OnEvent(session.AgentReady{Alias: newTestAlias("ada"), Settings: tt.settings})
+			room.OnEvent(tt.event)
 			waitUpdate(t, updates)
 
 			records := room.Snapshot().Records
-			if len(records) != 1 || records[0].Text != tt.want {
+			if len(records) != 1 || records[0].Text != tt.want || records[0].Alias != tt.event.Alias {
 				t.Fatalf("records = %#v, want %s", records, tt.want)
 			}
 		})

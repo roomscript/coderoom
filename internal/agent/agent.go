@@ -269,6 +269,13 @@ type Keepaliver interface {
 	KeepAlive() error
 }
 
+// Resumable is an optional capability for agents whose backend CLI can resume
+// the session. ResumeID returns the ID that CLI accepts with --resume. It is
+// valid after Start and does no I/O.
+type Resumable interface {
+	ResumeID() string
+}
+
 // ExternalDependencies is implemented by agents that rely on tools outside
 // coderoom.
 type ExternalDependencies interface {

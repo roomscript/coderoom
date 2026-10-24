@@ -174,6 +174,7 @@ func New(cwd string, opts ...Option) *Client {
 		proc: newProc(cwd), obs: noopObserver{}, newPromptID: newUUID,
 		startTimeout: defaultStartTimeout, stopGrace: stopGracePeriod,
 	}
+	c.proc.sessionID = newUUID()
 	c.control.pending = make(map[string]controlHandler)
 	c.models.settings = agent.Settings{Backend: c.Name()}
 	for _, o := range opts {
@@ -188,6 +189,9 @@ func New(cwd string, opts ...Option) *Client {
 
 // Name returns "claude".
 func (c *Client) Name() string { return "claude" }
+
+// ResumeID returns the session ID passed with --session-id.
+func (c *Client) ResumeID() string { return c.proc.sessionID }
 
 // Start launches the process, completes the initialize handshake and reads
 // the model catalog and current settings.

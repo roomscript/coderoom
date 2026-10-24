@@ -90,7 +90,7 @@ UI hints:
 
 [ada starting · echo]
 
-[ada joined · model: echo-managed · effort: echo-managed]
+[ada joined · role: none · backend: echo, model: echo-managed, effort: echo-managed]
 
 ❯ @ada Hello
   → ada
@@ -103,7 +103,7 @@ UI hints:
 
 [turing starting · echo]
 
-[turing joined · model: echo-managed · effort: echo-managed]
+[turing joined · role: none · backend: echo, model: echo-managed, effort: echo-managed]
 
 ❯ Hello everyone
   → ada      → turing

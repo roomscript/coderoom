@@ -4,7 +4,7 @@ tip: type /help for commands and shortcuts
 
 [ada starting · claude]
 
-[ada joined · model: claude-opus-5-5 · effort: medium]
+[ada joined · role: none · backend: claude, model: claude-opus-5-5, effort: medium · resume-id: 721179ac-c588-42ff-8636-cfc87d74e567]
 
 ❯ /model ada
 

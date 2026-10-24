@@ -462,6 +462,51 @@ func TestInvite_recordsBackendTheAgentReports(t *testing.T) {
 	}
 }
 
+// resumableAgent is a mockAgent whose backend session has a resume ID.
+type resumableAgent struct {
+	*mockAgent
+	resumeID string
+}
+
+func (a *resumableAgent) ResumeID() string { return a.resumeID }
+
+func TestInvite_reportsRoleAndResumeID(t *testing.T) {
+	tests := []struct {
+		name         string
+		config       string
+		agent        agent.Agent
+		wantRole     string
+		wantResumeID string
+	}{
+		{"configured role, resumable", "alias: ada\nrole: reviewer\n", &resumableAgent{newMockAgent(), "0b5f4c2e-1d3a-4b6c-8e9f-a1b2c3d4e5f6"}, "reviewer", "0b5f4c2e-1d3a-4b6c-8e9f-a1b2c3d4e5f6"},
+		{"no role, not resumable", "alias: ada\n", newMockAgent(), "", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := t.TempDir()
+			writeSessionConfigFile(t, root, ".coderoom/participants/ada.yaml", tt.config)
+			writeSessionConfigFile(t, root, ".coderoom/prompts/roles/reviewer.md", "Focus on correctness.")
+			obs := newTestObserver()
+			s := newSession(t,
+				session.WithObserver(obs),
+				session.WithConfig(loadSessionConfig(t, root)),
+				fixedFactory(tt.agent),
+			)
+			t.Cleanup(func() { _, _ = s.Execute(session.RemoveCommand{Alias: resolvedAlias(s, "ada")}) })
+
+			invite(t, s, "ada")
+			ready := mustReceive[session.AgentReady](t, obs.ch)
+
+			if ready.Role != tt.wantRole || ready.ResumeID != tt.wantResumeID {
+				t.Fatalf("AgentReady role, resume ID = %q, %q; want %q, %q", ready.Role, ready.ResumeID, tt.wantRole, tt.wantResumeID)
+			}
+			if p, _ := s.ParticipantByName("ada"); p.ResumeID != tt.wantResumeID {
+				t.Fatalf("View.ResumeID = %q, want %q", p.ResumeID, tt.wantResumeID)
+			}
+		})
+	}
+}
+
 func TestInvite_passesConfiguredBackendToFactory(t *testing.T) {
 	root := t.TempDir()
 	writeSessionConfigFile(t, root, ".coderoom/participants/ada.yaml", "alias: ada\nbackend: claude\n")

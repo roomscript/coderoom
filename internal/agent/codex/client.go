@@ -179,6 +179,13 @@ func New(cwd string, opts ...Option) *Client {
 // Name returns "codex".
 func (c *Client) Name() string { return "codex" }
 
+// ResumeID returns the thread ID from thread/start. Empty before Start.
+func (c *Client) ResumeID() string {
+	c.turn.mu.Lock()
+	defer c.turn.mu.Unlock()
+	return c.turn.threadID
+}
+
 func (c *Client) initRead() {
 	if c.read.messages == nil {
 		c.read.messages = make(chan readMessage)

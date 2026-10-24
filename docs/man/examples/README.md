@@ -3,6 +3,11 @@
 These transcripts were exported from running coderoom sessions on 2026-10-22.
 They supply the output shown in the command pages.
 
+The joined lines were refreshed on 2026-10-24, when they gained role, backend
+and resume ID. The echo lines match a new echo run. The Codex and Claude lines
+come from new invitations with the same CLI versions, models and efforts, so
+their resume IDs belong to those runs, not to the rest of each transcript.
+
 | Capture | Setup and commands |
 | --- | --- |
 | [Terminal and echo agents](terminal.txt) | Shell commands, definitions, help, invitations, messages, handoff, and removal. Echo agents repeat prompts without model calls. |

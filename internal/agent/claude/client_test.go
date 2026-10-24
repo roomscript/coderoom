@@ -740,9 +740,10 @@ func TestStop_escalates(t *testing.T) {
 }
 
 func TestClaudeArgs(t *testing.T) {
-	args := claudeArgs("haiku", "You are ada.")
+	args := claudeArgs("0b5f4c2e-1d3a-4b6c-8e9f-a1b2c3d4e5f6", "haiku", "You are ada.")
 
 	for _, want := range [][]string{
+		{"--session-id", "0b5f4c2e-1d3a-4b6c-8e9f-a1b2c3d4e5f6"},
 		{"--input-format", "stream-json"},
 		{"--permission-prompt-tool", "stdio"},
 		{"--thinking-display", "summarized"},
@@ -755,8 +756,21 @@ func TestClaudeArgs(t *testing.T) {
 			t.Errorf("args missing %v: %v", want, args)
 		}
 	}
-	if args := claudeArgs("", ""); slices.Contains(args, "--model") || slices.Contains(args, "--append-system-prompt") {
+	if args := claudeArgs("id", "", ""); slices.Contains(args, "--model") || slices.Contains(args, "--append-system-prompt") {
 		t.Errorf("empty options produced flags: %v", args)
+	}
+}
+
+func TestClientLaunchesWithResumeID(t *testing.T) {
+	c := New(".")
+	args := c.proc.commandArgs()
+
+	i := slices.Index(args, "--session-id")
+	if i < 0 || i+1 >= len(args) || args[i+1] != c.ResumeID() {
+		t.Errorf("args %v do not pass ResumeID %q", args, c.ResumeID())
+	}
+	if c.ResumeID() == New(".").ResumeID() {
+		t.Error("two clients share a resume ID")
 	}
 }
 

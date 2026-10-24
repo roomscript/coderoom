@@ -52,7 +52,7 @@ Recorded excerpt ([source](examples/terminal.txt)). `❯` marks user input.
 
 [ada starting · echo]
 
-[ada joined · model: echo-managed · effort: echo-managed]
+[ada joined · role: none · backend: echo, model: echo-managed, effort: echo-managed]
 
 ❯ @ada Hello
   → ada

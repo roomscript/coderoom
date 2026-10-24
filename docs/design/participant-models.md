@@ -342,8 +342,8 @@ with no event.
 - `attachParticipant` copies `Settings()` from a `ModelSelector`, under the
   same lock that attaches the agent, keeping `Backend`. The handle is called
   before taking the lock.
-- `AgentReady` carries the participant's `Settings`, so the joined message
-  renders them without reading the session.
+- `AgentReady` carries the participant's `Settings`, role and resume ID, so
+  the joined message renders them without reading the session.
 
 ---
 
@@ -406,7 +406,8 @@ ready, not supported) are command errors, shown like other failed commands.
 Joined message, from `AgentReady`:
 
 ```text
-[ada joined · model: claude-opus-5-5 · effort: medium]
+[ada joined · role: builder · backend: claude, model: claude-opus-5-5, effort: medium · resume-id: <uuid>]
 ```
 
-#25 extends this line with role, backend and resume ID.
+A participant without a role shows `role: none`. Agents without a resume ID,
+such as echo, omit the `resume-id` part.
