@@ -117,9 +117,9 @@ func renderViewport(r Record, width int, colors func(participant.Alias) string, 
 	case KindAgentOutput:
 		return renderAgentOutput(r, width, colors)
 	case KindSystem:
-		return systemStyle.Render(ansi.Wrap(r.Text, width, ""))
+		return inlinefmt.RenderLines(ansi.Wrap(r.Text, width, ""), systemStyle)
 	case KindLog:
-		return logStyle.Render(renderLogBody(r.Text, width))
+		return inlinefmt.RenderLines(renderLogBody(r.Text, width), logStyle)
 	case KindReasoning:
 		return renderReasoning(r, width, colors)
 	case KindCommand:

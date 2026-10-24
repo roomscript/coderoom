@@ -73,7 +73,6 @@ func TestCursorLeftRight_crossesVisibleLineBoundaries(t *testing.T) {
 	m = m.CursorLeft()
 	m = m.CursorLeft()
 	m = m.CursorLeft()
-	m = m.CursorLeft()
 	row, col := m.CursorPosition()
 	if row != 0 || col != 5 {
 		t.Fatalf("expected CursorLeft to cross into prior visible line; got row=%d col=%d", row, col)
