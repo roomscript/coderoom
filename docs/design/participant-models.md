@@ -33,7 +33,7 @@ Claude model without effort support). Settings do not distinguish these
 cases, because all of them are displayed the same way.
 
 The labels are the one display rule, used by invite messages, `/model` and
-`/who` (#24). Each field falls back on its own, using the backend name, never
+`/who`. Each field falls back on its own, using the backend name, never
 the alias. The `Label` suffix marks display text: `claude-managed` is not a
 model, so raw values are read from the fields. Because `Settings` carries its
 backend, events and records can carry settings alone and still render them.

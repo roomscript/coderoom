@@ -84,6 +84,8 @@ Single line, dimmed. Used for lifecycle events (`starting`, `joined`, `left`, `c
 
 **Exception**: `/help` output is a multi-line system record for readability. Splitting it into individual records would insert blank lines between each help line, making the output hard to scan.
 
+**`/who` table**: the record carries `Participants`, a detached snapshot sorted by alias and captured when the command ran; `Text` keeps a plain summary. The UI renders the snapshot at the current width, so resizes re-render it, and never reads live Session state. Columns are state glyph (toolbox glyphs, fixed `◆` for working), alias, role (`none` when empty), backend, model, effort (settings labels) and full resume ID; unknown values show `-`. Each row is dimmed in its participant's colour. When the table is wider than the viewport, each participant becomes a block: glyph and alias, then one wrapped `name: value` line per field. Transcript export always uses the table. An empty room has no snapshot and renders `[no agents]`.
+
 ### Log record
 
 ```

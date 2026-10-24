@@ -27,7 +27,7 @@ func (WhoCommand) Name() string { return "who" }
 func (WhoCommand) Usage() string { return "/who" }
 
 // Description supplies the command's help description.
-func (WhoCommand) Description() string { return "list agents" }
+func (WhoCommand) Description() string { return "list agents and their details" }
 
 // Statement identifies the accepted parsed statement.
 func (WhoCommand) Statement() promptlang.Statement { return promptlang.Who{} }
@@ -40,16 +40,17 @@ func (WhoCommand) Prepare(parsed promptlang.ParsedStatement, ctx runtime.Context
 	if ctx.Participants == nil {
 		return nil, errors.New("who requires participant reads")
 	}
-	return &whoInvocation{record: room.Record{Kind: room.KindSystem, Text: whoNotice(ctx.Participants.Participants())}}, nil
+	views := slices.Clone(ctx.Participants.Participants())
+	slices.SortFunc(views, func(a, b participant.View) int { return strings.Compare(a.Alias.Name, b.Alias.Name) })
+	return &whoInvocation{record: room.Record{Kind: room.KindSystem, Text: whoNotice(views), Participants: views}}, nil
 }
 
-// whoNotice lists participants by alias, each with its backend when known.
+// whoNotice lists sorted participants by alias, each with its backend when
+// known.
 func whoNotice(views []participant.View) string {
 	if len(views) == 0 {
 		return "[no agents]"
 	}
-	views = slices.Clone(views)
-	slices.SortFunc(views, func(a, b participant.View) int { return strings.Compare(a.Alias.Name, b.Alias.Name) })
 	entries := make([]string, len(views))
 	for i, view := range views {
 		entries[i] = view.Alias.Name

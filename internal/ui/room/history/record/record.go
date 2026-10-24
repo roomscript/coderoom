@@ -117,6 +117,9 @@ func renderViewport(r Record, width int, colors func(participant.Alias) string, 
 	case KindAgentOutput:
 		return renderAgentOutput(r, width, colors)
 	case KindSystem:
+		if len(r.Participants) > 0 {
+			return renderParticipants(r, width, colors)
+		}
 		return inlinefmt.RenderLines(ansi.Wrap(r.Text, width, ""), systemRecordStyle(colors(r.Alias)))
 	case KindLog:
 		return inlinefmt.RenderLines(renderLogBody(r.Text, width), logStyle)

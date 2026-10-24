@@ -1,0 +1,44 @@
+tip: type /help for commands and shortcuts
+
+❯ /invite ada
+
+[ada starting · codex]
+
+[ada joined · role: builder · backend: codex, model: gpt-6.1-sol, effort: low · resume-id: 01a16f92-ede9-7a70-95e0-6bce9d09645b]
+
+❯ /invite turing
+
+[turing starting · claude]
+
+[turing joined · role: none · backend: claude, model: claude-opus-5-5, effort: medium · resume-id: f7c3fa70-6559-43ed-872c-04ca92b2a3bc]
+
+❯ /who
+
+   alias   role     backend  model            effort  resume-id
+●  ada     builder  codex    gpt-6.1-sol      low     01a16f92-ede9-7a70-95e0-6bce9d09645b
+●  turing  none     claude   claude-opus-5-5  medium  f7c3fa70-6559-43ed-872c-04ca92b2a3bc
+
+❯ @turing Reply with exactly: ready.
+  → turing
+
+❯ /who
+
+   alias   role     backend  model            effort  resume-id
+●  ada     builder  codex    gpt-6.1-sol      low     01a16f92-ede9-7a70-95e0-6bce9d09645b
+◆  turing  none     claude   claude-opus-5-5  medium  f7c3fa70-6559-43ed-872c-04ca92b2a3bc
+
+● turing:
+
+  ready.
+
+❯ /remove ada
+
+[ada left]
+
+❯ /remove turing
+
+[turing left]
+
+❯ /who
+
+[no agents]

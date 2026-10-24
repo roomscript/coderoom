@@ -14,8 +14,11 @@ their resume IDs belong to those runs, not to the rest of each transcript.
 | [Codex](codex.txt) | Invitations, a direct prompt, handoff, broadcast, notices, and removal. Codex CLI 0.163.0; `gpt-6.1-sol`, effort `low`. |
 | [Claude Code](claude.txt) | Model listing and change, one cancellation, and a passing loop. Claude Code 2.1.304; the transcript shows the models and effort used. |
 | [Multiline room output](room-output.txt) | Echo agents, an indented multiline reply, and its handoff preview. |
+| [Participant table](who.txt) | Recorded 2026-10-24. `/who` with Ada on Codex and Turing on Claude, idle and while Turing works, then after removal. Codex CLI 0.163.0, Claude Code 2.1.304. |
 
-Sessions ran in a temporary directory with no participant files.
+Sessions ran in a temporary directory with no participant files, except the
+participant table capture: it used `.coderoom/participants/ada.yaml` (role
+`builder`, backend `codex`) and `turing.yaml` (backend `claude`, no role).
 `CODEROOM_BACKEND` selected the live backend for each session.
 
 ## Reading the captures

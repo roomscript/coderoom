@@ -165,7 +165,7 @@ interpreter's serialized loop never blocks terminal rendering.
 | `/policy enable echo-invites` | `EnablePolicyCommand` | Uses deterministic echo agents; must precede every invitation |
 | `/cancel <alias>` | `CancelCommand` | Soft stop: cancels in-flight work for the agent but keeps it in the room |
 | `/remove <alias>` | `RemoveCommand` | Hard stop: removes the agent from the room and stops its process |
-| `/who` | interpreter query | Renders the current interpreter snapshot inline |
+| `/who` | interpreter query | Renders a captured participant snapshot inline as a table |
 | `/help` | — | Renders available commands inline |
 | `@<alias> <text>` | `SendToParticipantCommand` | Only the addressed participant is targeted unless `send-notices` is enabled |
 | `<text>` | `BroadcastCommand` | Equivalent to direct send for single-agent sessions |

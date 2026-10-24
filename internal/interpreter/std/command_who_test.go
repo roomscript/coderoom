@@ -1,6 +1,7 @@
 package std_test
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/roomscript/coderoom/internal/agent"
@@ -18,9 +19,10 @@ type participantReader struct {
 func (r participantReader) Participants() []participant.View { return r.views }
 
 type whoCommandTest struct {
-	name  string
-	views []participant.View
-	text  string
+	name    string
+	views   []participant.View
+	text    string
+	aliases []string
 }
 
 // whoCommandTests returns a fresh table: each test edits its views after
@@ -29,9 +31,10 @@ func whoCommandTests() []whoCommandTest {
 	return []whoCommandTest{
 		{name: "empty", text: "[no agents]"},
 		{
-			name:  "starting",
-			views: []participant.View{{Alias: newTestAlias("ada"), Role: "builder", Status: participant.StatusStarting}},
-			text:  "[agents] ada",
+			name:    "starting",
+			views:   []participant.View{{Alias: newTestAlias("ada"), Role: "builder", Status: participant.StatusStarting}},
+			text:    "[agents] ada",
+			aliases: []string{"ada"},
 		},
 		{
 			name: "multiple",
@@ -39,7 +42,8 @@ func whoCommandTests() []whoCommandTest {
 				{Alias: newTestAlias("tim"), Role: "reviewer", Status: participant.StatusIdle},
 				{Alias: newTestAlias("ada"), Role: "builder", Status: participant.StatusWorking},
 			},
-			text: "[agents] ada, tim",
+			text:    "[agents] ada, tim",
+			aliases: []string{"ada", "tim"},
 		},
 		{
 			name: "with backends",
@@ -47,7 +51,8 @@ func whoCommandTests() []whoCommandTest {
 				{Alias: newTestAlias("tim"), Settings: agent.Settings{Backend: "codex"}},
 				{Alias: newTestAlias("ada"), Settings: agent.Settings{Backend: "claude"}},
 			},
-			text: "[agents] ada (claude), tim (codex)",
+			text:    "[agents] ada (claude), tim (codex)",
+			aliases: []string{"ada", "tim"},
 		},
 	}
 }
@@ -61,8 +66,9 @@ func TestWhoCommand_Go(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if len(tt.views) > 0 {
-				tt.views[0].Alias.Name = "changed after preparation"
+			for i := range tt.views {
+				tt.views[i].Alias.Name = "changed after preparation"
+				tt.views[i].Settings.Model = "changed after preparation"
 			}
 			var results []runtime.CommandResult
 			err = invocation.Go(func(completion runtime.CommandResult) { results = append(results, completion) })
@@ -77,7 +83,24 @@ func TestWhoCommand_Go(t *testing.T) {
 			if record.Kind != want.Kind || record.Text != want.Text {
 				t.Fatalf("record = %#v, want %#v", record, want)
 			}
+			assertWhoSnapshot(t, record.Participants, tt.aliases)
 		})
+	}
+}
+
+// assertWhoSnapshot checks that views are sorted by alias and unaffected by
+// edits made to the reader's views after preparation.
+func assertWhoSnapshot(t *testing.T, views []participant.View, aliases []string) {
+	t.Helper()
+	var got []string
+	for _, view := range views {
+		if view.Settings.Model != "" {
+			t.Fatalf("snapshot shares settings with the participant reader: %#v", view)
+		}
+		got = append(got, view.Alias.Name)
+	}
+	if !slices.Equal(got, aliases) {
+		t.Fatalf("snapshot aliases = %v, want %v", got, aliases)
 	}
 }
 
@@ -116,7 +139,7 @@ func TestWhoCommand_PrepareCreatesIndependentInvocations(t *testing.T) {
 
 func TestWhoCommand_MetadataMatchesAST(t *testing.T) {
 	command := std.WhoCommand{}
-	if command.Name() != "who" || command.Description() != "list agents" {
+	if command.Name() != "who" || command.Description() != "list agents and their details" {
 		t.Fatal("unexpected registration metadata")
 	}
 	parsed, err := promptlang.Parse(command.Usage())

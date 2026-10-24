@@ -31,7 +31,7 @@ names and agent replies reflect the recording session and may differ in yours.
 | [`@<alias> <text>`](send.md) | Send a prompt to one agent. |
 | [`<text>`](broadcast.md) | Send a prompt to all agents. |
 | [`/handoff <from> <to>`](handoff.md) | Send one agent's latest output to another. |
-| [`/who`](who.md) | List agents and their backends. |
+| [`/who`](who.md) | List agents with their state, role, settings and resume ID. |
 | [`/model <alias> [<model> [<effort>]]`](model.md) | Show or change model settings. |
 | [`/cancel <alias>`](cancel.md) | Request interruption of an agent's work. |
 | [`/remove <alias>`](remove.md) | Stop and remove an agent. |

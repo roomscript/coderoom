@@ -204,3 +204,21 @@ func TestToolboxCells_skipsUnnamedInstances(t *testing.T) {
 		t.Fatalf("unnamed instance changed display: got %q, want %q", got, want)
 	}
 }
+
+func TestParticipantGlyph_workingAlternates(t *testing.T) {
+	tests := []struct {
+		name string
+		now  time.Time
+		want string
+	}{
+		{"even second", time.Unix(100, 0), "⏹"},
+		{"odd second", time.Unix(101, 0), "◆"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got, _ := participantGlyph(participant.StatusWorking, tt.now); got != tt.want {
+				t.Fatalf("glyph = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}

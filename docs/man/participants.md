@@ -63,7 +63,7 @@ shell configuration. A shared participant file supplies the same explicit
 backend to everyone using that file.
 
 The room shows the backend at startup. [`/who`](who.md) lists each participant
-and its backend.
+with its backend, settings and resume ID.
 
 ## Role prompts
 

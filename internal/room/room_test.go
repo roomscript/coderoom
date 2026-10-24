@@ -733,3 +733,19 @@ func TestSnapshotClonesRecordsAndState(t *testing.T) {
 		t.Fatalf("expected message content to be cloned, got %#v", nextCmd)
 	}
 }
+
+func TestAppendRecordDetachesParticipantSnapshot(t *testing.T) {
+	room, updates := newTestRoom(t)
+	views := []participant.View{{Alias: newTestAlias("ada"), Status: participant.StatusIdle}}
+
+	room.AppendRecord(Record{Kind: KindSystem, Text: "[agents] ada", Participants: views})
+	waitUpdate(t, updates)
+	views[0].Status = participant.StatusWorking
+	snapshot := room.Snapshot()
+	snapshot.Records[0].Participants[0].Status = participant.StatusCrashed
+
+	got := room.Snapshot().Records[0].Participants
+	if len(got) != 1 || got[0].Status != participant.StatusIdle {
+		t.Fatalf("participants = %#v, want the appended idle snapshot", got)
+	}
+}

@@ -34,6 +34,9 @@ type Record struct {
 	Text          string
 	Msg           *agent.Message
 	HandoffSource bool
+	// Participants is a detached participant snapshot, sorted by alias, that
+	// a system record renders as a table (/who). Text keeps a plain summary.
+	Participants []participant.View
 }
 
 // NewAgentRecord constructs a canonical record backed by an agent message.

@@ -32,6 +32,7 @@ func cloneRecord(record Record) Record {
 	cloned.Routing = slices.Clone(record.Routing)
 	cloned.FailedRouting = slices.Clone(record.FailedRouting)
 	cloned.UnsentRouting = slices.Clone(record.UnsentRouting)
+	cloned.Participants = slices.Clone(record.Participants)
 	if record.Msg != nil {
 		msgCopy := *record.Msg
 		cloned.Msg = &msgCopy

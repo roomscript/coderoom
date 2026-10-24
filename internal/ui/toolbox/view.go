@@ -177,26 +177,31 @@ func renderCell(p participant.View, now time.Time, width int) string {
 }
 
 func participantGlyph(status participant.Status, now time.Time) (string, bool) {
+	showElapsed := StatusGlyph(status) != "●"
+	if status == participant.StatusWorking && int(now.Unix())%2 == 0 {
+		return "⏹", showElapsed
+	}
+	return StatusGlyph(status), showElapsed
+}
+
+// StatusGlyph returns the fixed glyph for status. Working is ◆; the live
+// toolbox alternates it with ⏹.
+func StatusGlyph(status participant.Status) string {
 	switch status {
 	case participant.StatusStarting, participant.StatusAttached:
-		return "◌", true
+		return "◌"
 	case participant.StatusPreparing:
-		return "◐", true
+		return "◐"
 	case participant.StatusKeepalive:
-		return "◔", true
+		return "◔"
 	case participant.StatusChangingModel:
-		return "◑", true
+		return "◑"
 	case participant.StatusWorking:
-		if int(now.Unix())%2 == 0 {
-			return "⏹", true
-		}
-		return "◆", true
+		return "◆"
 	case participant.StatusCrashed:
-		return "✖", true
-	case participant.StatusIdle:
-		return "●", false
+		return "✖"
 	default:
-		return "●", false
+		return "●"
 	}
 }
 
