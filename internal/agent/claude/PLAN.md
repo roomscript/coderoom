@@ -8,7 +8,7 @@ Updated on 24 October 2026.
 
 - Phase 1 (spike): **done.** Report: `docs/playground/poc-claude-stream-json.md`. Playground: `playground/claude-stream-json/`.
 - Integration approach: **decided.** Direct integration with the claude CLI over stream-json from Go (option A below), the same pattern as Codex app-server.
-- Phase 2 (gap analysis): **done.** Design: `docs/design/pkg-agent-claude.md`. Decided on 16 October 2026: keepalive postponed, `acceptForSession` supported, backend in the participant config, `AskUserQuestion` disallowed, self-started turns prevented and defended, `agent-record` instead of `claude-record`, tools that reach outside the room disallowed.
+- Phase 2 (gap analysis): **done.** Design: `docs/design/pkg-agent-claude.md`. Decided on 16 October 2026: keepalive postponed, `acceptForSession` supported, backend in the participant config, `AskUserQuestion` disallowed, self-started turns prevented and defended, tools that reach outside the room disallowed. The choice of `agent-record` instead of `claude-record` was reversed on 24 October 2026: see "Agent testing" below.
 - Phase 3 (implementation): **adapter done and registered.** See the phase 3 list for what is left and where it moved.
 - Multi-backend configuration: **merged** to main.
 - Register Claude: **done.** `claude` is a valid backend.
@@ -31,7 +31,10 @@ The remaining work is split so that shared changes reach main in small steps ins
    - **Done.** Cancelling the parent context (`WithContext`) drops queued approvals without answering them, so the turn hangs until `Stop`. It now stops the process.
    - **Done.** `Stop` during `Start` may race with the fields `Start` sets. Confirmed by reading, but no caller does it: the session attaches an agent only after `Start` returns. Documented as unsupported; cancelling the parent context aborts a start, and a test covers that.
    - **Done.** Missing tests: the process exiting mid-turn while a listener is blocked; parent context cancellation.
-4. **Agent testing**, for both backends: a design doc with requirements first (the capabilities both adapters guarantee), then generic transcript recording and replay (`agent-record`), replacing the Codex-only `docs/design/pkg-agent-codex-transcripts.md`.
+4. **Agent testing**, for both backends. Design: `docs/design/agent-transcripts.md`. Steps, one change each:
+   1. Keep only the Codex baseline fixtures (0.163.0); upgrades replace the baseline.
+   2. Standard transcript schema and a backend-neutral `internal/transcript`; one mechanical fixture migration; fold `pkg-agent-codex-transcripts.md` into the new doc.
+   3. Claude recording and replay (`cmd/claude-record`, `cmd/claude-replay`), after the capability requirements and the handling of random IDs are decided.
 5. **README** (done): Claude Code is listed as a backend.
 6. **Demo** (phase 3 "done when").
 
