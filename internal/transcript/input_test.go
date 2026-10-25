@@ -10,14 +10,14 @@ import (
 )
 
 func TestReadInputDir_Prompt(t *testing.T) {
-	dir := filepath.Join("..", "agent", "codex", "testdata", "transcripts", "0.133.0", "approvals-file-change")
+	dir := filepath.Join("..", "agent", "codex", "testdata", "transcripts", "0.163.0", "approvals-file-change")
 
 	got, err := ReadInputDir(dir)
 	if err != nil {
 		t.Fatalf("ReadInputDir: %v", err)
 	}
-	if got.Config.Model != "gpt-5.4" {
-		t.Fatalf("model = %q, want gpt-5.4", got.Config.Model)
+	if got.Config.Model != "gpt-5.6-luna" {
+		t.Fatalf("model = %q, want gpt-5.6-luna", got.Config.Model)
 	}
 	if got.Config.AskForApproval != codex.AskOnRequest {
 		t.Fatalf("ask_for_approval = %q, want %q", got.Config.AskForApproval, codex.AskOnRequest)

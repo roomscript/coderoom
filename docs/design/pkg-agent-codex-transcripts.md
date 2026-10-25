@@ -158,6 +158,12 @@ Transcript fixtures live under:
 internal/agent/codex/testdata/transcripts/<codex-version>/<test-case>/
 ```
 
+The current baseline is pinned in `CODEX_VERSION`. After recording, replay and
+live validation succeed, the upgrade script updates the pin and retains the
+previous version directory for review and comparison. Older recordings are
+removed only through an explicit cleanup decision. The removal of versions
+0.133.0 through 0.140.0 is a one-time cleanup before the schema migration.
+
 Each case directory contains either:
 
 - `prompt.md` — single-action scenario source plus recording configuration
@@ -183,9 +189,9 @@ Example:
 
 ```text
 ---
-name: approvals_file_change
-codex_version: 0.133.0
-model: gpt-5.4
+name: approvals-file-change
+codex_version: 0.163.0
+model: gpt-5.6-luna
 actions:
   - kind: prompt
     text: "Use the built-in file editing capability (not shell commands) to create codex_file_approval_test.txt with the contents: ok"

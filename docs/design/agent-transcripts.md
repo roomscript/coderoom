@@ -1,7 +1,7 @@
 # Design: transcript recording and replay for all backends
 
-Status: proposed, 24 October 2026. Agreed so far: one supported baseline
-version per backend, a standard transcript schema, a backend-neutral
+Status: proposed, 24 October 2026. Agreed so far: a one-time cleanup to the Codex baseline,
+a standard transcript schema, a backend-neutral
 `internal/transcript`, and separate record and replay commands per backend.
 Steps 1 and 2 are ready to implement; step 2 includes the review correction
 that protocol rules belong to the backends. The Claude scenario list,
@@ -31,9 +31,10 @@ The existing infrastructure cannot be reused as is:
   that import it would build and rerun whenever Codex changes.
 - Fixture headers carry Codex names: `codex_version` and
   `developer_instructions`.
-- Codex fixtures exist for nine versions (0.133.0 to 0.163.0). Every one of
-  them has to be migrated with each schema change, but only the pinned
-  version (`CODEX_VERSION`, 0.163.0) is supported.
+- Before the one-time cleanup, Codex fixtures span nine versions (0.133.0 to
+  0.163.0). Pruning them reduces this migration's scope. Future upgrades retain
+  previous recordings; every retained version remains a live replay input and
+  must be migrated with subsequent schema changes.
 
 ## Goals
 
@@ -41,7 +42,8 @@ The existing infrastructure cannot be reused as is:
   the values come from the backend that recorded the file.
 - `internal/transcript` depends on `internal/agent` only.
 - Codex and Claude tests do not depend on each other.
-- Each backend keeps fixtures for its supported baseline version only.
+- Prune older Codex fixtures once before this migration; future upgrades retain
+  previous recordings until an explicit cleanup decision.
 - Claude gets recorded replay coverage for the behaviour that scripted-peer
   tests cannot show against the real protocol.
 
@@ -62,12 +64,19 @@ The existing infrastructure cannot be reused as is:
 
 | Topic | Decision | Why |
 |---|---|---|
-| Versions kept | One baseline per backend: the pinned or targeted version. Older fixture directories are deleted; git keeps them | No consumer reads older versions, and each schema change would have to migrate them |
-| Upgrade | Record into the new version directory, compare against the current baseline, then delete the old directory when the upgrade succeeds | The comparison needs both directories only during the upgrade |
+| Versions kept | One-time removal of Codex 0.133.0 through 0.140.0 before migration; future cleanup is explicit | Reduces this migration while preserving future recordings for review |
+| Upgrade | Record into the new version directory, compare against the current baseline, and retain the old directory after success | Human review and later comparison still need the recordings; they may not yet be committed |
 | Schema | Standard header keys with backend-specific values; backend-owned `options` | Files read the same for every backend, following `agent.Settings` |
 | Package boundary | `internal/transcript` imports `internal/agent` only | Removes the Codex dependency from shared code |
 | Commands | Separate commands per backend: `codex-record`, `codex-replay`, `claude-record`, `claude-replay` | Keeps each backend's tests building only their own peer, and keeps backend setup (Codex version pinning, Claude environment) out of a shared command. Reverses the 16 October decision for one `agent-record` |
 | Migration | One mechanical rewrite of the remaining fixtures; no reader for the old keys | Avoids a second format with no clear removal point |
+
+Retained version directories are live test inputs, not an archive:
+`TestReplayFixtures` discovers every version, and model transcript tests discover
+`*/model-*` cases. Schema migrations must rewrite every retained version's fixtures
+and authoring files, including versions added between implementation steps.
+The pinned baseline identifies the current supported CLI version; it does not
+filter the replay suite.
 
 ### Older versions hold no unique scenarios
 
@@ -231,19 +240,18 @@ does not change the steps.
 
 Each step is a separate change, so each stays easy to review.
 
-### 1. Keep only the Codex baseline
+### 1. One-time cleanup to the Codex baseline
 
 - Delete `internal/agent/codex/testdata/transcripts/0.133.0` to `0.140.0`.
 - Point the `resolveSelection` test in `cmd/codex-record/main_test.go`, which
   reads the real fixture root at 0.133.0, at the baseline.
-- `scripts/codex-upgrade-next.sh`: after the new version is recorded,
-  replayed and live-tested, delete the previous version directory.
-- `scripts/codex-compare.sh` still compares two directories, which exist
-  together only during an upgrade. Keep it for that use.
+- Keep previous recordings after successful upgrades; do not add automatic
+  deletion to `scripts/codex-upgrade-next.sh`.
+- Keep `scripts/codex-compare.sh` for comparison during upgrades and later review.
 - Update the layout and example version in `pkg-agent-codex-transcripts.md`.
 
-Verify: `make test`; the replay suite runs only 0.163.0 cases, all of which
-pass.
+Verify: `make test`; the replay suite passes for every retained version (0.163.0
+immediately after this cleanup, plus any later upgrades).
 
 ### 2. Standard schema and neutral package
 
@@ -258,7 +266,8 @@ pass.
 - Move the Codex option conversion and validation into `cmd/codex-record`.
 - Narrow the failed-selection assertions to the contract above, and add the
   `model-settings` actions to `model-failure` and `model-interrupted`.
-- Rewrite the 0.163.0 fixtures and authoring files once, by script.
+- Rewrite fixtures and authoring files in all retained version directories once,
+  by script, including any versions added since step 1.
   Front matter only; the steps are not touched.
 - Fold the still-valid parts of `pkg-agent-codex-transcripts.md` into this
   document and delete it.
@@ -275,7 +284,7 @@ Verify:
   with fixed outbound lines for each normalized method (`initialize`,
   `thread/start`, `turn/start`, `turn/interrupt`) and one other method. The
   activity detector gets the same kind of test.
-- The Codex replay suite passes.
+- The Codex replay suite and model transcript tests pass for all retained versions.
 - A live re-recording (on request) cannot reproduce the steps, since IDs,
   output and stream fragmentation change between runs. It checks that the
   file is in the new schema, that it replays, and that
@@ -316,8 +325,8 @@ These are for step 3 and do not block steps 1 and 2.
    only echoes them and they should need neither. To check against a real
    recording.
 3. **Claude version in the path.** Claude Code is not pinned. The directory
-   name is the version that recorded the baseline, and re-recording on a newer
-   version replaces it, as for Codex upgrades.
+   name is the version that recorded the baseline. Recording on a newer version
+   creates a new directory and retains the previous one until explicit cleanup.
 4. **Claude activity detector.** Which received line shows that a Claude model
    selection is in progress and can be interrupted, or whether
    `model-interrupt` applies to Claude at all. Decide with the scenario list.

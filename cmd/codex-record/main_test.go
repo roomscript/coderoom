@@ -35,15 +35,15 @@ func TestCollectorNormalizeRecordedPath(t *testing.T) {
 func TestResolveSelection(t *testing.T) {
 	root := filepath.Join("..", "..", "internal", "agent", "codex", "testdata", "transcripts")
 
-	cases, err := resolveSelection(root, []string{"0.133.0", "approvals-file-change"})
+	cases, err := resolveSelection(root, []string{"0.163.0", "approvals-file-change"})
 	if err != nil {
 		t.Fatalf("resolveSelection: %v", err)
 	}
 	if len(cases) != 1 {
 		t.Fatalf("cases = %d, want 1", len(cases))
 	}
-	if cases[0].version != "0.133.0" || cases[0].name != "approvals-file-change" {
-		t.Fatalf("case = %#v, want version=%q name=%q", cases[0], "0.133.0", "approvals-file-change")
+	if cases[0].version != "0.163.0" || cases[0].name != "approvals-file-change" {
+		t.Fatalf("case = %#v, want version=%q name=%q", cases[0], "0.163.0", "approvals-file-change")
 	}
 }
 
