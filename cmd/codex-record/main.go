@@ -89,8 +89,8 @@ func recordCase(caseDir, version, testCase string, input transcript.Input) error
 	}
 	defer restoreEnv()
 
-	recorder := transcript.NewObserver()
-	activity := transcript.NewTurnActivityObserver(recorder)
+	recorder := transcript.NewObserver(codex.CreateReplayMatch)
+	activity := transcript.NewTurnActivityObserver(recorder, codex.IsTurnActivity)
 	collector := &collector{workDir: workDir}
 	client, err := startClient(workDir, testCase, input.Config, activity, collector)
 	if err != nil {
@@ -100,6 +100,9 @@ func recordCase(caseDir, version, testCase string, input transcript.Input) error
 
 	if err := runScenario(client, input.Actions, collector, activity); err != nil {
 		return err
+	}
+	if err := recorder.Err(); err != nil {
+		return fmt.Errorf("record protocol: %w", err)
 	}
 	fixture := buildFixture(version, testCase, input, collector)
 	return writeTranscript(filepath.Join(caseDir, "output.transcript"), fixture, recorder.Steps())
@@ -114,16 +117,11 @@ func startClient(workDir, _ string, input transcript.Config, observer codex.Prot
 		})
 		return agent.ApprovalDecision{Choice: choice}
 	})
-	opts := []codex.Option{
-		codex.WithObserver(observer),
-		codex.WithApprovalListener(listener),
-		codex.WithModel(input.Model),
-		codex.WithSystemPrompt(input.DeveloperInstructions),
-		codex.WithAskForApprovalPolicy(input.AskForApproval),
-		codex.WithSandboxMode(input.Sandbox),
-		codex.WithReasoningEffort(input.ReasoningEffort),
-		codex.WithReasoningSummary(input.ReasoningSummary),
+	opts, err := recordingOptions(input)
+	if err != nil {
+		return nil, err
 	}
+	opts = append(opts, codex.WithObserver(observer), codex.WithApprovalListener(listener))
 	client := codex.New(workDir, opts...)
 	if err := client.Start(); err != nil {
 		return nil, fmt.Errorf("start client: %w", err)
@@ -192,11 +190,14 @@ func buildFixture(version, testCase string, input transcript.Input, collector *c
 		}
 	}
 	return transcript.Output{
-		Name:                  testCase,
-		CodexVersion:          version,
-		Model:                 input.Config.Model,
-		DeveloperInstructions: input.Config.DeveloperInstructions,
-		Actions:               input.Actions,
+		Name:           testCase,
+		Backend:        "codex",
+		BackendVersion: version,
+		Effort:         input.Config.Effort,
+		Options:        input.Config.Options,
+		Model:          input.Config.Model,
+		SystemPrompt:   input.Config.SystemPrompt,
+		Actions:        input.Actions,
 		Expect: transcript.Expect{
 			Output: transcript.TextExpectation{NumMessages: collector.outputCount, Content: collector.outputText.String()},
 			Log:    transcript.TextExpectation{NumMessages: collector.logCount, Content: collector.logText.String()},

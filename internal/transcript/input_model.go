@@ -1,15 +1,11 @@
 package transcript
 
-import "github.com/roomscript/coderoom/internal/agent/codex"
-
-// Config stores scenario-level Codex settings used during transcript recording.
+// Config stores backend-neutral scenario settings used during recording.
 type Config struct {
-	Model                 string                     `yaml:"model,omitempty"`
-	DeveloperInstructions string                     `yaml:"developer_instructions,omitempty"`
-	AskForApproval        codex.AskForApprovalPolicy `yaml:"ask_for_approval,omitempty"`
-	Sandbox               codex.SandboxMode          `yaml:"sandbox,omitempty"`
-	ReasoningEffort       codex.ReasoningEffort      `yaml:"reasoning_effort,omitempty"`
-	ReasoningSummary      codex.ReasoningSummary     `yaml:"reasoning_summary,omitempty"`
+	Model        string            `yaml:"model,omitempty"`
+	SystemPrompt string            `yaml:"system_prompt,omitempty"`
+	Effort       string            `yaml:"effort,omitempty"`
+	Options      map[string]string `yaml:"options,omitempty"`
 }
 
 // Input is the authoring-side transcript scenario definition.

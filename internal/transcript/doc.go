@@ -1,3 +1,3 @@
-// Package transcript defines the input and output transcript artifacts used by
-// Codex recording and replay tooling.
+// Package transcript defines backend-neutral recording artifacts, protocol
+// observation, scenario actions and replay matching.
 package transcript

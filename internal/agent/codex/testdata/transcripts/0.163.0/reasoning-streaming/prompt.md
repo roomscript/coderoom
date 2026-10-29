@@ -1,7 +1,8 @@
 ---
 model: gpt-5.6-luna
-reasoning_effort: medium
-reasoning_summary: detailed
+effort: medium
+options:
+  reasoning_summary: detailed
 ---
 Think carefully through the boolean condition `if (!items.length && isEnabled)`.
 

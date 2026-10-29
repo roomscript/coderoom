@@ -1,7 +1,11 @@
 ---
-name: turn-completed-failed-gpt-5-2
-codex_version: 0.163.0
-model: gpt-5.2
+name: "turn-completed-failed-gpt-5-2"
+backend: "codex"
+backend_version: "0.163.0"
+model: "gpt-5.2"
+effort: "medium"
+options:
+  reasoning_summary: detailed
 actions:
   - kind: prompt
     text: "Reply with exactly: hello"

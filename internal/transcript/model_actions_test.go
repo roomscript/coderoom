@@ -32,7 +32,7 @@ func (c *modelActionClient) SelectModel(option agent.ModelOption, effort string)
 	}
 	c.messages = append(c.messages, agent.Message{Mode: agent.ModeSingle, Content: agent.ModelSelected{Settings: c.settings}})
 	if c.activity != nil {
-		c.activity.OnReceive(`{"method":"item/started","params":{"item":{"type":"userMessage"}}}`)
+		c.activity.Signal()
 	}
 	return nil
 }
@@ -57,7 +57,7 @@ func (c *modelActionClient) Read() (agent.Message, error) {
 
 func TestModelActionsUseAgentCapability(t *testing.T) {
 	c := &modelActionClient{settings: agent.Settings{Backend: "fake"}}
-	runner := NewModelActions(c, NewTurnActivityObserver(nil))
+	runner := NewModelActions(c, NewTurnActivityObserver(nil, nil))
 	actions := []Action{
 		{Kind: "model-list", Text: "test-model"},
 		{Kind: "model-select", Text: "test-model low"},
@@ -78,7 +78,7 @@ func TestModelActionsUseAgentCapability(t *testing.T) {
 func TestModelActionsInterrupt(t *testing.T) {
 	c := &modelActionClient{
 		settings: agent.Settings{Backend: "fake"},
-		activity: NewTurnActivityObserver(nil),
+		activity: NewTurnActivityObserver(nil, nil),
 	}
 	runner := NewModelActions(c, c.activity)
 	ignore := func(agent.Message) {}
@@ -90,5 +90,37 @@ func TestModelActionsInterrupt(t *testing.T) {
 	}
 	if !c.interrupted || c.selections != 1 {
 		t.Fatalf("interrupted=%t selections=%d", c.interrupted, c.selections)
+	}
+}
+
+func TestModelSelectionContract(t *testing.T) {
+	tests := []struct {
+		name    string
+		failure bool
+		result  agent.Settings
+		current agent.Settings
+		effort  string
+		wantErr bool
+	}{
+		{"success", false, agent.Settings{Model: "new", Effort: "low"}, agent.Settings{Model: "new", Effort: "low"}, "low", false},
+		{"model only", false, agent.Settings{Model: "new", Effort: "high"}, agent.Settings{Model: "new", Effort: "high"}, "", false},
+		{"wrong model", false, agent.Settings{Model: "old"}, agent.Settings{Model: "old"}, "", true},
+		{"wrong effort", false, agent.Settings{Model: "new", Effort: "high"}, agent.Settings{Model: "new", Effort: "high"}, "low", true},
+		{"failure retains settings", true, agent.Settings{Model: "old"}, agent.Settings{Model: "old"}, "low", false},
+		{"failure unknown settings", true, agent.Settings{}, agent.Settings{}, "low", false},
+		{"failure inconsistent outcome", true, agent.Settings{Model: "new"}, agent.Settings{Model: "old"}, "low", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			runner := NewModelActions(&modelActionClient{settings: tt.current}, nil)
+			result := agent.ModelSelected{Settings: tt.result}
+			if tt.failure {
+				result.Err = errors.New("selection failed")
+			}
+			err := runner.checkSelection(result, agent.ModelOption{ID: "new"}, tt.effort, tt.failure)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("checkSelection error=%v, want error=%t", err, tt.wantErr)
+			}
+		})
 	}
 }

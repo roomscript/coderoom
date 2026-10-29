@@ -1,7 +1,8 @@
 ---
-name: approvals_file_change
-codex_version: 0.133.0
-model: gpt-5.4
+name: "approvals_file_change"
+backend: "fake"
+backend_version: "1.0.0"
+model: "gpt-5.4"
 actions:
   - kind: prompt
     text: "prompt"
@@ -29,5 +30,5 @@ expect:
     - kind: fileChange
       decision: accept
 ---
-{"kind":"recv","match":{"method":"initialize"}}
+{"kind":"recv","match":{"method":"request"}}
 {"kind":"send","message":{"id":1,"result":{"ok":true}}}

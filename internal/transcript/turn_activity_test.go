@@ -7,10 +7,10 @@ import (
 )
 
 func TestTurnActivityObserverForwardsRecordingAndResets(t *testing.T) {
-	recorder := NewObserver()
-	activity := NewTurnActivityObserver(recorder)
+	recorder := NewObserver(nil)
+	activity := NewTurnActivityObserver(recorder, func(raw string) bool { return raw == `{"active":true}` })
 	activity.OnSend(`{"id":1,"method":"test"}`)
-	activity.OnReceive(`{"method":"item/started","params":{"item":{"type":"userMessage"}}}`)
+	activity.OnReceive(`{"active":true}`)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	if err := activity.Wait(ctx); err != nil {
@@ -20,7 +20,7 @@ func TestTurnActivityObserverForwardsRecordingAndResets(t *testing.T) {
 	if len(steps) != 2 || steps[0].Kind != "recv" || steps[1].Kind != "send" {
 		t.Fatalf("forwarded steps=%+v", steps)
 	}
-	activity.OnReceive(`{"method":"item/started","params":{"item":{"type":"userMessage"}}}`)
+	activity.OnReceive(`{"active":true}`)
 	activity.Reset()
 	emptyCtx, emptyCancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
 	defer emptyCancel()
@@ -31,14 +31,12 @@ func TestTurnActivityObserverForwardsRecordingAndResets(t *testing.T) {
 
 func TestTurnActivityObserverIgnoresUnrelatedNotifications(t *testing.T) {
 	tests := []struct{ name, raw string }{
-		{"turn started", `{"method":"turn/started","params":{"turn":{"id":"t1"}}}`},
-		{"reasoning item", `{"method":"item/started","params":{"item":{"type":"reasoning"}}}`},
-		{"user completion", `{"method":"item/completed","params":{"item":{"type":"userMessage"}}}`},
-		{"malformed", `invalid`},
+		{"unrelated", `{"other":true}`}, {"malformed", `invalid`},
 	}
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			activity := NewTurnActivityObserver(nil)
+			activity := NewTurnActivityObserver(nil, func(raw string) bool { return raw == `{"active":true}` })
 			activity.OnReceive(tt.raw)
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
 			defer cancel()

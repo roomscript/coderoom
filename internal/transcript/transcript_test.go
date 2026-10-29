@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/roomscript/coderoom/internal/agent"
@@ -26,10 +27,11 @@ func TestRead_FromTestdata(t *testing.T) {
 
 func TestWrite_MatchesTestdata(t *testing.T) {
 	output := Output{
-		Name:         "approvals_file_change",
-		CodexVersion: "0.133.0",
-		Model:        "gpt-5.4",
-		Actions:      []Action{{Kind: "prompt", Text: "prompt"}},
+		Name:           "approvals_file_change",
+		Backend:        "fake",
+		BackendVersion: "1.0.0",
+		Model:          "gpt-5.4",
+		Actions:        []Action{{Kind: "prompt", Text: "prompt"}},
 		Expect: Expect{
 			Output:     TextExpectation{NumMessages: 0, Content: ""},
 			Log:        TextExpectation{NumMessages: 0, Content: ""},
@@ -40,7 +42,7 @@ func TestWrite_MatchesTestdata(t *testing.T) {
 		},
 	}
 	steps := []Step{
-		{Kind: "recv", Match: map[string]any{"method": "initialize"}},
+		{Kind: "recv", Match: map[string]any{"method": "request"}},
 		{Kind: "send", Message: map[string]any{"id": 1.0, "result": map[string]any{"ok": true}}},
 	}
 
@@ -84,8 +86,8 @@ func assertTranscriptIdentity(t *testing.T, gotFile Output) {
 	if gotFile.Name != "approvals_file_change" {
 		t.Fatalf("name = %q, want approvals_file_change", gotFile.Name)
 	}
-	if gotFile.CodexVersion != "0.133.0" {
-		t.Fatalf("codex version = %q, want 0.133.0", gotFile.CodexVersion)
+	if gotFile.BackendVersion != "1.0.0" {
+		t.Fatalf("backend version = %q, want 1.0.0", gotFile.BackendVersion)
 	}
 	if gotFile.Model != "gpt-5.4" {
 		t.Fatalf("model = %q, want gpt-5.4", gotFile.Model)
@@ -141,5 +143,20 @@ func assertTranscriptSteps(t *testing.T, gotSteps []Step) {
 	t.Helper()
 	if len(gotSteps) != 2 {
 		t.Fatalf("steps = %d, want 2", len(gotSteps))
+	}
+}
+
+func TestOutputSettingsRoundTrip(t *testing.T) {
+	want := Output{Name: "settings", Backend: "fake", BackendVersion: "1.2.3", Model: "test-model", Effort: "extensive", SystemPrompt: "Treat this as a system prompt.\nWith another line.", Options: map[string]string{"custom": "value: with punctuation", "other": "true"}}
+	var buf bytes.Buffer
+	if err := WriteOutput(&buf, want, nil); err != nil {
+		t.Fatal(err)
+	}
+	got, _, err := ReadOutput(&buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Backend != want.Backend || got.BackendVersion != want.BackendVersion || got.Model != want.Model || got.Effort != want.Effort || got.SystemPrompt != want.SystemPrompt || !reflect.DeepEqual(got.Options, want.Options) {
+		t.Fatalf("got %+v, want %+v", got, want)
 	}
 }

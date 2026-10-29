@@ -1,4 +1,4 @@
 ---
-kind: prompt
+kind: model-settings
 ---
-Do not use tools. Reply only OK.
+gpt-6.1-sol low

@@ -2,19 +2,39 @@ package transcript
 
 import (
 	"encoding/json"
+	"fmt"
 	"sync"
 )
+
+// Message is a decoded protocol JSON object. Field values retain their JSON encoding.
+type Message = map[string]json.RawMessage
+
+// ReplayMatch is the expected subset of a protocol message checked during replay.
+type ReplayMatch = map[string]json.RawMessage
 
 // Observer captures raw JSON-RPC traffic as replayable transcript steps.
 // It satisfies protocol observer interfaces by method set.
 type Observer struct {
-	mu    sync.Mutex
-	steps []Step
+	mu                sync.Mutex
+	steps             []Step
+	createReplayMatch func(Message) (ReplayMatch, error)
+	err               error
 }
 
-// NewObserver returns a fresh protocol observer that records transcript steps.
-func NewObserver() *Observer {
-	return &Observer{}
+// NewObserver records protocol messages. createReplayMatch receives decoded outbound
+// objects and returns the expected subset, omitting only unstable fields. It must
+// not mutate its input or perform I/O; unrecognized messages should match in full.
+// A nil callback matches outbound objects in full. Inbound responses stay intact.
+// Recording errors are retained by Err.
+func NewObserver(createReplayMatch func(Message) (ReplayMatch, error)) *Observer {
+	return &Observer{createReplayMatch: createReplayMatch}
+}
+
+// Err returns the first recording error, if any.
+func (o *Observer) Err() error {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.err
 }
 
 // OnSend records one outbound JSON-RPC line as a replay "recv" step.
@@ -37,118 +57,39 @@ func (o *Observer) Steps() []Step {
 }
 
 func (o *Observer) append(kind string, raw string) {
-	var payload any
-	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+	step, err := o.createStep(kind, raw)
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if err != nil {
+		if o.err == nil {
+			o.err = err
+		}
 		return
 	}
-	step := Step{Kind: kind}
-	if kind == "recv" {
-		step.Match = normalizeReplayMatch(payload)
-	} else {
-		step.Message = payload
-	}
-	o.mu.Lock()
 	o.steps = append(o.steps, step)
-	o.mu.Unlock()
 }
 
-func normalizeReplayMatch(payload any) any {
-	msg, ok := payload.(map[string]any)
-	if !ok {
-		return payload
+func (o *Observer) createStep(kind, raw string) (Step, error) {
+	var payload Message
+	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+		return Step{}, fmt.Errorf("decode protocol message: %w", err)
 	}
-
-	method, _ := msg["method"].(string)
-	switch method {
-	case "initialize":
-		return normalizeInitializeMatch(msg)
-	case "thread/start":
-		return normalizeThreadStartMatch(msg)
-	case "turn/start":
-		return normalizeTurnStartMatch(msg)
-	case "turn/interrupt":
-		return normalizeTurnInterruptMatch(msg)
-	default:
-		return payload
+	if payload == nil {
+		return Step{}, fmt.Errorf("expected protocol JSON object")
 	}
-}
-
-func normalizeInitializeMatch(msg map[string]any) map[string]any {
-	out := copySelectedFields(msg, "method", "id")
-	params, _ := msg["params"].(map[string]any)
-	if params == nil {
-		return out
+	step := Step{Kind: kind}
+	if kind != "recv" {
+		step.Message = payload
+		return step, nil
 	}
-	out["params"] = map[string]any{
-		"clientInfo":   normalizeClientInfo(params["clientInfo"]),
-		"capabilities": copyMapValue(params["capabilities"]),
-	}
-	return out
-}
-
-func normalizeClientInfo(raw any) map[string]any {
-	clientInfo, _ := raw.(map[string]any)
-	if clientInfo == nil {
-		return nil
-	}
-	return copySelectedMapFields(clientInfo, "name")
-}
-
-func normalizeThreadStartMatch(msg map[string]any) map[string]any {
-	out := copySelectedFields(msg, "method", "id")
-	params, _ := msg["params"].(map[string]any)
-	if params == nil {
-		return out
-	}
-	normParams := copySelectedMapFields(params, "model", "developerInstructions")
-	if len(normParams) > 0 {
-		out["params"] = normParams
-	}
-	return out
-}
-
-func normalizeTurnStartMatch(msg map[string]any) map[string]any {
-	out := copySelectedFields(msg, "method", "id")
-	params, _ := msg["params"].(map[string]any)
-	if params == nil {
-		return out
-	}
-	out["params"] = copySelectedMapFields(params, "threadId", "input", "outputSchema", "model", "effort")
-	return out
-}
-
-func normalizeTurnInterruptMatch(msg map[string]any) map[string]any {
-	out := copySelectedFields(msg, "method", "id")
-	params, _ := msg["params"].(map[string]any)
-	if params == nil {
-		return out
-	}
-	out["params"] = copySelectedMapFields(params, "threadId", "turnId")
-	return out
-}
-
-func copySelectedFields(src map[string]any, keys ...string) map[string]any {
-	return copySelectedMapFields(src, keys...)
-}
-
-func copySelectedMapFields(src map[string]any, keys ...string) map[string]any {
-	out := make(map[string]any, len(keys))
-	for _, key := range keys {
-		if value, ok := src[key]; ok {
-			out[key] = value
+	match := payload
+	if o.createReplayMatch != nil {
+		var err error
+		match, err = o.createReplayMatch(payload)
+		if err != nil {
+			return Step{}, fmt.Errorf("create replay match: %w", err)
 		}
 	}
-	return out
-}
-
-func copyMapValue(raw any) map[string]any {
-	value, _ := raw.(map[string]any)
-	if value == nil {
-		return nil
-	}
-	out := make(map[string]any, len(value))
-	for key, item := range value {
-		out[key] = item
-	}
-	return out
+	step.Match = match
+	return step, nil
 }

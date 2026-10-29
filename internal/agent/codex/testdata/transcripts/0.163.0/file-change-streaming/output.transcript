@@ -1,7 +1,11 @@
 ---
-name: file-change-streaming
-codex_version: 0.163.0
-model: gpt-5.6-luna
+name: "file-change-streaming"
+backend: "codex"
+backend_version: "0.163.0"
+model: "gpt-5.6-luna"
+options:
+  ask_for_approval: on-request
+  sandbox: read-only
 actions:
   - kind: prompt
     text: "Use the built-in file editing capability (not shell commands) to create codex_filechange_stream_test.txt with the contents: ok"

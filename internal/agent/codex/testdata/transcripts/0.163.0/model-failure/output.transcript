@@ -1,10 +1,16 @@
 ---
-name: model-failure
-codex_version: 0.163.0
+name: "model-failure"
+backend: "codex"
+backend_version: "0.163.0"
+options:
+  ask_for_approval: never
+  sandbox: read-only
 actions:
   - kind: model-list
     text: "gpt-6.1-sol"
   - kind: model-select-failed
+    text: "gpt-5.4-mini low"
+  - kind: model-settings
     text: "gpt-5.4-mini low"
   - kind: model-select
     text: "gpt-6.1-sol low"

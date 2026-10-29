@@ -103,7 +103,7 @@ func (r *ModelActions) checkSelection(result agent.ModelSelected, option agent.M
 	if (result.Err != nil) != wantErr {
 		return fmt.Errorf("model selection error=%v, want failure=%t", result.Err, wantErr)
 	}
-	if result.Settings.Model != option.ID || (effort != "" && result.Settings.Effort != effort) {
+	if !wantErr && (result.Settings.Model != option.ID || (effort != "" && result.Settings.Effort != effort)) {
 		return fmt.Errorf("model selection settings=%+v, requested %s/%s", result.Settings, option.ID, effort)
 	}
 	if result.Settings != r.client.Settings() {

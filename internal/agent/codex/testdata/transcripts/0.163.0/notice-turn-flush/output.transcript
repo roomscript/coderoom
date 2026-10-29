@@ -1,7 +1,8 @@
 ---
-name: notice-turn-flush
-codex_version: 0.163.0
-model: gpt-5.6-luna
+name: "notice-turn-flush"
+backend: "codex"
+backend_version: "0.163.0"
+model: "gpt-5.6-luna"
 actions:
   - kind: notice
     text: "Store this in memory. Reply only with acknowledge true."

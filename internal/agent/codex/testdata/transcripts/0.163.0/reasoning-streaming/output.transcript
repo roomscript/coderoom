@@ -1,7 +1,11 @@
 ---
-name: reasoning-streaming
-codex_version: 0.163.0
-model: gpt-5.6-luna
+name: "reasoning-streaming"
+backend: "codex"
+backend_version: "0.163.0"
+model: "gpt-5.6-luna"
+effort: "medium"
+options:
+  reasoning_summary: detailed
 actions:
   - kind: prompt
     text: "Think carefully through the boolean condition `if (!items.length && isEnabled)`.\n\n1. Explain exactly when it evaluates to true and false.\n2. Enumerate the behavior for these cases:\n   - items is []\n   - items is [1]\n   - isEnabled is true\n   - isEnabled is false\n3. Point out any confusing or error-prone aspects of relying on `!items.length`.\n4. Compare it with:\n   - `if (items.length === 0 && isEnabled)`\n   - `if (!items?.length && isEnabled)`\n5. Conclude with which version is safest in production code and why.\n\nThink step by step before giving the final answer."

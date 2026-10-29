@@ -32,8 +32,8 @@ The remaining work is split so that shared changes reach main in small steps ins
    - **Done.** `Stop` during `Start` may race with the fields `Start` sets. Confirmed by reading, but no caller does it: the session attaches an agent only after `Start` returns. Documented as unsupported; cancelling the parent context aborts a start, and a test covers that.
    - **Done.** Missing tests: the process exiting mid-turn while a listener is blocked; parent context cancellation.
 4. **Agent testing**, for both backends. Design: `docs/design/agent-transcripts.md`. Steps, one change each:
-   1. Keep only the Codex baseline fixtures (0.163.0); upgrades replace the baseline.
-   2. Standard transcript schema and a backend-neutral `internal/transcript`; one mechanical fixture migration; fold `pkg-agent-codex-transcripts.md` into the new doc.
+   1. One-time cleanup to the Codex baseline fixtures (0.163.0); future upgrades retain previous recordings.
+   2. Standard transcript schema and a backend-neutral `internal/transcript`; one mechanical fixture migration; format and replay details consolidated in `docs/design/agent-transcripts.md`.
    3. Claude recording and replay (`cmd/claude-record`, `cmd/claude-replay`), after the capability requirements and the handling of random IDs are decided.
 5. **README** (done): Claude Code is listed as a backend.
 6. **Demo** (phase 3 "done when").

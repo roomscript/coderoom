@@ -5,36 +5,29 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/roomscript/coderoom/internal/agent/codex"
 )
 
 func TestReadInputDir_Prompt(t *testing.T) {
-	dir := filepath.Join("..", "agent", "codex", "testdata", "transcripts", "0.163.0", "approvals-file-change")
+	dir := t.TempDir()
+	writeInputFile(t, filepath.Join(dir, "prompt.md"), `---
+model: test-model
+options:
+  permission: ask
+  workspace: restricted
+---
+Create example.txt`)
 
 	got, err := ReadInputDir(dir)
 	if err != nil {
 		t.Fatalf("ReadInputDir: %v", err)
 	}
-	if got.Config.Model != "gpt-5.6-luna" {
-		t.Fatalf("model = %q, want gpt-5.6-luna", got.Config.Model)
-	}
-	if got.Config.AskForApproval != codex.AskOnRequest {
-		t.Fatalf("ask_for_approval = %q, want %q", got.Config.AskForApproval, codex.AskOnRequest)
-	}
-	if got.Config.Sandbox != codex.SandboxReadOnly {
-		t.Fatalf("sandbox = %q, want %q", got.Config.Sandbox, codex.SandboxReadOnly)
-	}
-	if got.Config.ReasoningEffort != codex.ReasoningDefault {
-		t.Fatalf("reasoning_effort = %q, want empty default", got.Config.ReasoningEffort)
-	}
-	if got.Config.ReasoningSummary != codex.ReasoningSummaryDefault {
-		t.Fatalf("reasoning_summary = %q, want empty default", got.Config.ReasoningSummary)
+	if got.Config.Model != "test-model" || got.Config.Options["permission"] != "ask" || got.Config.Options["workspace"] != "restricted" {
+		t.Fatalf("configuration = %+v", got.Config)
 	}
 	if len(got.Actions) != 1 || got.Actions[0].Kind != "prompt" {
 		t.Fatalf("actions = %#v, want single prompt", got.Actions)
 	}
-	if !strings.Contains(got.Actions[0].Text, "codex_file_approval_test.txt") {
+	if !strings.Contains(got.Actions[0].Text, "example.txt") {
 		t.Fatalf("prompt = %q, want file name", got.Actions[0].Text)
 	}
 }
@@ -43,9 +36,10 @@ func TestReadInputDir_PromptReasoningSettings(t *testing.T) {
 	root := t.TempDir()
 	writeInputFile(t, filepath.Join(root, "prompt.md"), `---
 model: gpt-5.4
-developer_instructions: "Treat TOKEN_7Q9 as the value 2."
-reasoning_effort: xhigh
-reasoning_summary: detailed
+system_prompt: "Treat TOKEN_7Q9 as the value 2."
+effort: extensive
+options:
+  summary: verbose
 ---
 prompt`)
 
@@ -53,14 +47,11 @@ prompt`)
 	if err != nil {
 		t.Fatalf("ReadInputDir: %v", err)
 	}
-	if got.Config.ReasoningEffort != codex.ReasoningXHigh {
-		t.Fatalf("reasoning_effort = %q, want %q", got.Config.ReasoningEffort, codex.ReasoningXHigh)
+	if got.Config.Effort != "extensive" || got.Config.Options["summary"] != "verbose" {
+		t.Fatalf("configuration = %+v", got.Config)
 	}
-	if got.Config.ReasoningSummary != codex.ReasoningSummaryDetailed {
-		t.Fatalf("reasoning_summary = %q, want %q", got.Config.ReasoningSummary, codex.ReasoningSummaryDetailed)
-	}
-	if got.Config.DeveloperInstructions != "Treat TOKEN_7Q9 as the value 2." {
-		t.Fatalf("developer_instructions = %q", got.Config.DeveloperInstructions)
+	if got.Config.SystemPrompt != "Treat TOKEN_7Q9 as the value 2." {
+		t.Fatalf("system_prompt = %q", got.Config.SystemPrompt)
 	}
 }
 
@@ -121,5 +112,27 @@ func writeInputFile(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatalf("WriteFile(%q): %v", path, err)
+	}
+}
+
+func TestInputConfigurationSchema(t *testing.T) {
+	tests := []struct {
+		name, header string
+		wantErr      bool
+	}{
+		{"empty", "---", false},
+		{"neutral options", "---\noptions:\n  backend_specific: arbitrary", false},
+		{"legacy system prompt", "---\ndeveloper_instructions: old", true},
+		{"legacy effort", "---\nreasoning_effort: low", true},
+		{"legacy option", "---\nsandbox: read-only", true},
+		{"unknown field", "---\nunknown: value", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := parseInputFrontMatter([]byte(tt.header))
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("error=%v, want error=%t", err, tt.wantErr)
+			}
+		})
 	}
 }

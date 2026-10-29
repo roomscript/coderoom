@@ -1,10 +1,16 @@
 ---
-name: model-interrupted
-codex_version: 0.163.0
+name: "model-interrupted"
+backend: "codex"
+backend_version: "0.163.0"
+options:
+  ask_for_approval: never
+  sandbox: read-only
 actions:
   - kind: model-list
     text: "gpt-6.1-sol"
   - kind: model-interrupt
+    text: "gpt-6.1-sol low"
+  - kind: model-settings
     text: "gpt-6.1-sol low"
   - kind: prompt
     text: "Do not use tools. Reply only OK."

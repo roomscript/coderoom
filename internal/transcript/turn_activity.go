@@ -2,7 +2,6 @@ package transcript
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 )
 
@@ -17,12 +16,13 @@ type ProtocolObserver interface {
 type TurnActivityObserver struct {
 	observer ProtocolObserver
 	active   chan struct{}
+	detect   func(string) bool
 }
 
 // NewTurnActivityObserver tracks turn activation for recording and replay.
 // A nil observer tracks activation without recording traffic, as in replay.
-func NewTurnActivityObserver(observer ProtocolObserver) *TurnActivityObserver {
-	return &TurnActivityObserver{observer: observer, active: make(chan struct{}, 16)}
+func NewTurnActivityObserver(observer ProtocolObserver, detect func(string) bool) *TurnActivityObserver {
+	return &TurnActivityObserver{observer: observer, detect: detect, active: make(chan struct{}, 16)}
 }
 
 // OnSend forwards outbound traffic to the wrapped observer.
@@ -32,18 +32,19 @@ func (o *TurnActivityObserver) OnSend(raw string) {
 	}
 }
 
-// OnReceive forwards traffic and signals user items, which follow turn/started.
+// OnReceive forwards traffic and signals activity recognized by the backend.
 func (o *TurnActivityObserver) OnReceive(raw string) {
 	if o.observer != nil {
 		o.observer.OnReceive(raw)
 	}
-	var event struct {
-		Method string
-		Params struct{ Item struct{ Type string } }
-	}
-	if json.Unmarshal([]byte(raw), &event) != nil || event.Method != "item/started" || event.Params.Item.Type != "userMessage" {
+	if o.detect == nil || !o.detect(raw) {
 		return
 	}
+	o.Signal()
+}
+
+// Signal marks activity independently of protocol traffic.
+func (o *TurnActivityObserver) Signal() {
 	select {
 	case o.active <- struct{}{}:
 	default:

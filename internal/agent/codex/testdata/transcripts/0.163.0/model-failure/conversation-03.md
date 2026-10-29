@@ -1,4 +1,4 @@
 ---
-kind: model-select
+kind: model-settings
 ---
-gpt-6.1-sol low
+gpt-5.4-mini low

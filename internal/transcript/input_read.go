@@ -11,7 +11,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/roomscript/coderoom/internal/agent/codex"
+	"gopkg.in/yaml.v3"
 )
 
 const (
@@ -137,24 +137,12 @@ func parseMarkdownScenarioFile(r io.Reader) (Config, string, error) {
 
 func parseInputFrontMatter(raw []byte) (Config, error) {
 	var config Config
-	for _, line := range strings.Split(string(raw), "\n") {
-		if err := applyInputFrontMatterLine(&config, line); err != nil {
-			return Config{}, err
-		}
+	decoder := yaml.NewDecoder(bytes.NewReader(raw))
+	decoder.KnownFields(true)
+	if err := decoder.Decode(&config); err != nil && !errors.Is(err, io.EOF) {
+		return Config{}, fmt.Errorf("parse scenario configuration: %w", err)
 	}
 	return config, nil
-}
-
-func applyInputFrontMatterLine(config *Config, line string) error {
-	trimmed := strings.TrimSpace(line)
-	if trimmed == "" || trimmed == "---" || strings.HasPrefix(trimmed, "#") {
-		return nil
-	}
-	key, decoded, err := parseInputFrontMatterScalar(trimmed)
-	if err != nil {
-		return err
-	}
-	return assignInputFrontMatterValue(config, key, decoded)
 }
 
 func parseInputFrontMatterScalar(trimmed string) (string, string, error) {
@@ -168,26 +156,6 @@ func parseInputFrontMatterScalar(trimmed string) (string, string, error) {
 		return "", "", fmt.Errorf("decode front matter value for %q: %w", normalizedKey, err)
 	}
 	return normalizedKey, decoded, nil
-}
-
-func assignInputFrontMatterValue(config *Config, key, decoded string) error {
-	switch key {
-	case "model":
-		config.Model = decoded
-	case "developer_instructions":
-		config.DeveloperInstructions = decoded
-	case "ask_for_approval":
-		config.AskForApproval = codex.AskForApprovalPolicy(decoded)
-	case "sandbox":
-		config.Sandbox = codex.SandboxMode(decoded)
-	case "reasoning_effort":
-		config.ReasoningEffort = codex.ReasoningEffort(decoded)
-	case "reasoning_summary":
-		config.ReasoningSummary = codex.ReasoningSummary(decoded)
-	default:
-		return fmt.Errorf("unknown front matter key %q", key)
-	}
-	return nil
 }
 
 func parseConversationActionFrontMatter(raw []byte) (Action, error) {

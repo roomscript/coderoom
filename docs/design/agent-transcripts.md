@@ -1,18 +1,16 @@
 # Design: transcript recording and replay for all backends
 
-Status: proposed, 24 October 2026. Agreed so far: a one-time cleanup to the Codex baseline,
+Status: steps 1 and 2 implemented, 26 October 2026. Agreed so far: a one-time cleanup to the Codex baseline,
 a standard transcript schema, a backend-neutral
 `internal/transcript`, and separate record and replay commands per backend.
-Steps 1 and 2 are ready to implement; step 2 includes the review correction
+Step 2 includes the review correction
 that protocol rules belong to the backends. The Claude scenario list,
 the handling of Claude's random IDs and the Claude activity detector are
 still open.
 
-This document extends the Codex design in `pkg-agent-codex-transcripts.md` to
-every backend. That document still describes the format, recording harness,
-replay peer and matching rules as implemented today. It stays the reference
-for those parts until step 2 below lands; step 2 then folds what remains valid
-into this document and removes it.
+This document is the reference for the shared transcript format, recording
+harness, replay peer and backend boundaries. The standard schema and Codex
+migration in step 2 are implemented; Claude recording and replay remain step 3.
 
 ---
 
@@ -23,13 +21,13 @@ unit tests and live integration tests, but nothing checks it against
 recorded protocol traffic, so drift in Claude Code's stream-json protocol is
 found only by live runs, which cost quota.
 
-The existing infrastructure cannot be reused as is:
+Before step 2, the infrastructure could not be reused as is:
 
-- `internal/transcript` imports `internal/agent/codex`. `Config` uses Codex
+- `internal/transcript` imported `internal/agent/codex`. `Config` used Codex
   types (`AskForApprovalPolicy`, `SandboxMode`, `ReasoningEffort`,
   `ReasoningSummary`), and `input_read.go` decodes into them. Claude tests
   that import it would build and rerun whenever Codex changes.
-- Fixture headers carry Codex names: `codex_version` and
+- Fixture headers carried Codex names: `codex_version` and
   `developer_instructions`.
 - Before the one-time cleanup, Codex fixtures span nine versions (0.133.0 to
   0.163.0). Pruning them reduces this migration's scope. Future upgrades retain
@@ -170,8 +168,8 @@ selection exchange and asserted like any other action.
 
 ## Package boundary
 
-The boundary is about protocol knowledge, not only imports. Today two shared
-components know Codex's wire protocol without importing it:
+The boundary is about protocol knowledge, not only imports. Before step 2, two shared
+components knew Codex's wire protocol without importing it:
 
 - `Observer` (`observer.go`) turns each outbound line into a replay match by
   method: `initialize`, `thread/start`, `turn/start` and `turn/interrupt` keep
@@ -187,7 +185,8 @@ uuid), so these rules cannot be shared.
 
 - the schema, reading and writing, and the upgrade comparison (`expect` only);
 - `Observer` as a recorder of steps, with the match rule supplied by the
-  backend: `func(payload any) any`;
+  backend: `func(Message) (ReplayMatch, error)`, using JSON objects with
+  `json.RawMessage` field values;
 - the activity signal (`Reset`, `Wait`, and a method to signal), fed by a
   detector the backend supplies: `func(raw string) bool`;
 - `ModelActions`, which drives `agent.ModelSelector` and depends only on the
@@ -213,7 +212,7 @@ Fixtures stay in each backend's package:
 
 ### Model action assertions
 
-`ModelActions.checkSelection` currently requires the requested model and
+`ModelActions.checkSelection` previously required the requested model and
 effort in the outcome even when the selection fails or is interrupted. That
 is what Codex reports, but `agent.ModelSelector` does not promise it: a
 backend may keep the previous settings or report unknown values after a
@@ -236,6 +235,107 @@ does not change the steps.
 
 ---
 
+## Recording and replay format
+
+Fixtures live under
+`internal/agent/<backend>/testdata/transcripts/<version>/<case>/`.
+Each case contains `output.transcript` and one authoring style:
+
+- `prompt.md`: configuration front matter followed by one prompt body.
+- `conversation.md`: configuration front matter with an empty body, plus
+  `conversation-01.md`, `conversation-02.md`, etc. for ordered actions.
+
+Conversation numbering starts at 01, is zero-padded and contiguous. Each action
+file has an optional `kind` front matter field (default `prompt`), followed by
+its text body. Unknown configuration and action fields are rejected. The
+recorder validates backend options before starting the client.
+
+`output.transcript` contains YAML front matter delimited by `---`, followed by
+one JSON object per line. The header records `name`, `backend`,
+`backend_version`, optional recording settings (`model`, `effort`,
+`system_prompt`, `options`), normalized `actions`, and `expect`. The recorder
+writes the combined file only after the scenario completes. Authoring files
+are recording inputs; replay drives the recorded `actions` directly.
+
+The recording harness observes two boundaries during the same run:
+
+- Raw protocol lines supply the executable steps, independently of adapter
+  parsing. `Observer` captures sends and receives and uses the backend's
+  supplied match rule for outbound messages.
+- Agent messages and approval listener callbacks supply high-level assertions.
+  Approval kind and decision come from the listener boundary; some backend
+  wire responses do not distinguish every normalized decision.
+
+The `expect` fields describe visible adapter behavior:
+
+| Field | Contents |
+|---|---|
+| `output`, `log` | `num_messages`, accumulated `content` |
+| `reasoning` | `num_messages`, `content`, `num_streams`, `all_flushed` |
+| `file_change` | `num_messages`, distinct `files` |
+| `command` | `num_messages`, normalized `executed` commands |
+| `notice` | optional `num_turn_flushes` |
+| `approvals` | ordered `kind` / `decision` pairs |
+
+Counts refer to agent messages, not protocol envelopes. Lifecycle-only output
+flushes do not count as visible output. Replay still checks lifecycle behavior,
+including the final turn flush and notice anchors. For legacy files without
+`actions`, `input` supplies one prompt action; absent notice expectations default
+to the number of recorded notice actions. These defaults are independent of
+the standard header migration; old Codex header names are rejected.
+
+Each JSONL step has `kind` and a payload:
+
+- `recv`: read a client line and match it against `match`.
+- `send`: emit `message`, optionally after `delay_ms`.
+
+The shared matcher compares JSON values semantically. Expected object keys
+must exist with matching values; additional actual keys are tolerated. Arrays
+match in order and length; scalar values and types must match. Object key order
+does not matter. The peer fails on mismatches, premature EOF, unknown step
+kinds, malformed JSON or unexpected extra client input after the script.
+
+The replay peer runs in a separate subprocess, preserving the real client's
+stdio framing, process lifetime, handshake, approval writes and worker behavior.
+Codex launches it through `WithAppServerCommand`; no real Codex installation
+is needed for replay. Recording uses the real CLI with stdio pipes and no PTY.
+
+Codex normalization keeps request IDs and methods, plus these stable fields:
+
+| Method | Matched parameters |
+|---|---|
+| `initialize` | client name and capabilities |
+| `thread/start` | model and developer instructions |
+| `turn/start` | thread ID, input, output schema, model and effort |
+| `turn/interrupt` | thread ID and turn ID |
+| other messages | complete payload |
+
+Codex action completion waits for the turn-end flush for `prompt` and the
+synthetic `codex:notice-turn` flush for `notice`. Model operations use the shared
+`ModelActions` runner and the contract above. Interruption waits on backend
+activity detection without consuming agent messages.
+
+The Codex tooling remains backend-specific:
+
+```text
+codex-record [<codex-version> [<test-case>]]
+codex-replay --transcript <path>
+```
+
+Recording with no arguments selects every case under the fixture root; one
+argument selects a version; two select one case. The version pin identifies
+the supported live CLI. Replay discovers every retained version. Upgrade
+comparison reads high-level expectations; it does not compare incidental raw
+protocol traffic. Previous recordings remain available after upgrades.
+
+Live integration tests use the `integration` build tag and real CLIs. They
+answer whether the current CLI works with the adapter; replay is deterministic
+regression coverage in the normal test suite. Thread startup settings, such as
+system prompts, need fresh-client live tests because a shared live transcript
+sweep cannot validate every scenario's startup configuration.
+
+---
+
 ## Implementation steps
 
 Each step is a separate change, so each stays easy to review.
@@ -248,7 +348,7 @@ Each step is a separate change, so each stays easy to review.
 - Keep previous recordings after successful upgrades; do not add automatic
   deletion to `scripts/codex-upgrade-next.sh`.
 - Keep `scripts/codex-compare.sh` for comparison during upgrades and later review.
-- Update the layout and example version in `pkg-agent-codex-transcripts.md`.
+- Update the documented fixture layout and example version.
 
 Verify: `make test`; the replay suite passes for every retained version (0.163.0
 immediately after this cleanup, plus any later upgrades).
@@ -269,8 +369,8 @@ immediately after this cleanup, plus any later upgrades).
 - Rewrite fixtures and authoring files in all retained version directories once,
   by script, including any versions added since step 1.
   Front matter only; the steps are not touched.
-- Fold the still-valid parts of `pkg-agent-codex-transcripts.md` into this
-  document and delete it.
+- Fold the prior Codex transcript design into this document and remove the
+  superseded document.
 
 Verify:
 

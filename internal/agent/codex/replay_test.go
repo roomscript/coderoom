@@ -39,12 +39,12 @@ func runTranscriptCase(t *testing.T, path string) {
 	repoRoot := mustRepoRoot(t)
 	listener := newReplayApprovalListener(file.Expect.Approvals)
 	command, args := replayCommand(t, path)
-	activity := transcript.NewTurnActivityObserver(nil)
+	activity := transcript.NewTurnActivityObserver(nil, codex.IsTurnActivity)
 	client := codex.New(repoRoot,
 		codex.WithAppServerCommand(command, args...),
 		codex.WithApprovalListener(listener),
 		codex.WithModel(file.Model),
-		codex.WithSystemPrompt(file.DeveloperInstructions),
+		codex.WithSystemPrompt(file.SystemPrompt),
 		codex.WithObserver(activity),
 	)
 	startReplayClient(t, client)
