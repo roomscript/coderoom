@@ -1,7 +1,7 @@
 # Design: transcript recording and replay for all backends
 
 Status: steps 1 and 2 implemented, 26 October 2026. Step 3 designed,
-6 November 2026; implementation pending. Agreed so far: a one-time cleanup
+6 November 2026; steps 3.1 and 3.2 implemented. Agreed so far: a one-time cleanup
 to the Codex baseline, a standard transcript schema, a backend-neutral
 `internal/transcript`, and separate record and replay commands per backend.
 Step 2 includes the review correction that protocol rules belong to the
@@ -550,7 +550,7 @@ Two pieces of Codex code are backend-neutral but private to Codex:
 The replay loop moves into `internal/transcript` as `ServeReplay` (above);
 `cmd/codex-replay` calls it with `nil`.
 
-**Recommended, needs confirmation:** move the runner and the collector into
+**Confirmed, 6 November 2026; implemented in step 3.2:** move the runner and the collector into
 `internal/transcript`, and switch Codex recording and replay to them in the
 same change, before any Claude code. The caller supplies the notice anchor,
 a log filter (`IsStderrLogStream`), and a path normalizer (the recording
@@ -558,7 +558,10 @@ directory). The Codex replay suite, unchanged, proves the move. The
 alternative is to copy about 500 lines into the Claude recorder and replay
 test, which then need updating with every `Expect` change. The move touches
 Codex test code beyond the schema change, which the non-goals above excluded
-for step 2; it is a move with no behaviour change.
+for step 2; it is a move with no behaviour change. `RunActions` drives prompts, notices and model
+actions; `Collector` builds recording expectations and `CheckExpectations`
+checks replay messages and stream lifecycles. `CollectorOptions` supplies the
+notice anchor, ignored-log predicate and path normalizer.
 
 ---
 

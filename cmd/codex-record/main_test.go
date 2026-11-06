@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/roomscript/coderoom/internal/agent"
+	"github.com/roomscript/coderoom/internal/agent/codex"
+	"github.com/roomscript/coderoom/internal/transcript"
 	"go.uber.org/goleak"
 )
 
@@ -14,20 +16,20 @@ func TestMain(m *testing.M) {
 }
 
 func TestCollectorNormalizeRecordedPath(t *testing.T) {
-	c := &collector{workDir: "/tmp/codex-record-123"}
+	workDir := "/tmp/codex-record-123"
 
-	if got := c.normalizeRecordedPath("/tmp/codex-record-123/file.txt"); got != "file.txt" {
+	if got := normalizeRecordedPath(workDir, "/tmp/codex-record-123/file.txt"); got != "file.txt" {
 		t.Fatalf("normalizeRecordedPath(file) = %q, want file.txt", got)
 	}
-	if got := c.normalizeRecordedPath("/tmp/codex-record-123/nested/file.txt"); got != filepath.Join("nested", "file.txt") {
+	if got := normalizeRecordedPath(workDir, "/tmp/codex-record-123/nested/file.txt"); got != filepath.Join("nested", "file.txt") {
 		t.Fatalf("normalizeRecordedPath(nested) = %q", got)
 	}
 	other := "/tmp/other/file.txt"
-	if got := c.normalizeRecordedPath(other); got != other {
+	if got := normalizeRecordedPath(workDir, other); got != other {
 		t.Fatalf("normalizeRecordedPath(other) = %q, want %q", got, other)
 	}
 	relative := "already-relative.txt"
-	if got := c.normalizeRecordedPath(relative); got != relative {
+	if got := normalizeRecordedPath(workDir, relative); got != relative {
 		t.Fatalf("normalizeRecordedPath(relative) = %q, want %q", got, relative)
 	}
 }
@@ -90,14 +92,15 @@ func TestResolveSelection_VersionCases(t *testing.T) {
 }
 
 func TestCollectorObserve_ignoresStderrLogs(t *testing.T) {
-	var c collector
-	c.observe(agent.Message{
+	c := transcript.NewCollector(transcript.CollectorOptions{IgnoreLog: codex.IsStderrLogStream})
+	c.Observe(agent.Message{
 		StreamID: agent.StreamID("codex:stderr"),
 		Mode:     agent.ModeSingle,
 		Content:  agent.Log{Text: "stderr noise"},
 	})
-	if c.logCount != 0 || c.logText.String() != "" {
-		t.Fatalf("stderr log should be ignored, got count=%d content=%q", c.logCount, c.logText.String())
+	got := c.Expectations(nil, nil).Log
+	if got.NumMessages != 0 || got.Content != "" {
+		t.Fatalf("stderr log should be ignored, got count=%d content=%q", got.NumMessages, got.Content)
 	}
 }
 

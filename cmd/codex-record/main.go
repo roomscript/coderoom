@@ -25,26 +25,6 @@ type transcriptCase struct {
 	dir     string
 }
 
-type collector struct {
-	turnAnchor agent.StreamID
-	workDir    string
-
-	outputCount      int
-	outputText       strings.Builder
-	logCount         int
-	logText          strings.Builder
-	reasoningCount   int
-	reasoningText    strings.Builder
-	reasoningStreams map[agent.StreamID]toolStreamState
-	fileChangeCount  int
-	commandCount     int
-
-	filePaths         []string
-	commands          []string
-	approvals         []transcript.ApprovalExpectation
-	noticeTurnFlushes int
-}
-
 const noticeTurnStreamID = agent.StreamID("codex:notice-turn")
 
 func main() {
@@ -91,27 +71,31 @@ func recordCase(caseDir, version, testCase string, input transcript.Input) error
 
 	recorder := transcript.NewObserver(codex.CreateReplayMatch)
 	activity := transcript.NewTurnActivityObserver(recorder, codex.IsTurnActivity)
-	collector := &collector{workDir: workDir}
-	client, err := startClient(workDir, testCase, input.Config, activity, collector)
+	collector := transcript.NewCollector(transcript.CollectorOptions{
+		NoticeAnchor: noticeTurnStreamID, IgnoreLog: codex.IsStderrLogStream,
+		NormalizePath: func(path string) string { return normalizeRecordedPath(workDir, path) },
+	})
+	var approvals []transcript.ApprovalExpectation
+	client, err := startClient(workDir, testCase, input.Config, activity, &approvals)
 	if err != nil {
 		return err
 	}
 	defer stopClient(client)
 
-	if err := runScenario(client, input.Actions, collector, activity); err != nil {
-		return err
+	if err := transcript.RunActions(client, input.Actions, collector, activity); err != nil {
+		return fmt.Errorf("run scenario: %w", err)
 	}
 	if err := recorder.Err(); err != nil {
 		return fmt.Errorf("record protocol: %w", err)
 	}
-	fixture := buildFixture(version, testCase, input, collector)
+	fixture := buildFixture(version, testCase, input, collector, approvals)
 	return writeTranscript(filepath.Join(caseDir, "output.transcript"), fixture, recorder.Steps())
 }
 
-func startClient(workDir, _ string, input transcript.Config, observer codex.ProtocolObserver, collector *collector) (*codex.Client, error) {
+func startClient(workDir, _ string, input transcript.Config, observer codex.ProtocolObserver, approvals *[]transcript.ApprovalExpectation) (*codex.Client, error) {
 	listener := approvalListenerFunc(func(req agent.ApprovalRequest) agent.ApprovalDecision {
 		choice := chooseApproval(req.Options)
-		collector.approvals = append(collector.approvals, transcript.ApprovalExpectation{
+		*approvals = append(*approvals, transcript.ApprovalExpectation{
 			Kind:     req.Kind,
 			Decision: choice,
 		})
@@ -129,66 +113,7 @@ func startClient(workDir, _ string, input transcript.Config, observer codex.Prot
 	return client, nil
 }
 
-func runScenario(client *codex.Client, actions []transcript.Action, collector *collector, activity *transcript.TurnActivityObserver) error {
-	models := transcript.NewModelActions(client, activity)
-	for _, action := range actions {
-		if transcript.IsModelAction(action.Kind) {
-			if err := models.Run(action, collector.observe); err != nil {
-				return fmt.Errorf("run %s: %w", action.Kind, err)
-			}
-			continue
-		}
-		if err := runAction(client, action, collector); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func runAction(client *codex.Client, action transcript.Action, collector *collector) error {
-	anchor, err := sendAction(client, action)
-	if err != nil {
-		return err
-	}
-	collector.turnAnchor = anchor
-	for {
-		msg, err := client.Read()
-		if err != nil {
-			return fmt.Errorf("read message: %w", err)
-		}
-		collector.observe(msg)
-		if msg.StreamID == anchor && msg.Mode == agent.ModeFlush {
-			return nil
-		}
-	}
-}
-
-func sendAction(client *codex.Client, action transcript.Action) (agent.StreamID, error) {
-	switch action.Kind {
-	case "", "prompt":
-		anchor, err := client.Send(action.Text)
-		if err != nil {
-			return "", fmt.Errorf("send prompt: %w", err)
-		}
-		return anchor, nil
-	case "notice":
-		anchor, err := client.SendNotice(action.Text)
-		if err != nil {
-			return "", fmt.Errorf("send notice: %w", err)
-		}
-		return anchor, nil
-	default:
-		return "", fmt.Errorf("unknown action kind %q", action.Kind)
-	}
-}
-
-func buildFixture(version, testCase string, input transcript.Input, collector *collector) transcript.Output {
-	var noticeExpect *transcript.NoticeExpectation
-	if scenarioHasNotice(input.Actions) {
-		noticeExpect = &transcript.NoticeExpectation{
-			NumTurnFlushes: collector.noticeTurnFlushes,
-		}
-	}
+func buildFixture(version, testCase string, input transcript.Input, collector *transcript.Collector, approvals []transcript.ApprovalExpectation) transcript.Output {
 	return transcript.Output{
 		Name:           testCase,
 		Backend:        "codex",
@@ -198,122 +123,15 @@ func buildFixture(version, testCase string, input transcript.Input, collector *c
 		Model:          input.Config.Model,
 		SystemPrompt:   input.Config.SystemPrompt,
 		Actions:        input.Actions,
-		Expect: transcript.Expect{
-			Output: transcript.TextExpectation{NumMessages: collector.outputCount, Content: collector.outputText.String()},
-			Log:    transcript.TextExpectation{NumMessages: collector.logCount, Content: collector.logText.String()},
-			Reasoning: transcript.ReasoningExpectation{
-				NumMessages: collector.reasoningCount,
-				Content:     collector.reasoningText.String(),
-				NumStreams:  collector.reasoningNumStreams(),
-				AllFlushed:  collector.reasoningAllFlushed(),
-			},
-			FileChange: transcript.FileChangeExpectation{
-				NumMessages: collector.fileChangeCount,
-				Files:       collector.filePaths,
-			},
-			Command: transcript.CommandExpectation{
-				NumMessages: collector.commandCount,
-				Executed:    collector.commands,
-			},
-			Notice:    noticeExpect,
-			Approvals: collector.approvals,
-		},
+		Expect:         collector.Expectations(input.Actions, approvals),
 	}
 }
 
-func scenarioHasNotice(actions []transcript.Action) bool {
-	for _, action := range actions {
-		if action.Kind == "notice" {
-			return true
-		}
-	}
-	return false
-}
-
-func (c *collector) observe(msg agent.Message) {
-	if c.observeLifecycleFlush(msg) {
-		return
-	}
-	switch content := msg.Content.(type) {
-	case agent.Output:
-		c.observeOutput(msg, content)
-	case agent.Log:
-		c.observeLog(msg, content)
-	case agent.Reasoning:
-		c.observeReasoning(msg, content)
-	case agent.FileChangeSet:
-		c.observeFileChange(content)
-	case agent.Command:
-		c.observeCommand(content)
-	}
-}
-
-func (c *collector) observeOutput(msg agent.Message, content agent.Output) {
-	if msg.StreamID == c.turnAnchor && msg.Mode == agent.ModeFlush {
-		return
-	}
-	c.outputCount++
-	c.outputText.WriteString(content.Text)
-}
-
-func (c *collector) observeLog(msg agent.Message, content agent.Log) {
-	if codex.IsStderrLogStream(msg.StreamID) {
-		return
-	}
-	c.logCount++
-	c.logText.WriteString(content.Text)
-}
-
-func (c *collector) observeReasoning(msg agent.Message, content agent.Reasoning) {
-	c.reasoningCount++
-	c.reasoningText.WriteString(content.Text)
-	c.observeReasoningStream(msg)
-}
-
-func (c *collector) observeFileChange(content agent.FileChangeSet) {
-	c.fileChangeCount++
-	for _, change := range content.Changes {
-		appendUnique(&c.filePaths, c.normalizeRecordedPath(change.Path))
-	}
-}
-
-func (c *collector) observeCommand(content agent.Command) {
-	c.commandCount++
-	if strings.TrimSpace(content.Command) != "" {
-		appendUnique(&c.commands, content.Command)
-	}
-}
-
-func (c *collector) observeLifecycleFlush(msg agent.Message) bool {
-	if msg.StreamID == noticeTurnStreamID && msg.Mode == agent.ModeFlush {
-		c.noticeTurnFlushes++
-		return true
-	}
-	if msg.StreamID == c.turnAnchor && msg.Mode == agent.ModeFlush {
-		return true
-	}
-	return false
-}
-
-func (c *collector) observeReasoningStream(msg agent.Message) {
-	if c.reasoningStreams == nil {
-		c.reasoningStreams = make(map[agent.StreamID]toolStreamState)
-	}
-	state := c.reasoningStreams[msg.StreamID]
-	if msg.Mode == agent.ModeStream {
-		state.sawStream = true
-	}
-	if msg.Mode == agent.ModeFlush {
-		state.sawFlush = true
-	}
-	c.reasoningStreams[msg.StreamID] = state
-}
-
-func (c *collector) normalizeRecordedPath(path string) string {
-	if c.workDir == "" || !filepath.IsAbs(path) {
+func normalizeRecordedPath(workDir, path string) string {
+	if workDir == "" || !filepath.IsAbs(path) {
 		return path
 	}
-	rel, err := filepath.Rel(c.workDir, path)
+	rel, err := filepath.Rel(workDir, path)
 	if err != nil {
 		return path
 	}
@@ -323,31 +141,7 @@ func (c *collector) normalizeRecordedPath(path string) string {
 	return filepath.Clean(rel)
 }
 
-func (c *collector) reasoningNumStreams() int {
-	count := 0
-	for _, state := range c.reasoningStreams {
-		if state.sawStream {
-			count++
-		}
-	}
-	return count
-}
-
-func (c *collector) reasoningAllFlushed() bool {
-	for _, state := range c.reasoningStreams {
-		if state.sawStream && !state.sawFlush {
-			return false
-		}
-	}
-	return true
-}
-
 type approvalListenerFunc func(req agent.ApprovalRequest) agent.ApprovalDecision
-
-type toolStreamState struct {
-	sawStream bool
-	sawFlush  bool
-}
 
 func (f approvalListenerFunc) Decide(_ context.Context, req agent.ApprovalRequest) (agent.ApprovalDecision, error) {
 	return f(req), nil
@@ -402,14 +196,6 @@ func setCodexVersion(version string) (func(), error) {
 			fmt.Fprintf(os.Stderr, "unset %s: %v\n", key, err)
 		}
 	}, nil
-}
-
-func appendUnique(dst *[]string, value string) {
-	value = strings.TrimSpace(value)
-	if value == "" || slices.Contains(*dst, value) {
-		return
-	}
-	*dst = append(*dst, value)
 }
 
 func resolveSelection(root string, args []string) ([]transcriptCase, error) {
