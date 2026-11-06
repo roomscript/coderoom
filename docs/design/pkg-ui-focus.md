@@ -93,6 +93,8 @@ Viewport is read-only.
   - collapsed command output not currently rendered
   - any raw `room.Record` representation behind the rendered view
 - `Left` / `Right`: move one visible cell backward / forward.
+- `Ctrl+Left` / `Ctrl+Right`, `Alt+Left` / `Alt+Right`, and `Alt+B` / `Alt+F`:
+  move to the previous / next visible word start, clear selection, and update LIVE.
 - `Ctrl+Shift+Left` / `Ctrl+Shift+Right`: extend or shrink the selection by
   one visible word. Forward selection stops at the word end, before trailing
   whitespace or a line break; backward selection stops at the word start.

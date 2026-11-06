@@ -79,6 +79,7 @@ PgUp and PgDn scroll the request details.
 | Home / End in history focus | Move to the start or end of the current line. |
 | Shift+arrows in history focus | Select text. |
 | Ctrl+Shift+Left / Right in history focus | Select by word. |
+| Ctrl+Left / Right, Alt+Left / Right, Alt+B / F in history focus | Move by word and clear selection. |
 | Ctrl+G in history focus | Open the transcript in `$EDITOR` for reading. |
 | Ctrl+C in history focus | Copy selected text. With no selection, do nothing. |
 | Esc in history focus | Clear the selection. With no selection, return to compose focus. |

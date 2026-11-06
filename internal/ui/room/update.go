@@ -245,6 +245,11 @@ func (m Model) handleHistoryKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		m.historyLive = m.history.CursorAtLiveEnd()
 		return m, nil
 	}
+	if nextHistory, handled := applyHistoryWordCursorKey(m.history, k); handled {
+		m.history = nextHistory.ClearSelection()
+		m.historyLive = m.history.CursorAtLiveEnd()
+		return m, nil
+	}
 	if k.Mod.Contains(tea.ModCtrl) {
 		return m.handleHistoryCtrlKey(msg)
 	}
@@ -276,6 +281,17 @@ func (m Model) handleHistoryKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 	var cmd tea.Cmd
 	m.history, cmd = m.history.Update(msg)
 	return m, cmd
+}
+
+func applyHistoryWordCursorKey(historyModel history.Model, key tea.Key) (history.Model, bool) {
+	switch key.String() {
+	case "ctrl+left", "alt+left", "alt+b":
+		return historyModel.CursorWordLeft(), true
+	case "ctrl+right", "alt+right", "alt+f":
+		return historyModel.CursorWordRight(), true
+	default:
+		return historyModel, false
+	}
 }
 
 func applyHistoryModifiedSelectionKey(historyModel history.Model, key tea.Key) (history.Model, bool) {

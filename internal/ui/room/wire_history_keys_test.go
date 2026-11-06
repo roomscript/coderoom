@@ -151,6 +151,47 @@ func TestHistoryFocus_shiftArrowStartsSelectionFromCurrentCursor(t *testing.T) {
 	}
 }
 
+func TestHistoryFocus_wordMovement(t *testing.T) {
+	tests := []struct {
+		key     tea.Key
+		wantCol int
+	}{
+		{tea.Key{Code: tea.KeyLeft, Mod: tea.ModCtrl}, 0},
+		{tea.Key{Code: tea.KeyRight, Mod: tea.ModCtrl}, 8},
+		{tea.Key{Code: tea.KeyLeft, Mod: tea.ModAlt}, 0},
+		{tea.Key{Code: tea.KeyRight, Mod: tea.ModAlt}, 8},
+		{tea.Key{Code: 'b', Mod: tea.ModAlt}, 0},
+		{tea.Key{Code: 'f', Mod: tea.ModAlt}, 8},
+	}
+	for _, tt := range tests {
+		t.Run(tt.key.String(), func(t *testing.T) {
+			m := newTestModel(t)
+			m = m.HandleResize(20, 12)
+			m = m.AppendSystem("one two three")
+			m, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: 'o', Mod: tea.ModCtrl}))
+			m, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyHome}))
+			for range 4 {
+				m, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyRight, Mod: tea.ModShift}))
+			}
+			beforeRow, _ := m.HistoryCursorPosition()
+			m.historyLive = true
+
+			m, _ = m.Update(tea.KeyPressMsg(tt.key))
+
+			row, col := m.HistoryCursorPosition()
+			if row != beforeRow || col != tt.wantCol {
+				t.Fatalf("cursor = (%d,%d), want (%d,%d)", row, col, beforeRow, tt.wantCol)
+			}
+			if m.HistoryHasSelection() {
+				t.Fatal("expected word movement to clear selection")
+			}
+			if m.historyLive {
+				t.Fatal("expected word movement away from live end to disable LIVE")
+			}
+		})
+	}
+}
+
 func TestHistoryFocus_ctrlShiftArrowExtendsSelectionByWord(t *testing.T) {
 	m := newTestModel(t)
 	m = m.HandleResize(20, 12)
