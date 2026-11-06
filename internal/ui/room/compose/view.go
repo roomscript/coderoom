@@ -12,26 +12,31 @@ import (
 var promptWidth = ansi.StringWidth("❯ ")
 
 // View renders the input area.
-//
-// TODO: once charmbracelet/bubbles/v2 ships PR #822, the custom rendering
-// below can be replaced with a targeted post-paste viewport reset via the
-// public API. Requires migrating from bubbles v1 to v2 (different import
-// path). See: https://charm.land/bubbles/v2/pull/822
 func (m Model) View() string {
 	// Don't rely on textarea's internal viewport rendering for multi-line input.
 	// When pasting multiple logical lines, textarea's viewport can end up
 	// scrolled such that only the last logical line is visible. Instead, render
-	// the buffer ourselves using the same wrapping algorithm as textarea (see
-	// wrap.go) and then pad/truncate to the configured height.
+	// visible rows from our per-logical-line wrap cache (see cache.go).
 	h := m.input.Height()
 	if h <= 0 {
 		return ""
 	}
-	contentW := m.input.Width()
-	lines := renderBufferLines(m.input.Value(), contentW)
-	lines = decoratePromptLines(lines)
-	lines = maybeOverlayCursor(lines, m.input, contentW)
-	return fitLinesToHeight(lines, h, m.scrollOff)
+	lines, off := m.wrapped.visibleRows(m.scrollOff, h)
+	for i := range lines {
+		if off+i == 0 {
+			lines[i] = "❯ " + lines[i]
+		} else {
+			lines[i] = "  " + lines[i]
+		}
+	}
+	if m.input.Focused() {
+		row, col := m.cursorVisualRowCol()
+		col += promptWidth
+		if row >= off && row-off < len(lines) {
+			lines = overlayBlockCursor(lines, row-off, col)
+		}
+	}
+	return fitLinesToHeight(lines, h, 0)
 }
 
 func applyDecorations(input textarea.Model) textarea.Model {
@@ -43,51 +48,6 @@ func applyDecorations(input textarea.Model) textarea.Model {
 		return "  "
 	})
 	return input
-}
-
-func renderBufferLines(text string, contentW int) []string {
-	if contentW <= 0 {
-		contentW = 1
-	}
-	var out []string
-	for line := range strings.SplitSeq(text, "\n") {
-		wrapped := wrapTextareaLine([]rune(line), contentW)
-		for _, wl := range wrapped {
-			// textarea's wrap helper appends trailing spaces for cursor navigation
-			// consistency; trim them for display so we don't render phantom blank
-			// rows.
-			out = append(out, strings.TrimRight(string(wl), " "))
-		}
-	}
-	if len(out) == 0 {
-		return []string{""}
-	}
-	// If the buffer does not end with a newline, drop trailing empty visual rows
-	// introduced purely by wrapping/navigation padding.
-	if !strings.HasSuffix(text, "\n") {
-		for len(out) > 0 && strings.TrimSpace(out[len(out)-1]) == "" {
-			out = out[:len(out)-1]
-		}
-		if len(out) == 0 {
-			out = []string{""}
-		}
-	}
-	return out
-}
-
-func decoratePromptLines(lines []string) []string {
-	if len(lines) == 0 {
-		return []string{"❯ "}
-	}
-	out := make([]string, len(lines))
-	for i, line := range lines {
-		if i == 0 {
-			out[i] = "❯ " + line
-		} else {
-			out[i] = "  " + line
-		}
-	}
-	return out
 }
 
 func fitLinesToHeight(lines []string, h int, scrollOff int) string {
@@ -110,25 +70,6 @@ func fitLinesToHeight(lines []string, h int, scrollOff int) string {
 		lines = lines[start : start+h]
 	}
 	return strings.Join(lines, "\n")
-}
-
-func maybeOverlayCursor(lines []string, input textarea.Model, contentW int) []string {
-	if !input.Focused() {
-		return lines
-	}
-	row, col, ok := cursorVisualPos(input, contentW)
-	if !ok || row < 0 || row >= len(lines) || col < 0 {
-		return lines
-	}
-	return overlayBlockCursor(lines, row, col)
-}
-
-func cursorVisualPos(input textarea.Model, contentW int) (row int, col int, ok bool) {
-	if contentW <= 0 {
-		contentW = 1
-	}
-	visualRow, visualCol := cursorVisualRowCol(input, contentW)
-	return visualRow, promptWidth + visualCol, true
 }
 
 func overlayBlockCursor(lines []string, row int, col int) []string {

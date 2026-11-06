@@ -8,33 +8,6 @@ import (
 	"github.com/rivo/uniseg"
 )
 
-// countWrappedRows returns how many terminal rows a single logical line will
-// occupy when wrapped to contentW columns.
-func countWrappedRows(line string, contentW int) int {
-	if contentW <= 0 {
-		return 1
-	}
-	// Match bubbles/textarea wrapping behavior (including its handling of
-	// whitespace at wrap boundaries). Using ansi.Wrap here looks similar but
-	// diverges for pasted input that includes trailing spaces, which can cause
-	// the textarea to scroll by one row (clipping the top row and leaving an
-	// empty row at the bottom).
-	return len(wrapTextareaLine([]rune(line), contentW))
-}
-
-// countVisualRows returns the total number of terminal rows needed to render
-// text (split by '\n') wrapped to contentW columns.
-func countVisualRows(text string, contentW int) int {
-	if contentW <= 0 {
-		return max(1, strings.Count(text, "\n")+1)
-	}
-	total := 0
-	for line := range strings.SplitSeq(text, "\n") {
-		total += countWrappedRows(line, contentW)
-	}
-	return max(1, total)
-}
-
 // wrapTextareaLine implements the same word-wrapping behavior as
 // charm.land/bubbles/v2/textarea (v1.x).
 //

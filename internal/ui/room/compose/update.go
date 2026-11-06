@@ -14,10 +14,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		return m.handleKey(msg)
 	default:
-		// Paste events and other textarea-driven messages arrive here (not as
-		// KeyPressMsg). Recalculate height before and after so the textarea's
-		// internal viewport scrolling decisions use the correct height.
-		m = m.recalcHeight()
+		// Paste events and other textarea-driven messages arrive here.
 		var cmd tea.Cmd
 		m.input, cmd = m.input.Update(msg)
 		return m.recalcHeight(), cmd
@@ -93,7 +90,6 @@ func (m Model) handleNavKey(msg tea.KeyPressMsg) (Model, tea.Cmd, bool) {
 }
 
 func (m Model) handleTextKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
-	m = m.recalcHeight()
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(msg)
 	return m.recalcHeight(), cmd

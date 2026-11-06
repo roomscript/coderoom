@@ -86,6 +86,9 @@ path. Input, shell, and loop semantic events do not echo
 records already delivered through transcript deltas.
 
 The TUI owns rendering, composer, focus, scrolling, and approval presentation.
+The composer caches wrapped rows per logical line and renders only its visible
+window. Edits reuse unchanged lines; terminal width changes invalidate wrapping.
+Textarea still owns editing and performs its own internal render during updates.
 Help formatting, startup tips, debug output, and event-formatted notices remain
 presentation records. A deterministic index table translates canonical record
 indices around those local notices, including open stream indices; it never

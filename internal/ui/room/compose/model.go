@@ -13,6 +13,7 @@ type Model struct {
 	maxH      int
 	visH      int // total visual rows (cached)
 	scrollOff int // first visible visual row (cached)
+	wrapped   wrapCache
 }
 
 // New creates a focused Model with default decorations applied.
@@ -23,7 +24,7 @@ func New() Model {
 	ti.KeyMap.WordBackward = key.NewBinding(key.WithKeys("alt+left", "alt+b", "ctrl+left"))
 	ti = applyDecorations(ti)
 	ti.Focus()
-	return Model{input: ti}
+	return (Model{input: ti}).recalcHeight()
 }
 
 // Init returns the textarea cursor-blink command.
@@ -32,7 +33,7 @@ func (m Model) Init() tea.Cmd { return textarea.Blink }
 // SetWidth sets the display width.
 func (m Model) SetWidth(w int) Model {
 	m.input.SetWidth(w)
-	return m
+	return m.recalcHeight()
 }
 
 // SetMaxHeightFromTotal derives the input height cap from the total terminal
@@ -91,13 +92,15 @@ func (m Model) HasAbove() bool { return m.scrollOff > 0 }
 func (m Model) HasBelow() bool { return m.scrollOff+m.input.Height() < m.visH }
 
 func (m Model) recalcHeight() Model {
-	m.input = applyDecorations(m.input)
+	m.wrapped.update(m.input.Value(), m.input.Width())
 	if m.maxH > 0 {
 		// textarea.Model.Width() is the *content width* (prompt/borders excluded),
 		// so do not subtract promptWidth here.
-		m.visH = countVisualRows(m.input.Value(), m.input.Width())
+		m.visH = m.wrapped.visualRows()
 		h := min(max(m.visH, 1), m.maxH)
-		m.input.SetHeight(h)
+		if m.input.Height() != h {
+			m.input.SetHeight(h)
+		}
 		m.scrollOff = m.computeScrollOff()
 	}
 	return m
@@ -133,7 +136,7 @@ func (m Model) computeScrollOff() int {
 }
 
 func (m Model) cursorVisualRow() int {
-	row, _ := cursorVisualRowCol(m.input, m.input.Width())
+	row, _ := m.cursorVisualRowCol()
 	return row
 }
 
