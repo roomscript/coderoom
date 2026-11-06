@@ -254,6 +254,7 @@ func (m Model) handleHistoryKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 			m.historyLive = m.history.CursorAtLiveEnd()
 			return m, nil
 		}
+		m.historyLive = m.history.AtBottom()
 		m.activeFocus = focusInput
 		if m.input.kind == inputCompose {
 			return m.composeFocus()

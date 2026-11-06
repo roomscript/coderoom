@@ -52,6 +52,38 @@ func TestStateTransitions_historyLiveToComposeLive_preservesFollow(t *testing.T)
 	}
 }
 
+func TestStateTransitions_historyBrowseAtBottomToComposeLive(t *testing.T) {
+	for _, key := range []struct {
+		name string
+		code rune
+	}{
+		{"previous row", tea.KeyUp},
+		{"line start", tea.KeyHome},
+	} {
+		t.Run(key.name, func(t *testing.T) {
+			m := seededRoomModel(t)
+			m, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: 'o', Mod: tea.ModCtrl}))
+			m, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: key.code}))
+			if !m.AtBottom() || m.historyLive {
+				t.Fatal("expected history browse with the last line visible")
+			}
+
+			beforeY := m.YOffset()
+			next, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
+			if !strings.Contains(roomHeader(next), "LIVE") || next.activeFocus != focusInput {
+				t.Fatal("expected Esc at bottom to return to compose live")
+			}
+			if next.YOffset() != beforeY {
+				t.Fatal("expected Esc to preserve the viewport")
+			}
+			next = next.AppendSystem("[new]")
+			if !next.AtBottom() || next.YOffset() <= beforeY {
+				t.Fatal("expected compose live to follow new output")
+			}
+		})
+	}
+}
+
 func TestStateTransitions_composeBrowseToHistoryBrowse(t *testing.T) {
 	m := seededRoomModel(t)
 
@@ -80,7 +112,10 @@ func TestStateTransitions_composeBrowseToHistoryBrowse(t *testing.T) {
 func TestStateTransitions_historyBrowseToComposeBrowse_preservesBrowseMode(t *testing.T) {
 	m := seededRoomModel(t)
 	m, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: 'o', Mod: tea.ModCtrl}))
-	m, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyUp}))
+	m, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyPgUp}))
+	if m.AtBottom() {
+		t.Fatal("expected PgUp to scroll away from the bottom")
+	}
 
 	beforeY := m.YOffset()
 	next, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))

@@ -104,6 +104,8 @@ Viewport is read-only.
 - `Home` / `End`: move to the start / end of the current visible line.
 - `Ctrl+O`: return focus to the composer.
 - `Esc`: return focus to the composer (escape hatch).
+  Re-arm live follow if the last line is visible; otherwise preserve the current
+  scroll position and browse mode. An active selection is cleared first.
 - `Ctrl+C`: copy the active visible history selection as plain text.
 - `Ctrl+G`: open `$EDITOR` seeded with the transcript content in read-only
   mode (see below).
@@ -187,7 +189,8 @@ These transitions should be treated as the design contract:
 | `HistoryLive` | move cursor off live end | `HistoryBrowse` | browse mode begins |
 | `HistoryLive` | `Esc` / `Ctrl+O` | `ComposeLive` | preserve live follow without exposing a hidden cursor |
 | `HistoryBrowse` | move cursor back to live end | `HistoryLive` | re-arm follow |
-| `HistoryBrowse` | `Esc` / `Ctrl+O` | `ComposeBrowse` | preserve viewport, suspend cursor semantics |
+| `HistoryBrowse` | `Esc` | `ComposeLive` or `ComposeBrowse` | re-arm follow if the last line is visible; otherwise preserve viewport and browse mode |
+| `HistoryBrowse` | `Ctrl+O` | `ComposeBrowse` | preserve viewport, suspend cursor semantics |
 
 Entering history focus must derive cursor placement from the currently visible
 viewport, not from stale hidden cursor state left behind while composing.
