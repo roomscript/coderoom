@@ -95,6 +95,9 @@ func (r *Registry) VerifyDependencies(ctx context.Context, name string) error {
 		return nil
 	}
 	for _, dep := range deps.ExternalDependencies() {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("dependency check cancelled: %w", err)
+		}
 		if err := dep.Verify(ctx); err != nil {
 			return fmt.Errorf("%s: %w", dep.Description, err)
 		}

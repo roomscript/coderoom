@@ -7,6 +7,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/roomscript/coderoom/internal/agent"
+	roomconfig "github.com/roomscript/coderoom/internal/config"
+	"github.com/roomscript/coderoom/internal/participant"
 	"github.com/roomscript/coderoom/internal/policy"
 	"github.com/roomscript/coderoom/internal/session"
 )
@@ -93,9 +96,10 @@ func TestDependencyChecks_reportFailuresOnly(t *testing.T) {
 	}
 }
 
-func TestDependencyChecks_inviteCancelsOnlyItsBackend(t *testing.T) {
+func TestDependencyChecks_inviteWaitsForItsBackend(t *testing.T) {
 	errMissing := errors.New("claude --version runs: exit status 1")
 	release := make(chan struct{})
+	claudeRelease := make(chan struct{})
 	codexCancelled := make(chan struct{})
 	claudeCancelled := make(chan struct{})
 	obs := newTestObserver()
@@ -105,21 +109,31 @@ func TestDependencyChecks_inviteCancelsOnlyItsBackend(t *testing.T) {
 		fixedFactory(newMockAgent()),
 	)
 	v := &fakeVerifier{checks: map[string]func(context.Context) error{
-		"codex":  blockingCheck(release, codexCancelled, errMissing),
-		"claude": blockingCheck(release, claudeCancelled, errMissing),
+		"codex":  blockingCheck(release, codexCancelled, nil),
+		"claude": blockingCheck(claudeRelease, claudeCancelled, errMissing),
 	}}
 	s.StartDependencyChecks(v, []string{"claude", "codex"})
 
 	invite(t, s, "ada") // default backend: codex
-	mustReceive[session.AgentReady](t, obs.ch)
-	waitClosed(t, codexCancelled, "codex check cancellation")
-	close(release)
-	if got := mustReceive[session.BackendUnavailable](t, obs.ch); got.Backend != "claude" {
-		t.Fatalf("BackendUnavailable = %+v, want claude", got)
+	alias := resolvedAlias(s, "ada")
+	if _, err := s.Execute(session.RemoveCommand{Alias: alias}); err == nil {
+		t.Fatal("expected removal to be rejected while waiting for the check")
 	}
+	if p, ok := s.Participant(alias); !ok || p.Status != participant.StatusStarting {
+		t.Fatalf("waiting participant after rejected removal = %+v, found %v", p, ok)
+	}
+	select {
+	case <-codexCancelled:
+		t.Fatal("invite cancelled the check")
+	default:
+	}
+	close(release)
+	mustReceive[session.AgentReady](t, obs.ch)
+	close(claudeRelease)
+	mustReceive[session.BackendUnavailable](t, obs.ch)
 	_, _ = s.Execute(session.RemoveCommand{Alias: resolvedAlias(s, "ada")})
 
-	if all := unavailableEvents(s, obs); len(all) != 1 {
+	if all := unavailableEvents(s, obs); len(all) != 1 || all[0].Backend != "claude" {
 		t.Fatalf("BackendUnavailable events = %+v, want only claude", all)
 	}
 }
@@ -176,5 +190,79 @@ func TestDependencyChecks_shutdownCancelsAndWaits(t *testing.T) {
 	case <-cancelled:
 	default:
 		t.Fatal("check still running after Shutdown")
+	}
+}
+
+func TestDependencyChecks_sharedInviteResult(t *testing.T) {
+	for _, fail := range []bool{false, true} {
+		t.Run(map[bool]string{false: "success", true: "failure"}[fail], func(t *testing.T) {
+			release := make(chan struct{})
+			started := make(chan struct{})
+			var checkErr error
+			if fail {
+				checkErr = errors.New("install failed")
+			}
+			obs := newTestObserver()
+			s := newSession(t, session.WithObserver(obs),
+				session.WithConfig(loadSessionConfig(t, t.TempDir())),
+				session.WithAgentFactory(func(*session.Session, roomconfig.ParticipantConfig) (agent.Agent, error) {
+					return newMockAgent(), nil
+				}),
+			)
+			s.StartDependencyChecks(&fakeVerifier{checks: map[string]func(context.Context) error{
+				"codex": func(context.Context) error { close(started); <-release; return checkErr },
+			}}, []string{"codex"})
+			waitClosed(t, started, "check start")
+			invite(t, s, "ada")
+			invite(t, s, "bob")
+			for _, name := range []string{"ada", "bob"} {
+				p, _ := s.ParticipantByName(name)
+				if p.Status != participant.StatusStarting {
+					t.Fatalf("participant started before check finished: %+v", p)
+				}
+			}
+			close(release)
+			for range 2 {
+				if fail {
+					mustReceive[session.AgentCrashed](t, obs.ch)
+				} else {
+					mustReceive[session.AgentReady](t, obs.ch)
+				}
+			}
+			if got := unavailableEvents(s, obs); len(got) != 0 {
+				t.Fatalf("duplicate warnings: %+v", got)
+			}
+		})
+	}
+}
+
+func TestDependencyChecks_shutdownWaitsForActiveCommand(t *testing.T) {
+	started := make(chan struct{})
+	cancelled := make(chan struct{})
+	release := make(chan struct{})
+	obs := newTestObserver()
+	s := newSession(t, session.WithObserver(obs))
+	s.StartDependencyChecks(&fakeVerifier{checks: map[string]func(context.Context) error{
+		"codex": func(ctx context.Context) error {
+			close(started)
+			<-ctx.Done()
+			close(cancelled)
+			<-release
+			return errors.New("command failed after cancellation")
+		},
+	}}, []string{"codex"})
+	waitClosed(t, started, "command start")
+	done := make(chan struct{})
+	go func() { s.Shutdown(); close(done) }()
+	waitClosed(t, cancelled, "check cancellation")
+	select {
+	case <-done:
+		t.Fatal("shutdown returned before active command finished")
+	default:
+	}
+	close(release)
+	waitClosed(t, done, "shutdown")
+	if got := unavailableEvents(s, obs); len(got) != 0 {
+		t.Fatalf("cancelled check reported: %+v", got)
 	}
 }

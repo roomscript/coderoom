@@ -27,8 +27,9 @@ import (
 type AgentFactory func(s *Session, cfg roomconfig.ParticipantConfig) (agent.Agent, error)
 
 type agentRuntime struct {
-	agentCancel context.CancelFunc
-	stop        chan struct{}
+	agentCancel  context.CancelFunc
+	agentContext context.Context
+	stop         chan struct{}
 	// pendingModelListings holds the purpose of each Models call whose
 	// ModelsListed has not arrived, in call order.
 	pendingModelListings []modelListingPurpose
@@ -172,6 +173,7 @@ func (s *Session) CreateAgentContext(alias participant.Alias) context.Context {
 	}
 	ctx, cancel := context.WithCancel(s.lifecycle.ctx) //nolint:gosec // cancel stored in agent runtime and invoked by session lifecycle
 	runtime.agentCancel = cancel
+	runtime.agentContext = ctx
 	s.agents[alias] = runtime
 	return ctx
 }

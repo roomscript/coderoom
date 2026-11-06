@@ -187,3 +187,19 @@ func TestNewDefault(t *testing.T) {
 		}
 	}
 }
+
+func TestVerifyDependenciesCancellationSkipsRemainingChecks(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ran := false
+	r := mustNew(t, dependentCtor("codex",
+		agent.Dependency{Description: "first", Verify: func(context.Context) error { cancel(); return nil }},
+		agent.Dependency{Description: "second", Verify: func(context.Context) error { ran = true; return nil }},
+	))
+	if err := r.VerifyDependencies(ctx, "codex"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("VerifyDependencies = %v, want cancellation", err)
+	}
+	if ran {
+		t.Fatal("remaining dependency ran after cancellation")
+	}
+}

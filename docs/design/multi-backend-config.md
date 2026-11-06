@@ -295,8 +295,9 @@ coderoom: configuration errors:
 ### Dependency checks: reported in the room
 
 External checks can be slow (`npx` downloads the package the first time) and
-can depend on the network, so they never block startup or `/invite`. They
-exist only to warn early. **Decided.**
+can depend on the network, so they never block startup. They warn early, and
+an invite that finds its backend's check still running waits for it.
+**Decided** (#76).
 
 - After startup, the session runs the checks for the backends in use: every
   backend named in a file, plus the default, since any alias without a file
@@ -309,34 +310,49 @@ exist only to warn early. **Decided.**
   [codex unavailable: npx is installed: not found in PATH]
   ```
 
-- There is no timeout. A check that hangs only means no early warning, which
-  was the behaviour before. Checks run under the session context, so their
-  processes are killed when coderoom exits.
-- A check's command runs in its own process group, and cancelling the check
-  kills the whole group. `npx` starts node as a child, which would otherwise
-  outlive the cancellation and overlap the agent's own `npx` run.
-- `/invite` never waits for a check and never re-runs one. It starts the agent
-  as before; a missing tool shows up as the adapter's own start error.
-- Inviting a participant **cancels the check for its backend**. Starting the
-  agent tests more than the check does, a late "unavailable" line would
-  contradict what the user already sees, and two first-time `npx` runs of the
-  same package can conflict in the npm cache. Checks for other backends go on.
-- A result that arrives after its check was cancelled is dropped, whether an
-  invite, the `EchoInvites` policy or the session ending cancelled it.
-- Reporting is **best effort**. **Decided.** If a check fails at the same
-  moment an invite cancels it, the warning may appear right after the agent's
-  starting line. Ruling that out would need a lock held while observers run,
-  and a matching restriction on what observers may do. That cost is too high
-  for one stale line in a window of microseconds, and the agent's own start
-  error still shows a real problem.
+- There is no timeout. A hanging check delays invites for its backend. The
+  participant remains `starting`, and `/remove` is rejected throughout startup,
+  including the dependency-check wait. Session shutdown cancels the invite wait
+  but still waits for any running dependency command to finish.
+- **A check's command is never killed.** Cancelling a check lets the
+  dependency that is running finish and skips the ones after it. Killing a
+  first-time `npx` run leaves a lock and a partial package in the npm cache,
+  and every later `npx` run of that package fails until the entry is deleted
+  (#76).
+- Inviting a participant whose backend's check is still running **waits for
+  that check** in the invite's start goroutine, before the agent starts. The
+  invite command itself returns at once, and the participant shows as
+  starting. The wait ends early if the participant's agent context is
+  cancelled. Several invites for the same backend wait on the same check.
+  Checks for other backends go on.
+- The waiting invite takes over the check's result. If the check passed, the
+  agent starts on a complete install, and the start timeout no longer covers
+  the download. If it failed, the invite fails with the check's error and no
+  `BackendUnavailable` is reported. The invite takes the result over under the
+  same lock that retires the check, so a result is either assigned to
+  `BackendUnavailable` reporting or handed to waiting invites, never both.
+- Publication ordering is **best effort**. Observers run after the check lock
+  is released. If a check retires just before an invite claims it, its
+  `BackendUnavailable` warning may appear after the invite starts. The result
+  ownership decision is atomic; observer notification is not ordered against
+  the invite. No lock is held across observer callbacks.
+- An invite that finds no running check starts the agent directly. `/invite`
+  never re-runs a check; a missing tool then shows up as the adapter's own
+  start error.
+- A result that arrives after its check was cancelled by the `EchoInvites`
+  policy or the session ending is dropped.
 - With the `EchoInvites` policy on, no checks run. The policy is enabled after
   startup, so enabling it cancels the checks already running.
-- `Session.Shutdown` cancels the checks and waits for them.
+- `Session.Shutdown` cancels the checks and waits for them. Quitting while a
+  first-time `npx` install runs waits for the install to finish, so no
+  command outlives coderoom. A status message can explain the wait if it
+  turns out to be needed.
 
 The session owns the checks: `Session.StartDependencyChecks(verifier,
 backends)` takes the registry through a one-method `DependencyVerifier`
-interface, keeps one cancel function per backend, and calls it at invite. No
-results are stored, and the registry stays a stateless table.
+interface and keeps one running check per backend, which an invite waits on.
+The registry checks cancellation between dependencies; each dependency command
+runs to completion. The registry stays a stateless table.
 
 A failure is the session event `BackendUnavailable{Backend, Err}`. `Err`
 already starts with the failed check's description, so the event carries no
@@ -347,8 +363,8 @@ separate field for it.
 ## Building the agent at invite
 
 - `InviteCommand` gets the participant's config from the loaded `config.Config`.
-- The session cancels the dependency check for the participant's backend, if
-  one is running.
+- If the dependency check for the participant's backend is still running,
+  the start goroutine waits for it before starting the agent (see above).
 - When `EchoInvites` is on, the session builds echo itself and does not call
   the factory. Otherwise the factory calls `Registry.Build` with the
   configured backend. `AgentBackend` is gone: the factory only ever builds the

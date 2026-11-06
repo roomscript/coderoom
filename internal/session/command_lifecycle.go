@@ -35,22 +35,21 @@ func (c InviteCommand) execute(s *Session, _ ExecutionID) error {
 		s.abandonInvite(p.Alias)
 		return fmt.Errorf("invite %q: %w", p.Alias.Name, err)
 	}
+	check := s.claimDependencyCheck(cfg.Backend.Name)
 	s.hasInvited = true
 	s.notify(ParticipantStatusChanged{Alias: p.Alias, From: "", To: p.Status, Since: p.Since, ActiveExecutionID: p.ActiveExecutionID})
 	s.notifyChangedConfig(p.Alias)
 	s.notify(AgentStarting{Alias: p.Alias, Backend: a.Name()})
-	startInvitedAgent(p.Alias, a, s)
+	startInvitedAgent(p.Alias, a, s, check)
 	return nil
 }
 
 // buildAgent builds echo when the EchoInvites policy is on, and the
-// configured backend otherwise. Starting a backend's agent tests more than
-// its dependency check, so a check still running for it is cancelled.
+// configured backend otherwise.
 func (s *Session) buildAgent(cfg roomconfig.ParticipantConfig) (agent.Agent, error) {
 	if s.policies.Enabled(policy.EchoInvites) {
 		return echo.New(), nil
 	}
-	s.cancelDependencyCheck(cfg.Backend.Name)
 	return s.agentFactory(s, cfg)
 }
 
@@ -106,8 +105,11 @@ func (c InviteCommand) buildParticipant(s *Session, cfg roomconfig.ParticipantCo
 	return p
 }
 
-func startInvitedAgent(alias participant.Alias, a agent.Agent, s *Session) {
+func startInvitedAgent(alias participant.Alias, a agent.Agent, s *Session, check *dependencyCheck) {
 	go func() {
+		if !s.awaitDependencyCheck(alias, check) {
+			return
+		}
 		if err := a.Start(); err != nil {
 			handleInviteStartError(alias, err, s)
 			return
@@ -146,6 +148,28 @@ func startInvitedAgent(alias participant.Alias, a agent.Agent, s *Session) {
 		go s.readLoop(stop, alias, a)
 		s.notifyAgentReady(alias)
 	}()
+}
+
+// awaitDependencyCheck leaves startup untouched when there is no running check.
+func (s *Session) awaitDependencyCheck(alias participant.Alias, check *dependencyCheck) bool {
+	if check == nil {
+		return true
+	}
+	s.mu.Lock()
+	ctx := s.agents[alias].agentContext
+	s.mu.Unlock()
+	if ctx == nil {
+		ctx = s.CreateAgentContext(alias)
+	}
+	err := check.wait(ctx)
+	if ctx.Err() != nil {
+		return false
+	}
+	if err != nil {
+		handleInviteStartError(alias, err, s)
+		return false
+	}
+	return true
 }
 
 // startupMetadata is what a started agent reports about its session.

@@ -53,43 +53,32 @@ func TestReportsVersion(t *testing.T) {
 	}
 }
 
-func TestReportsVersionStopsOnCancel(t *testing.T) {
-	writeTool(t, "exit 0\n")
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	if err := ReportsVersion(t.TempDir(), "tool").Verify(ctx); err == nil {
-		t.Fatal("expected error from a cancelled check")
-	}
-}
-
-func TestReportsVersionCancelKillsChildren(t *testing.T) {
+func TestReportsVersionCancellationLetsCommandFinish(t *testing.T) {
 	marks := t.TempDir()
 	started := filepath.Join(marks, "started")
-	beat := filepath.Join(marks, "beat")
+	release := filepath.Join(marks, "release")
+	finished := filepath.Join(marks, "finished")
 	systemPath := os.Getenv("PATH")
-	// The tool stands in for a launcher whose child outlives it unless killed.
-	dir := writeTool(t, "(while :; do echo x >> '"+beat+"'; sleep 0.02; done) &\n"+
-		"touch '"+started+"'\n"+
-		"wait\n")
+	dir := writeTool(t, "touch '"+started+"'\nwhile [ ! -f '"+release+"' ]; do sleep 0.01; done\ntouch '"+finished+"'\n")
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+systemPath)
-
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	done := make(chan error, 1)
-	dep := ReportsVersion(t.TempDir(), "tool")
-	go func() { done <- dep.Verify(ctx) }()
+	go func() { done <- ReportsVersion(marks, "tool").Verify(ctx) }()
 	waitForFile(t, started)
-	waitForFile(t, beat)
 	cancel()
-	if err := <-done; err == nil {
-		t.Fatal("expected error from a cancelled check")
+	select {
+	case err := <-done:
+		t.Fatalf("command exited before release: %v", err)
+	case <-time.After(50 * time.Millisecond):
 	}
-
-	before := fileSize(t, beat)
-	time.Sleep(200 * time.Millisecond)
-	if after := fileSize(t, beat); after != before {
-		t.Fatalf("child still running after cancellation: heartbeat grew from %d to %d bytes", before, after)
+	if err := os.WriteFile(release, nil, 0o600); err != nil {
+		t.Fatal(err)
 	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	waitForFile(t, finished)
 }
 
 func waitForFile(t *testing.T, path string) {
@@ -104,13 +93,4 @@ func waitForFile(t *testing.T, path string) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-}
-
-func fileSize(t *testing.T, path string) int64 {
-	t.Helper()
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return info.Size()
 }

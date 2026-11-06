@@ -58,7 +58,7 @@ func TestStartup_shutdownRejectsLateAttachment(t *testing.T) {
 			a := &shutdownStartupAgent{
 				Client: echo.New(), startGate: make(chan struct{}), stopped: make(chan struct{}),
 			}
-			startInvitedAgent(resolvedAda(s), a, s)
+			startInvitedAgent(resolvedAda(s), a, s, nil)
 			tc.shutdown(s)
 			close(a.startGate)
 			select {
