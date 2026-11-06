@@ -32,7 +32,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("read transcript: %w", err)
 	}
-	if err := serveReplay(os.Stdin, os.Stdout, steps); err != nil {
+	if err := transcript.ServeReplay(os.Stdin, os.Stdout, steps, nil); err != nil {
 		return fmt.Errorf("replay transcript: %w", err)
 	}
 	return nil
