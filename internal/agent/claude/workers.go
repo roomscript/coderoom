@@ -62,7 +62,7 @@ func (c *Client) readStderr() {
 	defer c.lifecycle.readers.Done()
 	err := readLines(c.proc.stderr, func(line []byte) {
 		c.recordStderr(string(line))
-		c.queue.push(logMessage(string(line)))
+		c.queue.push(agent.Message{StreamID: stderrStreamID, Mode: agent.ModeSingle, Content: agent.Log{Text: string(line)}})
 	})
 	c.readFailed("stderr", err)
 }

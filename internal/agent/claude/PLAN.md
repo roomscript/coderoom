@@ -34,7 +34,7 @@ The remaining work is split so that shared changes reach main in small steps ins
 4. **Agent testing**, for both backends. Design: `docs/design/agent-transcripts.md`. Steps, one change each:
    1. **Done.** One-time cleanup to the Codex baseline fixtures (0.163.0); future upgrades retain previous recordings.
    2. **Done.** Standard transcript schema and a backend-neutral `internal/transcript`; one mechanical fixture migration; format and replay details consolidated in `docs/design/agent-transcripts.md`.
-   3. **Designed.** Claude recording and replay (`cmd/claude-record`, `cmd/claude-replay`): capability requirements, scenarios, replay-time binding of prompt uuids, and no `model-interrupt` for Claude. Sub-steps 3.1 to 3.5 in `agent-transcripts.md`; the recording (3.5) runs only when the human asks. Open: whether the runner and collector move into `internal/transcript` (3.2).
+   3. **Designed.** Claude recording and replay (`cmd/claude-record`, `cmd/claude-replay`): capability requirements, scenarios, replay-time binding of prompt uuids, and no `model-interrupt` for Claude. Sub-steps 3.1 to 3.5 in `agent-transcripts.md`; the recording (3.5) runs only when the human asks. Steps 3.1 to 3.3 are implemented: shared replay loop, runner and collector (confirmed by the human), stderr separation and prompt UUID binding. Next: commands, replay test and authoring files (3.4).
 5. **README** (done): Claude Code is listed as a backend.
 6. **Demo** (phase 3 "done when").
 

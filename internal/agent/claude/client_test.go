@@ -312,7 +312,11 @@ func TestRead_stderrAsLog(t *testing.T) {
 	c := startPeer(t, peerNext+"next; echo 'warning: something' >&2; printf '%s\\n' '"+lineInitOK+"'; while next; do :; done")
 
 	msgs := readUntil(t, c, isLog)
-	if log, _ := msgs[len(msgs)-1].Content.(agent.Log); log.Text != "warning: something" {
+	msg := msgs[len(msgs)-1]
+	if !IsStderrLogStream(msg.StreamID) || msg.Mode != agent.ModeSingle {
+		t.Fatalf("stderr message = %+v, want single stderr log", msg)
+	}
+	if log, _ := msg.Content.(agent.Log); log.Text != "warning: something" {
 		t.Errorf("log = %q", log.Text)
 	}
 }

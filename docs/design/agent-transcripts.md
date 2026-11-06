@@ -1,7 +1,7 @@
 # Design: transcript recording and replay for all backends
 
 Status: steps 1 and 2 implemented, 26 October 2026. Step 3 designed,
-6 November 2026; steps 3.1 and 3.2 implemented. Agreed so far: a one-time cleanup
+6 November 2026; steps 3.1 to 3.3 implemented. Agreed so far: a one-time cleanup
 to the Codex baseline, a standard transcript schema, a backend-neutral
 `internal/transcript`, and separate record and replay commands per backend.
 Step 2 includes the review correction that protocol rules belong to the

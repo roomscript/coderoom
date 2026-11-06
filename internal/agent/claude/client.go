@@ -19,8 +19,9 @@ import (
 
 const (
 	// turnStreamID is the anchor returned by Send and flushed on result.
-	turnStreamID = agent.StreamID("claude:turn")
-	logStreamID  = agent.StreamID("claude:log")
+	turnStreamID   = agent.StreamID("claude:turn")
+	logStreamID    = agent.StreamID("claude:log")
+	stderrStreamID = agent.StreamID("claude:stderr")
 	// modelsStreamID carries ModelsListed and ModelSelected.
 	modelsStreamID = agent.StreamID("claude:models")
 

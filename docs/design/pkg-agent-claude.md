@@ -188,8 +188,11 @@ Stream IDs are built from Claude ids and are opaque to consumers.
 | tool call still open at `result` (cut off by an interrupt) | file change: `failed`; command: `ExitCode` -1; then the flush |
 | `system/init`, `system/status`, `rate_limit_event`, `system/thinking_tokens` | dropped (observer only) |
 | `system/permission_denied` | dropped; the decline already shows as a `declined` item |
-| stderr line | `Log` `ModeSingle` |
+| stderr line | `Log` `ModeSingle` on `claude:stderr`; adapter diagnostics use `claude:log` |
 | process exit | `Read()` error |
+
+`IsStderrLogStream` identifies process stderr logs so transcript recording can
+exclude them from expectations: replay peers reproduce protocol stdout only.
 
 The partial `stream_event`s are the primary source for text and reasoning; the
 complete `assistant` message per block is the source for `tool_use` input
