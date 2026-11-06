@@ -47,6 +47,6 @@ Highlights:
 ## Working Agreement
 
 - Make minimal, focused changes aligned with the design docs.
-- Don’t auto-commit; leave staging/commits to the human unless explicitly asked.
+- The human owns staging and commits. “We should commit this” means finish the work, validation, and any requested ticket updates, then leave staging and committing to the human. Only stage or commit when explicitly instructed to perform those Git actions yourself.
 - If a change impacts architecture/UX, update the relevant doc under `docs/` alongside the code.
 

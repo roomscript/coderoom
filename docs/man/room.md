@@ -88,6 +88,19 @@ PgUp and PgDn scroll the request details.
 The separator label shows the current focus. [`/help`](help.md) lists the
 controls in the room.
 
+## Copying text
+
+To copy from the transcript, press Ctrl+O to focus history. Move the cursor to
+the start of the text, select with Shift+arrows, and press Ctrl+C. The
+selection can span more than one screen. Ctrl+G opens the whole transcript in
+`$EDITOR`.
+
+The room uses the mouse wheel to scroll, so a plain mouse drag does not select
+text. Hold Shift while dragging to use the terminal's own selection, then copy
+with the terminal's shortcut (Ctrl+Shift+C in many Linux terminals). Some
+terminals use another modifier key. The terminal copies only what is on
+screen, including borders and line breaks at wrap points.
+
 ## Cancellation and lifetime
 
 [`/cancel`](cancel.md) requests interruption and keeps the participant in the
