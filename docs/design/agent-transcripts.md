@@ -1,12 +1,13 @@
 # Design: transcript recording and replay for all backends
 
-Status: steps 1 and 2 implemented, 26 October 2026. Agreed so far: a one-time cleanup to the Codex baseline,
-a standard transcript schema, a backend-neutral
+Status: steps 1 and 2 implemented, 26 October 2026. Step 3 designed,
+6 November 2026; implementation pending. Agreed so far: a one-time cleanup
+to the Codex baseline, a standard transcript schema, a backend-neutral
 `internal/transcript`, and separate record and replay commands per backend.
-Step 2 includes the review correction
-that protocol rules belong to the backends. The Claude scenario list,
-the handling of Claude's random IDs and the Claude activity detector are
-still open.
+Step 2 includes the review correction that protocol rules belong to the
+backends. Step 3 decides the Claude scenario list, replay-time binding of
+Claude's prompt IDs, and that `model-interrupt` does not apply to Claude
+(see [Claude recording and replay](#claude-recording-and-replay)).
 
 This document is the reference for the shared transcript format, recording
 harness, replay peer and backend boundaries. The standard schema and Codex
@@ -132,7 +133,9 @@ client options and rejects keys it does not know. Replay ignores `options`;
 the recorded steps already contain the behaviour they produced.
 
 Codex options: `ask_for_approval`, `sandbox`, `reasoning_summary`. Claude
-options: none yet; they are added with the scenarios that need them.
+options: `approval`, the decision the recorder gives every approval request
+(`accept`, the default, or `decline`). Further options are added with the
+scenarios that need them.
 
 ### Recording setup and observed settings
 
@@ -336,6 +339,229 @@ sweep cannot validate every scenario's startup configuration.
 
 ---
 
+## Claude recording and replay
+
+Designed on 6 November 2026 from the adapter on main and Claude Code 2.1.304
+(installed). Facts marked "observed" come from the code or earlier live
+checks; "to check" items are settled by the first recording.
+
+### Capability requirements
+
+The `agent.Agent` and `agent.ModelSelector` contracts promise the same
+behaviour for both backends; how each backend delivers it differs. The table
+assigns each behaviour to the coverage that can show it. Replay shows the
+adapter against real protocol traffic; scripted-peer tests show cases that
+are hard to trigger live or depend on timing; live tests show what replay
+cannot see, such as launch arguments.
+
+| Behaviour | Scope | Claude coverage |
+|---|---|---|
+| Start: handshake, catalog, startup settings | both | replay (every case), scripted `TestStart_*`, `TestModels_startup*` |
+| Prompt turn: anchor, streamed output, one anchor flush | both | replay |
+| Failed turn: provider explanation logged before the flush, no `Read` error | both | replay if it can be triggered (`turn-failed`), scripted `TestRead_failedTurnExplanation` |
+| Notice: reply kept out of `Read`, notice anchor flush | both | replay |
+| Reasoning streams, flushed | both, when the model reasons | replay if haiku reasons (`reasoning-streaming`), scripted `TestDecode_reasoning*` |
+| Commands with exit code | both | replay |
+| File changes | both | replay |
+| Approvals: kind, options, accept and decline | both; option sets differ | replay |
+| Approvals: accept for session, cancel | both; Claude maps them to `updatedPermissions` and deny with interrupt | scripted `TestPermission_choices`, live `TestClientLiveAcceptForSession` |
+| Approval withdrawal (turn end, `control_cancel_request`) | Claude mechanism | scripted `TestPermission_withdrawn*`, live `TestClientLiveInterruptPendingApproval` |
+| Interrupt of a prompt turn | both | scripted `TestInterrupt*`, live `TestClientLiveInterrupt*` (see [Interruption](#interruption)) |
+| Model list, select, failed select, settings | both, through `ModelSelector` | replay |
+| Model selection interrupted | Codex only | not applicable to Claude |
+| Self-started turns, unmatched and late replays, process exit, parent cancellation | Claude | scripted |
+| Leading `/` escaped | Claude | scripted `TestSend_escapesLeadingSlash`, live `TestClientLiveSlashPrompt` |
+| Model, system prompt and session ID at launch | Claude launch arguments | unit `TestClaudeArgs`, `TestClientLaunchesWithResumeID`; live `TestClientLiveSessionID` |
+
+Replay cannot see launch arguments: `WithCommand` replaces the whole
+invocation. So Claude gets no `system-prompt` case, unlike Codex, where the
+system prompt is on the wire.
+
+### Scenarios
+
+Fixtures live under
+`internal/agent/claude/testdata/transcripts/<claude-version>/<case>/`. The
+first baseline is the installed version when recording is authorized
+(2.1.304 today). Every case sets `model: haiku` in its header, and prompts
+stay small.
+
+| Case | Authoring | Shows |
+|---|---|---|
+| `turn-text` | prompt: no tools, reply only OK | handshake, prompt ID binding, streamed output, result, anchor flush |
+| `command-approved` | prompt: run `echo hello` with Bash | `can_use_tool`, allow, `Command` with exit code |
+| `file-change-approved` | prompt: create a file with Write | `FileChangeSet`, allow |
+| `file-change-declined` | as above, `options: {approval: decline}` | deny response, failed file change, turn still ends with the flush |
+| `notice-turn-flush` | one notice | notice anchor flush, no visible output |
+| `notice-silent-ack` | notice, then prompt | notice filtered, next prompt admitted after the notice flush |
+| `model-success` | list, prompt, select a second model with an effort, select haiku without effort, settings, prompt | `set_model`, `apply_flag_settings`, `get_settings` readback, the `set_model` local-command replay ignored, effort carried over |
+| `model-failure` | list, `model-select-failed` with an unknown model, settings unchanged, select a listed model | `set_model` error, readback after failure |
+| `turn-failed` | header `model` set to an unknown model, one prompt | provider explanation logged before the flush |
+| `reasoning-streaming` | select an effort that makes haiku reason, then a prompt that needs a short reasoning step | reasoning stream and flush |
+
+`turn-failed` and `reasoning-streaming` are conditional. Each is kept only if
+its first recording shows the behaviour. Otherwise the case is dropped and
+this document records why; scripted tests remain the coverage. To check:
+whether Claude Code rejects an unknown `--model` at startup or fails the
+first turn, and whether haiku emits summarized thinking for a small prompt.
+
+The model names in `model-success`, and the effort, come from the catalog at
+recording time. `model-settings` compares labels, so the authoring files use
+the full IDs that `get_settings` reports. The final prompt in `model-success`
+runs on haiku.
+
+### Generated IDs
+
+Observed in `internal/agent/claude`: the only value the client generates per
+run and sends on the wire is the prompt `uuid` (`newPromptID`, one per `Send`
+or `SendNotice`). Claude echoes it in the prompt's replay, and the client
+claims the turn only on a match.
+
+- The session ID is generated in `New` but sent only as `--session-id`, a
+  launch argument. User lines carry `session_id: "default"`. The client does
+  not read `session_id` from Claude's lines. Replay sends the recorded
+  session ID and the client ignores it, so it needs no handling.
+- Control request IDs the client sends are fixed (`coderoom-init`,
+  `coderoom-settings`) or numbered in send order (`coderoom-set-model-1`), so
+  the same actions produce the same IDs.
+- Claude's own request IDs (`can_use_tool`) come from Claude's lines; the
+  client echoes them, so the recorded values match.
+
+Three ways to handle the prompt uuid:
+
+| Option | Cost |
+|---|---|
+| Inject deterministic IDs in recording and replay | Needs a production option that the recorder uses against the live CLI. Every recording sends the same uuids into the user's Claude session history; whether Claude accepts reused uuids across sessions is unknown. Fixtures stop showing what production sends |
+| Capture and substitute with placeholders in the shared format | Adds a placeholder syntax to every fixture and a second meaning to `match`, for one backend's need |
+| Bind at replay time (**chosen**) | Fixtures keep the recorded values. A backend rule names the generated values in each outbound line; the shared peer substitutes them in later lines |
+
+Contract, in `internal/transcript`:
+
+```go
+// BindReplayValues returns the values in one outbound line that the client
+// generates per run, as pairs of recorded value and the value the replayed
+// client sent. expected is the recorded match, actual the line received.
+// It must not mutate its inputs or perform I/O. Values it does not return
+// are matched as recorded.
+type BindReplayValues func(expected, actual map[string]any) (map[string]string, error)
+
+// ServeReplay plays steps against a client on stdin and stdout. bind may be
+// nil.
+func ServeReplay(stdin io.Reader, stdout io.Writer, steps []Step, bind BindReplayValues) error
+```
+
+`ServeReplay` keeps one binding table per run:
+
+1. For a `recv` step, it decodes the client line, calls `bind`, and adds the
+   pairs. The table is one to one: a recorded value already bound to a
+   different actual value, or an actual value already bound to a different
+   recorded value, is an error, and so is an empty recorded or actual value.
+   Values generated per run are unique by nature, so a collision means the
+   client reused one. Without this check, a client that reused a prompt uuid
+   would have a late replay of an earlier prompt rewritten to the pending
+   prompt's uuid, and the replay could still pass.
+2. It substitutes the bindings into the expected match, then matches as
+   today. Substitution replaces JSON string values equal to a recorded value,
+   at any depth. Object keys and substrings are not touched.
+3. For a `send` step, it substitutes the bindings into the message before
+   writing it.
+
+`ServeReplay` reads client lines with no length limit, as the Claude
+adapter's `readLines` does. The current loop's `bufio.Scanner` stops at
+64 KiB, and an approval answer echoes the tool input (`updatedInput`), which
+can hold a whole file. Removing the limit only relaxes Codex replay. Lines
+the peer writes need no change: the JSON encoder has no limit, and both
+clients read without one.
+
+Claude's rule, `claude.BindReplayIDs`: when the expected line has
+`type: user` and a string `uuid`, and the actual line has a string `uuid`,
+bind the first to the second. Nothing else is bound. A late replay of a
+released prompt maps to that prompt's own uuid, and the `set_model`
+local-command replay, which carries Claude's fresh uuid, passes through
+unchanged. Codex passes `nil`.
+
+Claude needs no match rule: `transcript.NewObserver(nil)` matches outbound
+lines in full. The proof is the replay itself: it runs a fresh client with
+new uuids, so it passes only if every other outbound field reproduces.
+
+If the adapter later reads the session ID from Claude's lines (for example
+to check the `system/init` echo from #25), binding cannot cover it, because
+the session ID never appears in an outbound line. That change would revisit
+this decision.
+
+### Interruption
+
+**`model-interrupt` does not apply to Claude.** A Codex selection runs an
+acknowledgement turn, which `turn/interrupt` can stop, so `ModelActions`
+waits for the turn to start before interrupting. A Claude selection is only
+control requests (`set_model`, `apply_flag_settings`, `get_settings`): no
+turn runs, `Interrupt` is a no-op while the exchange holds the gate
+(`isIdle` sees no turn and no pending prompt), and the exchange has no
+cancellation by design (`pkg-agent-claude-models.md`). There is no event that
+makes interruption safe, because there is nothing to interrupt.
+
+So the Claude recorder and the Claude replay test reject `model-interrupt`,
+as the recorder rejects a header `effort`. Claude needs no activity detector:
+both pass `transcript.NewTurnActivityObserver(nil, nil)` to `ModelActions`,
+which never signals and is never waited on.
+
+Interrupting a prompt turn stays with scripted and live tests. Neither
+backend has a transcript action for it, and adding one is a shared feature
+outside this step. If one is added later, the safe point for Claude is the
+replay of our prompt (`type: user`, `isReplay: true`, not local-command
+output). Before that, the interrupt may reach Claude before the turn starts,
+and the prompt stays pending until `Interrupt` releases it after a turn end.
+
+### Recording environment
+
+- The recorder runs the real `claude` from a temporary directory
+  (`claude-record-*`) with the adapter's normal launch arguments and
+  environment. It reads `claude --version` and refuses to record into a
+  version directory with a different name: Claude Code is not pinned.
+- Personal configuration loads, as agreed for the adapter. User allow rules
+  can remove an approval a scenario expects. The approval cases are checked
+  by the human when reviewing the fixture (`expect.approvals` not empty).
+- **Personal data.** Observed in the spike recordings: the `initialize`
+  answer carries the account `email` and `organization`, and `system/init`
+  carries home directory paths and the user's plugins and skills. The
+  recorder redacts before writing: string values of the keys `email` and
+  `organization` become `<redacted>`, and the home directory prefix in any
+  string becomes `~`. The same function applies to every step in both
+  directions and to every string in `expect`, so echoed values still match
+  and replay output equals the expectations. The adapter reads none of these
+  fields. Plugin and skill names are not redacted; the human reviews
+  fixtures before committing them.
+- **Stderr.** Observed: the adapter logs stderr lines on `claude:log`, the
+  stream of its own logs. Replay has no Claude stderr, so a recording that
+  counted them would not replay. The adapter moves stderr lines to
+  `claude:stderr` and exports `claude.IsStderrLogStream`, like Codex; the
+  recorder leaves them out of `expect.log`. Nothing outside the package keys
+  on either stream ID.
+
+### Shared recording and replay code
+
+Two pieces of Codex code are backend-neutral but private to Codex:
+
+- the replay loop in `cmd/codex-replay/serve.go`;
+- the action runner and the collector that turns agent messages into
+  `Expect`: in `cmd/codex-record` for recording, and again in
+  `internal/agent/codex/replay_test.go` for replay, with stream lifecycle
+  checks. They use only `agent.Agent`, `agent.Message` and approvals.
+
+The replay loop moves into `internal/transcript` as `ServeReplay` (above);
+`cmd/codex-replay` calls it with `nil`.
+
+**Recommended, needs confirmation:** move the runner and the collector into
+`internal/transcript`, and switch Codex recording and replay to them in the
+same change, before any Claude code. The caller supplies the notice anchor,
+a log filter (`IsStderrLogStream`), and a path normalizer (the recording
+directory). The Codex replay suite, unchanged, proves the move. The
+alternative is to copy about 500 lines into the Claude recorder and replay
+test, which then need updating with every `Expect` change. The move touches
+Codex test code beyond the schema change, which the non-goals above excluded
+for step 2; it is a move with no behaviour change.
+
+---
+
 ## Implementation steps
 
 Each step is a separate change, so each stays easy to review.
@@ -392,41 +618,99 @@ Verify:
 
 ### 3. Claude recording and replay
 
-- `cmd/claude-record` and `cmd/claude-replay` on top of `internal/transcript`.
-- A Claude match rule and activity detector in `internal/agent/claude`.
-- `internal/agent/claude/testdata/transcripts/<claude-version>/`.
-- A replay test in `internal/agent/claude`, using `WithCommand`.
-- Recording uses the installed Claude Code version, haiku, and runs only when
-  the human asks.
+Design: [Claude recording and replay](#claude-recording-and-replay). Each
+sub-step is a separate change. Sub-steps 3.1 to 3.4 need no live run; 3.5
+records live and runs only when the human asks.
 
-Verify: the Claude replay suite runs in `make test` without Claude Code
-installed; `go list -deps` for the Claude test package shows no
-`internal/agent/codex`.
+**3.1 Shared replay loop and binding.**
+
+- Move `serveReplay` into `internal/transcript` as `ServeReplay` with the
+  `BindReplayValues` parameter, and move its tests. `cmd/codex-replay` calls
+  it with `nil`.
+- Table tests with synthetic lines: no binding; a bound value substituted into
+  a later match and a later send; nested values; a value that only contains a
+  bound string as a substring is left alone; a recorded value rebound to a
+  different actual value fails; two recorded values bound to one actual
+  value fail; an empty actual value fails.
+- A replay test with a client line longer than 64 KiB.
+
+Verify: `make test`; the Codex replay suite passes unchanged.
+
+**3.2 Shared runner and collector** (if confirmed).
+
+- Move the prompt and notice runner, the collector and the expectation
+  assertions into `internal/transcript`, with the caller-supplied notice
+  anchor, log filter and path normalizer.
+- Switch `cmd/codex-record` and `internal/agent/codex/replay_test.go` to them
+  and delete their copies.
+
+Verify: Codex fixtures are unchanged, the Codex replay and model transcript
+suites pass, and `internal/transcript` still names no protocol method or
+message type.
+
+**3.3 Claude adapter seams.**
+
+- Stderr lines go to `claude:stderr`; export `claude.IsStderrLogStream`.
+- Export `claude.BindReplayIDs` with a table test: a user line binds its
+  uuid; a control response, a user line without `uuid`, and an actual line
+  without `uuid` bind nothing; inputs are not mutated.
+- Update `docs/design/pkg-agent-claude.md` for the stderr stream.
+
+Verify: `make test`; existing Claude tests pass with the stream change.
+
+**3.4 `cmd/claude-record`, `cmd/claude-replay` and the replay test.**
+
+- `claude-record [<claude-version> [<test-case>]]`, selecting cases as
+  `codex-record` does. It checks the installed version against the selected
+  directory, rejects a header `effort`, `model-interrupt` actions and unknown
+  options, converts `approval` into the listener's decision, records with
+  `transcript.NewObserver(nil)`, redacts, and writes `backend: claude`.
+- `claude-replay --transcript <path>` calls `ServeReplay` with
+  `claude.BindReplayIDs`.
+- `internal/agent/claude/replay_test.go` (`package claude_test`) discovers
+  every retained version, runs `claude-replay` through `WithCommand`, replays
+  approval decisions from `expect.approvals`, uses the notice anchor
+  `claude:notice-turn`, and rejects `model-interrupt`.
+- Unit tests for the recorder's option and header validation and for
+  redaction, both directions, including an echoed value.
+- Authoring files for the scenarios in the version directory.
+
+Like the Codex suite, the replay test fails when it finds no fixture, so it
+does not pass vacuously. 3.4 and 3.5 therefore reach main together; the code
+can be reviewed before the recording, but `make test` passes only once the
+fixtures exist.
+
+Verify: `make lint`; the recorder and replay command unit tests pass.
+
+**3.5 Recording (on request).** Record every case on haiku with the
+installed version, drop the conditional cases that do not show their
+behaviour, and update this document with what the recording showed.
+
+Verify:
+
+- The Claude replay suite runs in `make test` without Claude Code installed
+  (for example with `PATH` stripped of `claude`).
+- `go list -deps -test ./internal/agent/claude` shows no
+  `internal/agent/codex`.
+- No fixture contains the account email, organization or home directory.
+- Approval cases have nonempty `expect.approvals`, with `decline` in
+  `file-change-declined`.
+- Every recorded replay of our prompt carries the uuid the client sent in the
+  preceding user line (the binding is exercised, not bypassed).
 
 ---
 
 ## Open questions
 
-These are for step 3 and do not block steps 1 and 2.
+1. **Shared runner and collector** (step 3.2). Confirm moving them into
+   `internal/transcript` and switching Codex in the same change, or choose
+   per-backend copies.
+2. **Conditional cases.** Whether `turn-failed` and `reasoning-streaming` can
+   be recorded is settled by the first recording (step 3.5).
 
-1. **Capability requirements.** Which behaviours the `agent.Agent` contract
-   promises, marked "both backends" or "backend-specific". The Claude
-   scenarios follow from that list. A candidate first set: success, failure
-   with a provider explanation, interrupt, approval allow and deny, notice,
-   model change. Self-started turns and unmatched replays stay with the
-   scripted-peer tests, since they are hard to trigger reliably live.
-2. **Random IDs.** The Claude client generates a session ID (`--session-id`,
-   echoed in `system/init`) and a uuid per prompt, and matches the prompt's
-   replay by that uuid. A replay peer sending the recorded uuid would not
-   match the new one. Options: inject the IDs in the replay test (a seam for
-   prompt IDs exists as `newPromptID`), or teach the matcher to capture a
-   value from a received line and substitute it into later sent lines.
-   Claude's `request_id` values come from Claude's own lines, so the client
-   only echoes them and they should need neither. To check against a real
-   recording.
-3. **Claude version in the path.** Claude Code is not pinned. The directory
-   name is the version that recorded the baseline. Recording on a newer version
-   creates a new directory and retains the previous one until explicit cleanup.
-4. **Claude activity detector.** Which received line shows that a Claude model
-   selection is in progress and can be interrupted, or whether
-   `model-interrupt` applies to Claude at all. Decide with the scenario list.
+Resolved on 6 November 2026: the capability requirements and scenarios, the
+generated IDs (replay-time binding; the session ID needs nothing), the
+version directory (the installed version that recorded the baseline; newer
+versions get a new directory and the previous one is retained), and
+interruption (`model-interrupt` does not apply to Claude; no activity
+detector).

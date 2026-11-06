@@ -4,7 +4,7 @@ The working plan for the Claude Code backend. Written on 15 October 2026; kept n
 
 ## Status
 
-Updated on 24 October 2026.
+Updated on 6 November 2026.
 
 - Phase 1 (spike): **done.** Report: `docs/playground/poc-claude-stream-json.md`. Playground: `playground/claude-stream-json/`.
 - Integration approach: **decided.** Direct integration with the claude CLI over stream-json from Go (option A below), the same pattern as Codex app-server.
@@ -14,7 +14,7 @@ Updated on 24 October 2026.
 - Register Claude: **done.** `claude` is a valid backend.
 - Since registration, on main: replays matched to prompts by uuid, runtime model and effort selection (#71), provider explanations on failed turns, and participant details on join and in `/who` (#25, #24).
 - README: **done.** It lists Claude Code as a backend.
-- Agent testing: **next.** The adapter has scripted-peer unit tests and live integration tests, but no recorded transcript replay suite.
+- Agent testing: **steps 1 and 2 done; step 3 designed** (6 November 2026), implementation next. The adapter has scripted-peer unit tests and live integration tests, but no recorded transcript replay suite yet.
 
 ## Merge order
 
@@ -32,9 +32,9 @@ The remaining work is split so that shared changes reach main in small steps ins
    - **Done.** `Stop` during `Start` may race with the fields `Start` sets. Confirmed by reading, but no caller does it: the session attaches an agent only after `Start` returns. Documented as unsupported; cancelling the parent context aborts a start, and a test covers that.
    - **Done.** Missing tests: the process exiting mid-turn while a listener is blocked; parent context cancellation.
 4. **Agent testing**, for both backends. Design: `docs/design/agent-transcripts.md`. Steps, one change each:
-   1. One-time cleanup to the Codex baseline fixtures (0.163.0); future upgrades retain previous recordings.
-   2. Standard transcript schema and a backend-neutral `internal/transcript`; one mechanical fixture migration; format and replay details consolidated in `docs/design/agent-transcripts.md`.
-   3. Claude recording and replay (`cmd/claude-record`, `cmd/claude-replay`), after the capability requirements and the handling of random IDs are decided.
+   1. **Done.** One-time cleanup to the Codex baseline fixtures (0.163.0); future upgrades retain previous recordings.
+   2. **Done.** Standard transcript schema and a backend-neutral `internal/transcript`; one mechanical fixture migration; format and replay details consolidated in `docs/design/agent-transcripts.md`.
+   3. **Designed.** Claude recording and replay (`cmd/claude-record`, `cmd/claude-replay`): capability requirements, scenarios, replay-time binding of prompt uuids, and no `model-interrupt` for Claude. Sub-steps 3.1 to 3.5 in `agent-transcripts.md`; the recording (3.5) runs only when the human asks. Open: whether the runner and collector move into `internal/transcript` (3.2).
 5. **README** (done): Claude Code is listed as a backend.
 6. **Demo** (phase 3 "done when").
 
