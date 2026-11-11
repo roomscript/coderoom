@@ -3,6 +3,14 @@
 Status: **implemented**, registered as backend `claude`. Decisions agreed on
 16 October 2026 are marked **Decided**. Evidence: `docs/playground/poc-claude-stream-json.md` (E1 to E10).
 
+Completed on 11 November 2026. The completion criterion was a room with
+Codex and Claude participants running a `/loop … /until` with Claude as
+builder and as reviewer. It was met by the human's daily mixed use of both
+backends and a Claude loop run, on Claude Code 2.1.304, with the live
+integration tests and the live scenario sweep passing. The temporary
+implementation plan was retired at that point; its lasting content is here
+and in [Testing](#testing).
+
 The adapter was built in `internal/agent/claude` without changes to other
 packages. Backend selection and registration came after it
 (`multi-backend-config.md`). [Changes outside the package](#changes-outside-the-package)
@@ -32,8 +40,8 @@ Three options were considered:
 
 The cost of the chosen option is that stream-json is an SDK-level protocol, not
 a documented standalone interface. Only the installed Claude Code version is
-targeted; version pinning comes later, and replay transcripts record the
-version so shape changes are caught.
+targeted; version pinning comes later. The live scenario sweep catches
+changes in a new version (see [Testing](#testing)).
 
 ### Invocation
 
@@ -340,6 +348,24 @@ cheap; none of these has a role in a room. Broader isolation stays with #59.
 
 ---
 
+## Testing
+
+| Layer | Runs in | Shows |
+|---|---|---|
+| Scripted-peer unit tests | `make test` | cases that are hard to trigger live or depend on timing: self-started turns, unmatched and late replays, process exit, cancellation |
+| Transcript replay | `make test` | the adapter against recorded protocol traffic, without Claude Code installed (`agent-transcripts.md`) |
+| Hand-written live tests (`integ_live_test.go`) | `make test-integration-claude` | one contract each, strictly: launch arguments, tool surface, session ID, exit codes, files on disk, accept for session, cancel, interrupts, slash prompts |
+| Live scenario sweep (`integ_transcripts_test.go`) | `make test-integration-claude` | a long session holding up, and drift of the installed CLI from the recorded fixtures, loosely |
+
+The sweep makes no assertion a hand-written live test already makes; a new
+contract that needs live coverage gets a hand-written test.
+
+Live runs (integration tests, recording, demos) use the human's Claude login
+and quota. They run only when the human asks, on haiku with small prompts;
+a stronger model is used only when haiku cannot show the behaviour.
+
+---
+
 ## Remaining gaps and risks
 
 1. **Bash exit code:** parsed from the `Exit code N` text of failed results,
@@ -354,20 +380,28 @@ cheap; none of these has a role in a room. Broader isolation stays with #59.
    listener. (Codex treats tools as violations only in keepalive turns, which
    this adapter does not have.)
 4. **Version drift:** Claude Code auto-updates (2.1.300 → 2.1.301 overnight).
-   Record the version in transcripts; replay tests catch shape changes.
+   Replay only covers recorded versions; the live scenario sweep shows when
+   the installed version has moved and the fixtures need re-recording.
 5. **Permission behaviour differs:** read-only commands auto-approve; path
    checks can override allow rules (E9, open question 5). Documented, not
    mapped.
+6. **Personal configuration:** plugins, MCP servers, skills and memory load
+   from the user's setup, as with Codex, and allow rules change which tools
+   ask for approval. Real isolation belongs to the sandbox work (#59);
+   `--safe-mode` is a known option, not used because it drops the project
+   `CLAUDE.md` (E9).
+7. **Files outside the project:** an approved `ExitPlanMode` writes its plan
+   under `~/.claude/plans/`, outside the room.
 
 ---
 
 ## Changes outside the package
 
-Needed for the phase 3 "done when" or for full fidelity.
+Needed for the completion criterion or for full fidelity.
 
 | Change | Package | Why | Adapter-only fallback |
 |---|---|---|---|
 | Select the Claude backend on `/invite` | `config`, `internal/agent/registry`, `session`, `cmd/coderoom` | **Done:** the `backend` field in the participant config, shown wherever the participant appears (invite line, `/who`). See `multi-backend-config.md`. An `/invite` flag can be added later as an override | not needed |
-| Transcript recording and replay | `internal/transcript` (backend-neutral schema, no Codex import); new `cmd/claude-record` and `cmd/claude-replay` | phase 3 replay fixtures. **Decided 24 October 2026:** separate commands per backend on a shared neutral package, replacing the earlier `agent-record` decision. See `agent-transcripts.md` | a test helper inside the package |
+| Transcript recording and replay | `internal/transcript` (backend-neutral schema, no Codex import); new `cmd/claude-record` and `cmd/claude-replay` | **Done:** replay fixtures and the live scenario sweep. Separate commands per backend on a shared neutral package (decided 24 October 2026). See `agent-transcripts.md` | not needed |
 | Question approvals (free-form options, answers in the decision) | `agent` (`ApprovalRequest`/`ApprovalDecision`), `session`, `ui` | structured `AskUserQuestion` (later, optional) | disallowed; the model asks in its reply (above) |
 | Agent-initiated turns | `agent` (a way to signal one), `session` (accept output while idle, mark the participant working) | background work and cron | prevent + defend (above) |

@@ -404,8 +404,7 @@ With `EchoInvites` on, both show `echo`, which is what actually runs.
 
 ## Delivery
 
-Small steps to main, each leaving it working (see
-`internal/agent/claude/PLAN.md`):
+Small steps to main, each leaving it working:
 
 1. `agent.Agent` gains `Name()`; `agent.ExternalDependencies` and
    `agent.Dependency` are added; Codex implements both, echo and test fakes
