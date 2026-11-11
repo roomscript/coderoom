@@ -49,4 +49,5 @@ Highlights:
 - Make minimal, focused changes aligned with the design docs.
 - The human owns staging and commits. “We should commit this” means finish the work, validation, and any requested ticket updates, then leave staging and committing to the human. Only stage or commit when explicitly instructed to perform those Git actions yourself.
 - If a change impacts architecture/UX, update the relevant doc under `docs/` alongside the code.
+- `docs/for-humans/` holds stable summaries written for the human. Do not edit, add or delete files there without discussing the change with the human first, even when code or other docs change; point out what became stale and propose wording instead. Rules: `docs/for-humans/README.md`.
 
