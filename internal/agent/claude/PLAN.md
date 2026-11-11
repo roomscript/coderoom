@@ -4,7 +4,7 @@ The working plan for the Claude Code backend. Written on 15 October 2026; kept n
 
 ## Status
 
-Updated on 6 November 2026.
+Updated on 11 November 2026.
 
 - Phase 1 (spike): **done.** Report: `docs/playground/poc-claude-stream-json.md`. Playground: `playground/claude-stream-json/`.
 - Integration approach: **decided.** Direct integration with the claude CLI over stream-json from Go (option A below), the same pattern as Codex app-server.
@@ -14,7 +14,7 @@ Updated on 6 November 2026.
 - Register Claude: **done.** `claude` is a valid backend.
 - Since registration, on main: replays matched to prompts by uuid, runtime model and effort selection (#71), provider explanations on failed turns, and participant details on join and in `/who` (#25, #24).
 - README: **done.** It lists Claude Code as a backend.
-- Agent testing: **steps 1 and 2 done; step 3 designed** (6 November 2026), implementation next. The adapter has scripted-peer unit tests and live integration tests, but no recorded transcript replay suite yet.
+- Agent testing: **steps 1 to 3 done.** The adapter has scripted-peer unit tests, live integration tests and ten recorded transcript fixtures with offline replay coverage.
 
 ## Merge order
 
@@ -34,7 +34,7 @@ The remaining work is split so that shared changes reach main in small steps ins
 4. **Agent testing**, for both backends. Design: `docs/design/agent-transcripts.md`. Steps, one change each:
    1. **Done.** One-time cleanup to the Codex baseline fixtures (0.163.0); future upgrades retain previous recordings.
    2. **Done.** Standard transcript schema and a backend-neutral `internal/transcript`; one mechanical fixture migration; format and replay details consolidated in `docs/design/agent-transcripts.md`.
-   3. **Designed.** Claude recording and replay (`cmd/claude-record`, `cmd/claude-replay`): capability requirements, scenarios, replay-time binding of prompt uuids, and no `model-interrupt` for Claude. Sub-steps 3.1 to 3.5 in `agent-transcripts.md`; the recording (3.5) runs only when the human asks. Steps 3.1 to 3.3 are implemented: shared replay loop, runner and collector (confirmed by the human), stderr separation and prompt UUID binding. Next: commands, replay test and authoring files (3.4).
+   3. **Implemented.** Claude recording and replay (`cmd/claude-record`, `cmd/claude-replay`), with shared replay, action and collection code in `internal/transcript`, backend-owned prompt UUID binding and stderr separation. Ten live 2.1.304 fixtures cover text, notices, commands, file changes, approval accept/decline, model changes, summarized reasoning and failed-turn explanations. Steps 3.1 to 3.5 in `agent-transcripts.md` are complete; replay runs offline in the normal unit suite.
 5. **README** (done): Claude Code is listed as a backend.
 6. **Demo** (phase 3 "done when").
 

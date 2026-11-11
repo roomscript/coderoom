@@ -1,8 +1,9 @@
 # Design: transcript recording and replay for all backends
 
 Status: steps 1 and 2 implemented, 26 October 2026. Step 3 designed,
-6 November 2026; steps 3.1 to 3.3 implemented. Agreed so far: a one-time cleanup
-to the Codex baseline, a standard transcript schema, a backend-neutral
+6 November 2026; steps 3.1 to 3.5 implemented, including ten live Claude
+2.1.304 fixtures. Agreed so far: a one-time cleanup to the Codex baseline,
+a standard transcript schema, a backend-neutral
 `internal/transcript`, and separate record and replay commands per backend.
 Step 2 includes the review correction that protocol rules belong to the
 backends. Step 3 decides the Claude scenario list, replay-time binding of
@@ -11,7 +12,7 @@ Claude's prompt IDs, and that `model-interrupt` does not apply to Claude
 
 This document is the reference for the shared transcript format, recording
 harness, replay peer and backend boundaries. The standard schema and Codex
-migration in step 2 are implemented; Claude recording and replay remain step 3.
+migration in step 2 and Claude recording and replay in step 3 are implemented.
 
 ---
 
@@ -325,7 +326,7 @@ codex-record [<codex-version> [<test-case>]]
 codex-replay --transcript <path>
 ```
 
-Recording with no arguments selects every case under the fixture root; one
+Codex recording with no arguments selects every case under the fixture root; one
 argument selects a version; two select one case. The version pin identifies
 the supported live CLI. Replay discovers every retained version. Upgrade
 comparison reads high-level expectations; it does not compare incidental raw
@@ -343,7 +344,8 @@ sweep cannot validate every scenario's startup configuration.
 
 Designed on 6 November 2026 from the adapter on main and Claude Code 2.1.304
 (installed). Facts marked "observed" come from the code or earlier live
-checks; "to check" items are settled by the first recording.
+checks. The first recording confirmed both conditional scenarios, as documented
+in Scenarios below.
 
 ### Capability requirements
 
@@ -381,14 +383,14 @@ system prompt is on the wire.
 
 Fixtures live under
 `internal/agent/claude/testdata/transcripts/<claude-version>/<case>/`. The
-first baseline is the installed version when recording is authorized
-(2.1.304 today). Every case sets `model: haiku` in its header, and prompts
-stay small.
+first baseline was recorded on 2.1.304. Every case except `turn-failed` sets
+`model: haiku` in its header; `turn-failed` uses an unknown model to exercise
+the failure path. Prompts stay small.
 
 | Case | Authoring | Shows |
 |---|---|---|
 | `turn-text` | prompt: no tools, reply only OK | handshake, prompt ID binding, streamed output, result, anchor flush |
-| `command-approved` | prompt: run `echo hello` with Bash | `can_use_tool`, allow, `Command` with exit code |
+| `command-approved` | prompt: run `echo hello > command-output.txt` with Bash | `can_use_tool`, allow, `Command` with exit code |
 | `file-change-approved` | prompt: create a file with Write | `FileChangeSet`, allow |
 | `file-change-declined` | as above, `options: {approval: decline}` | deny response, failed file change, turn still ends with the flush |
 | `notice-turn-flush` | one notice | notice anchor flush, no visible output |
@@ -398,16 +400,34 @@ stay small.
 | `turn-failed` | header `model` set to an unknown model, one prompt | provider explanation logged before the flush |
 | `reasoning-streaming` | select an effort that makes haiku reason, then a prompt that needs a short reasoning step | reasoning stream and flush |
 
-`turn-failed` and `reasoning-streaming` are conditional. Each is kept only if
-its first recording shows the behaviour. Otherwise the case is dropped and
-this document records why; scripted tests remain the coverage. To check:
-whether Claude Code rejects an unknown `--model` at startup or fails the
-first turn, and whether haiku emits summarized thinking for a small prompt.
+Both initially conditional cases are retained. Claude Code accepted an unknown
+`--model` at startup, then failed the first turn with a provider explanation
+and the anchor flush, without a `Read` error. Haiku at high effort emitted
+summarized reasoning and a flush for the short arithmetic question.
 
 The model names in `model-success`, and the effort, come from the catalog at
 recording time. `model-settings` compares labels, so the authoring files use
 the full IDs that `get_settings` reports. The final prompt in `model-success`
 runs on haiku.
+
+Steps 3.4 and 3.5 are implemented with ten authoring scenarios and live
+recordings under `2.1.304`. The installed catalog confirmed haiku and sonnet,
+their full model IDs and high effort support. `model-failure` first selects
+haiku with high effort so the failed selection has a known settings baseline.
+All model turns run on haiku; the sonnet selection is control traffic only.
+
+Recording observations:
+
+- The initial prompt hit the account session limit. That response was discarded
+  rather than retained as a successful `turn-text` baseline. Recording resumed
+  after the limit reset and produced the expected `OK` output.
+- Plain `echo hello` was auto-approved. The command case now redirects its
+  output into `command-output.txt` in the temporary recording directory, which
+  triggered a command approval. All three approval cases have recorded
+  decisions, including `decline` for `file-change-declined`.
+- Every replay of our prompt retains its recorded outbound UUID; the fresh
+  replay client's UUID is bound at runtime. Account email and organization
+  fields are redacted, and the home directory is absent from every fixture.
 
 ### Generated IDs
 
@@ -524,9 +544,10 @@ and the prompt stays pending until `Interrupt` releases it after a turn end.
   answer carries the account `email` and `organization`, and `system/init`
   carries home directory paths and the user's plugins and skills. The
   recorder redacts before writing: string values of the keys `email` and
-  `organization` become `<redacted>`, and the home directory prefix in any
-  string becomes `~`. The same function applies to every step in both
-  directions and to every string in `expect`, so echoed values still match
+  `organization` become `<redacted>`, and the home directory in any
+  string becomes `~` only when it is the whole string or followed by `/`.
+  The same function applies to every step in both directions and to every
+  string in `expect`, so echoed values still match
   and replay output equals the expectations. The adapter reads none of these
   fields. Plugin and skill names are not redacted; the human reviews
   fixtures before committing them.
@@ -663,10 +684,13 @@ Verify: `make test`; existing Claude tests pass with the stream change.
 
 **3.4 `cmd/claude-record`, `cmd/claude-replay` and the replay test.**
 
-- `claude-record [<claude-version> [<test-case>]]`, selecting cases as
-  `codex-record` does. It checks the installed version against the selected
-  directory, rejects a header `effort`, `model-interrupt` actions and unknown
-  options, converts `approval` into the listener's decision, records with
+- `claude-record [<claude-version> [<test-case>]]`: no arguments select the
+  installed version's directory only; one argument selects that version's
+  cases; two select one case. Older directories remain replay inputs and
+  cannot be recorded with a newer CLI. It checks the installed version against
+  the selected directory, rejects a header `effort`, `model-interrupt` actions
+  and unknown options, converts `approval` into the listener's decision,
+  records with
   `transcript.NewObserver(nil)`, redacts, and writes `backend: claude`.
 - `claude-replay --transcript <path>` calls `ServeReplay` with
   `claude.BindReplayIDs`.
@@ -705,11 +729,7 @@ Verify:
 
 ## Open questions
 
-1. **Shared runner and collector** (step 3.2). Confirm moving them into
-   `internal/transcript` and switching Codex in the same change, or choose
-   per-backend copies.
-2. **Conditional cases.** Whether `turn-failed` and `reasoning-streaming` can
-   be recorded is settled by the first recording (step 3.5).
+None for step 3. Both conditional cases were recorded and retained.
 
 Resolved on 6 November 2026: the capability requirements and scenarios, the
 generated IDs (replay-time binding; the session ID needs nothing), the

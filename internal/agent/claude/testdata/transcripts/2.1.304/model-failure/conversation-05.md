@@ -1,0 +1,3 @@
+kind: model-select
+---
+haiku
