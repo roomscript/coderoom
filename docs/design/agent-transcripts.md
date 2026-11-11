@@ -2,7 +2,8 @@
 
 Status: steps 1 and 2 implemented, 26 October 2026. Step 3 designed,
 6 November 2026; steps 3.1 to 3.5 implemented, including ten live Claude
-2.1.304 fixtures. Agreed so far: a one-time cleanup to the Codex baseline,
+2.1.304 fixtures. Step 3.6, a live scenario sweep, designed on 11 November
+2026; implemented, live run pending. Agreed so far: a one-time cleanup to the Codex baseline,
 a standard transcript schema, a backend-neutral
 `internal/transcript`, and separate record and replay commands per backend.
 Step 2 includes the review correction that protocol rules belong to the
@@ -584,6 +585,78 @@ actions; `Collector` builds recording expectations and `CheckExpectations`
 checks replay messages and stream lifecycles. `CollectorOptions` supplies the
 notice anchor, ignored-log predicate and path normalizer.
 
+### Live scenario sweep
+
+Designed on 11 November 2026. Replay tests the adapter against old
+recordings, so it cannot notice that the Claude CLI changed. Claude Code is
+not pinned and updates itself, so the CLI can change without an upgrade
+decision. The sweep runs the recorded scenarios against the installed CLI and
+answers two questions:
+
+- **Does a long session hold up?** Recordings start a fresh client per case,
+  so replay never shows state carried across many turns: notices followed by
+  approvals, prompts admitted right after a flush.
+- **Has Claude's behaviour moved from the fixtures?** Each case is compared
+  with its recording, so a failure says the fixtures need re-recording or the
+  adapter needs a fix.
+
+It is `TestClientLiveTranscriptScenarios` in
+`internal/agent/claude/integ_transcripts_test.go`, behind the `integration`
+build tag, so it runs with `make test-integration-claude`. It writes no
+fixtures.
+
+**Baseline.** The newest retained version directory, compared numerically.
+The test logs the installed CLI version and the baseline version; a mismatch
+alone is not a failure, since detecting its effects is the point.
+
+**Sessions.** A case joins one shared session when it has no model actions
+and its header matches the shared session's: `model: haiku`, no system
+prompt. Every other case runs in a fresh session started with its own header.
+On the current baseline:
+
+| Session | Cases |
+|---|---|
+| shared | `turn-text`, `command-approved`, `file-change-approved`, `file-change-declined`, `notice-turn-flush`, `notice-silent-ack` |
+| one each | `model-success`, `model-failure`, `reasoning-streaming` (model actions), `turn-failed` (unknown model) |
+
+The rule uses the case contents, not names, so new cases are placed without
+changing the test. Cases run in fixture order. Each session has its own
+temporary working directory; the shared-session cases write different files.
+
+**Approvals.** One listener per session gives each request the decision of
+the running case's `approval` option (default `accept`), and records the
+requests. The decision changes only between cases, when no turn runs.
+
+**Checks.** Each case runs its actions through `transcript.RunActions` with a
+collector, as recording does. Strict, because they do not depend on the
+model:
+
+- no `Read` error, and every action reaches its anchor flush;
+- model actions meet their contract (`ModelActions`), including
+  `model-settings` labels. A changed model ID fails here and means the
+  fixture needs re-recording;
+- the test rejects `model-interrupt` and a header `effort`, as the recorder
+  does.
+
+Loose, because they depend on the model: the collected expectations are
+compared with the fixture's using `transcript.CompareUpgradeOutputs`, which
+checks only that each kind of behaviour the recording showed is still
+present (output, logs, commands, file changes, notice flushes, approvals),
+not text or counts. In the shared session, reasoning is left out of the
+comparison: whether Claude reasons depends on session state, which differs
+from the recording's fresh session. Cases in their own session compare
+reasoning too.
+
+**Ownership against the hand-written live tests.** The hand-written tests in
+`integ_live_test.go` each check one contract strictly, such as exit codes,
+files on disk, recall of a notice, cancel and interrupts. The sweep checks
+session health and drift, loosely. Neither replaces the other. The sweep gets
+no assertion that a hand-written test already makes; a new contract that
+needs live coverage gets a hand-written test, not a stricter sweep.
+
+**Cost.** About ten small haiku turns per run, plus control traffic for the
+model cases.
+
 ---
 
 ## Implementation steps
@@ -724,6 +797,25 @@ Verify:
   `file-change-declined`.
 - Every recorded replay of our prompt carries the uuid the client sent in the
   preceding user line (the binding is exercised, not bypassed).
+
+**3.6 Live scenario sweep.** Design:
+[Live scenario sweep](#live-scenario-sweep).
+
+- `internal/agent/claude/integ_transcripts_test.go` with
+  `TestClientLiveTranscriptScenarios`, using the shared runner, collector
+  and `CompareUpgradeOutputs`. Reuse the existing live test helpers in
+  `integ_shared_test.go` where they fit.
+- Session grouping, the per-case approval decision and the shared-session
+  reasoning exclusion as designed.
+- Failure messages name the case, the baseline version and the installed
+  version.
+
+Verify:
+
+- `make test-integration-lint`, and `make test` is unaffected.
+- One live run, only when the human asks, passes on the installed version.
+  The test log shows each case's session and the two versions.
+- The hand-written live tests are unchanged.
 
 ---
 

@@ -14,7 +14,7 @@ Updated on 11 November 2026.
 - Register Claude: **done.** `claude` is a valid backend.
 - Since registration, on main: replays matched to prompts by uuid, runtime model and effort selection (#71), provider explanations on failed turns, and participant details on join and in `/who` (#25, #24).
 - README: **done.** It lists Claude Code as a backend.
-- Agent testing: **steps 1 to 3 done.** The adapter has scripted-peer unit tests, live integration tests and ten recorded transcript fixtures with offline replay coverage.
+- Agent testing: **recording and replay done; live scenario sweep implemented** (11 November 2026), live run pending. The adapter has scripted-peer unit tests, live integration tests and ten recorded transcript fixtures with offline replay coverage.
 
 ## Merge order
 
@@ -35,6 +35,7 @@ The remaining work is split so that shared changes reach main in small steps ins
    1. **Done.** One-time cleanup to the Codex baseline fixtures (0.163.0); future upgrades retain previous recordings.
    2. **Done.** Standard transcript schema and a backend-neutral `internal/transcript`; one mechanical fixture migration; format and replay details consolidated in `docs/design/agent-transcripts.md`.
    3. **Implemented.** Claude recording and replay (`cmd/claude-record`, `cmd/claude-replay`), with shared replay, action and collection code in `internal/transcript`, backend-owned prompt UUID binding and stderr separation. Ten live 2.1.304 fixtures cover text, notices, commands, file changes, approval accept/decline, model changes, summarized reasoning and failed-turn explanations. Steps 3.1 to 3.5 in `agent-transcripts.md` are complete; replay runs offline in the normal unit suite.
+   4. **Implemented; live run pending.** Live scenario sweep (step 3.6 in `agent-transcripts.md`): the recorded scenarios run against the installed CLI in `make test-integration-claude`, checking long-session health and drift from the fixtures. The hand-written live tests stay.
 5. **README** (done): Claude Code is listed as a backend.
 6. **Demo** (phase 3 "done when").
 

@@ -22,5 +22,7 @@ tooling. This lists only where their behaviour differs.
 7. **Your configuration.** Your Claude allow rules decide which tools ask for
    approval, so they change what a recording contains. Codex recordings do not
    depend on your configuration this way.
-8. **Upgrade comparison.** Only Codex has a tool that compares a new version's
-   recordings with the previous baseline.
+8. **Detecting a new CLI version's changes.** Codex compares a new
+   version's recordings with the previous baseline when upgrading. Claude
+   compares a live run of the scenarios with the fixtures on every
+   integration run, because its CLI updates without an upgrade step.
