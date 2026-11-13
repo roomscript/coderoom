@@ -1,6 +1,8 @@
 # Approval noise: observed causes and proposed direction
 
-Status: analysis and proposal, 2026-11-11. No runtime policy changes.
+Status: analysis with initial implementation, 2026-11-11. Historical observations
+and estimates below are retained. Implemented behavior, replay results and
+limitations are documented in approval-policy-test-cases.md.
 
 ## Evidence
 
@@ -188,7 +190,11 @@ expansions to discover what a command means. Git diff/show need trusted
 execution configuration (external diff, textconv and pagers can run programs).
 
 
-## Agreed GET decision policy
+## Agreed GET policy (implemented)
+
+The implementation now invokes local Gitleaks for supported GET inputs. See
+approval-policy-test-cases.md for the active algorithm, backend cwd/redirect
+limitations, validation evidence and role-independent replay totals.
 
 Gitleaks is an optional runtime dependency, discovered when GET approval is
 requested. If missing, ask the human. If installed, a complete clean scan

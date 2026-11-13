@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -13,6 +14,49 @@ import (
 
 	"github.com/roomscript/coderoom/internal/agent"
 )
+
+func TestApprovalEvidencePreservesFullInput(t *testing.T) {
+	raw := []byte(`{"tool_name":"Bash","input":{"command":"echo ` + strings.Repeat("x", 300) + `"},"unknownSafetyField":{"expansion":"host"}}`)
+	var tool canUseTool
+	if err := json.Unmarshal(raw, &tool); err != nil {
+		t.Fatal(err)
+	}
+	req := approvalRequestFor(tool)
+	commandOperation, ok := req.Details.Operation.(agent.CommandOperation)
+	if !ok {
+		t.Fatal("expected command operation")
+	}
+	if string(req.Details.Raw) != string(raw) || len(commandOperation.Command) <= 160 {
+		t.Fatal("full action evidence was shortened or lost")
+	}
+	if len(req.Ask) >= len(commandOperation.Command) {
+		t.Fatal("fixture does not exercise shortened presentation")
+	}
+}
+
+func TestApprovalOperationNormalization(t *testing.T) {
+	for _, tt := range []struct {
+		tool, input string
+		want        agent.Operation
+	}{
+		{"Read", `{"file_path":"/project/file"}`, agent.FileOperation{Paths: []string{"/project/file"}, AllTargetsKnown: true}},
+		{"Write", `{"file_path":"/project/file","content":"data"}`, agent.FileOperation{Paths: []string{"/project/file"}, Write: true, AllTargetsKnown: true}},
+		{"Edit", `{"file_path":"/project/file"}`, agent.FileOperation{Paths: []string{"/project/file"}, Write: true, AllTargetsKnown: true}},
+		{"WebFetch", `{"url":"https://example.com"}`, agent.HTTPOperation{Method: "GET", URL: "https://example.com", FollowsRedirects: true}},
+		{"Read", `{"file_path":"relative"}`, nil},
+		{"WebSearch", `{}`, nil},
+	} {
+		t.Run(tt.tool+tt.input, func(t *testing.T) {
+			req := approvalRequestFor(canUseTool{ToolName: tt.tool, Input: json.RawMessage(tt.input)})
+			if !reflect.DeepEqual(req.Details.Operation, tt.want) {
+				t.Fatalf("operation = %+v; want %+v", req.Details.Operation, tt.want)
+			}
+			if req.Details.Backend != "claude" || req.Details.Tool != tt.tool || len(req.Details.Raw) == 0 {
+				t.Fatal("approval metadata lost")
+			}
+		})
+	}
+}
 
 // fakeListener answers with a fixed decision and records the requests.
 type fakeListener struct {

@@ -180,6 +180,38 @@ func TestApprovalHub_ConcurrentRequestsPublishIncreasingApprovalIDs(t *testing.T
 	}
 }
 
+func TestApprovalHubObserverCanResolveReentrantly(t *testing.T) {
+	var hub *approvalHub
+	hub = newApprovalHub(func(event Event) {
+		if e, ok := event.(ApprovalRequested); ok {
+			if hub.resolve(e.ID, agent.OptionAcceptForSession) {
+				t.Error("accepted an option that was not offered")
+			}
+			if !hub.resolve(e.ID, agent.OptionAccept) {
+				t.Error("reentrant resolution failed")
+			}
+		}
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		decision, err := hub.request(ctx, participant.Alias{}, approvalRequest("approve"))
+		if err == nil && decision.Choice != agent.OptionAccept {
+			err = fmt.Errorf("unexpected choice %q", decision.Choice)
+		}
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-ctx.Done():
+		t.Fatal("observer deadlocked under approval lock")
+	}
+}
+
 func startApprovalDecision(ctx context.Context, t *testing.T, listener agent.ApprovalListener, ask string) <-chan agent.ApprovalDecision {
 	t.Helper()
 	done := make(chan agent.ApprovalDecision, 1)

@@ -331,11 +331,40 @@ Rules:
 
 Controls what each agent is permitted to do at the session level:
 
-- File write permissions (based on role)
+- Independently configured capabilities and permissions
 - Initiative behaviour enforcement
 - Risk boundary checks
 
 Filesystem and network constraints are enforced by the Sandbox Controller at the OS level, not by the Policy Engine intercepting CLI behaviour.
+
+`internal/approval` evaluates one typed file, shell or HTTP operation and returns
+an explicit Approve, Decline or Review outcome with a stable redacted reason.
+Files retain project containment and protected/ignored-write checks. Approval
+decisions are independent of participant role; separately configured capability
+enforcement remains unchanged. The
+mvdan shell parser validates every branch of the supported literal read-command
+subset, contained cd and supported wrappers. Local executable, environment and
+Git configuration checks are active in the default application wiring; unsupported
+syntax, unknown cwd or startup behavior goes to human review.
+
+GET screening invokes optional local Gitleaks with bounded input/time, isolated
+configuration and redacted results. Capability discovery supports both modern
+stdin and Ubuntu detect --pipe; version formatting does not gate eligibility.
+Raw/decoded inline suppression markers decline as incomplete validation.
+Missing installation means review; a complete
+clean scan approves once; findings and validation failures decline. Screening
+covers URL data and explicit outbound inputs, not proof of all implicit backend
+traffic. Dynamic data and uninspectable redirects remain incomplete validation.
+The evaluator never executes candidate shell commands or sends candidate HTTP.
+
+Session supplies project scope and cancellation, translates
+outcomes into backend responses, records reasons and scanner identity, and
+retains its single FIFO human queue. Adapters own normalization and protocol
+responses. Claude Bash currently lacks current-cwd evidence; WebFetch exposes
+no redirect interception. These concrete limitations do not disable supported
+Codex shell requests or literal nonredirecting curl GETs. Queue observers run
+outside locks through an ordered publication drain. See
+approval-policy-test-cases.md for exact arguments, checks, replay and open work.
 
 ---
 

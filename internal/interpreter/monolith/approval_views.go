@@ -15,6 +15,7 @@ func approvalFromAgent(id int64, alias participant.Alias, request agent.Approval
 		Alias:   alias,
 		Kind:    ApprovalKind(request.Kind),
 		Prompt:  request.Ask,
+		Details: string(request.Details.Raw),
 		Options: options,
 	}
 }

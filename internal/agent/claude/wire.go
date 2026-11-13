@@ -1,6 +1,9 @@
 package claude
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"fmt"
+)
 
 // Wire types for the stream-json protocol. Only the fields the adapter uses
 // are declared. Lines are decoded in two steps: envelope first, then the
@@ -125,6 +128,19 @@ type canUseTool struct {
 	Input                 json.RawMessage   `json:"input"`
 	PermissionSuggestions []json.RawMessage `json:"permission_suggestions"`
 	ToolUseID             string            `json:"tool_use_id"`
+	// Raw preserves unknown safety/permission evidence for policy and inspection.
+	Raw json.RawMessage `json:"-"`
+}
+
+func (t *canUseTool) UnmarshalJSON(data []byte) error {
+	type plain canUseTool
+	var value plain
+	if err := json.Unmarshal(data, &value); err != nil {
+		return fmt.Errorf("parse tool permission: %w", err)
+	}
+	*t = canUseTool(value)
+	t.Raw = append(json.RawMessage(nil), data...)
+	return nil
 }
 
 type controlCancelLine struct {

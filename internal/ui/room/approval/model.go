@@ -41,6 +41,9 @@ func (m Model) SelectedOption() (interpreter.ApprovalChoice, bool) {
 // Set sets the approval prompt and options and resets selection to 0.
 func (m Model) Set(req interpreter.Approval) Model {
 	m.ask = req.Prompt
+	if req.Details != "" {
+		m.ask += "\n" + req.Details
+	}
 	m.options = append([]interpreter.ApprovalOption(nil), req.Options...)
 	m.selected = 0
 	m.requestTop = 0

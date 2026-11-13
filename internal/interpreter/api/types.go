@@ -50,10 +50,12 @@ type ApprovalOption struct {
 
 // Approval is the active application-level approval request.
 type Approval struct {
-	ID      int64
-	Alias   participant.Alias
-	Kind    ApprovalKind
-	Prompt  string
+	ID     int64
+	Alias  participant.Alias
+	Kind   ApprovalKind
+	Prompt string
+	// Details retains full backend action evidence for the scrollable prompt.
+	Details string
 	Options []ApprovalOption
 }
 

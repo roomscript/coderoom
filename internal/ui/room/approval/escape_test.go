@@ -71,6 +71,10 @@ func TestView_escapesUntrustedText(t *testing.T) {
 					interpreter.Approval{Prompt: tt.raw, Options: []interpreter.ApprovalOption{{ID: "accept"}}},
 					tt.shown + "\n\n> accept",
 				},
+				"evidence": {
+					interpreter.Approval{Prompt: "approve?", Details: tt.raw, Options: []interpreter.ApprovalOption{{ID: "accept"}}},
+					"approve?\n" + tt.shown + "\n\n> accept",
+				},
 				"label": {
 					interpreter.Approval{Prompt: "approve?", Options: []interpreter.ApprovalOption{{ID: "custom", Label: tt.raw}}},
 					"approve?\n\n> " + tt.shown,

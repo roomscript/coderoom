@@ -1,203 +1,253 @@
-# Approval policy: initial validation cases
+# Approval policy: implementation and validation
 
-Status: proposed cases, 2026-11-11. These are expected decisions, not executed
-tests. Production behavior is unchanged. Companion: approval-noise-analysis.md.
+Status: shell and local GET validation implemented, 2026-11-12. Presentation
+redesign remains separate. `internal/approval` evaluates one typed operation;
+Session translates its explicit Approve, Decline or Review result into backend
+choices. Review enters the existing FIFO human queue. Automatic approval is
+always once, never a session-wide backend rule.
 
-## Decision contract
+## Implementation map
 
-Classify the whole received action as accept-once, decline or needs-review.
-The GET policy below can decline automatically. In the
-tables, Review means decline automatic approval, not deny the user's action.
-Unknown syntax, missing context, unsupported options and exceeded parser
-limits require review. Return a stable reason and the offending component.
-Never execute commands, substitutions or HTTP requests during classification.
+- `internal/agent/approvals.go`: sealed file, command and HTTP operation values.
+  Adapters retain full raw requests independently from shortened display text.
+- `internal/approval/policy.go`: evaluation dispatch and stable redacted results.
+- `files.go`, `ignored.go`: existing containment and protected/ignored
+  write behavior, including hard-link restrictions, unchanged by shell work.
+- `shell.go`, `shell_read.go`, `shell_git.go`: mvdan Bash AST parsing, literal
+  arguments, complete branch validation, cwd propagation and local execution facts.
+- `get.go`, `gitleaks.go`: outbound-input screening and bounded local scanner.
+- `internal/session/approval_policy.go`: backend choice mapping,
+  reason/version/config audit, cancellation and the existing approval listener.
 
-Initial shell vocabulary: cat, grep, ls, head, echo, git show, git diff,
-git status, plus cd to a contained project directory. Validate arguments and
-paths, not just executable names. Input includes full command, cwd and project
-root. Trusted executable resolution and execution configuration are prerequisites
-to auto-approval: a repository executable named cat is not the system utility.
+Default application construction enables this policy with the project root.
+There are no shell/Git trust switches that leave the feature permanently off.
+The evaluator never runs a candidate command, performs an expansion or sends a
+candidate HTTP request. It runs only fixed Git metadata queries and Gitleaks.
 
-Accept pipelines, sequential lists, && and || only if every branch passes,
-including branches that appear unreachable. Track cd through each branch;
-when cwd differs on possible paths, validate subsequent paths against every
-possible cwd or require review. Initially reject loops, functions, assignments,
-background jobs, redirections, substitutions, globs and unsupported shell
-constructs. Literal quoted metacharacters are ordinary arguments.
+## File decisions
 
-Peel known shell wrappers with a real syntax parser and a bounded recursion
-depth. A non-login wrapper with supported flags and exactly one literal command
-is eligible. Login shells may execute startup files: the logged zsh -lc form
-needs an explicitly trusted startup environment before it can qualify. Do not
-drop shell flags, positional arguments or environment changes to make it match.
+Require all targets, project root and cwd. Resolve symlinks and nearest existing
+ancestors for new writes; reject traversal and project escapes. Existing targets
+must be regular files. Existing writes need a known single hard link. Approval
+decisions do not depend on participant role; independently configured capability
+enforcement is unchanged. Protected names (AGENTS.md and .git components,
+case-insensitive), ignored writes and failed ignore checks
+retain their existing review behavior. Reads do not gain new protected-path
+restrictions. Session fills only missing file cwd; it never invents shell cwd.
 
-For examples below, cwd is /project; all named project files exist and are
-regular files, directories contain no escaping symlinks, executable resolution
-is trusted, and Git has trusted configuration without external commands. Git
-status additionally needs optional index writes suppressed if enforcing a
-strict read-only role. Shell file writes via redirection remain review-only in
-this first iteration; structured file operations have their own containment rule.
+## Supported shell grammar
 
-## Commands expected to auto-approve
+Parse at most 128 KiB and unwrap at most eight literal shell wrappers. Support
+pipelines, lists, && and || only when all executed branches are covered. Even a
+branch that looks unreachable must pass. Reject assignments, substitutions,
+variables, globs, loops, functions, redirections, background jobs, negation and
+unsupported constructs/options. Single-quoted metacharacters remain text.
+Conservative literal parsing also rejects unquoted backslash escapes, braces,
+tildes and equals expansion syntax; unsupported does not mean dangerous.
 
-| Command | Reason |
+Track successful cd across &&. Pipeline directories do not escape their child
+shell. If OR or a following list statement could see different cwd states,
+require review. Existing directories must resolve inside the project. File
+operands must resolve to contained regular files; ls also permits directories.
+Recursive directory traversal is unsupported.
+
+| Command | Supported arguments |
 |---|---|
-| `ls` | List project cwd |
-| `ls -la docs` | Supported listing options, contained operand |
-| `cat docs/design.md` | Contained file read |
-| `grep -n -e 'approval' docs/design.md` | Literal search |
-| `head -n 40 docs/design.md` | Bounded read |
-| `git status --short` | Supported status form |
-| `git diff --stat` | Supported diff form |
-| `git diff --cached -- docs/design.md` | Supported staged inspection |
-| `git show HEAD:docs/design.md` | Supported object inspection |
-| `echo 'checking approval policy'` | Literal output |
-| `echo '$(rm -rf .)'` | Single quotes make substitution literal |
-| `echo 'a; b > c'` | Quoted punctuation is data |
-| `cat docs/design.md \| head -n 20` | Both pipeline commands pass |
-| `ls docs && head -n 20 docs/design.md` | Both commands pass |
-| `git status --short; git diff --stat; echo done` | Entire list passes |
-| `grep -n -e approval docs/design.md \| head -n 10; git diff --stat` | Pipeline and following command pass |
-| `grep -q -e approval docs/design.md \|\| echo absent` | Both conditional branches pass |
-| `cd docs && ls && head -n 20 design.md` | Cwd stays contained |
-| `/bin/sh -c 'git status --short && git diff --stat'` | Supported literal wrapper |
-| `/bin/bash -c '/bin/sh -c "ls docs"'` | Supported bounded nesting |
+| cat | -n, -b, -s, --, contained files; no files means stdin |
+| grep | -n, -i, -q, -F, -E, -v, -c; -e literal pattern; --; contained files |
+| ls | combinations of l, a, h, t, d, 1; --; contained files/directories |
+| head | -n followed by a positive integer up to 100000; --; contained files |
+| echo | literal arguments; no leading option or backslash interpretation |
+| cd | exactly one literal contained directory, no options |
+| git status | --short, --porcelain, -- followed by contained paths |
+| git diff/show | --stat, --cached, --staged, --name-only, --name-status, --no-ext-diff, --no-textconv; -- followed by contained paths |
+| git show | additionally HEAD and HEAD:contained-file |
 
-Markdown escapes around pipe characters are presentation only; fixture strings
-must contain actual pipe characters.
+Unknown Git revisions/options require review. This is deliberately an explicit
+subset, not a claim about every read-like Git command.
 
-## Commands expected to require review
+Executable lookup must resolve to installed utilities under /usr/bin, /bin or
+the system coreutils directory /usr/lib/cargo/bin/coreutils, with regular,
+non-group/world-writable targets. A project executable named cat does not pass.
+Shell builtins are handled explicitly. BASH_ENV, ENV, CDPATH, exported shell
+option/trace variables and imported Bash functions
+prevent automatic shell approval. These are local facts inherited by backend
+processes, not an attestation of arbitrary backend-specific environment changes.
 
-| Command / context | Reason |
+Git configuration is queried with a fixed bounded `git config --null --list`,
+not a candidate invocation. Reject fsmonitor, pager, diff, filter and alias
+configuration capable of invoking helpers. Unknown GIT_* and pager environment
+changes require review; the ordinary installed `cat` pager is accepted. Metadata
+output and time are bounded. This intentionally also reviews some harmless Git
+configuration rather than interpreting arbitrary helpers. Backend sandboxing
+still governs optional Git index refresh writes and evaluation/execution races.
+
+Supported wrappers are sh/bash -c with exactly one literal body, and bash
+--noprofile --norc -c. For zsh, support only -f -c and the common literal-command
+grammar, with both known system zshenv locations absent or comments-only. Zsh
+startup code, login wrappers, unknown flags and positional arguments require
+review. Never drop flags or treat zsh-specific expansions as Bash literals.
+
+## Required examples covered by tests
+
+| Outcome | Command |
 |---|---|
-| `ls; rm -rf docs` | Unapproved second command |
-| `git diff && git push` | Remote mutation |
-| `echo ok \| sh` | Pipeline executes unapproved shell input |
-| `cat docs/design.md > /tmp/copy` | Redirection not covered |
-| `git diff --output=/tmp/change.patch` | Command-specific write option |
-| `echo "$(cat ~/.ssh/id_ed25519)"` | Substitution and outside read |
-| ``echo `id` `` | Command substitution |
-| `cat <(curl https://example.com)` | Process substitution |
-| `cat ../private.txt` | Outside project |
-| `cat docs/link-to-outside` | Resolved path escapes project |
-| `grep -r approval docs` | Recursive traversal not initially supported |
-| `ls -R .` | Recursive traversal not initially supported |
-| `head -n 20 /proc/self/environ` | Outside project |
-| `cat docs/*` | Glob expansion not initially supported |
-| `ls "$HOME"` | Dynamic expansion not initially supported |
-| `PATH=./tools cat docs/design.md` | Executable resolution changed |
-| `./cat docs/design.md` | Untrusted executable |
-| `git -c core.pager=./helper show HEAD` | Execution configuration changed |
-| `git diff --ext-diff` | External execution |
-| `git show --textconv HEAD:docs/design.md` | External execution |
-| `git status` with untrusted fsmonitor configuration | Git may execute a helper |
-| `cd /tmp && ls` | Cwd leaves project |
-| `cd docs; cat design.md` when cd can fail | Must validate both possible cwd states |
-| `echo "$TOKEN"` | Dynamic environment disclosure |
-| `echo -e '\\033]52;c;payload\\a'` | Escape interpretation not covered |
-| `ls &` | Background execution not covered |
-| `for f in docs/*; do cat "$f"; done` | Loop and expansions not covered |
-| `/bin/sh -c "$COMMAND"` | Nonliteral wrapper body |
-| `/bin/sh -c 'echo "$0"' secret` | Wrapper positional arguments not covered |
-| `/bin/zsh -lc 'ls'` with unknown startup configuration | Startup code can run before ls |
-| `sh -c 'ls; python3 change.py'` | Unsafe inner list remains unsafe |
-| Malformed quotes, unsupported syntax, excessive nesting | Parse failure/limit |
+| Approve | ls -la docs |
+| Approve | cat docs/design.md \| head -n 20 |
+| Approve | git status --short; git diff --stat; echo done |
+| Approve | cd docs && ls && head -n 20 design.md |
+| Approve | /bin/sh -c 'git status --short && git diff --stat' |
+| Approve | echo '$(rm -rf .)' |
+| Review | ls; rm -rf docs |
+| Review | git diff && git push |
+| Review | echo ok \| sh |
+| Review | git diff --output=/tmp/change.patch |
+| Review | echo "$(cat ~/.ssh/id_ed25519)" |
+| Review | outside-project reads, escaping symlinks, unsupported wrappers |
 
-## HTTP GET leak screening
+Markdown pipe escapes are presentation only. Fixtures use actual pipelines.
+Filesystem/environment fixtures establish positive facts; Session tests also
+exercise all six approval examples through WithApprovalPolicy, without a
+permissive test-only policy or scanner configuration.
 
-Decision agreed with the user: Gitleaks is an optional runtime dependency,
-checked when a GET approval request arrives. coderoom remains usable without
-it; do not install or download it automatically.
+## GET algorithm
 
-1. Identify a GET request and obtain the complete outbound request evidence.
-2. Check whether the local Gitleaks executable is installed.
-3. If missing, use the existing human approval flow. Record why manual approval
-   was requested.
-4. If installed, validate locally with Gitleaks. A completed scan with no
-   findings auto-approves once. A finding or an unsuccessful validation
-   declines the request. Record the approval or decline reason.
+Check installation on each GET. Missing Gitleaks means Review
+(get.scanner_missing). Installed and successfully clean means Approve once
+(get.scan_clean). Findings decline (get.secret_detected). Launch errors,
+unsupported scanner capabilities or malformed reports decline (get.scanner_error); bounded
+scanner timeout declines (get.scanner_timeout). Incomplete/dynamic data,
+unsupported redirects and size/decode limits decline (get.validation_incomplete).
+Cancellation is separate: Session returns no stale decision.
 
-“Gitleaks approves” means a successfully completed scan with no findings,
-not a textual recommendation from the scanner. Distinguish findings from
-execution failures. Timeout, launch failure after discovery, unsupported
-version, malformed result, input truncation or decoding/size limits are
-validation failures and decline; they do not silently become clean results or
-fall back to a prompt. Only a missing installation takes the manual path.
+Screen the reported URL and all explicit headers/body inputs. This fulfills URL
+leak screening; it does not require proof of implicit backend headers or all
+backend traffic. HTTPOperation explicitly marks dynamic inputs and redirects.
+Claude WebFetch follows redirects without exposing the next target, so installed
+Gitleaks cannot produce a completed validation for that tool. Without Gitleaks
+it still uses the human queue. A nonredirecting structured GET can pass.
 
-The user explicitly accepts secret-scanner coverage as the GET decision
-criterion to reduce approval exhaustion. A clean result is sufficient for this
-GET rule; there is no additional destination allowlist or subjective model
-review gate. This supersedes the earlier proposed destination-policy gate.
-It does not claim that every secret or confidential value can be detected,
-or that every GET endpoint is free of side effects.
+Recognize literal curl GET under supported wrappers and compositions: -s/-S/-f
+and long forms, -X/--request GET, -H/--header literal headers, and one URL. Retain
+all duplicate header values for scanning. -L/--location marks incomplete
+validation. Header-file input is incomplete; other curl flags/effects require
+review. Dynamic curl data never executes to discover its value. Curl config
+must be absent in known HOME/CURL_HOME/XDG locations, or disabled by a first
+-q/--disable. Config files can otherwise add uninspected uploads or redirects.
+No candidate curl process is run.
 
-Gitleaks supports stdin, recursive decoding and redacted output. Source:
-https://github.com/gitleaks/gitleaks#usage. Supply raw and bounded decoded
-request components, including host, path, query and outbound headers. Do not
-execute expansions to discover a URL or credentials. Missing/dynamic evidence
-cannot yield a completed validation: with Gitleaks installed, decline with
-get.validation_incomplete. Scan output goes through a structured adapter;
-validate supported version/exit/report semantics in tests.
+Feed raw JSON, raw URL, headers/body and bounded URL/HTML/base64 decoded variants
+through scanner stdin. Limit combined input to 128 KiB and decoding to three
+levels. Discover scanner functionality through bounded local help queries:
+prefer `gitleaks stdin`, otherwise use `gitleaks detect --pipe`. Require explicit
+config, JSON report, redaction and findings-exit-code support. Use boolean
+`--redact` with either CLI; pass optional suppression-disable/native-decode flags
+only when advertised. Native decoding requires suppression-disable support;
+bounded application decoding applies to both profiles.
 
-Use application-owned scanner configuration, independent of repository rules,
-ignore files, inline suppression and inherited configuration overrides. Bound
-input and execution time. Feed candidates through stdin; never use an external
-scanning service. Findings and audit records must not disclose candidate
-secrets. The tool version, rule configuration identity and decode limit must
-be recorded so a clean result has an inspectable meaning.
+Version formatting is not an eligibility gate. Record a recognizable version
+when available, otherwise `unavailable`; never audit arbitrary version output.
+Record gitleaks-default-v2-decode3-no-inline-allow and the selected stdin or
+detect-pipe profile with the outcome. Use
+application-owned configuration extending the scanner's built-in default rules,
+independent of repository rules, .gitleaksignore, inline allows or inherited
+GITLEAKS_* variables. Raw and decoded input containing `gitleaks:allow`
+(case-insensitive) declines with get.validation_incomplete before scanning. This
+conservative restriction applies even to harmless occurrences: old scanners can
+suppress findings based on this marker and have no disable flag. Never treat a
+suppressed clean result as approval. Modern suppression-disable flags provide
+additional protection when supported.
 
-Authorize only the request that was validated. Redirected requests need their
-own validation before dispatch. If a transport cannot expose a redirect before
-following it, automatic validation is incomplete. Shell parsing still checks
-additional effects: a GET combined with file output, another command or an
-upload does not make the entire shell action eligible automatically.
+Request bytes never appear in scanner process arguments. A scanner executable
+resolving inside the candidate project is rejected rather than executing repo code.
 
-| Condition | Decision | Reason code |
-|---|---|---|
-| Gitleaks absent | Human approval | get.scanner_missing |
-| Installed, complete successful scan, no findings | Accept once | get.scan_clean |
-| Installed, detected secret in URL or headers | Decline | get.secret_detected |
-| Installed, detected encoded secret | Decline | get.secret_detected |
-| Installed, launch/runtime failure or incompatible version | Decline | get.scanner_error |
-| Installed, scanner timeout | Decline | get.scanner_timeout |
-| Installed, incomplete request, unsupported redirect or scan limit | Decline | get.validation_incomplete |
-| Clean GET plus unsupported shell effects | Human review of whole action | shell.unsupported_effect |
+The scanner runs in a private temporary directory with isolated HOME/config,
+redacted report flags, a three-second deadline, bounded stdout/report reads and
+discarded stderr. Exit 0 requires a valid empty JSON array for approval. Exit
+42/findings, mismatched exit/report semantics or invalid reports never approve.
+Cancellation kills the process group and waits for the child; scratch files are
+removed. The scanner is never installed automatically and no external scanning
+service, destination allowlist or model risk gate is involved.
 
-Each automatic decision records participant/request correlation, GET method,
-redacted request identity, decision, reason code, scanner version/configuration
-identity and, for findings, rule IDs with redacted locations. Display a compact
-nonblocking reason in activity history; retain inspectable details without raw
-URLs, tokens or headers. Human decisions after scanner_missing retain the
-existing approval lifecycle and record their human origin.
+## Validation and replay
 
-Keep evaluation before the Session pending queue; missing-scanner requests
-join the existing FIFO queue, and automatic responses return through the same
-listener. Adapters retain response correlation. Scanner work must be bounded
-and cancellation-aware, outside Session locks; cancellation/shutdown stops the
-scanner, reaps its child process and sends no stale approval. Do not add a
-second pending approval queue. A cancellation is not a scanner denial; record
-it separately if auditing abandoned evaluations.
+Tests cover required shell outcomes, executable/configuration facts, containment,
+identical file decisions across builder, reviewer, architect, documenter, tester
+and unspecified roles, GET missing/clean/finding/failure/malformed/timeout/incomplete
+cases, encoded and
+explicit inputs, actual fake-executable invocation, cancellation and Session
+shutdown. Tests never execute candidate commands or send candidate HTTP traffic.
 
-## Verification plan
+Private replay input stays outside the repository. 519 extracted requests were
+available. Use reported Codex cwd; Claude Bash has no current cwd evidence, so
+neither launch cwd nor an embedded cd is treated as complete backend evidence.
+Participant roles are not approval inputs and require no replay assumptions.
 
-Implement table-driven decision tests from these cases, then add parser-specific
-adversarial variants: quoting, escaped newlines, comments, separators, wrapper
-flags, option abbreviations, positional arguments and nested contexts. Check
-reason codes and offending component, not error-string text. Cover every GET
-decision-table row with fake scanner outcomes, plus raw/encoded synthetic
-secrets, configuration isolation, redaction, cancellation and child cleanup. All tests classify
-strings without running their contents or making network requests.
+| Requests | Approve | Decline | Review |
+|---:|---:|---:|---:|
+| 519 | 162 | 0 | 357 |
 
-Use filesystem fixtures separately for containment, symlinks, nonexistent write
-targets, protected paths and path changes. Classification alone cannot prevent
-a symlink/config/script changing between decision and execution; runtime sandbox
-enforcement must retain that boundary.
+Reasons: file.project_contained 162; file.protected 3;
+file.ignored_or_unknown 1; file.path_unvalidated 1; shell.cwd_unvalidated 197;
+shell.startup_unvalidated 153; policy.evidence_incomplete 2. No scanner decision
+was reached in this historical corpus: the literal GET occurs inside a login wrapper.
 
-Replay the extracted 519 requests offline, producing counts and a redacted list
-of accept/review reasons. Manually inspect all new accepts; compare policies with
-only one rule changed at a time. Keep raw private log content outside the repo.
-Do not infer actual safety from agreement with historical human responses.
+Sanitized representatives: Approve `Edit <project>/docs/<file>`;
+Review `/bin/zsh -lc '<script>'`, `Bash '<script>' (cwd unknown)`, and
+`Edit <project>/AGENTS.md`. There is no Decline representative.
+These use the current historical project filesystem and local execution facts;
+they do not establish historical filesystem state or successful execution.
 
-Runnable prototype scope has been proposed to the user separately: playground
-only, no command execution or HTTP, no production integration. Await that scope
-agreement before writing prototype code. Record findings under docs/playground.
+The replay test accepts CODEROOM_APPROVAL_REPLAY and CODEROOM_APPROVAL_REPLAY_ROOT.
+It prints only record numbers, outcomes and redacted reasons. Earlier role-based
+replay analysis in the restart/review notes is superseded by these results.
+
+Checks for the role-independent change passed: race-enabled approval, Session,
+Claude and Codex tests; repository lint (zero issues); branding; and diff whitespace
+validation. The public Session role table covers identical reads, writes and
+protected/ignored/outside paths for all listed roles. No separate capability
+enforcement, shell or Gitleaks behavior changed.
+
+Earlier implementation checks: `go test ./...` and `make pre-commit` (branding,
+goleak, lint and the full race suite) passed. An earlier full-race handoff timeout
+passed five targeted reruns and the final full suite. Build passed. No live
+backend integration tests were run.
+
+The installed Ubuntu Gitleaks 8.16.0-1build2 was tested through the real evaluator
+with fabricated input only. Its version output is a build placeholder; capability
+detection selects detect-pipe and records version unavailable. An ordinary URL
+approves; synthetic raw/base64 tokens decline as findings; raw, percent/base64
+encoded and explicit header/body suppression markers decline as incomplete
+validation. No HTTP is sent and the package does not need replacing. These
+checks supersede the earlier version-gated smoke failure and are separate from
+the 519 historical requests. Fake executables test both CLI profiles and failure
+semantics without depending on an installed scanner.
+
+Run only the local-scanner integration test with:
+`go test -tags integration ./internal/approval -run '^TestInstalledGitleaksGET$' -v`.
+It skips when Gitleaks is absent and never executes a candidate command or HTTP.
+Compatibility validation passed: full unit suite, focused approval/Session race
+tests, scanner-only integration tests with the race detector, regular and
+integration-tag lint (zero issues), branding, goleak and diff whitespace checks.
+A broader Session integration invocation was stopped and is not counted as
+completed validation.
+
+## Specific open work
+
+- Claude Bash lacks authoritative per-request cwd and may persist cd across
+  calls. The smallest useful backend improvement is reporting actual cwd with
+  each approval, not assigning launch cwd in Session.
+- WebFetch needs a nonredirecting mode or an interceptable redirect request to
+  complete validation beyond its first URL. Implicit headers alone do not
+  disable ordinary GET screening.
+- Login shells need inspectable/trusted startup behavior. Zsh installations
+  with executable system startup configuration remain review-only; portable
+  discovery of custom compile-time zshenv locations is not implemented.
+- Filesystem, executable, environment and Git facts are checked before approval;
+  the existing backend sandbox remains necessary against concurrent changes.
+- Broader options, revision grammar, glob/escape expansion, loops, redirections,
+  test/build execution and writes through shell commands are outside this subset.
+  They remain human-reviewed, not silently treated as implemented.
+- Scanner rules detect known patterns, not every possible secret. Version/rule
+  identity is recorded; detailed per-rule finding summaries and presentation
+  redesign remain open work. Raw findings are never included in activity.

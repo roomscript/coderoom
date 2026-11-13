@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/roomscript/coderoom/internal/agent"
+	"github.com/roomscript/coderoom/internal/approval"
 	roomconfig "github.com/roomscript/coderoom/internal/config"
 	"github.com/roomscript/coderoom/internal/participant"
 	"github.com/roomscript/coderoom/internal/policy"
@@ -52,6 +53,7 @@ type Session struct {
 	policies        policy.Set
 	hasInvited      bool
 	approvals       *approvalHub
+	approvalPolicy  *approval.Policy
 	lastExecutionID ExecutionID
 	lifecycle       sessionLifecycle
 	checks          dependencyChecks
@@ -113,6 +115,13 @@ func WithConfig(cfg *roomconfig.Config) Option {
 	return func(s *Session) { s.config = cfg }
 }
 
+// WithApprovalPolicy enables project-scoped file, shell and GET evaluation.
+func WithApprovalPolicy(root string) Option {
+	return func(s *Session) {
+		s.approvalPolicy = &approval.Policy{ProjectRoot: root, Ignored: approval.CheckIgnored(root)}
+	}
+}
+
 // New returns an empty Session.
 func New(opts ...Option) *Session {
 	s := &Session{
@@ -137,10 +146,11 @@ func New(opts ...Option) *Session {
 func (s *Session) ApprovalListener(alias participant.Alias) agent.ApprovalListener {
 	listener := s.approvals.Listener(alias)
 	return approvalListenerFunc(func(ctx context.Context, req agent.ApprovalRequest) (agent.ApprovalDecision, error) {
-		if _, ok := s.Participant(alias); !ok {
+		_, ok := s.Participant(alias)
+		if !ok {
 			return agent.ApprovalDecision{}, fmt.Errorf("approval participant %q: %w", alias.Name, errParticipantNotFound)
 		}
-		return listener.Decide(ctx, req)
+		return s.decideApproval(ctx, alias, req, listener)
 	})
 }
 

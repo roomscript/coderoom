@@ -280,6 +280,7 @@ func enqueueApprovalRequest(ctx context.Context, c *Client, msg rpcEnvelope) boo
 		return true
 	}
 	ar := approvalRequest{rpcID: *msg.ID, req: req, approvalCtx: approvalCtx}
+	ar.req.Details.RequestID = fmt.Sprint(*msg.ID)
 	select {
 	case c.approvals.bufInbox <- ar:
 		return true
@@ -338,6 +339,9 @@ func approvalLoopWorker(ctx context.Context, c *Client) {
 
 func handleApprovalRequest(ctx context.Context, c *Client, approval approvalRequest) error {
 	choice := decideApproval(ctx, c, approval.req, agent.OptionDecline)
+	if ctx.Err() != nil {
+		return fmt.Errorf("approval response canceled: %w", ctx.Err())
+	}
 	return writeApprovalResult(c, approval.rpcID, approval.approvalCtx, choice)
 }
 

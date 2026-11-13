@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 
 	"github.com/roomscript/coderoom/internal/agent"
@@ -91,9 +92,11 @@ func (q *approvalQueue) pop() *pendingApproval {
 }
 
 type approvalHub struct {
-	mu     sync.Mutex
-	queue  *approvalQueue
-	notify approvalNotifier
+	mu         sync.Mutex
+	queue      *approvalQueue
+	notify     approvalNotifier
+	events     []Event
+	publishing bool
 }
 
 func newApprovalHub(notify approvalNotifier) *approvalHub {
@@ -110,6 +113,9 @@ func (h *approvalHub) Listener(alias participant.Alias) agent.ApprovalListener {
 }
 
 func (h *approvalHub) request(ctx context.Context, alias participant.Alias, req agent.ApprovalRequest) (agent.ApprovalDecision, error) {
+	if err := ctx.Err(); err != nil {
+		return agent.ApprovalDecision{}, fmt.Errorf("approval canceled: %w", err)
+	}
 	if h.queue == nil {
 		return agent.ApprovalDecision{}, errors.New("approval queue is nil")
 	}
@@ -128,12 +134,16 @@ func (h *approvalHub) request(ctx context.Context, alias participant.Alias, req 
 	pending.id = h.queue.approvalID
 	publishNow := h.queue.add(pending)
 	if publishNow {
-		h.publish(pending)
+		h.enqueue(pending)
 	}
 	h.mu.Unlock()
+	h.publishEvents()
 
 	select {
 	case d := <-pending.resp:
+		if err := ctx.Err(); err != nil {
+			return agent.ApprovalDecision{}, fmt.Errorf("approval canceled: %w", err)
+		}
 		return d, nil
 	case <-ctx.Done():
 		h.cancel(pending.id)
@@ -147,17 +157,23 @@ func (h *approvalHub) resolve(id int64, choice agent.ApprovalOption) bool {
 	}
 
 	h.mu.Lock()
-	defer h.mu.Unlock()
+	if h.queue.active == nil || !slices.Contains(h.queue.active.req.Options, choice) {
+		h.mu.Unlock()
+		return false
+	}
 
 	resolved, next, ok := h.queue.resolve(id)
 	if !ok {
+		h.mu.Unlock()
 		return false
 	}
 
 	resolved.resp <- agent.ApprovalDecision{Choice: choice}
 	if next != nil {
-		h.publish(next)
+		h.enqueue(next)
 	}
+	h.mu.Unlock()
+	h.publishEvents()
 	return true
 }
 
@@ -167,24 +183,46 @@ func (h *approvalHub) cancel(id int64) {
 	}
 
 	h.mu.Lock()
-	defer h.mu.Unlock()
 
 	cleared, next, outcome := h.queue.cancel(id)
 	switch outcome {
 	case cancelShowNextApproval:
-		h.publish(next)
+		h.enqueue(next)
 	case cancelClearVisibleApproval:
-		h.notify(ApprovalCleared{Alias: aliasForApproval(cleared), ID: id})
+		h.events = append(h.events, ApprovalCleared{Alias: aliasForApproval(cleared), ID: id})
 	case cancelNoVisibleChange:
 	}
+	h.mu.Unlock()
+	h.publishEvents()
 }
 
-func (h *approvalHub) publish(p *pendingApproval) {
+func (h *approvalHub) enqueue(p *pendingApproval) {
 	if h.notify == nil || p == nil {
 		return
 	}
 	req := p.req
-	h.notify(ApprovalRequested{Alias: p.alias, ID: p.id, Req: req})
+	h.events = append(h.events, ApprovalRequested{Alias: p.alias, ID: p.id, Req: req})
+}
+
+// Drain in causal order, allowing observers to reenter without holding any lock.
+// Reentrant publishers append to this drain rather than overtaking its events.
+func (h *approvalHub) publishEvents() {
+	h.mu.Lock()
+	if h.publishing {
+		h.mu.Unlock()
+		return
+	}
+	h.publishing = true
+	for len(h.events) > 0 {
+		event := h.events[0]
+		h.events[0] = nil
+		h.events = h.events[1:]
+		h.mu.Unlock()
+		h.notify(event)
+		h.mu.Lock()
+	}
+	h.publishing = false
+	h.mu.Unlock()
 }
 
 func aliasForApproval(p *pendingApproval) participant.Alias {

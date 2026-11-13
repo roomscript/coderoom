@@ -75,6 +75,7 @@ func run() int {
 	sess := session.New(
 		session.WithContext(ctx),
 		session.WithConfig(cfg),
+		session.WithApprovalPolicy(cwd),
 		session.WithAgentFactory(agentFactory(backends, log)),
 	)
 

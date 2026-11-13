@@ -98,7 +98,9 @@ func (c *Client) runApprovals() {
 		if p.ctx.Err() != nil {
 			continue
 		}
-		choice := c.decide(p.ctx, approvalRequestFor(p.tool))
+		req := approvalRequestFor(p.tool)
+		req.Details.RequestID = p.requestID
+		choice := c.decide(p.ctx, req)
 		if p.ctx.Err() != nil {
 			continue
 		}
@@ -220,6 +222,36 @@ func inputOrEmpty(input json.RawMessage) json.RawMessage {
 
 // approvalRequestFor builds the user-facing request for a tool call.
 func approvalRequestFor(tool canUseTool) agent.ApprovalRequest {
+	req := displayApprovalRequestFor(tool)
+	raw, _ := json.Marshal(tool)
+	if len(tool.Raw) != 0 {
+		raw = append(json.RawMessage(nil), tool.Raw...)
+	}
+	req.Details = agent.ApprovalDetails{Backend: "claude", Tool: tool.ToolName, Raw: raw}
+	switch tool.ToolName {
+	case "Bash":
+		var in bashInput
+		if json.Unmarshal(tool.Input, &in) == nil {
+			req.Details.Operation = agent.CommandOperation{Command: in.Command}
+		}
+	case "Read", "Write", "Edit":
+		var in fileInput
+		if json.Unmarshal(tool.Input, &in) == nil && in.FilePath != "" && strings.HasPrefix(in.FilePath, "/") {
+			req.Details.Operation = agent.FileOperation{Paths: []string{in.FilePath}, Write: tool.ToolName != "Read", AllTargetsKnown: true}
+		}
+	case "WebFetch":
+		var in struct {
+			URL string `json:"url"`
+		}
+		if json.Unmarshal(tool.Input, &in) == nil {
+			// WebFetch can follow redirects without exposing the next URL.
+			req.Details.Operation = agent.HTTPOperation{Method: "GET", URL: in.URL, FollowsRedirects: true}
+		}
+	}
+	return req
+}
+
+func displayApprovalRequestFor(tool canUseTool) agent.ApprovalRequest {
 	switch tool.ToolName {
 	case "Bash":
 		var in bashInput
