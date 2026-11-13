@@ -38,6 +38,27 @@ changes unless explicitly reassigned.
 Prefer available local CLI tools over equivalent MCP tools or other integrations.
 For GitHub operations, use `gh` when available.
 
+Prefer direct file edits over Python scripts.
+
+Priority:
+1. Native apply_patch or file editing tools.
+2. Unified diff patches.
+3. sd for simple text replacements.
+4. jq/yq for structured configuration changes.
+5. Python only when the above are impractical.
+
+Avoid `python3 - <<'PY'` for ordinary source code edits.
+
+Do not use Python merely to:
+- Replace strings
+- Insert or delete a few lines
+- Modify individual functions
+- Create small source files
+
+Prefer minimal, reviewable diffs.
+
+After editing, run `git diff --check`.
+
 ## Snap-installed tools
 
 Some tools installed through Snap, such as Go, may fail inside the sandbox with
