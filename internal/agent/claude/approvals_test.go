@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/roomscript/coderoom/internal/agent"
+	"github.com/roomscript/coderoom/internal/approval"
 )
 
 func TestApprovalEvidencePreservesFullInput(t *testing.T) {
@@ -40,8 +41,9 @@ func TestApprovalOperationNormalization(t *testing.T) {
 		want        agent.Operation
 	}{
 		{"Read", `{"file_path":"/project/file"}`, agent.FileOperation{Paths: []string{"/project/file"}, AllTargetsKnown: true}},
-		{"Write", `{"file_path":"/project/file","content":"data"}`, agent.FileOperation{Paths: []string{"/project/file"}, Write: true, AllTargetsKnown: true}},
+		{"Write", `{"file_path":"/project/file","content":"data"}`, agent.FileOperation{Paths: []string{"/project/file"}, Write: true, AllTargetsKnown: true, ProposedChanges: []agent.FileChange{{Path: "/project/file", ChangeKind: "write", Diff: "data"}}}},
 		{"Edit", `{"file_path":"/project/file"}`, agent.FileOperation{Paths: []string{"/project/file"}, Write: true, AllTargetsKnown: true}},
+		{"Write", `{"file_path":"/project/file","content":123}`, agent.FileOperation{Paths: []string{"/project/file"}, Write: true, AllTargetsKnown: true}},
 		{"WebFetch", `{"url":"https://example.com"}`, agent.HTTPOperation{Method: "GET", URL: "https://example.com", FollowsRedirects: true}},
 		{"Read", `{"file_path":"relative"}`, nil},
 		{"WebSearch", `{}`, nil},
@@ -53,6 +55,62 @@ func TestApprovalOperationNormalization(t *testing.T) {
 			}
 			if req.Details.Backend != "claude" || req.Details.Tool != tt.tool || len(req.Details.Raw) == 0 {
 				t.Fatal("approval metadata lost")
+			}
+		})
+	}
+}
+
+func TestProposedFileApprovalEvidence(t *testing.T) {
+	for _, tt := range []struct {
+		tool, input, kind, diff string
+	}{
+		{"Write", `{"file_path":"/project/file","content":"first\nsecond\n"}`, "write", "first\nsecond\n"},
+		{"Write", `{"file_path":"/project/file","content":""}`, "write", ""},
+		{"Edit", `{"file_path":"/project/file","old_string":"old\ntext","new_string":"new\ntext"}`, "update", "@@ replace matching occurrence @@\n-old\n-text\n+new\n+text\n"},
+		{"Edit", `{"file_path":"/project/file","old_string":"old","new_string":"","replace_all":true}`, "update", "@@ replace all matching occurrences @@\n-old\n"},
+	} {
+		t.Run(tt.tool+tt.input, func(t *testing.T) {
+			req := approvalRequestFor(canUseTool{ToolName: tt.tool, Input: json.RawMessage(tt.input)})
+			op := req.Details.Operation.(agent.FileOperation)
+			want := []agent.FileChange{{Path: "/project/file", ChangeKind: tt.kind, Diff: tt.diff}}
+			if !reflect.DeepEqual(op.ProposedChanges, want) {
+				t.Fatalf("changes = %+v, want %+v", op.ProposedChanges, want)
+			}
+			p := approval.Policy{ProjectRoot: "/project"}
+			got := p.Evaluate(context.Background(), op)
+			op.ProposedChanges = nil
+			if got != p.Evaluate(context.Background(), op) {
+				t.Fatal("proposed content changed policy outcome")
+			}
+		})
+	}
+}
+
+func TestUnsupportedApprovalDisplayEvidence(t *testing.T) {
+	plan := "# Plan\n" + strings.Repeat("Complete step\n", 100) + "last step\x1b[2J"
+	planInput, err := json.Marshal(map[string]any{"plan": plan, "allowedPrompts": []string{"specific permission"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tt := range []struct{ tool, input, want string }{
+		{"ExitPlanMode", string(planInput), plan},
+		{"NotebookEdit", `{"notebook_path":"/project/n.ipynb","new_source":"complete cell source"}`, "complete cell source"},
+		{"WebFetch", `{"url":"https://example.com","prompt":"` + strings.Repeat("full prompt ", 100) + `tail"}`, strings.Repeat("full prompt ", 100) + "tail"},
+		{"UnknownTool", `{"nested":{"scope":"` + strings.Repeat("scope ", 100) + `tail"}}`, strings.Repeat("scope ", 100) + "tail"},
+	} {
+		t.Run(tt.tool, func(t *testing.T) {
+			req := approvalRequestFor(canUseTool{ToolName: tt.tool, Input: json.RawMessage(tt.input)})
+			if !strings.Contains(req.Details.Display, tt.want) {
+				t.Fatalf("display evidence lost: %s", req.Details.Display)
+			}
+			if tt.tool == "ExitPlanMode" && !strings.Contains(req.Details.Display, "specific permission") {
+				t.Fatal("additional plan permissions lost")
+			}
+			p := approval.Policy{}
+			before := p.Evaluate(context.Background(), req.Details.Operation)
+			req.Details.Display = ""
+			if after := p.Evaluate(context.Background(), req.Details.Operation); after != before {
+				t.Fatal("display changed policy")
 			}
 		})
 	}

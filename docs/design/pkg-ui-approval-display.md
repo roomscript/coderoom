@@ -30,6 +30,27 @@ the UI no longer injects a `[→ alias]` prefix into the request prompt.
 
 ## Display contract
 
+Adapters retain the existing readable `Ask` and response options. Supplementary
+details are formatted from common command and file operations in the interpreter,
+without backend checks. Commands include the full command and supplied working
+directory; file operations include proposed changes, or known paths and an
+explicit missing-evidence message for writes. Unsupported operations keep their
+existing prompt and complete adapter-normalized `ApprovalDetails.Display`
+evidence. This fallback is independent of policy eligibility and is consumed
+without backend checks. Codex permission requests include the full permission
+scope, reason, and working directory. Claude plans include the complete plan
+and additional inputs; other tools include their full input, formatted as JSON
+when its schema is not represented by a common operation. These payloads exclude
+the surrounding protocol identifiers and timestamps. Raw requests remain internal
+evidence for policy correlation and diagnostics.
+
+Codex obtains proposed file changes by exact protocol item correlation. Claude
+obtains them directly from Write content or Edit replacement inputs. A Write is
+labeled `write`, without guessing whether the file exists. Edits show the supplied
+old/new text and replacement scope without inventing line numbers or reading the
+filesystem. Both use `FileOperation.ProposedChanges`; policy target completeness
+and validation retain their existing meanings.
+
 The pure, package-local `escapeApprovalText` helper (`escape.go`) turns
 untrusted text into display text with this policy:
 

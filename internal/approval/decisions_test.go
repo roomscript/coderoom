@@ -47,6 +47,35 @@ func TestCanceledEvaluationDoesNotCheckDependencies(t *testing.T) {
 	}
 }
 
+func TestProposedFileChangesDoNotChangePolicyResult(t *testing.T) {
+	root := t.TempDir()
+	p := Policy{ProjectRoot: root, Ignored: func(context.Context, string) (bool, error) { return false, nil }}
+	for _, tt := range []struct {
+		name string
+		op   agent.FileOperation
+		want Outcome
+	}{
+		{"display only", agent.FileOperation{Write: true}, Review},
+		{"partial targets", agent.FileOperation{Cwd: root, Paths: []string{"new.txt"}, Write: true}, Review},
+		{"validated targets", agent.FileOperation{Cwd: root, Paths: []string{"new.txt"}, Write: true, AllTargetsKnown: true}, Approve},
+		{"protected targets", agent.FileOperation{Cwd: root, Paths: []string{"AGENTS.md"}, Write: true, AllTargetsKnown: true}, Review},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			before := p.Evaluate(context.Background(), tt.op)
+			if before.Outcome != tt.want {
+				t.Fatalf("baseline = %+v", before)
+			}
+			for _, path := range []string{"new.txt", "AGENTS.md", "/outside/project"} {
+				enriched := tt.op
+				enriched.ProposedChanges = []agent.FileChange{{Path: path, ChangeKind: "add", Diff: "+contents\n"}}
+				if after := p.Evaluate(context.Background(), enriched); after != before {
+					t.Fatalf("display evidence changed policy: before %+v, after %+v", before, after)
+				}
+			}
+		})
+	}
+}
+
 func TestGitleaksDiscoveryUsesLocalPath(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 	got := (Policy{}).Evaluate(context.Background(), agent.HTTPOperation{Method: "GET"})

@@ -57,6 +57,7 @@ func readCodexErrWorker(ctx context.Context, c *Client) {
 // readCodexOut reads raw stdout lines, translates them to readMessage values,
 // and sends meaningful ones on bufMessages.
 func readCodexOutWorker(ctx context.Context, c *Client) {
+	defer func() { c.approvals.files = nil }()
 	for {
 		msg, err := rpcRead(c)
 		if err != nil {
@@ -98,6 +99,7 @@ func handleStdoutEnvelope(ctx context.Context, c *Client, msg rpcEnvelope) bool 
 	if c.shouldIgnoreStdoutEnvelope(msg) {
 		return true
 	}
+	c.trackFileApprovalEvidence(msg)
 	if handled, ok := handleTurnErrorEnvelope(ctx, c, msg); ok {
 		return handled
 	}
@@ -280,6 +282,14 @@ func enqueueApprovalRequest(ctx context.Context, c *Client, msg rpcEnvelope) boo
 		return true
 	}
 	ar := approvalRequest{rpcID: *msg.ID, req: req, approvalCtx: approvalCtx}
+	if msg.Method == methodFileChangeRequestApproval {
+		var identity fileApprovalIdentity
+		if json.Unmarshal(msg.Params, &identity) == nil && identity.valid() {
+			operation := ar.req.Details.Operation.(agent.FileOperation)
+			operation.ProposedChanges = append([]agent.FileChange(nil), c.approvals.files[identity]...)
+			ar.req.Details.Operation = operation
+		}
+	}
 	ar.req.Details.RequestID = fmt.Sprint(*msg.ID)
 	select {
 	case c.approvals.bufInbox <- ar:

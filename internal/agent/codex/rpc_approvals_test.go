@@ -33,6 +33,26 @@ func TestCommandApprovalPreservesEvidence(t *testing.T) {
 	}
 }
 
+func TestFileChangeApprovalPreservesFullScopeAndReason(t *testing.T) {
+	root := "/project/" + strings.Repeat("long-directory/", 30) + "target with trailing space "
+	reason := strings.Repeat("Complete permission reason\n", 30) + "final detail\x1b[2J "
+	raw, err := json.Marshal(map[string]string{"grantRoot": root, "reason": reason})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, err := normalizeFileChangeApproval(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "approve file changes (grantRoot: " + root + ") — " + reason
+	if req.Ask != want {
+		t.Fatalf("scope or reason lost: got %q, want %q", req.Ask, want)
+	}
+	if !bytes.Equal(req.Details.Raw, raw) {
+		t.Fatal("raw evidence changed")
+	}
+}
+
 type cancelingApprovalListener struct{ cancel context.CancelFunc }
 
 func (l cancelingApprovalListener) Decide(context.Context, agent.ApprovalRequest) (agent.ApprovalDecision, error) {
@@ -51,7 +71,7 @@ func TestCanceledApprovalDoesNotWriteResponse(t *testing.T) {
 	}
 }
 
-func TestPermissionExpansionsHaveNoInferredOperation(t *testing.T) {
+func TestPermissionExpansionsDoNotInferValidatedTargets(t *testing.T) {
 	for _, tt := range []struct{ method, raw string }{
 		{methodFileChangeRequestApproval, `{"grantRoot":"/project","reason":"write access"}`},
 		{methodPermissionsRequestApproval, `{"cwd":"/project","permissions":{"network":{}}}`},
@@ -61,12 +81,46 @@ func TestPermissionExpansionsHaveNoInferredOperation(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if req.Details.Operation != nil {
+			if tt.method == methodFileChangeRequestApproval {
+				assertUnvalidatedFileOperation(t, req.Details.Operation)
+			} else if req.Details.Operation != nil {
 				t.Fatal("permission expansion inferred a concrete operation")
 			}
 			if req.Details.Backend != "codex" || req.Details.Tool != tt.method || string(req.Details.Raw) != tt.raw {
 				t.Fatal("permission evidence lost")
 			}
 		})
+	}
+}
+
+func assertUnvalidatedFileOperation(t *testing.T, operation agent.Operation) {
+	t.Helper()
+	op, ok := operation.(agent.FileOperation)
+	if !ok || !op.Write || op.AllTargetsKnown || len(op.Paths) != 0 {
+		t.Fatal("file approval inferred validated targets")
+	}
+}
+
+func TestPermissionsApprovalRetainsFullDisplayScope(t *testing.T) {
+	reason := strings.Repeat("full reason\n", 40)
+	scope := json.RawMessage(`{"fileSystem":{"write":["/outside/project/target"]},"network":{"allowedHosts":["specific.example"]}}`)
+	raw, err := json.Marshal(map[string]any{"permissions": scope, "reason": reason, "cwd": "/outside/project", "threadId": "hidden-id", "startedAtMs": 123})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, perms, err := normalizePermissionsApproval(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{reason, "/outside/project/target", "specific.example", "Working directory: /outside/project"} {
+		if !strings.Contains(req.Details.Display, want) {
+			t.Fatalf("missing %q in %s", want, req.Details.Display)
+		}
+	}
+	if strings.Contains(req.Details.Display, "hidden-id") || strings.Contains(req.Details.Display, "startedAtMs") || req.Details.Operation != nil {
+		t.Fatal("scope included protocol metadata or policy eligibility")
+	}
+	if !bytes.Equal(req.Details.Raw, raw) || !bytes.Equal(perms, scope) {
+		t.Fatal("raw scope or response evidence changed")
 	}
 }

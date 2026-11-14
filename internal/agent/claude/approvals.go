@@ -1,6 +1,7 @@
 package claude
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -237,7 +238,10 @@ func approvalRequestFor(tool canUseTool) agent.ApprovalRequest {
 	case "Read", "Write", "Edit":
 		var in fileInput
 		if json.Unmarshal(tool.Input, &in) == nil && in.FilePath != "" && strings.HasPrefix(in.FilePath, "/") {
-			req.Details.Operation = agent.FileOperation{Paths: []string{in.FilePath}, Write: tool.ToolName != "Read", AllTargetsKnown: true}
+			req.Details.Operation = agent.FileOperation{
+				Paths: []string{in.FilePath}, Write: tool.ToolName != "Read", AllTargetsKnown: true,
+				ProposedChanges: proposedFileChanges(tool.ToolName, tool.Input, in.FilePath),
+			}
 		}
 	case "WebFetch":
 		var in struct {
@@ -248,7 +252,75 @@ func approvalRequestFor(tool canUseTool) agent.ApprovalRequest {
 			req.Details.Operation = agent.HTTPOperation{Method: "GET", URL: in.URL, FollowsRedirects: true}
 		}
 	}
+	req.Details.Display = supplementalApprovalEvidence(tool, req.Details.Operation)
 	return req
+}
+
+func supplementalApprovalEvidence(tool canUseTool, operation agent.Operation) string {
+	switch operation.(type) {
+	case agent.CommandOperation, agent.FileOperation:
+		return ""
+	default:
+		return toolApprovalDisplayEvidence(tool)
+	}
+}
+
+func toolApprovalDisplayEvidence(tool canUseTool) string {
+	if tool.ToolName == "ExitPlanMode" {
+		var in struct {
+			Plan *string `json:"plan"`
+		}
+		if json.Unmarshal(tool.Input, &in) == nil && in.Plan != nil {
+			text := "Plan:\n" + *in.Plan
+			var fields map[string]json.RawMessage
+			if json.Unmarshal(tool.Input, &fields) == nil {
+				delete(fields, "plan")
+				if len(fields) > 0 {
+					extra, _ := json.MarshalIndent(fields, "", "  ")
+					text += "\nAdditional input:\n" + string(extra)
+				}
+			}
+			return text
+		}
+	}
+	var input bytes.Buffer
+	if isJSONNull(tool.Input) {
+		return "Tool: " + tool.ToolName + "\nTool input unavailable."
+	}
+	if json.Indent(&input, tool.Input, "", "  ") != nil {
+		return "Tool: " + tool.ToolName + "\nInput (unparsed):\n" + string(tool.Input)
+	}
+	return "Tool: " + tool.ToolName + "\nInput:\n" + input.String()
+}
+
+// The request describes a write or replacement, not a completed filesystem
+// change. Do not infer creation, line numbers, or other file contents.
+func proposedFileChanges(tool string, raw json.RawMessage, path string) []agent.FileChange {
+	var in struct {
+		Content    *string `json:"content"`
+		OldString  *string `json:"old_string"`
+		NewString  *string `json:"new_string"`
+		ReplaceAll bool    `json:"replace_all"`
+	}
+	if json.Unmarshal(raw, &in) != nil {
+		return nil
+	}
+	switch {
+	case tool == "Write" && in.Content != nil:
+		return []agent.FileChange{{Path: path, ChangeKind: "write", Diff: *in.Content}}
+	case tool == "Edit" && in.OldString != nil && in.NewString != nil:
+		var diff strings.Builder
+		if in.ReplaceAll {
+			diff.WriteString("@@ replace all matching occurrences @@\n")
+		} else {
+			diff.WriteString("@@ replace matching occurrence @@\n")
+		}
+		writePrefixedLines(&diff, "-", *in.OldString)
+		writePrefixedLines(&diff, "+", *in.NewString)
+		return []agent.FileChange{{Path: path, ChangeKind: "update", Diff: diff.String()}}
+	default:
+		return nil
+	}
 }
 
 func displayApprovalRequestFor(tool canUseTool) agent.ApprovalRequest {

@@ -62,6 +62,8 @@ type Client struct {
 	}
 
 	approvals struct {
+		// files is owned exclusively by the stdout reader, before approvals queue.
+		files    map[fileApprovalIdentity][]agent.FileChange
 		listener agent.ApprovalListener
 		inbox    chan approvalRequest
 		bufInbox chan approvalRequest

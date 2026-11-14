@@ -1,6 +1,7 @@
 package codex
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -73,15 +74,15 @@ func normalizeFileChangeApproval(params json.RawMessage) (agent.ApprovalRequest,
 	}
 	ask := "approve file changes"
 	if p.GrantRoot != nil && strings.TrimSpace(*p.GrantRoot) != "" {
-		ask += " (grantRoot: " + trimMiddle(strings.TrimSpace(*p.GrantRoot), 80) + ")"
+		ask += " (grantRoot: " + *p.GrantRoot + ")"
 	}
 	if p.Reason != nil && strings.TrimSpace(*p.Reason) != "" {
-		ask += " — " + trimMiddle(strings.TrimSpace(*p.Reason), 120)
+		ask += " — " + *p.Reason
 	}
 	return agent.ApprovalRequest{
 		Kind: agent.ApprovalFileChange,
 		// grantRoot is a permission expansion, not an exhaustive file target list.
-		Details: agent.ApprovalDetails{Backend: "codex", Tool: methodFileChangeRequestApproval, Raw: append(json.RawMessage(nil), params...)},
+		Details: agent.ApprovalDetails{Backend: "codex", Tool: methodFileChangeRequestApproval, Raw: append(json.RawMessage(nil), params...), Operation: agent.FileOperation{Write: true}},
 		Ask:     ask,
 		Options: []agent.ApprovalOption{agent.OptionAccept, agent.OptionAcceptForSession, agent.OptionDecline, agent.OptionCancel},
 	}, nil
@@ -105,10 +106,27 @@ func normalizePermissionsApproval(params json.RawMessage) (agent.ApprovalRequest
 	}
 	return agent.ApprovalRequest{
 		Kind:    agent.ApprovalPermissions,
-		Details: agent.ApprovalDetails{Backend: "codex", Tool: methodPermissionsRequestApproval, Raw: append(json.RawMessage(nil), params...)},
+		Details: agent.ApprovalDetails{Backend: "codex", Tool: methodPermissionsRequestApproval, Raw: append(json.RawMessage(nil), params...), Display: permissionsDisplayEvidence(p)},
 		Ask:     ask,
 		Options: []agent.ApprovalOption{agent.OptionAccept, agent.OptionDecline},
 	}, p.Permissions, nil
+}
+
+func permissionsDisplayEvidence(p permissionsRequestApprovalParams) string {
+	var text strings.Builder
+	if p.Cwd != "" {
+		fmt.Fprintf(&text, "Working directory: %s\n", p.Cwd)
+	}
+	if p.Reason != nil && *p.Reason != "" {
+		fmt.Fprintf(&text, "Reason: %s\n", *p.Reason)
+	}
+	var scope bytes.Buffer
+	if !isNullJSON(p.Permissions) && json.Indent(&scope, p.Permissions, "", "  ") == nil {
+		fmt.Fprintf(&text, "Requested permissions:\n%s", scope.String())
+	} else {
+		text.WriteString("Requested permission scope unavailable.")
+	}
+	return text.String()
 }
 
 func commandEvidence(p commandExecutionRequestApprovalParams, raw json.RawMessage) agent.ApprovalDetails {

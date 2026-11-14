@@ -13,6 +13,31 @@ import (
 	"github.com/roomscript/coderoom/internal/ui/palette"
 )
 
+func TestFileDiffPagingAndEscaping(t *testing.T) {
+	details := "update: /project/path\nwith-newline\n@@\n-old\n+new\x1b[2J\n" + strings.Repeat("+more\n", 30) + "+last"
+	m := New().Set(interpreter.Approval{
+		Alias: participant.Alias{Name: "bill"}, Prompt: "approve file changes", Details: details,
+		Options: []interpreter.ApprovalOption{{ID: "accept"}, {ID: "acceptForSession"}, {ID: "decline"}, {ID: "cancel"}},
+	}).SetSize(100, 12)
+	var pages strings.Builder
+	for {
+		view := ansi.Strip(m.View())
+		if strings.Contains(view, "\x1b") || strings.Count(view, "\n") >= 12 {
+			t.Fatal("unsafe or unbounded panel")
+		}
+		pages.WriteString(view)
+		if m.requestTop == m.layout().maxRequestTop() {
+			break
+		}
+		m, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyPgDown}))
+	}
+	for _, want := range []string{"● bill:", "update: /project/path", "with-newline", "@@", "-old", `+new\x1b[2J`, "+last", "accept for session", "decline", "cancel"} {
+		if !strings.Contains(pages.String(), want) {
+			t.Fatalf("paged evidence missing %q", want)
+		}
+	}
+}
+
 func TestUpdate_downSelectsNextOption(t *testing.T) {
 	m := New().Set(interpreter.Approval{
 		Prompt:  "approve?",

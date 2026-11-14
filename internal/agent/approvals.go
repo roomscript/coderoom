@@ -44,6 +44,9 @@ type ApprovalDetails struct {
 	Tool      string
 	Raw       json.RawMessage
 	Operation Operation
+	// Display contains complete adapter-normalized evidence for requests not
+	// represented by the command/file display. It is never a policy input.
+	Display string
 }
 
 // Operation is a sealed approval payload. Evaluators support the concrete value
@@ -62,6 +65,8 @@ type FileOperation struct {
 	Paths           []string
 	Write           bool
 	AllTargetsKnown bool
+	// ProposedChanges is display evidence; it does not validate Paths or AllTargetsKnown.
+	ProposedChanges []FileChange
 }
 
 // HTTPOperation contains the URL and explicit outbound inputs reported by a backend.

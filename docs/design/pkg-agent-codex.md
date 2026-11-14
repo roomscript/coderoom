@@ -157,6 +157,25 @@ Consumer rule:
 This is the bridge between agent protocol semantics and participant/session
 lifecycle semantics.
 
+### File approval evidence
+
+File-change approvals correlate `item/started` evidence using the exact
+`threadId`, `turnId`, and item `id` referenced by `requestApproval.itemId`.
+The stdout reader alone owns this temporary cache; approvals receive a copy
+before entering the existing queue. Item completion removes its entry, turn
+completion/failure clears the cache, and stdout reader exit (including process
+shutdown) releases it. There is no filesystem or latest-item fallback.
+
+Proposed paths, change types, and complete diffs belong to
+`FileOperation.ProposedChanges` as display evidence. They do not populate the
+validated policy targets (`Paths`, `Cwd`, `AllTargetsKnown`) or change automatic
+approval eligibility; Codex file approvals still require review with incomplete
+policy evidence.
+The interpreter formats this evidence instead of raw correlation JSON, or
+explicitly reports missing evidence. The approval panel keeps its existing
+escaping, yellow styling, participant header, paging, and backend choices.
+Raw approval parameters and protocol observer records remain intact.
+
 ### Protocol observer
 
 ```go
