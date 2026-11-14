@@ -6,8 +6,11 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/roomscript/coderoom/internal/interpreter"
+	"github.com/roomscript/coderoom/internal/participant"
+	"github.com/roomscript/coderoom/internal/ui/palette"
 )
 
 func TestUpdate_downSelectsNextOption(t *testing.T) {
@@ -46,7 +49,7 @@ func TestSet_preservesDetachedOptionsAndSelectedID(t *testing.T) {
 	if !ok || choice.OptionID != "custom" {
 		t.Fatalf("choice = %#v, ok = %v", choice, ok)
 	}
-	if got := m.View(); got != "approve?\n\n> Custom response" {
+	if got := ansi.Strip(m.View()); got != expectedApprovalView("approve?", "> Custom response") {
 		t.Fatalf("view = %q", got)
 	}
 }
@@ -123,8 +126,8 @@ func TestView_showsCompleteRequestWhenSpaceAllows(t *testing.T) {
 		Prompt:  prompt,
 		Options: []interpreter.ApprovalOption{{ID: "accept"}, {ID: "acceptForSession"}, {ID: "decline"}, {ID: "cancel"}},
 	}).SetSize(80, 36)
-	want := prompt + "\n\n> accept\n  accept for session\n  decline\n  cancel"
-	if got := m.View(); got != want {
+	want := expectedApprovalView(prompt, "> accept\n  accept for session\n  decline\n  cancel")
+	if got := ansi.Strip(m.View()); got != want {
 		t.Fatalf("request should fit without paging:\nwant: %q\n got: %q", want, got)
 	}
 	if m.Height() != strings.Count(want, "\n")+1 {
@@ -178,9 +181,35 @@ func TestView_tabStopsIncludeOptionPrefix(t *testing.T) {
 		Prompt:  "\tfirst\n界\tlast",
 		Options: []interpreter.ApprovalOption{{ID: "custom", Label: "界\tresponse"}},
 	}).SetSize(80, 20)
-	want := "        first\n界      last\n\n> 界    response"
-	if got := m.View(); got != want {
+	want := "  ⚡ Approval:\n        first\n  界    last\n  Decision: Waiting for you\n\n> 界    response"
+	if got := ansi.Strip(m.View()); got != want {
 		t.Fatalf("unexpected tab stops:\nwant: %q\n got: %q", want, got)
+	}
+}
+
+func expectedApprovalView(body, options string) string {
+	return "  ⚡ Approval:\n  " + strings.ReplaceAll(body, "\n", "\n  ") + "\n  Decision: Waiting for you\n\n" + options
+}
+
+func TestViewParticipantHeaderAndFullEvidence(t *testing.T) {
+	details := strings.Repeat("full evidence\n", 30) + "tail\x1b[8m"
+	m := New().Set(interpreter.Approval{
+		Alias: participant.Alias{Name: "ada\u202e"}, Prompt: "Run command?", Details: details,
+		Options: []interpreter.ApprovalOption{{ID: "accept"}},
+	}).SetParticipantColor("#00AAFF")
+	view := m.View()
+	header := lipgloss.NewStyle().Foreground(lipgloss.Color("#00AAFF")).Render(`● ada\u202e:`)
+	if !strings.HasPrefix(view, header+"\n\n") {
+		t.Fatalf("participant header lost color or escaping: %q", view)
+	}
+	accent := lipgloss.NewStyle().Foreground(lipgloss.Color(palette.ColorApproval))
+	for _, line := range []string{"  ⚡ Approval:", "  Run command?", "  full evidence", `  tail\x1b[8m`, "  Decision: Waiting for you"} {
+		if !strings.Contains(view, accent.Render(line)) {
+			t.Fatalf("missing yellow detail %q", line)
+		}
+	}
+	if strings.Count(ansi.Strip(view), "full evidence") != 30 {
+		t.Fatal("request evidence was truncated")
 	}
 }
 

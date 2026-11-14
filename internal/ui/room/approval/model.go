@@ -7,12 +7,14 @@ import (
 
 // Model holds the approval prompt and selection state.
 type Model struct {
-	ask        string
-	options    []interpreter.ApprovalOption
-	selected   int
-	width      int
-	maxHeight  int
-	requestTop int
+	alias            string
+	participantColor string
+	ask              string
+	options          []interpreter.ApprovalOption
+	selected         int
+	width            int
+	maxHeight        int
+	requestTop       int
 }
 
 // New returns an empty Model.
@@ -40,6 +42,7 @@ func (m Model) SelectedOption() (interpreter.ApprovalChoice, bool) {
 
 // Set sets the approval prompt and options and resets selection to 0.
 func (m Model) Set(req interpreter.Approval) Model {
+	m.alias = req.Alias.Name
 	m.ask = req.Prompt
 	if req.Details != "" {
 		m.ask += "\n" + req.Details
@@ -50,8 +53,15 @@ func (m Model) Set(req interpreter.Approval) Model {
 	return m
 }
 
+// SetParticipantColor uses the participant's assigned color for the header.
+func (m Model) SetParticipantColor(color string) Model {
+	m.participantColor = color
+	return m
+}
+
 // Clear removes the current approval.
 func (m Model) Clear() Model {
+	m.alias = ""
 	m.ask = ""
 	m.options = nil
 	m.selected = 0

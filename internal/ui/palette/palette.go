@@ -8,6 +8,9 @@ package palette
 // rather than lose colour entirely.
 const ColorDeparted = "#6b7280"
 
+// ColorApproval uses the terminal's yellow so its theme controls contrast.
+const ColorApproval = "3"
+
 // File-change diff colours used when rendering patch output in the transcript.
 const (
 	ColorFileChangeDiffHeader = "#4FC3F7"

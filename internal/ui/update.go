@@ -351,9 +351,6 @@ func (m Model) presentInterpreterSnapshot(snapshot interpreter.Snapshot) (Model,
 	approval := snapshot.Approval
 	m.activeApprovalID = approval.ID
 	req := *approval
-	if strings.TrimSpace(approval.Alias.Name) != "" {
-		req.Prompt = "[→ " + approval.Alias.Name + "] " + req.Prompt
-	}
 	m.room = m.room.ShowApproval(req)
 	return m, cmd
 }

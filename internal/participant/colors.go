@@ -35,8 +35,18 @@ func (a *colorAllocator) next() string {
 }
 
 func participantColor(index, attempt int) string {
-	hue := math.Mod(initialHue+float64(index)*goldenAngle+float64(attempt), 360)
-	r, g, b := oklchToSRGB(participantLightness, participantChroma, hue)
+	hue := math.Mod(initialHue+float64(index)*goldenAngle+float64(attempt)*goldenAngle/2, 360)
+	// Reserve yellow, gold and amber for approval presentation. Distribute
+	// participant hues over the remaining 290 degrees without that band.
+	// The margin around yellow also covers RGB clipping and rounding.
+	hue *= 290.0 / 360.0
+	if hue >= 50 {
+		hue += 70
+	}
+	// A narrower hue range needs lightness variation when many participants
+	// exhaust the distinct rounded RGB values at the initial lightness.
+	lightness := participantLightness + 0.005*float64((attempt/360)%9)
+	r, g, b := oklchToSRGB(lightness, participantChroma, hue)
 	return fmt.Sprintf("#%02X%02X%02X", r, g, b)
 }
 

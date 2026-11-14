@@ -3,8 +3,10 @@ package approval
 import (
 	"strings"
 
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/roomscript/coderoom/internal/interpreter"
+	"github.com/roomscript/coderoom/internal/ui/palette"
 )
 
 // View renders a bounded request region above the approval options.
@@ -100,8 +102,12 @@ func (l panelLayout) height() int {
 }
 
 func (m Model) layout() panelLayout {
-	request := strings.Split(ansi.Wrap(expandTabs(escapeApprovalText(m.ask), 0), m.width, ""), "\n")
+	request := m.requestLines()
 	options, selectedRow := m.optionLines()
+	accent := lipgloss.NewStyle().Foreground(lipgloss.Color(palette.ColorApproval))
+	for i, line := range options {
+		options[i] = accent.Render(line)
+	}
 	if m.maxHeight == 0 {
 		return panelLayout{request: request, requestRows: len(request), separator: true, options: options}
 	}
@@ -123,6 +129,33 @@ func (m Model) layout() panelLayout {
 		separator: separator, options: options,
 		optionsAbove: optionsAbove, optionsBelow: optionsBelow,
 	}
+}
+
+func (m Model) requestLines() []string {
+	var lines []string
+	if m.alias != "" {
+		header := expandTabs(escapeApprovalText("● "+m.alias+":"), 0)
+		style := lipgloss.NewStyle()
+		if m.participantColor != "" {
+			style = style.Foreground(lipgloss.Color(m.participantColor))
+		}
+		for line := range strings.SplitSeq(ansi.Wrap(header, m.width, ""), "\n") {
+			lines = append(lines, style.Render(line))
+		}
+		lines = append(lines, "")
+	}
+	indent, width := "  ", m.width
+	if width > 2 {
+		width -= 2
+	} else if width > 0 {
+		indent = ""
+	}
+	body := "⚡ Approval:\n" + escapeApprovalText(m.ask) + "\nDecision: Waiting for you"
+	accent := lipgloss.NewStyle().Foreground(lipgloss.Color(palette.ColorApproval))
+	for line := range strings.SplitSeq(ansi.Wrap(expandTabs(body, len(indent)), width, ""), "\n") {
+		lines = append(lines, accent.Render(indent+line))
+	}
+	return lines
 }
 
 func (m Model) optionLines() ([]string, int) {

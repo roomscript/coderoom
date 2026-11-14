@@ -4,6 +4,13 @@ Design for [issue #75](https://github.com/roomscript/coderoom/issues/75).
 
 Status: implemented.
 
+Presentation update (2026-11-14): the existing panel adds a participant-colored
+`● alias:` header and yellow `⚡ Approval:`, full request text, and
+`Decision: Waiting for you`. The alias uses the same escaping contract as
+evidence and options. Trusted colors are applied after escaping, tab expansion
+and wrapping. Paging and option priority remain unchanged; the panel still
+disappears on response, with no new retained history or audit file.
+
 ## Problem
 
 Before this change, `internal/ui/room/approval/view.go` passed the request
@@ -18,8 +25,8 @@ covers format characters as well.
 
 `Model.Set` stores the original request and detached options. `SelectedOption`
 returns the selected original ID; display formatting stays separate from
-submission. The stored request carries the
-`[→ alias]` prefix added in `internal/ui/update.go`; escaping covers it too.
+submission. The participant alias is supplied separately for the normal header;
+the UI no longer injects a `[→ alias]` prefix into the request prompt.
 
 ## Display contract
 

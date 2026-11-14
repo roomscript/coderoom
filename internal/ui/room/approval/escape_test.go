@@ -69,27 +69,27 @@ func TestView_escapesUntrustedText(t *testing.T) {
 			}{
 				"request": {
 					interpreter.Approval{Prompt: tt.raw, Options: []interpreter.ApprovalOption{{ID: "accept"}}},
-					tt.shown + "\n\n> accept",
+					expectedApprovalView(tt.shown, "> accept"),
 				},
 				"evidence": {
 					interpreter.Approval{Prompt: "approve?", Details: tt.raw, Options: []interpreter.ApprovalOption{{ID: "accept"}}},
-					"approve?\n" + tt.shown + "\n\n> accept",
+					expectedApprovalView("approve?\n"+tt.shown, "> accept"),
 				},
 				"label": {
 					interpreter.Approval{Prompt: "approve?", Options: []interpreter.ApprovalOption{{ID: "custom", Label: tt.raw}}},
-					"approve?\n\n> " + tt.shown,
+					expectedApprovalView("approve?", "> "+tt.shown),
 				},
 				"fallback id": {
 					interpreter.Approval{Prompt: "approve?", Options: []interpreter.ApprovalOption{{ID: tt.raw}}},
-					"approve?\n\n> " + tt.shown,
+					expectedApprovalView("approve?", "> "+tt.shown),
 				},
 			}
 			for path, v := range views {
 				m := New().Set(v.approval).SetSize(200, 20)
-				if got := m.View(); got != v.want {
+				if got := ansi.Strip(m.View()); got != v.want {
 					t.Fatalf("%s: view = %q, want %q", path, got, v.want)
 				}
-				assertNoRawControls(t, m.View())
+				assertNoRawControls(t, ansi.Strip(m.View()))
 			}
 		})
 	}
@@ -107,14 +107,14 @@ func TestView_escapedTextStaysBoundedAndPageable(t *testing.T) {
 			m := New().Set(approval).SetSize(size.width, size.height)
 			m, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
 			for i := 0; i < 100; i++ {
-				assertNoRawControls(t, m.View())
+				assertNoRawControls(t, ansi.Strip(m.View()))
 				assertFitsPanel(t, m, size.width, size.height)
 				m, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyPgDown}))
 			}
 			assertShowsRequestTail(t, m)
 			// Rewrapping on resize must keep the paged tail visible and bounded.
 			m = m.SetSize(size.width+7, size.height+2)
-			assertNoRawControls(t, m.View())
+			assertNoRawControls(t, ansi.Strip(m.View()))
 			assertFitsPanel(t, m, size.width+7, size.height+2)
 			assertShowsRequestTail(t, m)
 			if m.Ask() != prompt || m.Options()[1].ID != controlID {
@@ -131,7 +131,7 @@ func TestView_escapedTextStaysBoundedAndPageable(t *testing.T) {
 func assertShowsRequestTail(t *testing.T, m Model) {
 	t.Helper()
 	request := m.layout().request
-	if tail := request[len(request)-1]; !strings.HasSuffix(tail, "8m") || !strings.Contains(m.View(), tail) {
+	if tail := request[len(request)-1]; !strings.Contains(m.View(), tail) || m.requestTop != m.layout().maxRequestTop() {
 		t.Fatalf("request tail is not visible: %q", m.View())
 	}
 }

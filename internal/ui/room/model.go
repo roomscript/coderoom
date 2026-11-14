@@ -96,6 +96,7 @@ type Model struct {
 	projectionVersion uint64
 	presentation      roomstate.Snapshot
 	history           history.Model
+	colorByAlias      func(participant.Alias) string
 	input             inputModel
 	approval          approvalState
 	activeFocus       roomFocus
@@ -109,7 +110,8 @@ type Model struct {
 func newPresentationModel(colorByAlias func(participant.Alias) string, colorByName func(string) string, departedColor string) Model {
 	compose := compose.New()
 	return Model{
-		history: history.New(colorByAlias, colorByName, departedColor),
+		colorByAlias: colorByAlias,
+		history:      history.New(colorByAlias, colorByName, departedColor),
 		input: inputModel{
 			kind:     inputCompose,
 			compose:  compose,
@@ -273,6 +275,9 @@ func (m Model) ShowApproval(req interpreter.Approval) Model {
 
 func (m Model) enterApprovalMode(req interpreter.Approval) Model {
 	m.input.approval = m.input.approval.Set(req)
+	if m.colorByAlias != nil {
+		m.input.approval = m.input.approval.SetParticipantColor(m.colorByAlias(req.Alias))
+	}
 	m.input.kind = inputApproval
 	m.activeFocus = focusInput
 	m.input.compose = m.input.compose.Blur()

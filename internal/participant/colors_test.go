@@ -75,3 +75,30 @@ func linearChannel(channel uint8) float64 {
 	}
 	return math.Pow((value+0.055)/1.055, 2.4)
 }
+
+// Check actual rounded/clipped output, rather than repeating the allocator's
+// hue formula: this catches yellow introduced by gamut conversion too.
+func TestColorAllocatorReservesYellow(t *testing.T) {
+	allocator := colorAllocator{}
+	for range readabilitySamples {
+		color := allocator.next()
+		hue := perceptualHue(color)
+		if hue >= 55 && hue <= 115 {
+			t.Fatalf("participant color %s has reserved yellow/amber hue %.2f", color, hue)
+		}
+	}
+}
+
+func perceptualHue(color string) float64 {
+	var red, green, blue uint8
+	if _, err := fmt.Sscanf(color, "#%02X%02X%02X", &red, &green, &blue); err != nil {
+		panic(err)
+	}
+	r, g, b := linearChannel(red), linearChannel(green), linearChannel(blue)
+	l := math.Cbrt(0.4122214708*r + 0.5363325363*g + 0.0514459929*b)
+	m := math.Cbrt(0.2119034982*r + 0.6806995451*g + 0.1073969566*b)
+	s := math.Cbrt(0.0883024619*r + 0.2817188376*g + 0.6299787005*b)
+	a := 1.9779984951*l - 2.4285922050*m + 0.4505937099*s
+	bb := 0.0259040371*l + 0.7827717662*m - 0.8086757660*s
+	return math.Mod(math.Atan2(bb, a)*180/math.Pi+360, 360)
+}
