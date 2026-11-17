@@ -25,9 +25,9 @@ type modelSnapshot struct {
 	approval *Approval
 }
 
-func newInterpreterModel() *interpreterModel {
+func newInterpreterModel(opts ...room.Option) *interpreterModel {
 	model := &interpreterModel{commands: promptlang.NewRegistry()}
-	model.room = room.New(room.WithObserver(transcriptObserver{model: model}))
+	model.room = room.New(append(opts, room.WithObserver(transcriptObserver{model: model}))...)
 	return model
 }
 

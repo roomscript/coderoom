@@ -74,6 +74,7 @@ func (m *interpreterModel) applyApprovalEvent(event session.Event) bool {
 	switch event := event.(type) {
 	case session.ApprovalRequested:
 		approval := approvalFromAgent(event.ID, event.Alias, event.Req)
+		approval.Paths = m.room.ApprovalPaths(event.Req)
 		m.approval = &approval
 	case session.ApprovalCleared:
 		return m.ClearApproval(event.ID)

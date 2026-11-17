@@ -8,6 +8,17 @@ heading cannot fit, it prioritizes the omission summary; at extremely small
 sizes only the selected choice and overflow markers may fit. Full evidence and
 identity remain available in history and transcript export.
 
+Presentation polish: target lists and evidence section labels use project-relative
+paths for targets inside the configured workspace root, and absolute paths for
+outside targets. Both history and the compact box use the same formatter; request
+targets and raw diff evidence retain their complete identity and original paths.
+History omits the generic `approve file changes` description when it merely
+repeats the heading, while retaining backend explanations, permission scope and
+unavailable-evidence notices. Diff additions, deletions, headers and hunks reuse
+the existing file-change colors. Approval headings and decisions retain approval
+styling. All evidence is escaped before styling and wrapping, and plain-text
+transcript export retains complete readable evidence without terminal controls.
+
 ## Agreed file-change behavior
 
 The first increment covers manually reviewed file changes. Other approval types

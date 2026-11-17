@@ -2,6 +2,7 @@ package room
 
 import (
 	"fmt"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -9,13 +10,42 @@ import (
 	"github.com/roomscript/coderoom/internal/session"
 )
 
+// WithWorkspaceRoot configures the authoritative project scope for display paths.
+func WithWorkspaceRoot(root string) Option {
+	return func(r *Room) { r.workspaceRoot = root }
+}
+
+// ApprovalPaths returns display paths without changing the request's targets.
+func (r *Room) ApprovalPaths(request agent.ApprovalRequest) []string {
+	paths := ApprovalPaths(request)
+	for i, path := range paths {
+		paths[i] = r.approvalPath(path)
+	}
+	return paths
+}
+
+func (r *Room) approvalPath(path string) string {
+	if !filepath.IsAbs(r.workspaceRoot) || !filepath.IsAbs(path) {
+		return path
+	}
+	rel, err := filepath.Rel(r.workspaceRoot, path)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return path
+	}
+	return rel
+}
+
 func (r *Room) handleApprovalEventLocked(e session.Event) ([]int, bool) {
 	switch e := e.(type) {
 	case session.ApprovalRequested:
 		if e.Req.Kind != agent.ApprovalFileChange {
 			return nil, false
 		}
-		text := "⚡ Approval: File changes\n" + e.Req.Ask + "\nFiles:\n" + strings.Join(ApprovalPaths(e.Req), "\n") + "\n\n" + ApprovalDetails(e.Req)
+		text := "⚡ Approval: File changes\n"
+		if ask := strings.TrimSpace(e.Req.Ask); ask != "" && ask != "approve file changes" {
+			text += e.Req.Ask + "\n"
+		}
+		text += "Files:\n" + strings.Join(r.ApprovalPaths(e.Req), "\n") + "\n\n" + r.approvalDetails(e.Req)
 		return r.appendRecordLocked(Record{Kind: KindApproval, Alias: e.Alias, ApprovalID: e.ID, Text: text, Decision: "Waiting for you"}), true
 	case session.ApprovalCleared:
 		for i := len(r.records) - 1; i >= 0; i-- {
@@ -46,6 +76,10 @@ func ApprovalPaths(request agent.ApprovalRequest) []string {
 
 // ApprovalDetails returns complete display evidence, without backend metadata.
 func ApprovalDetails(request agent.ApprovalRequest) string {
+	return (&Room{}).approvalDetails(request)
+}
+
+func (r *Room) approvalDetails(request agent.ApprovalRequest) string {
 	switch operation := request.Details.Operation.(type) {
 	case agent.CommandOperation:
 		text := "Command: " + operation.Command
@@ -57,7 +91,7 @@ func ApprovalDetails(request agent.ApprovalRequest) string {
 		if request.Kind == agent.ApprovalFileChange {
 			operation.Write = true
 		}
-		return fileApprovalDetails(operation)
+		return r.fileApprovalDetails(operation)
 	}
 	if request.Details.Display != "" {
 		return request.Details.Display
@@ -68,9 +102,13 @@ func ApprovalDetails(request agent.ApprovalRequest) string {
 	return ""
 }
 
-func fileApprovalDetails(operation agent.FileOperation) string {
+func (r *Room) fileApprovalDetails(operation agent.FileOperation) string {
 	if len(operation.ProposedChanges) == 0 {
-		text := strings.Join(operation.Paths, "\n")
+		paths := slices.Clone(operation.Paths)
+		for i, path := range paths {
+			paths[i] = r.approvalPath(path)
+		}
+		text := strings.Join(paths, "\n")
 		if operation.Write {
 			if text != "" {
 				text += "\n"
@@ -86,14 +124,14 @@ func fileApprovalDetails(operation agent.FileOperation) string {
 		if i > 0 {
 			text.WriteString("\n\n")
 		}
-		fmt.Fprintf(&text, "%s: %s\n%s", change.ChangeKind, change.Path, change.Diff)
+		fmt.Fprintf(&text, "%s: %s\n%s", change.ChangeKind, r.approvalPath(change.Path), change.Diff)
 		if change.Diff == "" {
 			text.WriteString("Proposed file details unavailable: no matching file-change evidence.")
 		}
 	}
 	for _, path := range operation.Paths {
 		if !covered[path] {
-			fmt.Fprintf(&text, "\n\n%s\nProposed file details unavailable: no matching file-change evidence.", path)
+			fmt.Fprintf(&text, "\n\n%s\nProposed file details unavailable: no matching file-change evidence.", r.approvalPath(path))
 		}
 	}
 	return text.String()

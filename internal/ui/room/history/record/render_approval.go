@@ -15,13 +15,14 @@ func renderApproval(r Record, width int, colors func(participant.Alias) string) 
 	body := approval.EscapeText(r.Text + "\nDecision: " + r.Decision)
 	// Expand tabs before wrapping so terminal tab stops cannot add hidden rows.
 	body = approval.ExpandTabs(body, 2)
-	lines := strings.Split(ansi.Wrap(body, max(width-2, 1), ""), "\n")
-	if width == 0 {
-		lines = strings.Split(body, "\n")
-	}
+	lines := strings.Split(body, "\n")
 	style := lipgloss.NewStyle().Foreground(lipgloss.Color(palette.ColorApproval))
 	for i := range lines {
-		lines[i] = style.Render(agentBodyIndent + lines[i])
+		line := renderFileChangeDiffLine(lines[i])
+		if width > 0 {
+			line = ansi.Wrap(line, max(width-2, 1), "")
+		}
+		lines[i] = style.Render(agentBodyIndent + strings.ReplaceAll(line, "\n", "\n"+agentBodyIndent))
 	}
 	return header + "\n\n" + strings.Join(lines, "\n")
 }

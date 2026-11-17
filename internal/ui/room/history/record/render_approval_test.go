@@ -22,3 +22,29 @@ func TestApprovalEvidenceRenderingAndExport(t *testing.T) {
 		}
 	}
 }
+
+func TestApprovalDiffStylesAndWrapping(t *testing.T) {
+	withANSIProfile(t, func() {
+		name := strings.Repeat("long-name/", 12) + "file.go"
+		r := Record{Kind: KindApproval, Text: "⚡ Approval: File changes\n" + name + "\n--- /project/file.go\n+++ /project/file.go\n@@ -1 +1 @@\n-old\n+new\x1b[2J", Decision: "Waiting for you"}
+		for _, mode := range []RenderMode{RenderViewport, RenderTranscript} {
+			got := Render(r, RenderContext{Key: RenderKey{Mode: mode, Width: 35}})
+			for _, line := range []string{"--- /project/file.go", "+++ /project/file.go", "@@ -1 +1 @@", "-old", `+new\x1b[2J`} {
+				if !strings.Contains(got, renderFileChangeDiffLine(line)) {
+					t.Fatalf("mode %v missing styled diff %q: %q", mode, line, got)
+				}
+			}
+			plain := ansi.Strip(got)
+			if mode == RenderTranscript && !strings.Contains(plain, name) {
+				t.Fatal("export wrapped or lost target")
+			}
+			if mode == RenderViewport {
+				for _, line := range strings.Split(plain, "\n") {
+					if ansi.StringWidth(line) > 35 {
+						t.Fatalf("line exceeds viewport: %q", line)
+					}
+				}
+			}
+		}
+	})
+}

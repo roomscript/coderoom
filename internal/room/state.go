@@ -91,6 +91,7 @@ type OpenStream struct {
 // Room holds the canonical chat-visible state for one room, projected from
 // session events and local, non-session appends.
 type Room struct {
+	workspaceRoot             string
 	mu                        sync.RWMutex
 	id                        ID
 	version                   uint64

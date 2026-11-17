@@ -6,7 +6,30 @@ import (
 
 	"github.com/roomscript/coderoom/internal/agent"
 	"github.com/roomscript/coderoom/internal/participant"
+	"github.com/roomscript/coderoom/internal/room"
+	"github.com/roomscript/coderoom/internal/session"
 )
+
+func TestActiveFileApprovalUsesWorkspacePaths(t *testing.T) {
+	model := newInterpreterModel(room.WithWorkspaceRoot("/project"))
+	t.Cleanup(model.Close)
+	longName := strings.Repeat("long/", 80) + "file.go"
+	event := session.ApprovalRequested{ID: 1, Req: agent.ApprovalRequest{
+		Kind: agent.ApprovalFileChange,
+		Details: agent.ApprovalDetails{Operation: agent.FileOperation{
+			Paths: []string{"/project/" + longName, "/outside/file.go"},
+		}},
+	}}
+	model.applyApprovalEvent(event)
+	model.room.ApplyEvent(event)
+	paths := model.approval.Paths
+	if len(paths) != 2 || paths[0] != longName || paths[1] != "/outside/file.go" {
+		t.Fatalf("compact paths = %v", paths)
+	}
+	if !strings.Contains(model.room.Snapshot().Records[0].Text, "Files:\n"+strings.Join(paths, "\n")) {
+		t.Fatal("history and compact paths differ")
+	}
+}
 
 func TestFileApprovalDisplayEvidence(t *testing.T) {
 	changes := []agent.FileChange{

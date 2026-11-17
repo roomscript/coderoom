@@ -57,3 +57,33 @@ func TestFileApprovalMissingEvidence(t *testing.T) {
 		}
 	}
 }
+
+func TestFileApprovalPresentation(t *testing.T) {
+	for _, ask := range []string{"approve file changes", "approve file changes — required for migration", "approve file changes (grantRoot: /outside)"} {
+		t.Run(ask, func(t *testing.T) {
+			r := New(WithWorkspaceRoot("/project"))
+			t.Cleanup(r.Close)
+			diff := "--- /project/src/file.go\n+++ /project/src/file.go\n@@ -1 +1 @@\n-old\n+new"
+			req := agent.ApprovalRequest{Kind: agent.ApprovalFileChange, Ask: ask, Details: agent.ApprovalDetails{Operation: agent.FileOperation{
+				Paths:           []string{"/project/src/file.go", "/project-other/file.go", "/outside/file.go"},
+				ProposedChanges: []agent.FileChange{{Path: "/project/src/file.go", ChangeKind: "update", Diff: diff}},
+			}}}
+			r.ApplyEvent(session.ApprovalRequested{ID: 1, Req: req})
+			text := r.Snapshot().Records[0].Text
+			for _, want := range []string{"Files:\nsrc/file.go\n/project-other/file.go\n/outside/file.go", "update: src/file.go\n" + diff, "Proposed file details unavailable"} {
+				if !strings.Contains(text, want) {
+					t.Fatalf("missing %q in %q", want, text)
+				}
+			}
+			if strings.Contains(text, ask) != (ask != "approve file changes") {
+				t.Fatalf("incorrect description: %q", text)
+			}
+			if paths := r.ApprovalPaths(req); strings.Join(paths, "\n") != "src/file.go\n/project-other/file.go\n/outside/file.go" {
+				t.Fatalf("display paths = %v", paths)
+			}
+			if req.Details.Operation.(agent.FileOperation).Paths[0] != "/project/src/file.go" {
+				t.Fatal("request target mutated")
+			}
+		})
+	}
+}
