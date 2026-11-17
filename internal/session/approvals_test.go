@@ -44,13 +44,19 @@ func TestApprovalHub_QueuesRequestsFIFO(t *testing.T) {
 	first := mustApprovalEvent(ctx, t, events)
 	assertApprovalAsk(t, first, "first?")
 
-	secondDecision := startApprovalDecision(ctx, t, listener, "second?")
+	fileRequest := approvalRequest("second?")
+	fileRequest.Kind = agent.ApprovalFileChange
+	secondDecision := startApprovalRequestDecision(ctx, t, listener, fileRequest)
 	assertNoApprovalEvent(t, events, 100*time.Millisecond)
 
 	if !h.resolve(first.ID, agent.OptionAccept) {
 		t.Fatal("expected first resolve to succeed")
 	}
 
+	settled := mustApprovalClearedEvent(ctx, t, events)
+	if settled.ID != first.ID || settled.Choice != agent.OptionAccept {
+		t.Fatalf("settlement = %#v", settled)
+	}
 	second := mustApprovalEvent(ctx, t, events)
 	assertApprovalAsk(t, second, "second?")
 
@@ -124,6 +130,10 @@ func TestApprovalHub_CancelActiveRequestPublishesNextQueuedApproval(t *testing.T
 	assertNoApprovalEvent(t, events, 100*time.Millisecond)
 	cancelFirst()
 
+	settled := mustApprovalClearedEvent(secondCtx, t, events)
+	if settled.ID != first.ID || settled.Choice != "" {
+		t.Fatalf("withdrawal = %#v", settled)
+	}
 	second := mustApprovalEvent(secondCtx, t, events)
 	assertApprovalRequestEvent(t, second, alias, "second?")
 	if second.ID == first.ID {
@@ -170,6 +180,7 @@ func TestApprovalHub_ConcurrentRequestsPublishIncreasingApprovalIDs(t *testing.T
 		if !h.resolve(ev.ID, agent.OptionDecline) {
 			t.Fatalf("expected resolve(%d) to succeed", ev.ID)
 		}
+		mustApprovalClearedEvent(ctx, t, events)
 	}
 
 	wg.Wait()
@@ -213,12 +224,16 @@ func TestApprovalHubObserverCanResolveReentrantly(t *testing.T) {
 }
 
 func startApprovalDecision(ctx context.Context, t *testing.T, listener agent.ApprovalListener, ask string) <-chan agent.ApprovalDecision {
+	return startApprovalRequestDecision(ctx, t, listener, approvalRequest(ask))
+}
+
+func startApprovalRequestDecision(ctx context.Context, t *testing.T, listener agent.ApprovalListener, request agent.ApprovalRequest) <-chan agent.ApprovalDecision {
 	t.Helper()
 	done := make(chan agent.ApprovalDecision, 1)
 	go func() {
-		d, err := listener.Decide(ctx, approvalRequest(ask))
+		d, err := listener.Decide(ctx, request)
 		if err != nil {
-			t.Errorf("Decide(%q) returned error: %v", ask, err)
+			t.Errorf("Decide(%q) returned error: %v", request.Ask, err)
 			return
 		}
 		done <- d

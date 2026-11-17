@@ -218,6 +218,7 @@ func (s *Session) snapshotAgentsToStop() []agent.Agent {
 // cleanup on process exit.
 func (s *Session) Shutdown() {
 	s.lifecycle.shutdownOnce.Do(func() {
+		s.approvals.close()
 		s.stopBackgroundLoops()
 		s.cancelAllDependencyChecks()
 		s.checks.wg.Wait()
@@ -619,6 +620,8 @@ func (s *Session) readLoop(stop <-chan struct{}, alias participant.Alias, a agen
 }
 
 func (s *Session) handleAgentReadError(stop <-chan struct{}, alias participant.Alias) {
+	// A backend can exit while its approval worker is waiting on the human.
+	s.cancelAgentContext(alias)
 	if isCrashedReadError(stop) {
 		err := s.updateParticipant(alias, func(p *participant.Participant) (Event, error) {
 			from := p.Status

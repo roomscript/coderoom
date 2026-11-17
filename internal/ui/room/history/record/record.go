@@ -29,6 +29,7 @@ const (
 	KindReasoning   = roomstate.KindReasoning
 	KindCommand     = roomstate.KindCommand
 	KindFileChange  = roomstate.KindFileChange
+	KindApproval    = roomstate.KindApproval
 )
 
 // RenderMode controls how Record renders for UI consumers.
@@ -80,7 +81,7 @@ func LayoutPrefixWidth(r Record, lineIndex int, plain string) int {
 		return 0
 	}
 	switch r.Kind {
-	case KindAgentOutput, KindReasoning, KindCommand, KindFileChange:
+	case KindAgentOutput, KindReasoning, KindCommand, KindFileChange, KindApproval:
 		return ansi.StringWidth(agentBodyIndent)
 	default:
 		return 0
@@ -129,6 +130,8 @@ func renderViewport(r Record, width int, colors func(participant.Alias) string, 
 		return renderCommand(r, width, colors)
 	case KindFileChange:
 		return renderFileChange(r, width, colors)
+	case KindApproval:
+		return renderApproval(r, width, colors)
 	}
 	return r.Text
 }

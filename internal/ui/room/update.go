@@ -74,8 +74,8 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		return m.toggleFocus()
 	}
 
-	// Approval paging scrolls the request while its options stay pinned.
-	if m.input.kind == inputApproval && m.activeFocus == focusInput {
+	// Other approvals page their evidence; compact file approvals page history.
+	if m.input.kind == inputApproval && m.activeFocus == focusInput && !m.input.approval.FileChange() {
 		return m.handleApprovalKey(msg)
 	}
 

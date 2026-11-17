@@ -13,6 +13,11 @@ import (
 // and zero-width format characters cannot reorder or hide approval text.
 // LF and TAB are kept for the existing multiline and tab-stop layout.
 func escapeApprovalText(text string) string {
+	return EscapeText(text)
+}
+
+// EscapeText makes approval evidence inert for both the panel and room history.
+func EscapeText(text string) string {
 	var out strings.Builder
 	for i := 0; i < len(text); {
 		r, size := utf8.DecodeRuneInString(text[i:])

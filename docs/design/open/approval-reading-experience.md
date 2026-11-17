@@ -1,6 +1,12 @@
 # Approval reading experience
 
-Status: agreed file-change design, 2026-11-16; ready for builder implementation.
+Status: implemented file-change design, 2026-11-16.
+
+Implementation: the compact box uses at most half the room height. It budgets
+whole wrapped paths after reserving choices and the omitted count. If even the
+heading cannot fit, it prioritizes the omission summary; at extremely small
+sizes only the selected choice and overflow markers may fit. Full evidence and
+identity remain available in history and transcript export.
 
 ## Agreed file-change behavior
 

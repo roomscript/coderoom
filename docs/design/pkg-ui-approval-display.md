@@ -4,6 +4,12 @@ Design for [issue #75](https://github.com/roomscript/coderoom/issues/75).
 
 Status: implemented.
 
+File-change update (2026-11-16): manual file evidence now lives in a retained
+room record using the same escaping contract. Its compact box shows participant,
+action and at most ten whole paths, reserving choices and omitted-file count.
+Page Up/Down scrolls history. See [the agreed design](open/approval-reading-experience.md).
+The older full-evidence panel behavior below still applies to other types.
+
 Presentation update (2026-11-14): the existing panel adds a participant-colored
 `● alias:` header and yellow `⚡ Approval:`, full request text, and
 `Decision: Waiting for you`. The alias uses the same escaping contract as

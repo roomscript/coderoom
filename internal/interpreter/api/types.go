@@ -54,8 +54,10 @@ type Approval struct {
 	Alias  participant.Alias
 	Kind   ApprovalKind
 	Prompt string
-	// Details retains full backend action evidence for the scrollable prompt.
+	// Details retains full backend action evidence.
 	Details string
+	// Paths contains the affected files in backend order.
+	Paths   []string
 	Options []ApprovalOption
 }
 

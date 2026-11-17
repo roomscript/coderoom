@@ -349,6 +349,9 @@ func (m Model) HandleResize(innerW, totalH int) Model {
 	//   bottom separator (1 line)
 	if m.input.kind == inputApproval {
 		m.input.approval = m.input.approval.SetSize(innerW, max(totalH-4, 1))
+		if m.input.approval.FileChange() {
+			m.input.approval = m.input.approval.SetSize(innerW, max(totalH/2, 1))
+		}
 	}
 	inputH := m.input.height()
 	if m.input.kind == inputStaged && m.input.staged.status != "" {

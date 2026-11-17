@@ -306,3 +306,36 @@ func TestApprovalMode_pagingScrollsRequestInsteadOfHistory(t *testing.T) {
 		}
 	}
 }
+
+func TestFileApprovalPagingScrollsHistory(t *testing.T) {
+	m := newTestModel(t).HandleResize(80, 24)
+	m = m.AppendSystem(strings.Repeat("evidence\n", 80))
+	m = m.ShowApproval(interpreter.Approval{Kind: interpreter.ApprovalFileChange, Paths: []string{"file"}, Options: []interpreter.ApprovalOption{{ID: "accept"}, {ID: "decline"}}})
+	top := m.YOffset()
+	m, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyPgUp}))
+	if m.YOffset() >= top || m.activeFocus != focusInput || m.input.approval.Selected() != 0 || !m.input.approval.Active() {
+		t.Fatal("file approval paging did not scroll history with approval focus")
+	}
+	m, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyPgDown}))
+	if m.YOffset() != top {
+		t.Fatal("Page Down did not restore history position")
+	}
+	m, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: 'o', Mod: tea.ModCtrl}))
+	if m.activeFocus != focusHistory || !m.input.approval.Active() {
+		t.Fatal("Ctrl+O lost approval")
+	}
+	_, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: 'g', Mod: tea.ModCtrl}))
+	if cmd == nil {
+		t.Fatal("history Ctrl+G did not request transcript inspection")
+	}
+}
+
+func TestFileApprovalRestoresStagedComposer(t *testing.T) {
+	m := newTestModel(t).HandleResize(80, 24)
+	m = m.SetComposerStaged("next turn", "Participants busy: ada.")
+	m = m.ShowApproval(interpreter.Approval{Kind: interpreter.ApprovalFileChange, Paths: []string{"file"}, Options: []interpreter.ApprovalOption{{ID: "accept"}}})
+	m, _ = m.ClearApproval()
+	if !m.IsComposerStaged() || m.ComposeValue() != "next turn" || !strings.Contains(m.View(), "Participants busy: ada.") {
+		t.Fatal("file approval lost staged composer")
+	}
+}

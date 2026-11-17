@@ -1,6 +1,7 @@
 package approval
 
 import (
+	"fmt"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -36,7 +37,7 @@ func (m Model) View() string {
 }
 
 func (m Model) overflowHint(layout panelLayout, requestTop int) string {
-	request := overflowArrows(requestTop > 0, requestTop+layout.requestRows < len(layout.request))
+	request := m.requestOverflow(layout, requestTop)
 	options := overflowArrows(layout.optionsAbove, layout.optionsBelow)
 	var parts []string
 	if request != "" {
@@ -55,6 +56,13 @@ func (m Model) overflowHint(layout panelLayout, requestTop int) string {
 		parts[len(parts)-1] += " Up/Down"
 	}
 	return strings.Join(parts, " ")
+}
+
+func (m Model) requestOverflow(layout panelLayout, top int) string {
+	if m.fileChange {
+		return ""
+	}
+	return overflowArrows(top > 0, top+layout.requestRows < len(layout.request))
 }
 
 // compactOverflowHint leaves space for the selected label on narrow panels.
@@ -102,6 +110,9 @@ func (l panelLayout) height() int {
 }
 
 func (m Model) layout() panelLayout {
+	if m.fileChange {
+		return m.fileLayout()
+	}
 	request := m.requestLines()
 	options, selectedRow := m.optionLines()
 	accent := lipgloss.NewStyle().Foreground(lipgloss.Color(palette.ColorApproval))
@@ -131,6 +142,50 @@ func (m Model) layout() panelLayout {
 	}
 }
 
+// fileLayout spends wrapped rows on whole paths, reserving options and overflow.
+func (m Model) fileLayout() panelLayout {
+	options, selected := m.optionLines()
+	budget := m.maxHeight
+	if budget == 0 {
+		budget = int(^uint(0) >> 1)
+	}
+	optionRows := min(len(options), max(budget-1, 1))
+	top := min(selected, len(options)-optionRows)
+	layout := panelLayout{options: options[top : top+optionRows], optionsAbove: top > 0, optionsBelow: top+optionRows < len(options)}
+	accent := lipgloss.NewStyle().Foreground(lipgloss.Color(palette.ColorApproval))
+	for i := range layout.options {
+		layout.options[i] = accent.Render(layout.options[i])
+	}
+	remaining := budget - optionRows
+	for count := min(10, len(m.paths)); count >= 0; count-- {
+		body := "File changes"
+		for _, path := range m.paths[:count] {
+			body += "\n" + path
+		}
+		if omitted := len(m.paths) - count; omitted > 0 {
+			body += fmt.Sprintf("\nand %d more files — see history", omitted)
+		}
+		request := m
+		request.ask = body
+		lines := request.requestLines()
+		if len(lines) <= remaining {
+			layout.request, layout.requestRows = lines, len(lines)
+			return layout
+		}
+	}
+	// Tiny panels cannot fit the heading and summary. Prefer the omission count;
+	// never display a partial filename as though it were the complete path.
+	if remaining > 0 {
+		text := "File changes — see history"
+		if len(m.paths) > 0 {
+			text = fmt.Sprintf("and %d more files — see history", len(m.paths))
+		}
+		layout.request = strings.Split(ansi.Wrap(text, m.width, ""), "\n")
+		layout.requestRows = min(len(layout.request), remaining)
+	}
+	return layout
+}
+
 func (m Model) requestLines() []string {
 	var lines []string
 	if m.alias != "" {
@@ -142,7 +197,9 @@ func (m Model) requestLines() []string {
 		for line := range strings.SplitSeq(ansi.Wrap(header, m.width, ""), "\n") {
 			lines = append(lines, style.Render(line))
 		}
-		lines = append(lines, "")
+		if !m.fileChange {
+			lines = append(lines, "")
+		}
 	}
 	indent, width := "  ", m.width
 	if width > 2 {
@@ -151,6 +208,9 @@ func (m Model) requestLines() []string {
 		indent = ""
 	}
 	body := "⚡ Approval:\n" + escapeApprovalText(m.ask) + "\nDecision: Waiting for you"
+	if m.fileChange {
+		body = "⚡ " + escapeApprovalText(m.ask)
+	}
 	accent := lipgloss.NewStyle().Foreground(lipgloss.Color(palette.ColorApproval))
 	for line := range strings.SplitSeq(ansi.Wrap(expandTabs(body, len(indent)), width, ""), "\n") {
 		lines = append(lines, accent.Render(indent+line))
@@ -225,3 +285,6 @@ func expandTabs(text string, prefixWidth int) string {
 	}
 	return strings.Join(lines, "\n")
 }
+
+// ExpandTabs applies the approval tab-stop contract to room evidence too.
+func ExpandTabs(text string, prefixWidth int) string { return expandTabs(text, prefixWidth) }

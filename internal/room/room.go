@@ -38,10 +38,12 @@ func (r *Room) OnEvent(e session.Event) {
 // use this when event ordering and the resulting snapshot share one serialized
 // execution loop. Callers must not also register this Room as an observer for
 // the same event stream.
-func (r *Room) ApplyEvent(e session.Event) {
+func (r *Room) ApplyEvent(e session.Event) bool {
 	if update, ok := r.applyEvent(e); ok {
 		r.notify(update)
+		return true
 	}
+	return false
 }
 
 // AppendRecord appends a local, non-session record and notifies the

@@ -31,9 +31,8 @@ func (m *interpreterModel) ApplySessionEvent(event session.Event) bool {
 	if _, ok := event.(session.RoutingCompleted); ok {
 		return false
 	}
-	if !m.applyApprovalEvent(event) {
-		return false
-	}
-	m.room.ApplyEvent(event)
-	return true
+	// A settled record still needs updating after the accepted command dismissed
+	// its box. Stale clears must not prevent canonical transcript settlement.
+	roomChanged := m.room.ApplyEvent(event)
+	return m.applyApprovalEvent(event) || roomChanged
 }

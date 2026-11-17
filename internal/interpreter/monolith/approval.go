@@ -95,5 +95,6 @@ func cloneApproval(source *Approval) *Approval {
 	}
 	approval := *source
 	approval.Options = append([]ApprovalOption(nil), approval.Options...)
+	approval.Paths = append([]string(nil), approval.Paths...)
 	return &approval
 }

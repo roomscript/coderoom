@@ -366,6 +366,18 @@ Codex shell requests or literal nonredirecting curl GETs. Queue observers run
 outside locks through an ordered publication drain. See
 approval-policy-test-cases.md for exact arguments, checks, replay and open work.
 
+For manual file changes, the FIFO publishes an authoritative settlement with
+the request ID, participant alias and accepted choice (empty for withdrawal)
+before promoting its successor. Resolution and cancellation arbitrate at the
+hub boundary; a later cancellation cannot discard an accepted choice. Backend
+read termination cancels the participant context, withdrawing pending reviews.
+The room retains complete evidence in one approval record and updates its
+decision in place. The compact box lists at most ten whole paths within half the
+room height, reserving choices and an omitted-file count. File-approval Page
+Up/Down scrolls history; Ctrl+O and history Ctrl+G retain their inspection roles.
+Other approval types retain their existing presentation. See
+`open/approval-reading-experience.md` for the agreed UX and scope.
+
 ---
 
 ## Execution Model

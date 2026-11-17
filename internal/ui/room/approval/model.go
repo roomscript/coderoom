@@ -15,6 +15,8 @@ type Model struct {
 	width            int
 	maxHeight        int
 	requestTop       int
+	fileChange       bool
+	paths            []string
 }
 
 // New returns an empty Model.
@@ -43,8 +45,12 @@ func (m Model) SelectedOption() (interpreter.ApprovalChoice, bool) {
 // Set sets the approval prompt and options and resets selection to 0.
 func (m Model) Set(req interpreter.Approval) Model {
 	m.alias = req.Alias.Name
+	m.fileChange = req.Kind == interpreter.ApprovalFileChange
+	m.paths = append([]string(nil), req.Paths...)
 	m.ask = req.Prompt
-	if req.Details != "" {
+	if m.fileChange {
+		m.ask = "File changes"
+	} else if req.Details != "" {
 		m.ask += "\n" + req.Details
 	}
 	m.options = append([]interpreter.ApprovalOption(nil), req.Options...)
@@ -52,6 +58,9 @@ func (m Model) Set(req interpreter.Approval) Model {
 	m.requestTop = 0
 	return m
 }
+
+// FileChange reports whether the compact file approval is displayed.
+func (m Model) FileChange() bool { return m.fileChange }
 
 // SetParticipantColor uses the participant's assigned color for the header.
 func (m Model) SetParticipantColor(color string) Model {
@@ -62,6 +71,8 @@ func (m Model) SetParticipantColor(color string) Model {
 // Clear removes the current approval.
 func (m Model) Clear() Model {
 	m.alias = ""
+	m.fileChange = false
+	m.paths = nil
 	m.ask = ""
 	m.options = nil
 	m.selected = 0

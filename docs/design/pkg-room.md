@@ -27,6 +27,13 @@ It is responsible for:
 - maintaining streaming and completed records over time
 - producing immutable snapshots for interpreter publication
 
+Manual file approvals use a participant-associated `KindApproval` record when
+the request becomes the Session FIFO head. The record retains the complete
+normalized evidence, affected files and request ID. `ApprovalCleared` updates its
+decision in place using the accepted choice, or `Withdrawn` for cancellation.
+These records have no agent message and are ineligible for handoff output or
+agent context. They are in-memory presentation history, not an audit sink.
+
 ---
 
 ## Why this package exists

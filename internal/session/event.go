@@ -143,10 +143,13 @@ type ApprovalRequested struct {
 	Req   agent.ApprovalRequest
 }
 
-// ApprovalCleared reports that an active approval prompt should be dismissed.
+// ApprovalCleared reports an active manual request's authoritative settlement.
+// It precedes any successor ApprovalRequested in the same FIFO.
 type ApprovalCleared struct {
 	Alias participant.Alias
 	ID    int64
+	// Choice is empty for external withdrawal; otherwise it is the accepted choice.
+	Choice agent.ApprovalOption
 }
 
 func (AgentStarting) sessionEvent()            {}

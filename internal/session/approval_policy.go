@@ -13,6 +13,10 @@ import (
 )
 
 func (s *Session) decideApproval(ctx context.Context, alias participant.Alias, req agent.ApprovalRequest, listener agent.ApprovalListener) (agent.ApprovalDecision, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	stop := context.AfterFunc(s.lifecycle.ctx, cancel)
+	defer stop()
 	if s.approvalPolicy == nil {
 		decision, err := listener.Decide(ctx, req)
 		if err != nil {
@@ -20,10 +24,6 @@ func (s *Session) decideApproval(ctx context.Context, alias participant.Alias, r
 		}
 		return decision, nil
 	}
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	stop := context.AfterFunc(s.lifecycle.ctx, cancel)
-	defer stop()
 	p := s.approvalPolicy
 	e := req.Details
 	identity := approvalIdentity(e)

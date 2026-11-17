@@ -19,6 +19,7 @@ const (
 	KindReasoning
 	KindCommand
 	KindFileChange
+	KindApproval
 )
 
 // Record is the canonical chat-visible unit owned by the room package.
@@ -32,6 +33,9 @@ type Record struct {
 	FailedRouting []string
 	UnsentRouting []string
 	Text          string
+	// ApprovalID and Decision identify a manual file review and its settlement.
+	ApprovalID    int64
+	Decision      string
 	Msg           *agent.Message
 	HandoffSource bool
 	// Participants is a detached participant snapshot, sorted by alias, that

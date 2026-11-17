@@ -237,6 +237,7 @@ func (op resolveCommandOperation) apply(e *interpreterExecutor) {
 
 func (shutdownOperation) apply(e *interpreterExecutor) {
 	e.shutdownSession()
+	e.drainSessionEvents()
 	e.cancel()
 	e.shellWG.Wait()
 	// Ordered application callbacks may be behind slow observers. During shutdown,

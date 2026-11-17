@@ -20,6 +20,7 @@ func (f approvalListenerFunc) Decide(ctx context.Context, req agent.ApprovalRequ
 }
 
 type pendingApproval struct {
+	ctx   context.Context
 	id    int64
 	alias participant.Alias
 	req   agent.ApprovalRequest
@@ -83,12 +84,14 @@ func (q *approvalQueue) cancel(id int64) (cleared *pendingApproval, next *pendin
 }
 
 func (q *approvalQueue) pop() *pendingApproval {
-	if len(q.queue) == 0 {
-		return nil
+	for len(q.queue) > 0 {
+		next := q.queue[0]
+		q.queue = q.queue[1:]
+		if next.ctx.Err() == nil {
+			return next
+		}
 	}
-	next := q.queue[0]
-	q.queue = q.queue[1:]
-	return next
+	return nil
 }
 
 type approvalHub struct {
@@ -97,6 +100,7 @@ type approvalHub struct {
 	notify     approvalNotifier
 	events     []Event
 	publishing bool
+	closed     bool
 }
 
 func newApprovalHub(notify approvalNotifier) *approvalHub {
@@ -124,12 +128,17 @@ func (h *approvalHub) request(ctx context.Context, alias participant.Alias, req 
 	}
 
 	pending := &pendingApproval{
+		ctx:   ctx,
 		alias: alias,
 		req:   req,
 		resp:  make(chan agent.ApprovalDecision, 1),
 	}
 
 	h.mu.Lock()
+	if h.closed || ctx.Err() != nil {
+		h.mu.Unlock()
+		return agent.ApprovalDecision{}, errors.New("approval hub closed or request canceled")
+	}
 	h.queue.approvalID++
 	pending.id = h.queue.approvalID
 	publishNow := h.queue.add(pending)
@@ -138,17 +147,40 @@ func (h *approvalHub) request(ctx context.Context, alias participant.Alias, req 
 	}
 	h.mu.Unlock()
 	h.publishEvents()
+	return h.awaitDecision(ctx, pending)
+}
 
+func (h *approvalHub) awaitDecision(ctx context.Context, pending *pendingApproval) (agent.ApprovalDecision, error) {
 	select {
 	case d := <-pending.resp:
-		if err := ctx.Err(); err != nil {
-			return agent.ApprovalDecision{}, fmt.Errorf("approval canceled: %w", err)
-		}
 		return d, nil
 	case <-ctx.Done():
-		h.cancel(pending.id)
+		if !h.cancel(pending.id) {
+			// Resolution won the hub boundary, even if cancellation is now ready.
+			select {
+			case d := <-pending.resp:
+				return d, nil
+			default:
+			}
+		}
 		return agent.ApprovalDecision{}, fmt.Errorf("approval request %d canceled: %w", pending.id, ctx.Err())
 	}
+}
+
+// close withdraws the visible head without promoting queued work on shutdown.
+func (h *approvalHub) close() {
+	if h == nil {
+		return
+	}
+	h.mu.Lock()
+	h.closed = true
+	if active := h.queue.active; active != nil {
+		h.events = append(h.events, ApprovalCleared{Alias: active.alias, ID: active.id})
+	}
+	h.queue.active = nil
+	h.queue.queue = nil
+	h.mu.Unlock()
+	h.publishEvents()
 }
 
 func (h *approvalHub) resolve(id int64, choice agent.ApprovalOption) bool {
@@ -157,8 +189,14 @@ func (h *approvalHub) resolve(id int64, choice agent.ApprovalOption) bool {
 	}
 
 	h.mu.Lock()
-	if h.queue.active == nil || !slices.Contains(h.queue.active.req.Options, choice) {
+	if h.queue.active == nil || (id != 0 && h.queue.active.id != id) || !slices.Contains(h.queue.active.req.Options, choice) {
 		h.mu.Unlock()
+		return false
+	}
+	if h.queue.active.ctx.Err() != nil {
+		activeID := h.queue.active.id
+		h.mu.Unlock()
+		h.cancel(activeID)
 		return false
 	}
 
@@ -169,6 +207,7 @@ func (h *approvalHub) resolve(id int64, choice agent.ApprovalOption) bool {
 	}
 
 	resolved.resp <- agent.ApprovalDecision{Choice: choice}
+	h.events = append(h.events, ApprovalCleared{Alias: resolved.alias, ID: resolved.id, Choice: choice})
 	if next != nil {
 		h.enqueue(next)
 	}
@@ -177,23 +216,26 @@ func (h *approvalHub) resolve(id int64, choice agent.ApprovalOption) bool {
 	return true
 }
 
-func (h *approvalHub) cancel(id int64) {
+func (h *approvalHub) cancel(id int64) bool {
 	if h.queue == nil {
-		return
+		return false
 	}
 
 	h.mu.Lock()
 
 	cleared, next, outcome := h.queue.cancel(id)
+	if outcome != cancelNoVisibleChange {
+		h.events = append(h.events, ApprovalCleared{Alias: aliasForApproval(cleared), ID: id})
+	}
 	switch outcome {
 	case cancelShowNextApproval:
 		h.enqueue(next)
 	case cancelClearVisibleApproval:
-		h.events = append(h.events, ApprovalCleared{Alias: aliasForApproval(cleared), ID: id})
 	case cancelNoVisibleChange:
 	}
 	h.mu.Unlock()
 	h.publishEvents()
+	return cleared != nil
 }
 
 func (h *approvalHub) enqueue(p *pendingApproval) {

@@ -68,7 +68,7 @@ func (r *Room) handleModelEventLocked(e session.Event) ([]int, bool) {
 	case session.ModelChangeFinished:
 		return r.appendSystemRecordLocked(modelChangeNotice(e)), true
 	default:
-		return nil, false
+		return r.handleApprovalEventLocked(e)
 	}
 }
 

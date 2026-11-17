@@ -4,6 +4,11 @@ Status: broader proposal deferred; targeted presentation increment, 2026-11-14.
 Scope follows [the handoff](approval-presentation-handoff.md). Approval policy
 coverage and backend permissions remain separate work.
 
+Manual file changes now follow the implemented
+[reading experience](open/approval-reading-experience.md): full room evidence,
+compact file box and retained actual decisions. The presentation-only scope
+below describes the earlier increment and continues to apply to other types.
+
 ## Current scope: presentation only
 
 The active manual panel uses a normal participant header in its assigned color,
