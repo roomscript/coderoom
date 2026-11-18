@@ -106,6 +106,7 @@ type rpcResponse[T any] struct {
 type commandExecutionRequestApprovalParams struct {
 	Command string  `json:"command"`
 	Cwd     *string `json:"cwd"`
+	Reason  *string `json:"reason"`
 }
 
 type fileChangeRequestApprovalParams struct {

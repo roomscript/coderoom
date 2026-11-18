@@ -48,3 +48,19 @@ func TestApprovalDiffStylesAndWrapping(t *testing.T) {
 		}
 	})
 }
+
+func TestCommandApprovalExport(t *testing.T) {
+	command := "/opt/bin/git diff\n" + strings.Repeat("literal command evidence\n", 100) + "tail\x1b[2J"
+	r := Record{Kind: KindApproval, Alias: participant.Alias{Name: "bill"}, Text: "⚡ Approval: shell command\nCommand: " + command + "\nWorking directory: unknown\nExplanation: supplied reason", Decision: "Withdrawn"}
+	for _, mode := range []RenderMode{RenderViewport, RenderTranscript} {
+		view := ansi.Strip(Render(r, RenderContext{Key: RenderKey{Mode: mode, Width: 60}}))
+		for _, want := range []string{"/opt/bin/git diff", `tail\x1b[2J`, "Working directory: unknown", "Explanation: supplied reason", "Decision: Withdrawn"} {
+			if !strings.Contains(view, want) {
+				t.Fatalf("missing %q", want)
+			}
+		}
+		if strings.Count(view, "literal command evidence") != 100 || strings.Contains(view, "\x1b") {
+			t.Fatal("command evidence lost or controls executed")
+		}
+	}
+}

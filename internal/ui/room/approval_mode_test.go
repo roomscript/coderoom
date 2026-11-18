@@ -339,3 +339,40 @@ func TestFileApprovalRestoresStagedComposer(t *testing.T) {
 		t.Fatal("file approval lost staged composer")
 	}
 }
+
+func TestCommandApprovalHistoryAndComposer(t *testing.T) {
+	m := newTestModel(t).HandleResize(80, 24)
+	m = m.AppendSystem(strings.Repeat("command evidence\n", 80))
+	m = m.SetComposerStaged("next turn", "Participants busy: ada.")
+	m = m.ShowApproval(interpreter.Approval{Kind: interpreter.ApprovalCommandExecution, Summary: "make test", Options: []interpreter.ApprovalOption{{ID: "accept"}, {ID: "decline"}}})
+	top := m.YOffset()
+	m, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyPgUp}))
+	if m.YOffset() >= top || m.activeFocus != focusInput || !m.input.approval.Active() {
+		t.Fatal("command paging lost approval or history")
+	}
+	m, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyPgDown}))
+	if m.YOffset() != top {
+		t.Fatal("history position not restored")
+	}
+	m, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
+	if m.input.approval.Selected() != 1 {
+		t.Fatal("option navigation lost")
+	}
+	m, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: 'o', Mod: tea.ModCtrl}))
+	if m.activeFocus != focusHistory {
+		t.Fatal("history focus lost")
+	}
+	_, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: 'g', Mod: tea.ModCtrl}))
+	if cmd == nil {
+		t.Fatal("transcript inspection lost")
+	}
+	m, _ = m.ClearApproval()
+	assertCommandComposerRestored(t, m)
+}
+
+func assertCommandComposerRestored(t *testing.T, m Model) {
+	t.Helper()
+	if !m.IsComposerStaged() || m.ComposeValue() != "next turn" || !strings.Contains(m.View(), "Participants busy: ada.") {
+		t.Fatal("composer not restored")
+	}
+}

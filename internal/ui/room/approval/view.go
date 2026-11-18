@@ -59,7 +59,7 @@ func (m Model) overflowHint(layout panelLayout, requestTop int) string {
 }
 
 func (m Model) requestOverflow(layout panelLayout, top int) string {
-	if m.fileChange {
+	if m.Compact() {
 		return ""
 	}
 	return overflowArrows(top > 0, top+layout.requestRows < len(layout.request))
@@ -135,11 +135,35 @@ func (m Model) layout() panelLayout {
 	if separator {
 		remaining--
 	}
+	if m.command {
+		request = m.commandRequestLines(remaining)
+	}
 	return panelLayout{
 		request: request, requestRows: min(len(request), remaining),
 		separator: separator, options: options,
 		optionsAbove: optionsAbove, optionsBelow: optionsBelow,
 	}
+}
+
+// commandRequestLines reserves the history hint before bounding the summary.
+// Paging belongs to history, so every displayed command row must be reachable
+// without scrolling the approval body.
+func (m Model) commandRequestLines(rows int) []string {
+	request := m.requestLines()
+	if len(request) <= rows {
+		return request
+	}
+	hint := m
+	hint.alias = ""
+	hint.ask = "Full command in history"
+	hintLines := hint.requestLines()
+	if len(hintLines) >= rows {
+		return hintLines[:rows]
+	}
+	count := rows - len(hintLines)
+	request = request[:count]
+	request[count-1] = ansi.Truncate(request[count-1], max(m.width-1, 0), "") + "…"
+	return append(request, hintLines...)
 }
 
 // fileLayout spends wrapped rows on whole paths, reserving options and overflow.
@@ -197,7 +221,7 @@ func (m Model) requestLines() []string {
 		for line := range strings.SplitSeq(ansi.Wrap(header, m.width, ""), "\n") {
 			lines = append(lines, style.Render(line))
 		}
-		if !m.fileChange {
+		if !m.Compact() {
 			lines = append(lines, "")
 		}
 	}
@@ -208,7 +232,7 @@ func (m Model) requestLines() []string {
 		indent = ""
 	}
 	body := "⚡ Approval:\n" + escapeApprovalText(m.ask) + "\nDecision: Waiting for you"
-	if m.fileChange {
+	if m.Compact() {
 		body = "⚡ " + escapeApprovalText(m.ask)
 	}
 	accent := lipgloss.NewStyle().Foreground(lipgloss.Color(palette.ColorApproval))

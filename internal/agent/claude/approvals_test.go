@@ -606,3 +606,16 @@ func TestTrimMiddle(t *testing.T) {
 		t.Errorf("trimMiddle = %q", got)
 	}
 }
+
+func TestBashApprovalRetainsExplanation(t *testing.T) {
+	explanation := strings.Repeat("supplied explanation ", 100)
+	input, err := json.Marshal(map[string]string{"command": "/opt/bin/git diff", "description": explanation})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := approvalRequestFor(canUseTool{ToolName: "Bash", Input: input})
+	op := req.Details.Operation.(agent.CommandOperation)
+	if op.Explanation != explanation || op.Command != "/opt/bin/git diff" || op.Cwd != "" {
+		t.Fatalf("lost evidence: %+v", op)
+	}
+}

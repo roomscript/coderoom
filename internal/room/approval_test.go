@@ -87,3 +87,45 @@ func TestFileApprovalPresentation(t *testing.T) {
 		})
 	}
 }
+
+func TestCommandApprovalRecordSettlement(t *testing.T) {
+	for _, choice := range []agent.ApprovalOption{agent.OptionAccept, agent.OptionAcceptForSession, agent.OptionDecline, agent.OptionCancel, ""} {
+		t.Run(string(choice), func(t *testing.T) {
+			r := New()
+			t.Cleanup(r.Close)
+			alias := newTestAlias("bill")
+			command := "/opt/bin/git diff " + strings.Repeat("long argument\n", 100) + "tail\x1b[2J"
+			op := agent.CommandOperation{Command: command, Explanation: strings.Repeat("why ", 100)}
+			req := agent.ApprovalRequest{Kind: agent.ApprovalCommandExecution, Ask: "shortened", Details: agent.ApprovalDetails{Operation: op}}
+			r.ApplyEvent(session.ApprovalRequested{ID: 1, Alias: alias, Req: req})
+			before := r.Snapshot()
+			record := before.Records[0]
+			for _, want := range []string{command, op.Explanation, "Working directory: unknown"} {
+				if !strings.Contains(record.Text, want) {
+					t.Fatalf("lost %q", want)
+				}
+			}
+			r.ApplyEvent(session.ApprovalCleared{ID: 99, Alias: alias, Choice: choice})
+			if r.Snapshot().Version != before.Version {
+				t.Fatal("stale settlement accepted")
+			}
+			r.ApplyEvent(session.ApprovalCleared{ID: 1, Alias: alias, Choice: choice})
+			after := r.Snapshot()
+			if len(after.Records) != 1 || after.Records[0].Text != record.Text || after.Records[0].Decision != approvalDecision(choice) {
+				t.Fatal("lost evidence or settlement")
+			}
+			if req.Details.Operation != op {
+				t.Fatal("operation mutated")
+			}
+		})
+	}
+}
+
+func TestCommandApprovalMissingEvidence(t *testing.T) {
+	for _, op := range []agent.Operation{nil, agent.CommandOperation{}} {
+		text := ApprovalDetails(agent.ApprovalRequest{Kind: agent.ApprovalCommandExecution, Details: agent.ApprovalDetails{Operation: op}})
+		if !strings.Contains(text, "unavailable") || !strings.Contains(text, "unknown") {
+			t.Fatalf("missing notice: %q", text)
+		}
+	}
+}

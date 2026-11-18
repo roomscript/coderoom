@@ -55,8 +55,9 @@ type Operation interface{ approvalOperation() }
 
 // CommandOperation describes a shell command and its authoritative working directory.
 type CommandOperation struct {
-	Command string
-	Cwd     string
+	Command     string
+	Cwd         string
+	Explanation string
 }
 
 // FileOperation describes file access and whether every target is known.

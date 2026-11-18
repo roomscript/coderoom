@@ -54,6 +54,8 @@ type Approval struct {
 	Alias  participant.Alias
 	Kind   ApprovalKind
 	Prompt string
+	// Summary is the display-only command action label.
+	Summary string
 	// Details retains full backend action evidence.
 	Details string
 	// Paths contains the affected files in backend order.

@@ -16,6 +16,7 @@ type Model struct {
 	maxHeight        int
 	requestTop       int
 	fileChange       bool
+	command          bool
 	paths            []string
 }
 
@@ -46,11 +47,19 @@ func (m Model) SelectedOption() (interpreter.ApprovalChoice, bool) {
 func (m Model) Set(req interpreter.Approval) Model {
 	m.alias = req.Alias.Name
 	m.fileChange = req.Kind == interpreter.ApprovalFileChange
+	m.command = req.Kind == interpreter.ApprovalCommandExecution
 	m.paths = append([]string(nil), req.Paths...)
 	m.ask = req.Prompt
-	if m.fileChange {
+	switch {
+	case m.fileChange:
 		m.ask = "File changes"
-	} else if req.Details != "" {
+	case m.command:
+		m.ask = req.Summary
+		if m.ask == "" {
+			m.ask = "shell command"
+		}
+		m.ask += "\nFull command in history"
+	case req.Details != "":
 		m.ask += "\n" + req.Details
 	}
 	m.options = append([]interpreter.ApprovalOption(nil), req.Options...)
@@ -62,6 +71,9 @@ func (m Model) Set(req interpreter.Approval) Model {
 // FileChange reports whether the compact file approval is displayed.
 func (m Model) FileChange() bool { return m.fileChange }
 
+// Compact reports whether the evidence is retained in history.
+func (m Model) Compact() bool { return m.fileChange || m.command }
+
 // SetParticipantColor uses the participant's assigned color for the header.
 func (m Model) SetParticipantColor(color string) Model {
 	m.participantColor = color
@@ -72,6 +84,7 @@ func (m Model) SetParticipantColor(color string) Model {
 func (m Model) Clear() Model {
 	m.alias = ""
 	m.fileChange = false
+	m.command = false
 	m.paths = nil
 	m.ask = ""
 	m.options = nil

@@ -233,7 +233,7 @@ func approvalRequestFor(tool canUseTool) agent.ApprovalRequest {
 	case "Bash":
 		var in bashInput
 		if json.Unmarshal(tool.Input, &in) == nil {
-			req.Details.Operation = agent.CommandOperation{Command: in.Command}
+			req.Details.Operation = agent.CommandOperation{Command: in.Command, Explanation: in.Description}
 		}
 	case "Read", "Write", "Edit":
 		var in fileInput

@@ -113,3 +113,92 @@ The screenshots in the project root motivated this discussion; they are local
 examples and are not required implementation artifacts. Shell commands,
 permission requests and other tools need separate presentation discussions.
 
+## Agreed next increment: command approvals
+
+Status: implemented, 2026-11-17.
+
+Implementation: manual commands now use the existing retained approval record
+and authoritative Session settlement events, including withdrawal. The compact
+box shows a parser-derived action and `Full command in history`; Page Up/Down
+scrolls history with approval focus. Full original commands, authoritative cwd
+(or explicit unknown cwd), and unshortened supplied explanations remain in
+history and transcript export. Display parsing never changes policy inputs.
+Long command summaries are bounded with an ellipsis after reserving wrapped
+rows for the history hint and existing choices; tiny panels prioritize the hint
+over the summary when both cannot fit.
+Focused tests cover summaries, evidence, settlement, mixed file/command
+projection, withdrawal, escaping, inspection, composer restoration and small
+terminals. Permission/tool presentation remains separate scope.
+
+Before this increment, the command box combined the adapter's shortened `Ask` with complete
+command evidence. Codex shortens command text to 160 characters and cwd to 80;
+the full command and authoritative cwd remain in `CommandOperation`. Only file
+requests acquired retained approval room records. Commands now follow that pattern.
+
+Extend the existing manual file pattern to commands: retain the
+complete command and cwd in one room record, settle it in place, and use a
+bounded decision box with participant, action summary and existing choices.
+Show `Full command in history` in the box. Preserve the complete literal command
+in history; do not infer a friendly description from shell syntax. Show
+unknown cwd explicitly rather than substituting the workspace root. Backend
+explanations should be preserved when supplied, without presenting them as a
+policy verdict or inventing a reason for manual review.
+
+Derive the action summary from parsed shell syntax:
+
+- A single simple command shows the binary without arguments, using its basename
+  for display. Keep its full executable path in the evidence.
+- Special-case only `git` and `make` initially: show `git <subcommand>` or
+  `make <target>`. Account for recognized options and their operands before that
+  argument, such as `git -C repo diff` and `make -C repo test`. Multiple make
+  targets fall back to `make`; ambiguous option parsing falls back to
+  `shell command`.
+- Unwrap recognized shell invocations such as `/bin/zsh -lc 'git diff --check'`
+  only when the command argument is literal and parses successfully. Unrecognized
+  invocation forms fall back to `shell command`.
+- Pipes, command lists (`;`, `&&`, `||`), redirects, substitutions, background
+  execution and other complex or unsupported syntax show `shell command`.
+  Do not show a shortened executable label that conceals nested execution.
+- Parse errors or missing command evidence show `shell command`, with an
+  explicit unavailable-evidence notice in history when needed.
+
+Examples: `rg -n approval internal/` becomes `rg`; `git diff --check` becomes
+`git diff`; `make test` becomes `make test`; `/bin/zsh -lc 'git diff --check'`
+becomes `git diff`; `git diff | head`, `cd repo && make test`, and
+`echo "$(deploy)"` become `shell command`.
+
+Reuse the existing mvdan shell parser for syntax recognition, keeping display
+summarization separate from policy decisions. Never execute a command to derive
+its label, and never replace the original operation with the unwrapped command.
+The label is a summary, not a description of argument-dependent effects:
+`git push --dry-run` and `git push origin main --force` both show `git push`.
+Escape evidence and labels before terminal styling and wrapping.
+
+Page Up/Down scrolls history while the command box is focused, matching file
+approvals. Preserve Ctrl+O, history Ctrl+G, option navigation and staged-composer
+restoration. Bound the box as for file approvals and reserve choice rows when
+terminal space is limited.
+
+Keeping full evidence in the scrollable box was considered; the agreed compact
+summary avoids repeated evidence and gives commands the retained history and
+outcome already available for files.
+
+Implementation would extend `room.handleApprovalEventLocked`, interpreter
+approval projection, and the approval component's layout/input routing. Reuse
+the existing Session FIFO, request IDs and settlement events: Session remains
+the sole decision authority, including cancellation and shutdown withdrawal;
+room only projects activation and settlement. No new queue, lifecycle state or
+automatic-approval history is required. Keep callbacks outside locks.
+
+Acceptance checks: table-driven summary examples, recognized shell wrappers,
+options before git subcommands/make targets, multiple make targets, malformed
+syntax and nested execution; complete long/multiline commands in history and
+export; visible history hint and unknown cwd; escaped terminal controls; mixed
+file/command FIFO with settlement before successor activation; withdrawal and
+stale decisions; bounded small-terminal layout; preserved composer and existing
+inspection keys. Run focused room/interpreter/UI tests and `git diff --check`.
+
+After commands, discuss permission/tool requests separately: show the requested
+scope and supplied explanation clearly, then consider choice wording that
+accurately communicates each backend's actual session and cancellation scope.
+

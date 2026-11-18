@@ -7,8 +7,15 @@ import (
 	"strings"
 
 	"github.com/roomscript/coderoom/internal/agent"
+	"github.com/roomscript/coderoom/internal/approval"
 	"github.com/roomscript/coderoom/internal/session"
 )
+
+// CommandSummary derives a label without changing the request's operation.
+func CommandSummary(request agent.ApprovalRequest) string {
+	operation, _ := request.Details.Operation.(agent.CommandOperation)
+	return approval.CommandSummary(operation.Command)
+}
 
 // WithWorkspaceRoot configures the authoritative project scope for display paths.
 func WithWorkspaceRoot(root string) Option {
@@ -38,14 +45,14 @@ func (r *Room) approvalPath(path string) string {
 func (r *Room) handleApprovalEventLocked(e session.Event) ([]int, bool) {
 	switch e := e.(type) {
 	case session.ApprovalRequested:
+		if e.Req.Kind == agent.ApprovalCommandExecution {
+			text := "⚡ Approval: " + CommandSummary(e.Req) + "\n" + r.approvalDetails(e.Req)
+			return r.appendRecordLocked(Record{Kind: KindApproval, Alias: e.Alias, ApprovalID: e.ID, Text: text, Decision: "Waiting for you"}), true
+		}
 		if e.Req.Kind != agent.ApprovalFileChange {
 			return nil, false
 		}
-		text := "⚡ Approval: File changes\n"
-		if ask := strings.TrimSpace(e.Req.Ask); ask != "" && ask != "approve file changes" {
-			text += e.Req.Ask + "\n"
-		}
-		text += "Files:\n" + strings.Join(r.ApprovalPaths(e.Req), "\n") + "\n\n" + r.approvalDetails(e.Req)
+		text := r.fileApprovalText(e.Req)
 		return r.appendRecordLocked(Record{Kind: KindApproval, Alias: e.Alias, ApprovalID: e.ID, Text: text, Decision: "Waiting for you"}), true
 	case session.ApprovalCleared:
 		for i := len(r.records) - 1; i >= 0; i-- {
@@ -57,6 +64,14 @@ func (r *Room) handleApprovalEventLocked(e session.Event) ([]int, bool) {
 		}
 	}
 	return nil, false
+}
+
+func (r *Room) fileApprovalText(req agent.ApprovalRequest) string {
+	text := "⚡ Approval: File changes\n"
+	if ask := strings.TrimSpace(req.Ask); ask != "" && ask != "approve file changes" {
+		text += req.Ask + "\n"
+	}
+	return text + "Files:\n" + strings.Join(r.ApprovalPaths(req), "\n") + "\n\n" + r.approvalDetails(req)
 }
 
 // ApprovalPaths returns detached affected paths from normalized file operations.
@@ -83,8 +98,16 @@ func (r *Room) approvalDetails(request agent.ApprovalRequest) string {
 	switch operation := request.Details.Operation.(type) {
 	case agent.CommandOperation:
 		text := "Command: " + operation.Command
-		if operation.Cwd != "" {
-			text += "\nWorking directory: " + operation.Cwd
+		if strings.TrimSpace(operation.Command) == "" {
+			text = "Command evidence unavailable."
+		}
+		cwd := operation.Cwd
+		if cwd == "" {
+			cwd = "unknown"
+		}
+		text += "\nWorking directory: " + cwd
+		if operation.Explanation != "" {
+			text += "\nExplanation: " + operation.Explanation
 		}
 		return text
 	case agent.FileOperation:
@@ -92,6 +115,9 @@ func (r *Room) approvalDetails(request agent.ApprovalRequest) string {
 			operation.Write = true
 		}
 		return r.fileApprovalDetails(operation)
+	}
+	if request.Kind == agent.ApprovalCommandExecution {
+		return "Command evidence unavailable.\nWorking directory: unknown"
 	}
 	if request.Details.Display != "" {
 		return request.Details.Display

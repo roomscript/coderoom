@@ -124,3 +124,19 @@ func TestPermissionsApprovalRetainsFullDisplayScope(t *testing.T) {
 		t.Fatal("raw scope or response evidence changed")
 	}
 }
+
+func TestCommandApprovalRetainsExplanation(t *testing.T) {
+	reason := strings.Repeat("supplied explanation ", 100)
+	raw, err := json.Marshal(map[string]string{"command": "/opt/bin/git diff", "cwd": "/real/cwd", "reason": reason})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, err := normalizeCommandApproval(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	op := req.Details.Operation.(agent.CommandOperation)
+	if op.Explanation != reason || op.Command != "/opt/bin/git diff" || op.Cwd != "/real/cwd" {
+		t.Fatalf("lost evidence: %+v", op)
+	}
+}

@@ -131,6 +131,9 @@ func permissionsDisplayEvidence(p permissionsRequestApprovalParams) string {
 
 func commandEvidence(p commandExecutionRequestApprovalParams, raw json.RawMessage) agent.ApprovalDetails {
 	command := agent.CommandOperation{Command: p.Command}
+	if p.Reason != nil {
+		command.Explanation = *p.Reason
+	}
 	if p.Cwd != nil {
 		command.Cwd = *p.Cwd
 	}

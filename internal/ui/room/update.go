@@ -75,7 +75,7 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 	}
 
 	// Other approvals page their evidence; compact file approvals page history.
-	if m.input.kind == inputApproval && m.activeFocus == focusInput && !m.input.approval.FileChange() {
+	if m.input.kind == inputApproval && m.activeFocus == focusInput && !m.input.approval.Compact() {
 		return m.handleApprovalKey(msg)
 	}
 
