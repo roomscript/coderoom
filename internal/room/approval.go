@@ -46,7 +46,12 @@ func (r *Room) handleApprovalEventLocked(e session.Event) ([]int, bool) {
 	switch e := e.(type) {
 	case session.ApprovalRequested:
 		if e.Req.Kind == agent.ApprovalCommandExecution {
-			text := "⚡ Approval: " + CommandSummary(e.Req) + "\n" + r.approvalDetails(e.Req)
+			operation, _ := e.Req.Details.Operation.(agent.CommandOperation)
+			cwd := operation.Cwd
+			if cwd == "" {
+				cwd = "unknown"
+			}
+			text := "⚡ Approval: " + CommandSummary(e.Req) + " (cwd: " + cwd + ")\n" + commandApprovalEvidence(operation, false)
 			return r.appendRecordLocked(Record{Kind: KindApproval, Alias: e.Alias, ApprovalID: e.ID, Text: text, Decision: "Waiting for you"}), true
 		}
 		if e.Req.Kind != agent.ApprovalFileChange {
@@ -97,19 +102,7 @@ func ApprovalDetails(request agent.ApprovalRequest) string {
 func (r *Room) approvalDetails(request agent.ApprovalRequest) string {
 	switch operation := request.Details.Operation.(type) {
 	case agent.CommandOperation:
-		text := "Command: " + operation.Command
-		if strings.TrimSpace(operation.Command) == "" {
-			text = "Command evidence unavailable."
-		}
-		cwd := operation.Cwd
-		if cwd == "" {
-			cwd = "unknown"
-		}
-		text += "\nWorking directory: " + cwd
-		if operation.Explanation != "" {
-			text += "\nExplanation: " + operation.Explanation
-		}
-		return text
+		return commandApprovalEvidence(operation, true)
 	case agent.FileOperation:
 		if request.Kind == agent.ApprovalFileChange {
 			operation.Write = true
@@ -126,6 +119,24 @@ func (r *Room) approvalDetails(request agent.ApprovalRequest) string {
 		return "Proposed file details unavailable: no matching file-change evidence."
 	}
 	return ""
+}
+
+func commandApprovalEvidence(operation agent.CommandOperation, includeCwd bool) string {
+	text := "Command: " + operation.Command
+	if strings.TrimSpace(operation.Command) == "" {
+		text = "Command evidence unavailable."
+	}
+	if includeCwd {
+		cwd := operation.Cwd
+		if cwd == "" {
+			cwd = "unknown"
+		}
+		text += "\nWorking directory: " + cwd
+	}
+	if operation.Explanation != "" {
+		text += "\nExplanation: " + operation.Explanation
+	}
+	return text
 }
 
 func (r *Room) fileApprovalDetails(operation agent.FileOperation) string {

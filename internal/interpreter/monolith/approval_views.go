@@ -11,15 +11,17 @@ func approvalFromAgent(id int64, alias participant.Alias, request agent.Approval
 	for index, option := range request.Options {
 		options[index] = ApprovalOption{ID: string(option), Label: approvalOptionLabel(option)}
 	}
+	operation, _ := request.Details.Operation.(agent.CommandOperation)
 	return Approval{
-		ID:      id,
-		Alias:   alias,
-		Kind:    ApprovalKind(request.Kind),
-		Prompt:  request.Ask,
-		Summary: room.CommandSummary(request),
-		Details: room.ApprovalDetails(request),
-		Paths:   room.ApprovalPaths(request),
-		Options: options,
+		ID:          id,
+		Alias:       alias,
+		Kind:        ApprovalKind(request.Kind),
+		Prompt:      request.Ask,
+		Summary:     room.CommandSummary(request),
+		Explanation: operation.Explanation,
+		Details:     room.ApprovalDetails(request),
+		Paths:       room.ApprovalPaths(request),
+		Options:     options,
 	}
 }
 

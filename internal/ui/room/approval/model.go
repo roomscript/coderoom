@@ -10,6 +10,7 @@ type Model struct {
 	alias            string
 	participantColor string
 	ask              string
+	explanation      string
 	options          []interpreter.ApprovalOption
 	selected         int
 	width            int
@@ -50,6 +51,7 @@ func (m Model) Set(req interpreter.Approval) Model {
 	m.command = req.Kind == interpreter.ApprovalCommandExecution
 	m.paths = append([]string(nil), req.Paths...)
 	m.ask = req.Prompt
+	m.explanation = ""
 	switch {
 	case m.fileChange:
 		m.ask = "File changes"
@@ -58,7 +60,7 @@ func (m Model) Set(req interpreter.Approval) Model {
 		if m.ask == "" {
 			m.ask = "shell command"
 		}
-		m.ask += "\nFull command in history"
+		m.explanation = req.Explanation
 	case req.Details != "":
 		m.ask += "\n" + req.Details
 	}
@@ -87,6 +89,7 @@ func (m Model) Clear() Model {
 	m.command = false
 	m.paths = nil
 	m.ask = ""
+	m.explanation = ""
 	m.options = nil
 	m.selected = 0
 	m.requestTop = 0

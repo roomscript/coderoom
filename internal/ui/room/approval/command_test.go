@@ -58,3 +58,39 @@ func TestLongCommandSummaryKeepsHistoryHint(t *testing.T) {
 		})
 	}
 }
+
+func TestCommandExplanationLayoutAndReset(t *testing.T) {
+	for _, explanation := range []string{"", "  supplied context\nsecond line 界\x1b[2J", strings.Repeat("context 界\n", 100)} {
+		for _, summary := range []string{"shell command", strings.Repeat("long-summary", 100)} {
+			for _, size := range []struct{ width, height int }{{80, 12}, {24, 10}, {3, 2}, {1, 1}} {
+				m := New().Set(interpreter.Approval{Kind: interpreter.ApprovalCommandExecution, Alias: participant.Alias{Name: "bill"}, Summary: summary, Explanation: explanation, Options: []interpreter.ApprovalOption{{ID: "accept"}, {ID: "decline"}}}).SetSize(size.width, size.height)
+				view := ansi.Strip(m.View())
+				assertCommandWidth(t, view, size.width)
+				if m.Height() > size.height || strings.Contains(view, "\x1b") {
+					t.Fatalf("unbounded or unsafe view: %q", view)
+				}
+				if size.width == 80 {
+					assertCommandExplanation(t, view, summary, explanation)
+				}
+				if m.Clear().explanation != "" || m.Set(interpreter.Approval{Prompt: "replacement"}).explanation != "" {
+					t.Fatal("stale explanation")
+				}
+			}
+		}
+	}
+}
+
+func assertCommandExplanation(t *testing.T, view, summary, explanation string) {
+	t.Helper()
+	for _, want := range []string{"Full command in history", "> accept", "decline"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("missing %q: %q", want, view)
+		}
+	}
+	if summary == "shell command" && strings.Contains(explanation, "second line") && !strings.Contains(view, `second line 界\x1b[2J`) {
+		t.Fatalf("explanation lost: %q", view)
+	}
+	if len(explanation) > 100 && !strings.Contains(view, "…") {
+		t.Fatalf("missing ellipsis: %q", view)
+	}
+}

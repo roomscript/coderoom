@@ -202,3 +202,46 @@ After commands, discuss permission/tool requests separately: show the requested
 scope and supplied explanation clearly, then consider choice wording that
 accurately communicates each backend's actual session and cancellation scope.
 
+## Agreed command presentation refinement, 2026-11-18
+
+Status: implemented, 2026-11-18. This section supersedes the command
+box content and history cwd placement described above; other contracts remain.
+
+Live testing in `screenshot-1.png` confirmed a manual command approval with
+complete evidence and a correctly summarized `shell command` box. The user
+found that summary insufficient for deciding: the supplied explanation belongs
+in the compact box as well. The screenshot establishes pending presentation,
+not paging, transcript export or final settlement behavior. The screenshot is
+a local reference, not a required implementation artifact.
+
+- Compact box order: participant, command summary, supplied explanation when
+  present, `Full command in history`, existing choices. Preserve the explanation
+  verbatim except for terminal escaping, wrapping and explicit visual truncation.
+  It is backend-supplied context, not a policy verdict. Do not invent a fallback
+  explanation or substitute the adapter's shortened Ask.
+- Reserve the history hint and choices before allocating summary/explanation
+  rows. Bound long explanations with an ellipsis and retain the existing long
+  summary regression guarantee. Use remaining rows for the participant and
+  bounded summary first, then explanation. At tiny sizes retain the existing
+  hint/choice priority; neither content field may crowd those out.
+- History starts with `⚡ Approval: <summary> (cwd: <path>)`, naturally wrapped.
+  Use the complete authoritative cwd, or `(cwd: unknown)`; do not substitute
+  the workspace root or shorten the path. Remove the separate working-directory
+  line from the retained command record. Full original command and full supplied
+  explanation remain in that record and its transcript export.
+- Pass the explanation as structured detached presentation data derived from
+  CommandOperation.Explanation. Do not parse Details or history text to recover
+  it. Policy inputs, parser summaries, Session FIFO, settlement and withdrawal
+  remain unchanged. No new decision owner, queue or lifecycle state is needed.
+
+Implementation and verification instructions: see
+`../approval-command-refinement-handoff.md`.
+
+Validation: focused approval, room, interpreter and UI tests, plus repository
+pre-commit checks (lint and race-enabled unit tests). Regression coverage includes
+structured explanation projection/reset, multiline and escaped content, bounded
+long summaries/explanations and tiny panels, complete cwd headings without
+duplication, and full command/explanation/cwd evidence in transcript export.
+Existing settlement, FIFO, paging, inspection and composer-restoration tests
+remain passing. No new live manual prompt or keyboard verification was performed.
+

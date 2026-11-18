@@ -376,7 +376,11 @@ decision in place. The compact box lists at most ten whole paths within half the
 room height, reserving choices and an omitted-file count. File-approval Page
 Up/Down scrolls history; command approvals use the same paging and retain full
 command, cwd and supplied explanation in history. Their compact box shows a
-display-only shell-parser summary and a history hint. Ctrl+O and history Ctrl+G
+display-only shell-parser summary, the supplied explanation when present, and a
+history hint. The hint and choices are reserved before bounding summary and
+explanation rows with an ellipsis. Retained command headings include the complete
+authoritative cwd (or explicit unknown cwd), without a separate cwd line.
+Ctrl+O and history Ctrl+G
 retain their inspection roles. Permission approvals retain their existing presentation. See
 `open/approval-reading-experience.md` for the agreed UX and scope.
 

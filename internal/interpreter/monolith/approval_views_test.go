@@ -95,3 +95,12 @@ func TestApprovalDisplayUsesCommonOperations(t *testing.T) {
 		}
 	}
 }
+
+func TestCommandExplanationProjection(t *testing.T) {
+	for _, explanation := range []string{"", "  full context\n界\x1b[2J"} {
+		req := agent.ApprovalRequest{Kind: agent.ApprovalCommandExecution, Ask: "shortened", Details: agent.ApprovalDetails{Operation: agent.CommandOperation{Explanation: explanation}}}
+		if got := approvalFromAgent(1, participant.Alias{}, req); got.Explanation != explanation {
+			t.Fatalf("explanation = %q", got.Explanation)
+		}
+	}
+}

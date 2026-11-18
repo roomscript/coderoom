@@ -100,7 +100,7 @@ func TestCommandApprovalRecordSettlement(t *testing.T) {
 			r.ApplyEvent(session.ApprovalRequested{ID: 1, Alias: alias, Req: req})
 			before := r.Snapshot()
 			record := before.Records[0]
-			for _, want := range []string{command, op.Explanation, "Working directory: unknown"} {
+			for _, want := range []string{command, op.Explanation, "(cwd: unknown)"} {
 				if !strings.Contains(record.Text, want) {
 					t.Fatalf("lost %q", want)
 				}
@@ -126,6 +126,23 @@ func TestCommandApprovalMissingEvidence(t *testing.T) {
 		text := ApprovalDetails(agent.ApprovalRequest{Kind: agent.ApprovalCommandExecution, Details: agent.ApprovalDetails{Operation: op}})
 		if !strings.Contains(text, "unavailable") || !strings.Contains(text, "unknown") {
 			t.Fatalf("missing notice: %q", text)
+		}
+	}
+}
+
+func TestCommandApprovalHeadingCwd(t *testing.T) {
+	for _, cwd := range []string{"", "/full/path", "/" + strings.Repeat("long-path/", 100) + "界\x1b[2J"} {
+		r := New()
+		t.Cleanup(r.Close)
+		req := agent.ApprovalRequest{Kind: agent.ApprovalCommandExecution, Details: agent.ApprovalDetails{Operation: agent.CommandOperation{Command: "echo hello", Cwd: cwd, Explanation: "full\ncontext"}}}
+		r.ApplyEvent(session.ApprovalRequested{ID: 1, Req: req})
+		want := cwd
+		if want == "" {
+			want = "unknown"
+		}
+		text := r.Snapshot().Records[0].Text
+		if !strings.HasPrefix(text, "⚡ Approval: echo (cwd: "+want+")\n") || strings.Contains(text, "Working directory:") || !strings.Contains(text, "Explanation: full\ncontext") {
+			t.Fatalf("bad evidence: %q", text)
 		}
 	}
 }

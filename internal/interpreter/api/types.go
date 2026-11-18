@@ -56,6 +56,8 @@ type Approval struct {
 	Prompt string
 	// Summary is the display-only command action label.
 	Summary string
+	// Explanation is the unshortened context supplied for a command operation.
+	Explanation string
 	// Details retains full backend action evidence.
 	Details string
 	// Paths contains the affected files in backend order.

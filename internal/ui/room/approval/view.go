@@ -120,6 +120,9 @@ func (m Model) layout() panelLayout {
 		options[i] = accent.Render(line)
 	}
 	if m.maxHeight == 0 {
+		if m.command {
+			request = m.commandRequestLines(int(^uint(0) >> 1))
+		}
 		return panelLayout{request: request, requestRows: len(request), separator: true, options: options}
 	}
 	budget := m.maxHeight
@@ -150,9 +153,6 @@ func (m Model) layout() panelLayout {
 // without scrolling the approval body.
 func (m Model) commandRequestLines(rows int) []string {
 	request := m.requestLines()
-	if len(request) <= rows {
-		return request
-	}
 	hint := m
 	hint.alias = ""
 	hint.ask = "Full command in history"
@@ -161,9 +161,25 @@ func (m Model) commandRequestLines(rows int) []string {
 		return hintLines[:rows]
 	}
 	count := rows - len(hintLines)
-	request = request[:count]
-	request[count-1] = ansi.Truncate(request[count-1], max(m.width-1, 0), "") + "…"
+	request = m.boundCommandLines(request, count)
+	if m.explanation != "" && len(request) < count {
+		lines := m.bodyLines(escapeApprovalText(m.explanation))
+		request = append(request, m.boundCommandLines(lines, count-len(request))...)
+	} else if m.explanation != "" && count > 0 {
+		request[count-1] = ansi.Truncate(request[count-1], max(m.width-1, 0), "") + "…"
+	}
 	return append(request, hintLines...)
+}
+
+func (m Model) boundCommandLines(lines []string, rows int) []string {
+	if len(lines) <= rows {
+		return lines
+	}
+	lines = lines[:rows]
+	if rows > 0 {
+		lines[rows-1] = ansi.Truncate(lines[rows-1], max(m.width-1, 0), "") + "…"
+	}
+	return lines
 }
 
 // fileLayout spends wrapped rows on whole paths, reserving options and overflow.
@@ -225,15 +241,20 @@ func (m Model) requestLines() []string {
 			lines = append(lines, "")
 		}
 	}
+	body := "⚡ Approval:\n" + escapeApprovalText(m.ask) + "\nDecision: Waiting for you"
+	if m.Compact() {
+		body = "⚡ " + escapeApprovalText(m.ask)
+	}
+	return append(lines, m.bodyLines(body)...)
+}
+
+func (m Model) bodyLines(body string) []string {
+	var lines []string
 	indent, width := "  ", m.width
 	if width > 2 {
 		width -= 2
 	} else if width > 0 {
 		indent = ""
-	}
-	body := "⚡ Approval:\n" + escapeApprovalText(m.ask) + "\nDecision: Waiting for you"
-	if m.Compact() {
-		body = "⚡ " + escapeApprovalText(m.ask)
 	}
 	accent := lipgloss.NewStyle().Foreground(lipgloss.Color(palette.ColorApproval))
 	for line := range strings.SplitSeq(ansi.Wrap(expandTabs(body, len(indent)), width, ""), "\n") {
