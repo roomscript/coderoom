@@ -36,11 +36,35 @@ type Record struct {
 	// ApprovalID and Decision identify a manual file review and its settlement.
 	ApprovalID    int64
 	Decision      string
+	FileApproval  *FileApproval
 	Msg           *agent.Message
 	HandoffSource bool
 	// Participants is a detached participant snapshot, sorted by alias, that
 	// a system record renders as a table (/who). Text keeps a plain summary.
 	Participants []participant.View
+}
+
+// FileApproval retains detached inputs for compact history rendering.
+type FileApproval struct {
+	Summary, Explanation string
+	Supplemental         bool
+	Files                []ApprovalFile
+}
+
+// ApprovalFile describes supplied evidence, without claiming filesystem state.
+type ApprovalFile struct {
+	Path, ChangeKind, Text string
+	Format                 string // unified, snippet, content, addition; empty means unavailable
+}
+
+// CloneFileApproval detaches mutable presentation data.
+func CloneFileApproval(source *FileApproval) *FileApproval {
+	if source == nil {
+		return nil
+	}
+	cloned := *source
+	cloned.Files = append([]ApprovalFile(nil), source.Files...)
+	return &cloned
 }
 
 // NewAgentRecord constructs a canonical record backed by an agent message.

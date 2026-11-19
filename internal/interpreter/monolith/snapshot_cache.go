@@ -70,6 +70,7 @@ func cloneRoomSnapshot(source room.Snapshot) room.Snapshot {
 
 func cloneRoomRecord(source room.Record) room.Record {
 	record := source
+	record.FileApproval = room.CloneFileApproval(source.FileApproval)
 	record.Routing = append([]string(nil), source.Routing...)
 	record.FailedRouting = append([]string(nil), source.FailedRouting...)
 	record.UnsentRouting = append([]string(nil), source.UnsentRouting...)

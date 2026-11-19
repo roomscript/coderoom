@@ -230,3 +230,43 @@ func TestApprovalPresentationDetachesPaths(t *testing.T) {
 		t.Fatal("derived paths alias operation data")
 	}
 }
+
+func TestFileApprovalPresentationDetached(t *testing.T) {
+	r := New(WithWorkspaceRoot("/project"))
+	t.Cleanup(r.Close)
+	req := agent.ApprovalRequest{Kind: agent.ApprovalFileChange, Details: agent.ApprovalDetails{Backend: "claude", Tool: "Write", Operation: agent.FileOperation{Paths: []string{"/project/file", "/project/missing"}, ProposedChanges: []agent.FileChange{{Path: "/project/file", ChangeKind: "write", Diff: ""}}}}}
+	r.ApplyEvent(session.ApprovalRequested{ID: 1, Req: req})
+	snapshot := r.Snapshot()
+	p := snapshot.Records[0].FileApproval
+	if !strings.Contains(snapshot.Records[0].Text, "Supplied content is empty.") {
+		t.Fatal("empty supplied content was reported as missing")
+	}
+	if p == nil || len(p.Files) != 2 || p.Files[0].Format != "content" || p.Files[0].Path != "file" || p.Files[1].Format != "" {
+		t.Fatalf("presentation = %#v", p)
+	}
+	p.Files[0].Path = "changed"
+	p.Explanation = "changed"
+	again := r.Snapshot().Records[0].FileApproval
+	if again.Files[0].Path != "file" || again.Explanation != "" {
+		t.Fatal("snapshot aliases canonical presentation")
+	}
+}
+
+func TestApprovalFileEvidenceFormats(t *testing.T) {
+	tests := []struct{ backend, tool, kind, want string }{
+		{"codex", "", "add", "addition"},
+		{"codex", "", "update", "unified"},
+		{"codex", "", "delete", "unified"},
+		{"claude", "Write", "write", "content"},
+		{"claude", "Edit", "update", "snippet"},
+		{"", "", "add", "unified"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.backend+"/"+tt.tool+"/"+tt.kind, func(t *testing.T) {
+			req := agent.ApprovalRequest{Details: agent.ApprovalDetails{Backend: tt.backend, Tool: tt.tool}}
+			if got := approvalFileFormat(req, agent.FileChange{ChangeKind: tt.kind}); got != tt.want {
+				t.Fatalf("format = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}

@@ -29,6 +29,7 @@ func (r *Room) notify(update Update) {
 
 func cloneRecord(record Record) Record {
 	cloned := record
+	cloned.FileApproval = CloneFileApproval(record.FileApproval)
 	cloned.Routing = slices.Clone(record.Routing)
 	cloned.FailedRouting = slices.Clone(record.FailedRouting)
 	cloned.UnsentRouting = slices.Clone(record.UnsentRouting)

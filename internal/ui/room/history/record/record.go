@@ -137,6 +137,9 @@ func renderViewport(r Record, width int, colors func(participant.Alias) string, 
 }
 
 func renderTranscript(r Record, colors func(participant.Alias) string, nameColors func(string) string) string {
+	if r.Kind == KindApproval {
+		return renderApprovalTranscript(r, 0, colors)
+	}
 	if r.Kind == KindCommand {
 		return renderCommandTranscript(r, colors)
 	}

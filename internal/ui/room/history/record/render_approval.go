@@ -11,6 +11,13 @@ import (
 )
 
 func renderApproval(r Record, width int, colors func(participant.Alias) string) string {
+	if r.FileApproval != nil {
+		r.Text = fileApprovalPreview(r.FileApproval, width)
+	}
+	return renderApprovalTranscript(r, width, colors)
+}
+
+func renderApprovalTranscript(r Record, width int, colors func(participant.Alias) string) string {
 	header := renderParticipantHeader(approval.EscapeText(r.Alias.Name), colors(r.Alias))
 	body := approval.EscapeText(r.Text + "\nDecision: " + r.Decision)
 	// Expand tabs before wrapping so terminal tab stops cannot add hidden rows.

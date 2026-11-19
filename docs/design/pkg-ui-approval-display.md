@@ -4,6 +4,13 @@ Design for [issue #75](https://github.com/roomscript/coderoom/issues/75).
 
 Status: implemented.
 
+File history update (2026-11-19): file approvals render ten whole file rows and
+eight shared change-text lines, with supported evidence counts and explicit
+omissions. Paths wrap intact; preview lines truncate after escaping and tab
+expansion. Transcript dispatch renders complete canonical evidence and decision.
+Supplemental scope evidence has a full-request hint. Existing Ctrl+O/Ctrl+G,
+active-panel, focus, paging and composer interactions remain unchanged.
+
 File-change update (2026-11-16): manual file evidence now lives in a retained
 room record using the same escaping contract. Its compact box shows participant,
 action and at most ten whole paths, reserving choices and omitted-file count.

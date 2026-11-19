@@ -164,13 +164,21 @@ layout rules and hint wording; store one kind rather than independent booleans.
 Rename commandRequestLines to describe the shared compact layout.
 
 UI owns wrapping, escaping, styling, ellipsis, focus and selection. Reserve
-choices and history hints before bounding summary/explanation. Only the panel
-truncates. Retained history/export preserve full readable content using existing
+choices and history hints before bounding summary/explanation. File approval
+history viewports show ten whole file paths and eight shared change-text lines,
+with evidence-specific counts and explicit omissions. Canonical text and editor
+transcripts preserve full readable content using existing
 escaping rules. Page Up/Down scroll history; inspection and composer restoration
 retain their existing behavior. Active approval presence depends on an admitted
 request and offered choices, not a backend-provided nonempty string.
 
 ## Authority, lifetime and concurrency
+
+File approval records additionally retain detached summary/explanation and
+file evidence inputs for viewport rendering; no composed preview or cached
+counts are stored. Supplemental evidence remains in canonical text, with a
+full-request hint in the viewport. Settlement changes only Decision. Ctrl+O
+focuses history and history Ctrl+G opens the complete read-only transcript.
 
 Adapters construct request data before admission; published presentation data
 and slices are detached and treated as immutable. Policy reads Operation and
@@ -253,6 +261,37 @@ Focused agent, room, interpreter, Session and UI tests passed. Repository
 pre-commit checks passed with zero lint issues and all race-enabled unit tests.
 Coverage includes explanation/evidence composition, missing labels and evidence,
 unknown tool fields, raw identity preservation, detached paths, mixed-kind
-settlement, bounded panels, export escaping and composer restoration. No live
-backend or keyboard checks were performed. Existing staged changes were left
-under human ownership.
+settlement, bounded panels, export escaping and composer restoration. The agent
+performed no live backend or keyboard checks. The human subsequently confirmed
+that history scrolling, text copying and other history interactions work while
+an approval is pending. This closes the reported keyboard-verification gap;
+it does not establish every backend response or grant-duration semantic.
+Existing staged changes were left under human ownership.
+
+## Remaining approval work: next-session handoff
+
+The presentation contract is implemented and the latest review reported no
+outstanding findings. Do not restart the field-model redesign. Remaining work:
+
+- Decision wording: room currently renders generic accept as Approved by you ·
+  once. Trace each backend's actual response/grant semantics before choosing
+  accurate choice and retained-outcome wording. The existing
+  [permission handoff](approval-permissions-handoff.md) explicitly deferred this.
+- Policy coverage: authoritative Claude Bash cwd, WebFetch redirect interception,
+  inspectable shell startup behavior and the supported shell subset remain
+  bounded limitations. See [specific open work](approval-policy-test-cases.md#specific-open-work).
+  Unsupported cases remain human-reviewed; presentation completion does not
+  imply policy coverage completion.
+- Automatic-decision history and optional persistent audit remain deferred.
+  See [the broader proposal](approval-presentation.md); its old presentation
+  descriptions are superseded by this contract and the reading-experience doc.
+- Documentation cleanup: reconcile historical approval-presentation/handoff
+  descriptions and stale implementation instructions with the implemented
+  contract. Some older sections still describe full evidence in the panel or
+  reference removed fields. Preserve useful rationale while making current
+  behavior unambiguous. Discuss any docs/for-humans changes with the human first.
+
+Recommended next step: decision wording, followed by separately scoped policy
+improvements. Keyboard interaction testing is no longer an open item based on
+the human's confirmation above. These follow-ups are recorded work, not approval
+to implement them automatically in a new session.

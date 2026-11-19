@@ -17,6 +17,8 @@ func TestApprovalRecordSettlesAfterBoxDismissalBeforeSuccessor(t *testing.T) {
 	m.ApplySessionEvent(session.ApprovalRequested{ID: 1, Alias: alias, Req: req})
 	detached := m.Snapshot()
 	detached.approval.Paths[0] = "changed"
+	detached.room.Records[0].FileApproval.Files[0].Path = "changed"
+	assertDetachedFilePath(t, m)
 	if m.Snapshot().approval.Paths[0] != "file" {
 		t.Fatal("approval paths are not detached")
 	}
@@ -45,6 +47,13 @@ func TestApprovalRecordSettlesAfterBoxDismissalBeforeSuccessor(t *testing.T) {
 		t.Fatal("command withdrawal lost")
 	}
 	assertPermissionSuccessor(t, m, alias)
+}
+
+func assertDetachedFilePath(t *testing.T, m *interpreterModel) {
+	t.Helper()
+	if m.Snapshot().room.Records[0].FileApproval.Files[0].Path != "file" {
+		t.Fatal("record presentation is not detached")
+	}
 }
 
 func assertPermissionSuccessor(t *testing.T, m *interpreterModel, alias participant.Alias) {

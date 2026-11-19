@@ -2,12 +2,15 @@ package room
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/roomscript/coderoom/internal/interpreter"
+	roomstate "github.com/roomscript/coderoom/internal/room"
 	"github.com/roomscript/coderoom/internal/ui/room/approval"
 )
 
@@ -337,6 +340,45 @@ func TestFileApprovalRestoresStagedComposer(t *testing.T) {
 	m, _ = m.ClearApproval()
 	if !m.IsComposerStaged() || m.ComposeValue() != "next turn" || !strings.Contains(m.View(), "Participants busy: ada.") {
 		t.Fatal("file approval lost staged composer")
+	}
+}
+
+func TestFileApprovalEditorRetainsFullEvidence(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("TMPDIR", dir)
+	t.Setenv("EDITOR", "true")
+	m := newTestModel(t).HandleResize(80, 24)
+	m = m.SetComposerStaged("next turn", "Participants busy: ada.")
+	text := "⚡ Approval: File changes\n" + strings.Repeat("+evidence\n", 100) + "tail evidence"
+	r := roomstate.Record{Kind: roomstate.KindApproval, Text: text, Decision: "Waiting for you", FileApproval: &roomstate.FileApproval{Summary: "File changes", Files: []roomstate.ApprovalFile{{Path: "file", Text: text}}}}
+	m = m.ApplyTranscript(roomstate.Delta{Version: 1, RecordUpdates: []roomstate.IndexedRecord{{Index: 0, Record: r}}})
+	m = m.ShowApproval(interpreter.Approval{Kind: interpreter.ApprovalFileChange, Paths: []string{"file"}, Options: []interpreter.ApprovalOption{{ID: "accept"}}})
+	m, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: 'o', Mod: tea.ModCtrl}))
+	m, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: 'g', Mod: tea.ModCtrl}))
+	if cmd == nil || !m.input.approval.Active() || m.ComposeValue() != "next turn" {
+		t.Fatal("inspection lost pending approval or staged text")
+	}
+	assertFullFileTranscript(t, dir)
+	m, _ = m.ClearApproval()
+	assertCommandComposerRestored(t, m)
+}
+
+func assertFullFileTranscript(t *testing.T, dir string) {
+	t.Helper()
+	paths, err := filepath.Glob(filepath.Join(dir, "coderoom-transcript-*.txt"))
+	if err != nil || len(paths) != 1 {
+		t.Fatalf("transcript files: %v, %v", paths, err)
+	}
+	content, err := os.ReadFile(paths[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(paths[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o400 || !strings.Contains(string(content), "tail evidence") || strings.Count(string(content), "+evidence") != 100 || !strings.Contains(string(content), "Decision: Waiting for you") {
+		t.Fatal("editor did not receive complete read-only transcript")
 	}
 }
 

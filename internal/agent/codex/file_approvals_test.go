@@ -13,6 +13,8 @@ import (
 
 	"github.com/roomscript/coderoom/internal/agent"
 	"github.com/roomscript/coderoom/internal/approval"
+	"github.com/roomscript/coderoom/internal/room"
+	"github.com/roomscript/coderoom/internal/session"
 )
 
 func fileEnvelope(method, thread, turn, item string) rpcEnvelope {
@@ -111,6 +113,7 @@ func TestRecordedFileApprovalEvidence(t *testing.T) {
 		if len(changes) != 1 || changes[0].Diff != "ok\n" || changes[0].ChangeKind != "add" {
 			t.Fatalf("recorded evidence = %+v", changes)
 		}
+		assertRecordedAdditionPresentation(t, req)
 		found = true
 	}
 	if err := scanner.Err(); err != nil {
@@ -118,6 +121,17 @@ func TestRecordedFileApprovalEvidence(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("no recorded approval")
+	}
+}
+
+func assertRecordedAdditionPresentation(t *testing.T, req agent.ApprovalRequest) {
+	t.Helper()
+	r := room.New()
+	t.Cleanup(r.Close)
+	r.ApplyEvent(session.ApprovalRequested{ID: 1, Req: req})
+	files := r.Snapshot().Records[0].FileApproval.Files
+	if len(files) != 1 || files[0].Format != "addition" || files[0].Text != "ok\n" {
+		t.Fatalf("recorded addition presentation = %+v", files)
 	}
 }
 

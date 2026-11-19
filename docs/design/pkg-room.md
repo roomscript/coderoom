@@ -33,6 +33,10 @@ normalized evidence, affected files and request ID. `ApprovalCleared` updates it
 decision in place using the accepted choice, or `Withdrawn` for cancellation.
 These records have no agent message and are ineligible for handoff output or
 agent context. They are in-memory presentation history, not an audit sink.
+File records also retain detached file presentation inputs for compact history:
+summary, explanation, supplied path/type/text and evidence format. Snapshot and
+interpreter copies detach the file slice. Counts and preview text are derived
+by rendering; canonical text remains complete for editor export.
 
 ---
 

@@ -46,7 +46,7 @@ func (r *Room) handleApprovalEventLocked(e session.Event) ([]int, bool) {
 	switch e := e.(type) {
 	case session.ApprovalRequested:
 		text := r.approvalText(e.Req)
-		return r.appendRecordLocked(Record{Kind: KindApproval, Alias: e.Alias, ApprovalID: e.ID, Text: text, Decision: "Waiting for you"}), true
+		return r.appendRecordLocked(Record{Kind: KindApproval, Alias: e.Alias, ApprovalID: e.ID, Text: text, Decision: "Waiting for you", FileApproval: r.deriveFileApproval(e.Req)}), true
 	case session.ApprovalCleared:
 		for i := len(r.records) - 1; i >= 0; i-- {
 			record := &r.records[i]
@@ -57,6 +57,47 @@ func (r *Room) handleApprovalEventLocked(e session.Event) ([]int, bool) {
 		}
 	}
 	return nil, false
+}
+
+func (r *Room) deriveFileApproval(req agent.ApprovalRequest) *FileApproval {
+	if req.Kind != agent.ApprovalFileChange {
+		return nil
+	}
+	p := &FileApproval{Summary: deriveApprovalSummary(req), Explanation: req.Presentation.Explanation, Supplemental: req.Presentation.Evidence != ""}
+	op, _ := req.Details.Operation.(agent.FileOperation)
+	for _, path := range ApprovalPaths(req) {
+		matched := false
+		for _, change := range op.ProposedChanges {
+			if change.Path != path {
+				continue
+			}
+			p.Files = append(p.Files, ApprovalFile{Path: r.approvalPath(path), ChangeKind: change.ChangeKind, Text: change.Diff, Format: approvalFileFormat(req, change)})
+			matched = true
+		}
+		if !matched {
+			p.Files = append(p.Files, ApprovalFile{Path: r.approvalPath(path)})
+		}
+	}
+	return p
+}
+
+func approvalFileFormat(req agent.ApprovalRequest, change agent.FileChange) string {
+	if req.Details.Backend == "codex" && change.ChangeKind == "add" {
+		return "addition"
+	}
+	return approvalEvidenceFormat(req)
+}
+
+func approvalEvidenceFormat(req agent.ApprovalRequest) string {
+	if req.Details.Backend == "claude" {
+		switch req.Details.Tool {
+		case "Edit":
+			return "snippet"
+		case "Write":
+			return "content"
+		}
+	}
+	return "unified"
 }
 
 func (r *Room) approvalText(req agent.ApprovalRequest) string {
@@ -116,7 +157,7 @@ func (r *Room) DeriveApprovalPresentation(request agent.ApprovalRequest) Approva
 		p.Paths = r.ApprovalPaths(request)
 		operation, _ := request.Details.Operation.(agent.FileOperation)
 		operation.Write = true
-		p.Evidence = "Files:\n" + strings.Join(p.Paths, "\n") + "\n\n" + r.fileApprovalDetails(operation)
+		p.Evidence = "Files:\n" + strings.Join(p.Paths, "\n") + "\n\n" + r.fileApprovalDetails(operation, request)
 	case agent.ApprovalPermissions:
 		// Permission operations inform policy; adapters retain the full requested action.
 	}
@@ -157,7 +198,7 @@ func commandApprovalEvidence(operation agent.CommandOperation) string {
 	return text
 }
 
-func (r *Room) fileApprovalDetails(operation agent.FileOperation) string {
+func (r *Room) fileApprovalDetails(operation agent.FileOperation, request agent.ApprovalRequest) string {
 	if len(operation.ProposedChanges) == 0 {
 		paths := slices.Clone(operation.Paths)
 		for i, path := range paths {
@@ -181,7 +222,7 @@ func (r *Room) fileApprovalDetails(operation agent.FileOperation) string {
 		}
 		fmt.Fprintf(&text, "%s: %s\n%s", change.ChangeKind, r.approvalPath(change.Path), change.Diff)
 		if change.Diff == "" {
-			text.WriteString("Proposed file details unavailable: no matching file-change evidence.")
+			text.WriteString(emptyFileEvidence(approvalFileFormat(request, change)))
 		}
 	}
 	for _, path := range operation.Paths {
@@ -190,6 +231,13 @@ func (r *Room) fileApprovalDetails(operation agent.FileOperation) string {
 		}
 	}
 	return text.String()
+}
+
+func emptyFileEvidence(format string) string {
+	if format == "content" || format == "addition" {
+		return "Supplied content is empty."
+	}
+	return "Proposed file details unavailable: no matching file-change evidence."
 }
 
 func approvalDecision(choice agent.ApprovalOption) string {

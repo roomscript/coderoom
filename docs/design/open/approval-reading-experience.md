@@ -1,5 +1,13 @@
 # Approval reading experience
 
+File history update (2026-11-19): waiting and settled file approvals show the
+summary, supplied explanation, up to ten whole file rows and eight change-text
+lines shared across the request. Counts describe validated unified hunks,
+replacement snippets or supplied Write content; unavailable counts are explicit.
+Omitted files/lines and supplemental request evidence have inspection hints.
+Ctrl+O focuses history; Ctrl+G there opens the full read-only transcript with
+all evidence, scope context and actual decision. The active panel is unchanged.
+
 Status: implemented file-change design, 2026-11-16.
 
 Implementation: the compact box uses at most half the room height. It budgets

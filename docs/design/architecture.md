@@ -373,7 +373,11 @@ hub boundary; a later cancellation cannot discard an accepted choice. Backend
 read termination cancels the participant context, withdrawing pending reviews.
 The room retains complete evidence in one approval record and updates its
 decision in place. The compact box lists at most ten whole paths within half the
-room height, reserving choices and an omitted-file count. File-approval Page
+room height. File history viewports separately show at most ten whole file rows
+and eight shared change-text lines, with evidence-specific counts and explicit
+omission/inspection hints; editor transcripts retain the complete canonical
+request and decision. Detached room presentation inputs survive settlement.
+The compact box reserves choices and an omitted-file count. File-approval Page
 Up/Down scrolls history; command approvals use the same paging and retain full
 command, cwd and supplied explanation in history. Their compact box shows a
 display-only shell-parser summary, the supplied explanation when present, and a
