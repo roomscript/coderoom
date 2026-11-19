@@ -24,8 +24,8 @@ func TestApprovalRecordSettlesAfterBoxDismissalBeforeSuccessor(t *testing.T) {
 	if !m.ApplySessionEvent(session.ApprovalCleared{ID: 1, Alias: alias, Choice: agent.OptionAccept}) {
 		t.Fatal("dismissal suppressed settlement")
 	}
-	command := agent.CommandOperation{Command: "/opt/git diff\n" + strings.Repeat("full evidence\n", 100), Cwd: "/authoritative", Explanation: "supplied reason"}
-	nextRequest := agent.ApprovalRequest{Kind: agent.ApprovalCommandExecution, Details: agent.ApprovalDetails{Operation: command}, Options: req.Options}
+	command := agent.CommandOperation{Command: "/opt/git diff\n" + strings.Repeat("full evidence\n", 100), Cwd: "/authoritative"}
+	nextRequest := agent.ApprovalRequest{Kind: agent.ApprovalCommandExecution, Presentation: agent.ApprovalPresentation{Explanation: "supplied reason"}, Details: agent.ApprovalDetails{Operation: command}, Options: req.Options}
 	m.ApplySessionEvent(session.ApprovalRequested{ID: 2, Alias: alias, Req: nextRequest})
 	changes := m.TakeTranscriptChanges()
 	if len(changes) != 3 {
@@ -44,11 +44,27 @@ func TestApprovalRecordSettlesAfterBoxDismissalBeforeSuccessor(t *testing.T) {
 	if len(changes) != 1 || changes[0].Delta.RecordUpdates[0].Record.Decision != "Withdrawn" {
 		t.Fatal("command withdrawal lost")
 	}
+	assertPermissionSuccessor(t, m, alias)
+}
+
+func assertPermissionSuccessor(t *testing.T, m *interpreterModel, alias participant.Alias) {
+	t.Helper()
+	permission := agent.ApprovalRequest{Kind: agent.ApprovalPermissions, Presentation: agent.ApprovalPresentation{Summary: "Tool: Read", Evidence: "complete tool input"}, Options: []agent.ApprovalOption{agent.OptionAccept}}
+	m.ApplySessionEvent(session.ApprovalRequested{ID: 3, Alias: alias, Req: permission})
+	m.ApplySessionEvent(session.ApprovalCleared{ID: 2, Alias: alias, Choice: agent.OptionAccept})
+	if m.Snapshot().approval.ID != 3 {
+		t.Fatal("stale settlement dismissed successor")
+	}
+	m.ApplySessionEvent(session.ApprovalCleared{ID: 3, Alias: alias})
+	changes := m.TakeTranscriptChanges()
+	if len(changes) != 3 || !strings.Contains(changes[0].Delta.RecordUpdates[0].Record.Text, permission.Presentation.Evidence) || changes[2].Delta.RecordUpdates[0].Record.Decision != "Withdrawn" {
+		t.Fatal("permission activation or withdrawal lost")
+	}
 }
 
 func assertCommandProjection(t *testing.T, text string, approval *Approval, command agent.CommandOperation) {
 	t.Helper()
-	if !strings.Contains(text, command.Command) || !strings.Contains(approval.Details, command.Explanation) || !strings.Contains(approval.Details, command.Cwd) || approval.Summary != "shell command" {
+	if !strings.Contains(text, command.Command) || approval.Explanation != "supplied reason" || !strings.Contains(text, command.Cwd) || approval.Summary != "shell command" {
 		t.Fatal("command projection lost evidence or summary")
 	}
 }

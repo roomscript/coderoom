@@ -163,7 +163,8 @@ func pushEvent(m Model, event session.Event) Model {
 	m, _ = m.handleInterpreterEvent(interpreter.TranscriptChanged{Delta: delta})
 	switch event := event.(type) {
 	case session.ApprovalRequested:
-		approval := &interpreter.Approval{ID: event.ID, Alias: event.Alias, Kind: interpreter.ApprovalKind(event.Req.Kind), Prompt: event.Req.Ask}
+		presentation := chat.DeriveApprovalPresentation(event.Req)
+		approval := &interpreter.Approval{ID: event.ID, Alias: event.Alias, Kind: interpreter.ApprovalKind(event.Req.Kind), Summary: presentation.Summary, Explanation: presentation.Explanation, Evidence: presentation.Evidence, Paths: presentation.Paths}
 		for _, option := range event.Req.Options {
 			approval.Options = append(approval.Options, interpreter.ApprovalOption{ID: string(option)})
 		}

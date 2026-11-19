@@ -381,7 +381,15 @@ history hint. The hint and choices are reserved before bounding summary and
 explanation rows with an ellipsis. Retained command headings include the complete
 authoritative cwd (or explicit unknown cwd), without a separate cwd line.
 Ctrl+O and history Ctrl+G
-retain their inspection roles. Permission approvals retain their existing presentation. See
+retain their inspection roles. Permission approvals use the same compact layout with
+an adapter-supplied summary, optional explanation and `Full request in history`.
+Their complete normalized scope, tool inputs or plan and actual decision remain
+in the retained approval record. ApprovalRequest.Presentation separates summary,
+supplied explanation and supplemental evidence from backend details and policy
+operations. Room derives one detached presentation for history and interpreter;
+history composes the explanation once, with command cwd in the heading. Interpreter
+exposes Summary, Explanation, Evidence and Paths; UI stores one kind for layout.
+Presentation never affects policy or the diagnostic request digest. See
 `open/approval-reading-experience.md` for the agreed UX and scope.
 
 ---

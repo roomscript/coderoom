@@ -69,3 +69,16 @@ func TestCommandApprovalExport(t *testing.T) {
 		}
 	}
 }
+
+func TestPermissionApprovalExport(t *testing.T) {
+	for _, summary := range []string{"Additional permissions: filesystem+network", "Tool: Read", "Plan approval"} {
+		evidence := strings.Repeat("complete scope input plan reason\n", 100) + "tail\x1b[2J\u202e"
+		r := Record{Kind: KindApproval, Alias: participant.Alias{Name: "bill\x1b[2J"}, Text: "⚡ Approval: " + summary + "\n" + evidence, Decision: "Withdrawn"}
+		for _, mode := range []RenderMode{RenderViewport, RenderTranscript} {
+			view := ansi.Strip(Render(r, RenderContext{Key: RenderKey{Mode: mode, Width: 80}}))
+			if !strings.Contains(view, summary) || !strings.Contains(view, `tail\x1b[2J\u202e`) || !strings.Contains(view, "Decision: Withdrawn") || strings.Count(view, "complete scope input plan reason") != 100 || strings.ContainsAny(view, "\x1b\u202e") {
+				t.Fatalf("lost or unsafe permission evidence: %q", view)
+			}
+		}
+	}
+}

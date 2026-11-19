@@ -245,3 +245,79 @@ duplication, and full command/explanation/cwd evidence in transcript export.
 Existing settlement, FIFO, paging, inspection and composer-restoration tests
 remain passing. No new live manual prompt or keyboard verification was performed.
 
+## Recommended next scope, 2026-11-18
+
+Agreed scope: improve permission requests across both backends together. See
+[Bill's implementation handoff](../approval-permissions-handoff.md).
+The normalized model has three kinds: commands, file changes and
+permissions. The last kind currently includes Codex filesystem/network grants,
+Claude tool requests (including Read and WebFetch), and Claude ExitPlanMode.
+These are different user decisions despite sharing one transport category.
+
+For Codex additional permissions, show the requested filesystem/network
+scope, authoritative cwd and supplied reason clearly. Retain complete evidence
+and the actual decision in history, with a bounded summary and explanation in
+the active panel. Preserve unknown permission fields in evidence; do not infer
+grant duration or narrower scope from a generic accept label.
+
+In the same increment, cover Claude tool requests and plan approval as distinct
+content cases: identify the tool and its full inputs; show a full plan for ExitPlanMode.
+Do not add new approval kinds solely to choose a renderer. Decide whether a new
+structured presentation field is needed from the concrete consumers first.
+
+Reuse Session admission, FIFO, settlement and cancellation ownership. Room owns
+retained projection, interpreter exposes detached presentation data, and UI
+renders it. No new decision owner or queue is needed; callbacks remain outside
+locks. Verify full evidence/export, missing or unknown scope, terminal escaping,
+tiny panels, mixed-kind FIFO, withdrawal and stale responses. Choice wording
+must follow each adapter's actual response semantics.
+
+
+## Shared permission presentation, 2026-11-18
+
+Status: implemented. This supersedes the separate-scope statements above.
+Codex additional permissions, Claude tools and Claude plans now use the same
+retained manual approval records and bounded panel as commands. The panel shows
+participant, supplied summary, optional supplied explanation, `Full request in
+history`, and existing choices. Missing summaries use `Permission request`.
+Codex summaries identify reported filesystem/network scope; Claude summaries
+identify the exact tool or `Plan approval`. Plans are retained in full and do not
+become invented explanations. Full normalized evidence, unknown input fields,
+supplied context and actual decisions remain in history and transcript export.
+Missing scope, cwd or evidence is explicit; raw protocol envelopes are never shown.
+
+Permission Page Up/Down now scrolls history. Existing inspection keys, choice
+navigation and staged composer restoration are preserved. The same layout reserves
+hint and choices before bounding summary and explanation; all untrusted text is
+escaped before terminal styling and wrapping. Session admission, policy, FIFO,
+settlement and cancellation ownership are unchanged. No automatic-decision history,
+audit sink, additional choices or grant-duration claims were added.
+
+Validation: adapter cases cover known/unknown/missing scopes, verbatim reasons,
+Read/WebFetch/unknown tools, plans with additional fields and malformed/missing
+inputs. Room/interpreter/UI regressions cover retained evidence and settlement,
+fallbacks, distinct repeated requests, mixed-kind projection, escaped export,
+bounded panels, paging and composer restoration. Repository pre-commit checks
+passed (zero lint issues and all race-enabled unit tests). No live keyboard or
+quota-consuming integration checks were performed for this increment.
+
+## Unified presentation contract, 2026-11-19
+
+The [presentation contract](../approval-presentation-contract.md) replaces the
+earlier field ownership rules for every kind. ApprovalRequest.Presentation stores
+an adapter label where needed, the full supplied explanation once, and supplemental
+evidence excluding that extracted explanation. Ask, Details.Display, both old
+explanation locations, and interpreter Prompt are removed together.
+
+Room derives command summaries, the fixed file label, operation evidence and
+fallback notices. History and interpreter use the same detached derivation.
+History composes the heading, supplied explanation and evidence in that order,
+then the existing authoritative decision. Commands retain cwd in the heading;
+supplemental file grant roots retain their full scope. Explanation is included
+regardless of whether evidence is present. Evidence alone is a body fragment.
+
+The UI receives Summary, Explanation, Evidence and Paths, stores one kind, and
+uses the shared compact layout for commands and permissions. Empty summaries do
+not hide choices. Existing file budgeting, terminal escaping, paging, inspection,
+composer restoration and Session ownership remain. Diagnostic request identity
+uses backend identifiers, raw bytes and operation data, excluding presentation.

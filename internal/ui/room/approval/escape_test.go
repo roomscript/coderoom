@@ -68,19 +68,19 @@ func TestView_escapesUntrustedText(t *testing.T) {
 				want     string
 			}{
 				"request": {
-					interpreter.Approval{Prompt: tt.raw, Options: []interpreter.ApprovalOption{{ID: "accept"}}},
+					interpreter.Approval{Summary: tt.raw, Options: []interpreter.ApprovalOption{{ID: "accept"}}},
 					expectedApprovalView(tt.shown, "> accept"),
 				},
 				"evidence": {
-					interpreter.Approval{Prompt: "approve?", Details: tt.raw, Options: []interpreter.ApprovalOption{{ID: "accept"}}},
+					interpreter.Approval{Summary: "approve?", Evidence: tt.raw, Options: []interpreter.ApprovalOption{{ID: "accept"}}},
 					expectedApprovalView("approve?\n"+tt.shown, "> accept"),
 				},
 				"label": {
-					interpreter.Approval{Prompt: "approve?", Options: []interpreter.ApprovalOption{{ID: "custom", Label: tt.raw}}},
+					interpreter.Approval{Summary: "approve?", Options: []interpreter.ApprovalOption{{ID: "custom", Label: tt.raw}}},
 					expectedApprovalView("approve?", "> "+tt.shown),
 				},
 				"fallback id": {
-					interpreter.Approval{Prompt: "approve?", Options: []interpreter.ApprovalOption{{ID: tt.raw}}},
+					interpreter.Approval{Summary: "approve?", Options: []interpreter.ApprovalOption{{ID: tt.raw}}},
 					expectedApprovalView("approve?", "> "+tt.shown),
 				},
 			}
@@ -101,7 +101,7 @@ func TestView_escapedTextStaysBoundedAndPageable(t *testing.T) {
 	for _, size := range []struct{ width, height int }{{8, 4}, {20, 6}, {40, 10}} {
 		t.Run(fmt.Sprintf("%dx%d", size.width, size.height), func(t *testing.T) {
 			approval := interpreter.Approval{
-				Prompt:  prompt,
+				Summary: prompt,
 				Options: []interpreter.ApprovalOption{{ID: "accept"}, {ID: controlID}},
 			}
 			m := New().Set(approval).SetSize(size.width, size.height)
@@ -117,8 +117,8 @@ func TestView_escapedTextStaysBoundedAndPageable(t *testing.T) {
 			assertNoRawControls(t, ansi.Strip(m.View()))
 			assertFitsPanel(t, m, size.width+7, size.height+2)
 			assertShowsRequestTail(t, m)
-			if m.Ask() != prompt || m.Options()[1].ID != controlID {
-				t.Fatalf("stored request or options changed: %q %#v", m.Ask(), m.Options())
+			if m.Summary() != prompt || m.Options()[1].ID != controlID {
+				t.Fatalf("stored request or options changed: %q %#v", m.Summary(), m.Options())
 			}
 			choice, ok := m.SelectedOption()
 			if !ok || choice.OptionID != controlID {

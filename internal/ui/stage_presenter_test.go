@@ -151,7 +151,7 @@ func showTestApproval(m Model) Model {
 	return pushEvent(m, session.ApprovalRequested{
 		Alias: testAlias("ada"), ID: 7,
 		Req: agent.ApprovalRequest{
-			Ask: "approve?", Options: []agent.ApprovalOption{agent.OptionAccept},
+			Presentation: agent.ApprovalPresentation{Summary: "approve?"}, Options: []agent.ApprovalOption{agent.OptionAccept},
 		},
 	})
 }

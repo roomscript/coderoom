@@ -36,19 +36,16 @@ the UI no longer injects a `[→ alias]` prefix into the request prompt.
 
 ## Display contract
 
-Adapters retain the existing readable `Ask` and response options. Supplementary
-details are formatted from common command and file operations in the interpreter,
-without backend checks. Commands include the full command and supplied working
-directory; file operations include proposed changes, or known paths and an
-explicit missing-evidence message for writes. Unsupported operations keep their
-existing prompt and complete adapter-normalized `ApprovalDetails.Display`
-evidence. This fallback is independent of policy eligibility and is consumed
-without backend checks. Codex permission requests include the full permission
-scope, reason, and working directory. Claude plans include the complete plan
-and additional inputs; other tools include their full input, formatted as JSON
-when its schema is not represented by a common operation. These payloads exclude
-the surrounding protocol identifiers and timestamps. Raw requests remain internal
-evidence for policy correlation and diagnostics.
+Adapters normalize Summary, Explanation and supplemental Evidence in
+ApprovalRequest.Presentation. Room derives command/file labels and operation
+evidence, appends supplemental evidence and supplies missing-label/evidence
+fallbacks. History composes the full heading, explanation and evidence, with
+command cwd in the heading. Interpreter exposes the same detached Summary,
+Explanation, Evidence and Paths without backend checks or a second Prompt.
+Evidence excludes separately extracted explanations; it is a body fragment,
+not a complete document. Claude opaque tools retain full inputs; plans retain
+the full plan and additional input. Protocol envelopes remain internal.
+See [approval presentation contract](approval-presentation-contract.md).
 
 Codex obtains proposed file changes by exact protocol item correlation. Claude
 obtains them directly from Write content or Edit replacement inputs. A Write is
@@ -118,7 +115,7 @@ indicated; request paging requires available request rows.
 
 Keep original request text and option IDs as the sole stored values. Derive
 escaped text during layout; add no sanitized cache or second options list.
-`Ask`, `Options`, `SelectedOption`, selection movement, confirmation, and
+`Summary`, `Options`, `SelectedOption`, selection movement, confirmation, and
 cancellation retain their contracts. `Set` still resets selection and paging;
 `Clear` still removes the presentation. There are no new asynchronous tasks,
 locks, callbacks, lifecycle states, or cleanup obligations.
@@ -159,3 +156,18 @@ cancellation tests continue to pass. The tests inspect rendered strings; other
 terminal output surfaces remain unaudited. Risks to watch in future changes:
 escaping after width calculation, or a new untrusted text path that bypasses
 the helper.
+
+## Compact permissions (implemented 2026-11-18)
+
+Manual permission requests now share the bounded command layout: participant,
+adapter summary (fallback `Permission request`), supplied explanation when present,
+`Full request in history`, then the backend-offered choices. Reserve hint and
+choices before bounding summary/explanation with explicit ellipsis. Set and Clear
+reset presentation. Page Up/Down scroll history, matching commands and files;
+Ctrl+O, history Ctrl+G, selection and composer restoration retain their behavior.
+
+The existing approval history renderer escapes complete scope, tool input, plan,
+reason and identity before styling and wrapping. Transcript export retains all
+readable evidence and the authoritative decision without ellipsis. Only the
+active panel truncates. No backend-specific renderer or new approval kind is used.
+This supersedes the full-evidence-in-panel requirement above for permissions.

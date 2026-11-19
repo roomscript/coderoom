@@ -3,6 +3,8 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"slices"
+	"strings"
 )
 
 // ApprovalListener receives normalized approval requests from an agent backend
@@ -26,12 +28,9 @@ const (
 
 // ApprovalRequest is a normalized, user-facing approval prompt.
 type ApprovalRequest struct {
-	Kind ApprovalKind
-	// Details retains operation data separately from the shortened display prompt.
-	Details ApprovalDetails
-
-	// Ask is intended to be rendered directly.
-	Ask string
+	Kind         ApprovalKind
+	Details      ApprovalDetails
+	Presentation ApprovalPresentation
 
 	// Options is the set of valid choices for this request.
 	Options []ApprovalOption
@@ -44,9 +43,70 @@ type ApprovalDetails struct {
 	Tool      string
 	Raw       json.RawMessage
 	Operation Operation
-	// Display contains complete adapter-normalized evidence for requests not
-	// represented by the command/file display. It is never a policy input.
-	Display string
+}
+
+// ApprovalPresentation contains unshortened display inputs, never policy inputs.
+// Room derives command/file summaries and operation evidence. Adapters supply
+// other labels and supplemental evidence, excluding extracted explanations.
+type ApprovalPresentation struct {
+	Summary     string
+	Explanation string
+	Evidence    string
+}
+
+// ApprovalPrompt derives diagnostic context without storing a second presentation.
+func ApprovalPrompt(request ApprovalRequest) string {
+	text := approvalDiagnosticSummary(request)
+	if request.Presentation.Explanation != "" {
+		text += " — " + request.Presentation.Explanation
+	}
+	if request.Kind == ApprovalCommandExecution || request.Kind == ApprovalFileChange {
+		if context := approvalOperationContext(request.Details.Operation); context != "" {
+			text += "\n" + context
+		}
+		if request.Presentation.Evidence != "" {
+			text += "\n" + request.Presentation.Evidence
+		}
+	}
+	return text
+}
+
+func approvalDiagnosticSummary(request ApprovalRequest) string {
+	if request.Presentation.Summary != "" {
+		return request.Presentation.Summary
+	}
+	switch request.Kind {
+	case ApprovalCommandExecution:
+		return "shell command"
+	case ApprovalFileChange:
+		return "File changes"
+	case ApprovalPermissions:
+		return "Permission request"
+	default:
+		return "Approval request"
+	}
+}
+
+func approvalOperationContext(operation Operation) string {
+	switch operation := operation.(type) {
+	case CommandOperation:
+		cwd := operation.Cwd
+		if cwd == "" {
+			cwd = "unknown"
+		}
+		return "Command: " + operation.Command + "\nWorking directory: " + cwd
+	case FileOperation:
+		paths := slices.Clone(operation.Paths)
+		for _, change := range operation.ProposedChanges {
+			if !slices.Contains(paths, change.Path) {
+				paths = append(paths, change.Path)
+			}
+		}
+		if len(paths) > 0 {
+			return "Files:\n" + strings.Join(paths, "\n")
+		}
+	}
+	return ""
 }
 
 // Operation is a sealed approval payload. Evaluators support the concrete value
@@ -55,9 +115,8 @@ type Operation interface{ approvalOperation() }
 
 // CommandOperation describes a shell command and its authoritative working directory.
 type CommandOperation struct {
-	Command     string
-	Cwd         string
-	Explanation string
+	Command string
+	Cwd     string
 }
 
 // FileOperation describes file access and whether every target is known.

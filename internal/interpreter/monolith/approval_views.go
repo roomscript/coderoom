@@ -6,21 +6,19 @@ import (
 	"github.com/roomscript/coderoom/internal/room"
 )
 
-func approvalFromAgent(id int64, alias participant.Alias, request agent.ApprovalRequest) Approval {
+func approvalFromAgent(id int64, alias participant.Alias, request agent.ApprovalRequest, presentation room.ApprovalPresentation) Approval {
 	options := make([]ApprovalOption, len(request.Options))
 	for index, option := range request.Options {
 		options[index] = ApprovalOption{ID: string(option), Label: approvalOptionLabel(option)}
 	}
-	operation, _ := request.Details.Operation.(agent.CommandOperation)
 	return Approval{
 		ID:          id,
 		Alias:       alias,
 		Kind:        ApprovalKind(request.Kind),
-		Prompt:      request.Ask,
-		Summary:     room.CommandSummary(request),
-		Explanation: operation.Explanation,
-		Details:     room.ApprovalDetails(request),
-		Paths:       room.ApprovalPaths(request),
+		Summary:     presentation.Summary,
+		Explanation: presentation.Explanation,
+		Evidence:    presentation.Evidence,
+		Paths:       presentation.Paths,
 		Options:     options,
 	}
 }

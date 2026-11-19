@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/roomscript/coderoom/internal/agent"
 )
@@ -40,8 +39,8 @@ func normalizeApproval(method string, params json.RawMessage) (agent.ApprovalReq
 
 func unknownApprovalRequest(method string) agent.ApprovalRequest {
 	return agent.ApprovalRequest{
-		Ask:     "approve request (unknown method): " + method,
-		Options: []agent.ApprovalOption{agent.OptionDecline},
+		Presentation: agent.ApprovalPresentation{Summary: "Approval request: " + method},
+		Options:      []agent.ApprovalOption{agent.OptionDecline},
 	}
 }
 
@@ -50,20 +49,11 @@ func normalizeCommandApproval(params json.RawMessage) (agent.ApprovalRequest, er
 	if err := json.Unmarshal(params, &p); err != nil {
 		return agent.ApprovalRequest{}, fmt.Errorf("parse command approval params: %w", err)
 	}
-	cmd := strings.TrimSpace(p.Command)
-	if cmd == "" {
-		cmd = "<unknown>"
-	}
-	cmd = trimMiddle(cmd, 160)
-	ask := "approve command execution: " + cmd
-	if p.Cwd != nil && strings.TrimSpace(*p.Cwd) != "" {
-		ask += " (cwd: " + trimMiddle(strings.TrimSpace(*p.Cwd), 80) + ")"
-	}
 	return agent.ApprovalRequest{
-		Kind:    agent.ApprovalCommandExecution,
-		Details: commandEvidence(p, params),
-		Ask:     ask,
-		Options: []agent.ApprovalOption{agent.OptionAccept, agent.OptionAcceptForSession, agent.OptionDecline, agent.OptionCancel},
+		Kind:         agent.ApprovalCommandExecution,
+		Details:      commandEvidence(p, params),
+		Presentation: agent.ApprovalPresentation{Explanation: suppliedReason(p.Reason)},
+		Options:      []agent.ApprovalOption{agent.OptionAccept, agent.OptionAcceptForSession, agent.OptionDecline, agent.OptionCancel},
 	}, nil
 }
 
@@ -72,19 +62,16 @@ func normalizeFileChangeApproval(params json.RawMessage) (agent.ApprovalRequest,
 	if err := json.Unmarshal(params, &p); err != nil {
 		return agent.ApprovalRequest{}, fmt.Errorf("parse file change approval params: %w", err)
 	}
-	ask := "approve file changes"
-	if p.GrantRoot != nil && strings.TrimSpace(*p.GrantRoot) != "" {
-		ask += " (grantRoot: " + *p.GrantRoot + ")"
-	}
-	if p.Reason != nil && strings.TrimSpace(*p.Reason) != "" {
-		ask += " — " + *p.Reason
+	evidence := ""
+	if p.GrantRoot != nil {
+		evidence = "Grant root: " + *p.GrantRoot
 	}
 	return agent.ApprovalRequest{
 		Kind: agent.ApprovalFileChange,
 		// grantRoot is a permission expansion, not an exhaustive file target list.
-		Details: agent.ApprovalDetails{Backend: "codex", Tool: methodFileChangeRequestApproval, Raw: append(json.RawMessage(nil), params...), Operation: agent.FileOperation{Write: true}},
-		Ask:     ask,
-		Options: []agent.ApprovalOption{agent.OptionAccept, agent.OptionAcceptForSession, agent.OptionDecline, agent.OptionCancel},
+		Details:      agent.ApprovalDetails{Backend: "codex", Tool: methodFileChangeRequestApproval, Raw: append(json.RawMessage(nil), params...), Operation: agent.FileOperation{Write: true}},
+		Presentation: agent.ApprovalPresentation{Explanation: suppliedReason(p.Reason), Evidence: evidence},
+		Options:      []agent.ApprovalOption{agent.OptionAccept, agent.OptionAcceptForSession, agent.OptionDecline, agent.OptionCancel},
 	}, nil
 }
 
@@ -94,21 +81,15 @@ func normalizePermissionsApproval(params json.RawMessage) (agent.ApprovalRequest
 		return agent.ApprovalRequest{}, nil, fmt.Errorf("parse permissions approval params: %w", err)
 	}
 	permsSummary := summarizePermissions(p.Permissions)
-	ask := "approve additional permissions"
+	summary := "Additional permissions"
 	if permsSummary != "" {
-		ask += ": " + permsSummary
-	}
-	if strings.TrimSpace(p.Cwd) != "" {
-		ask += " (cwd: " + trimMiddle(strings.TrimSpace(p.Cwd), 80) + ")"
-	}
-	if p.Reason != nil && strings.TrimSpace(*p.Reason) != "" {
-		ask += " — " + trimMiddle(strings.TrimSpace(*p.Reason), 120)
+		summary += ": " + permsSummary
 	}
 	return agent.ApprovalRequest{
-		Kind:    agent.ApprovalPermissions,
-		Details: agent.ApprovalDetails{Backend: "codex", Tool: methodPermissionsRequestApproval, Raw: append(json.RawMessage(nil), params...), Display: permissionsDisplayEvidence(p)},
-		Ask:     ask,
-		Options: []agent.ApprovalOption{agent.OptionAccept, agent.OptionDecline},
+		Kind:         agent.ApprovalPermissions,
+		Details:      agent.ApprovalDetails{Backend: "codex", Tool: methodPermissionsRequestApproval, Raw: append(json.RawMessage(nil), params...)},
+		Presentation: agent.ApprovalPresentation{Summary: summary, Explanation: suppliedReason(p.Reason), Evidence: permissionsDisplayEvidence(p)},
+		Options:      []agent.ApprovalOption{agent.OptionAccept, agent.OptionDecline},
 	}, p.Permissions, nil
 }
 
@@ -116,9 +97,8 @@ func permissionsDisplayEvidence(p permissionsRequestApprovalParams) string {
 	var text strings.Builder
 	if p.Cwd != "" {
 		fmt.Fprintf(&text, "Working directory: %s\n", p.Cwd)
-	}
-	if p.Reason != nil && *p.Reason != "" {
-		fmt.Fprintf(&text, "Reason: %s\n", *p.Reason)
+	} else {
+		text.WriteString("Working directory: unknown\n")
 	}
 	var scope bytes.Buffer
 	if !isNullJSON(p.Permissions) && json.Indent(&scope, p.Permissions, "", "  ") == nil {
@@ -131,13 +111,17 @@ func permissionsDisplayEvidence(p permissionsRequestApprovalParams) string {
 
 func commandEvidence(p commandExecutionRequestApprovalParams, raw json.RawMessage) agent.ApprovalDetails {
 	command := agent.CommandOperation{Command: p.Command}
-	if p.Reason != nil {
-		command.Explanation = *p.Reason
-	}
 	if p.Cwd != nil {
 		command.Cwd = *p.Cwd
 	}
 	return agent.ApprovalDetails{Backend: "codex", Tool: methodCommandExecutionRequestApproval, Raw: append(json.RawMessage(nil), raw...), Operation: command}
+}
+
+func suppliedReason(reason *string) string {
+	if reason == nil {
+		return ""
+	}
+	return *reason
 }
 
 func summarizePermissions(raw json.RawMessage) string {
@@ -156,18 +140,4 @@ func summarizePermissions(raw json.RawMessage) string {
 		parts = append(parts, "network")
 	}
 	return strings.Join(parts, "+")
-}
-
-func trimMiddle(s string, maxLen int) string {
-	if maxLen <= 0 || utf8.RuneCountInString(s) <= maxLen {
-		return s
-	}
-	if maxLen <= 1 {
-		runes := []rune(s)
-		return string(runes[:1])
-	}
-	runes := []rune(s)
-	head := maxLen / 2
-	tail := maxLen - head - 1
-	return string(runes[:head]) + "…" + string(runes[len(runes)-tail:])
 }

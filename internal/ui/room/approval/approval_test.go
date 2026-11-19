@@ -16,7 +16,7 @@ import (
 func TestFileDiffPagingAndEscaping(t *testing.T) {
 	details := "update: /project/path\nwith-newline\n@@\n-old\n+new\x1b[2J\n" + strings.Repeat("+more\n", 30) + "+last"
 	m := New().Set(interpreter.Approval{
-		Alias: participant.Alias{Name: "bill"}, Prompt: "approve file changes", Details: details,
+		Alias: participant.Alias{Name: "bill"}, Summary: "approve file changes", Evidence: details,
 		Options: []interpreter.ApprovalOption{{ID: "accept"}, {ID: "acceptForSession"}, {ID: "decline"}, {ID: "cancel"}},
 	}).SetSize(100, 12)
 	var pages strings.Builder
@@ -40,7 +40,7 @@ func TestFileDiffPagingAndEscaping(t *testing.T) {
 
 func TestUpdate_downSelectsNextOption(t *testing.T) {
 	m := New().Set(interpreter.Approval{
-		Prompt:  "approve?",
+		Summary: "approve?",
 		Options: []interpreter.ApprovalOption{{ID: "decline"}, {ID: "accept"}},
 	})
 	if got := m.Selected(); got != 0 {
@@ -54,7 +54,7 @@ func TestUpdate_downSelectsNextOption(t *testing.T) {
 
 func TestUpdate_enterEmitsConfirmMsg(t *testing.T) {
 	m := New().Set(interpreter.Approval{
-		Prompt:  "approve?",
+		Summary: "approve?",
 		Options: []interpreter.ApprovalOption{{ID: "decline"}},
 	})
 	_, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
@@ -68,7 +68,7 @@ func TestUpdate_enterEmitsConfirmMsg(t *testing.T) {
 
 func TestSet_preservesDetachedOptionsAndSelectedID(t *testing.T) {
 	options := []interpreter.ApprovalOption{{ID: "custom", Label: "Custom response"}}
-	m := New().Set(interpreter.Approval{Prompt: "approve?", Options: options})
+	m := New().Set(interpreter.Approval{Summary: "approve?", Options: options})
 	options[0] = interpreter.ApprovalOption{ID: "changed", Label: "Changed"}
 	choice, ok := m.SelectedOption()
 	if !ok || choice.OptionID != "custom" {
@@ -83,7 +83,7 @@ func TestView_boundedOptionsRemainReachable(t *testing.T) {
 	for _, size := range []struct{ width, height int }{{8, 1}, {8, 4}, {20, 8}} {
 		t.Run(fmt.Sprintf("%dx%d", size.width, size.height), func(t *testing.T) {
 			m := New().Set(interpreter.Approval{
-				Prompt: strings.Repeat("long request text\n", 20),
+				Summary: strings.Repeat("long request text\n", 20),
 				Options: []interpreter.ApprovalOption{
 					{ID: "first", Label: "first response with a long label"},
 					{ID: "second", Label: "second response with a long label"},
@@ -117,7 +117,7 @@ func TestView_boundedOptionsRemainReachable(t *testing.T) {
 
 func TestUpdate_requestPagingAndResizePreserveChoice(t *testing.T) {
 	m := New().Set(interpreter.Approval{
-		Prompt:  "first\nsecond\nthird\nfourth\nfifth\nlast",
+		Summary: "first\nsecond\nthird\nfourth\nfifth\nlast",
 		Options: []interpreter.ApprovalOption{{ID: "accept"}, {ID: "decline"}, {ID: "cancel"}},
 	}).SetSize(40, 6)
 	m, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
@@ -139,7 +139,7 @@ func TestUpdate_requestPagingAndResizePreserveChoice(t *testing.T) {
 	if !strings.Contains(m.View(), "first") {
 		t.Fatalf("cannot page back to request start: %q", m.View())
 	}
-	m = m.Set(interpreter.Approval{Prompt: "replacement", Options: []interpreter.ApprovalOption{{ID: "cancel"}}})
+	m = m.Set(interpreter.Approval{Summary: "replacement", Options: []interpreter.ApprovalOption{{ID: "cancel"}}})
 	if !strings.Contains(m.View(), "replacement") {
 		t.Fatalf("replacement request is not visible: %q", m.View())
 	}
@@ -148,7 +148,7 @@ func TestUpdate_requestPagingAndResizePreserveChoice(t *testing.T) {
 func TestView_showsCompleteRequestWhenSpaceAllows(t *testing.T) {
 	prompt := "[→ eve] approve command execution: python3 -I -c '\nprint(\"Monday\")\nprint(\"Tuesday\")\nprint(\"Wednesday\")\nprint(\"Thursday\")\nprint(\"Friday\")\n' (Print the work days)"
 	m := New().Set(interpreter.Approval{
-		Prompt:  prompt,
+		Summary: prompt,
 		Options: []interpreter.ApprovalOption{{ID: "accept"}, {ID: "acceptForSession"}, {ID: "decline"}, {ID: "cancel"}},
 	}).SetSize(80, 36)
 	want := expectedApprovalView(prompt, "> accept\n  accept for session\n  decline\n  cancel")
@@ -164,7 +164,7 @@ func TestView_smallPanelIndicatesHiddenContent(t *testing.T) {
 	for _, height := range []int{1, 2, 3, 4} {
 		t.Run(fmt.Sprint(height), func(t *testing.T) {
 			m := New().Set(interpreter.Approval{
-				Prompt:  strings.Repeat("request\n", 10),
+				Summary: strings.Repeat("request\n", 10),
 				Options: []interpreter.ApprovalOption{{ID: "accept"}, {ID: "decline"}, {ID: "cancel"}},
 			}).SetSize(40, height)
 			if view := m.View(); !strings.Contains(view, "R↓") || !strings.Contains(view, "O↓") {
@@ -182,7 +182,7 @@ func TestView_tabsAndWideCharactersFitWidth(t *testing.T) {
 	for _, width := range []int{8, 12, 20} {
 		t.Run(fmt.Sprint(width), func(t *testing.T) {
 			m := New().Set(interpreter.Approval{
-				Prompt:  "界\tcommand\n\tprintf '\\t'\nlast",
+				Summary: "界\tcommand\n\tprintf '\\t'\nlast",
 				Options: []interpreter.ApprovalOption{{ID: "custom", Label: "界\tresponse"}},
 			}).SetSize(width, 40)
 			view := m.View()
@@ -203,7 +203,7 @@ func TestView_tabsAndWideCharactersFitWidth(t *testing.T) {
 
 func TestView_tabStopsIncludeOptionPrefix(t *testing.T) {
 	m := New().Set(interpreter.Approval{
-		Prompt:  "\tfirst\n界\tlast",
+		Summary: "\tfirst\n界\tlast",
 		Options: []interpreter.ApprovalOption{{ID: "custom", Label: "界\tresponse"}},
 	}).SetSize(80, 20)
 	want := "  ⚡ Approval:\n        first\n  界    last\n  Decision: Waiting for you\n\n> 界    response"
@@ -219,7 +219,7 @@ func expectedApprovalView(body, options string) string {
 func TestViewParticipantHeaderAndFullEvidence(t *testing.T) {
 	details := strings.Repeat("full evidence\n", 30) + "tail\x1b[8m"
 	m := New().Set(interpreter.Approval{
-		Alias: participant.Alias{Name: "ada\u202e"}, Prompt: "Run command?", Details: details,
+		Alias: participant.Alias{Name: "ada\u202e"}, Summary: "Run command?", Evidence: details,
 		Options: []interpreter.ApprovalOption{{ID: "accept"}},
 	}).SetParticipantColor("#00AAFF")
 	view := m.View()
@@ -242,7 +242,7 @@ func TestUpdate_pagingWithoutVisibleRequestIsNoOp(t *testing.T) {
 	for _, prompt := range []string{"one line", "first\nsecond\nthird\nfourth"} {
 		t.Run(prompt, func(t *testing.T) {
 			m := New().Set(interpreter.Approval{
-				Prompt:  prompt,
+				Summary: prompt,
 				Options: []interpreter.ApprovalOption{{ID: "accept"}, {ID: "decline"}},
 			}).SetSize(40, 2)
 			before := m.View()
@@ -256,5 +256,17 @@ func TestUpdate_pagingWithoutVisibleRequestIsNoOp(t *testing.T) {
 				t.Fatalf("paging changed a panel with no visible request rows: top=%d view=%q", m.requestTop, m.View())
 			}
 		})
+	}
+}
+
+func TestActiveApprovalDoesNotRequireSummary(t *testing.T) {
+	for _, kind := range []interpreter.ApprovalKind{interpreter.ApprovalCommandExecution, interpreter.ApprovalFileChange, interpreter.ApprovalPermissions, "future"} {
+		m := New().Set(interpreter.Approval{Kind: kind, Options: []interpreter.ApprovalOption{{ID: "accept"}}}).SetSize(80, 10)
+		if !m.Active() || !strings.Contains(m.View(), "accept") {
+			t.Fatal("empty summary hid approval choices")
+		}
+		if m.Clear().Active() || m.Clear().evidence != "" || m.Clear().explanation != "" || m.Clear().summary != "" {
+			t.Fatal("clear retained presentation")
+		}
 	}
 }

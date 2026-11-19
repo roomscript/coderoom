@@ -11,12 +11,12 @@ import (
 )
 
 func TestCompactCommandApproval(t *testing.T) {
-	req := interpreter.Approval{Kind: interpreter.ApprovalCommandExecution, Alias: participant.Alias{Name: "bill\x1b[2J"}, Summary: "git diff\x1b[2J", Prompt: "shortened", Details: "full evidence", Options: []interpreter.ApprovalOption{{ID: "accept"}, {ID: "decline"}}}
+	req := interpreter.Approval{Kind: interpreter.ApprovalCommandExecution, Alias: participant.Alias{Name: "bill\x1b[2J"}, Summary: "git diff\x1b[2J", Evidence: "full evidence", Options: []interpreter.ApprovalOption{{ID: "accept"}, {ID: "decline"}}}
 	for _, size := range []struct{ width, height int }{{80, 12}, {20, 6}, {3, 2}, {1, 1}} {
 		t.Run(fmt.Sprint(size), func(t *testing.T) {
 			m := New().Set(req).SetSize(size.width, size.height)
 			view := ansi.Strip(m.View())
-			if m.Height() > size.height || strings.Contains(view, req.Details) || strings.Contains(view, req.Prompt) || strings.Contains(view, "\x1b") {
+			if m.Height() > size.height || strings.Contains(view, req.Evidence) || strings.Contains(view, "\x1b") {
 				t.Fatalf("bad compact view: %q", view)
 			}
 			assertCommandWidth(t, view, size.width)
@@ -72,7 +72,7 @@ func TestCommandExplanationLayoutAndReset(t *testing.T) {
 				if size.width == 80 {
 					assertCommandExplanation(t, view, summary, explanation)
 				}
-				if m.Clear().explanation != "" || m.Set(interpreter.Approval{Prompt: "replacement"}).explanation != "" {
+				if m.Clear().explanation != "" || m.Set(interpreter.Approval{Summary: "replacement"}).explanation != "" {
 					t.Fatal("stale explanation")
 				}
 			}
@@ -92,5 +92,43 @@ func assertCommandExplanation(t *testing.T, view, summary, explanation string) {
 	}
 	if len(explanation) > 100 && !strings.Contains(view, "…") {
 		t.Fatalf("missing ellipsis: %q", view)
+	}
+}
+
+func TestPermissionLayoutAndReset(t *testing.T) {
+	for _, summary := range []string{"", "Tool: Read\x1b[2J", strings.Repeat("long summary ", 100)} {
+		for _, explanation := range []string{"", "  supplied\ncontext\x1b[2J", strings.Repeat("reason\n", 100)} {
+			for _, size := range []struct{ width, height int }{{80, 12}, {24, 10}, {3, 2}, {1, 1}} {
+				m := New().Set(interpreter.Approval{Kind: interpreter.ApprovalPermissions, Alias: participant.Alias{Name: "bill\x1b[2J"}, Summary: summary, Explanation: explanation, Evidence: "full evidence", Options: []interpreter.ApprovalOption{{ID: "accept"}, {ID: "decline"}}}).SetSize(size.width, size.height)
+				view := ansi.Strip(m.View())
+				assertCommandWidth(t, view, size.width)
+				assertPermissionPanel(t, m, view, size.height)
+				if size.width == 80 {
+					assertPermissionContent(t, view, summary, explanation)
+				}
+			}
+		}
+	}
+}
+
+func assertPermissionPanel(t *testing.T, m Model, view string, height int) {
+	t.Helper()
+	if !m.Active() || !m.Compact() || m.Height() > height || strings.Contains(view, "\x1b") || strings.Contains(view, "full evidence") {
+		t.Fatalf("bad panel: %q", view)
+	}
+	if m.Clear().Active() || m.Clear().kind != "" || m.Clear().explanation != "" || m.Set(interpreter.Approval{Summary: "replacement"}).Compact() {
+		t.Fatal("stale presentation")
+	}
+}
+
+func assertPermissionContent(t *testing.T, view, summary, explanation string) {
+	t.Helper()
+	for _, want := range []string{"Full request in history", "> accept", "decline"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("missing %q: %q", want, view)
+		}
+	}
+	if (len(summary) > 100 || len(explanation) > 100) && !strings.Contains(view, "…") {
+		t.Fatal("missing ellipsis")
 	}
 }

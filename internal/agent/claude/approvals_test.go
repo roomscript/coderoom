@@ -30,8 +30,8 @@ func TestApprovalEvidencePreservesFullInput(t *testing.T) {
 	if string(req.Details.Raw) != string(raw) || len(commandOperation.Command) <= 160 {
 		t.Fatal("full action evidence was shortened or lost")
 	}
-	if len(req.Ask) >= len(commandOperation.Command) {
-		t.Fatal("fixture does not exercise shortened presentation")
+	if req.Presentation.Summary != "" {
+		t.Fatal("command summary must be derived by room")
 	}
 }
 
@@ -100,15 +100,15 @@ func TestUnsupportedApprovalDisplayEvidence(t *testing.T) {
 	} {
 		t.Run(tt.tool, func(t *testing.T) {
 			req := approvalRequestFor(canUseTool{ToolName: tt.tool, Input: json.RawMessage(tt.input)})
-			if !strings.Contains(req.Details.Display, tt.want) {
-				t.Fatalf("display evidence lost: %s", req.Details.Display)
+			if !strings.Contains(req.Presentation.Evidence, tt.want) {
+				t.Fatalf("display evidence lost: %s", req.Presentation.Evidence)
 			}
-			if tt.tool == "ExitPlanMode" && !strings.Contains(req.Details.Display, "specific permission") {
+			if tt.tool == "ExitPlanMode" && !strings.Contains(req.Presentation.Evidence, "specific permission") {
 				t.Fatal("additional plan permissions lost")
 			}
 			p := approval.Policy{}
 			before := p.Evaluate(context.Background(), req.Details.Operation)
-			req.Details.Display = ""
+			req.Presentation = agent.ApprovalPresentation{Summary: "different", Explanation: "different", Evidence: "different"}
 			if after := p.Evaluate(context.Background(), req.Details.Operation); after != before {
 				t.Fatal("display changed policy")
 			}
@@ -581,29 +581,22 @@ func TestApprovalRequestFor(t *testing.T) {
 		wantOptions []agent.ApprovalOption
 	}{
 		{"Bash", `{"command":"go test ./...","description":"Run tests"}`, agent.ApprovalCommandExecution,
-			"approve command execution: go test ./... (Run tests)", allOptions},
-		{"Write", `{"file_path":"/w/a.go","content":"x"}`, agent.ApprovalFileChange, "approve file changes: /w/a.go", allOptions},
-		{"NotebookEdit", `{"notebook_path":"/w/n.ipynb"}`, agent.ApprovalFileChange, "approve file changes: /w/n.ipynb", allOptions},
+			"", allOptions},
+		{"Write", `{"file_path":"/w/a.go","content":"x"}`, agent.ApprovalFileChange, "", allOptions},
+		{"NotebookEdit", `{"notebook_path":"/w/n.ipynb"}`, agent.ApprovalFileChange, "", allOptions},
 		{"ExitPlanMode", `{"plan":"# Plan: add tests\n\n## Steps\n1. Write them"}`, agent.ApprovalPermissions,
-			"approve plan: Plan: add tests", acceptDecline},
+			"Plan approval", acceptDecline},
 		{"WebFetch", `{"url":"https://example.com"}`, agent.ApprovalPermissions,
-			`approve tool WebFetch: {"url":"https://example.com"}`, acceptDecline},
-		{"Bash", `{}`, agent.ApprovalCommandExecution, "approve command execution: <unknown>", allOptions},
+			"Tool: WebFetch", acceptDecline},
+		{"Bash", `{}`, agent.ApprovalCommandExecution, "", allOptions},
 	}
 	for _, tt := range tests {
 		t.Run(tt.tool+" "+tt.input, func(t *testing.T) {
 			got := approvalRequestFor(canUseTool{ToolName: tt.tool, Input: json.RawMessage(tt.input)})
-			if got.Kind != tt.wantKind || got.Ask != tt.wantAsk || !slices.Equal(got.Options, tt.wantOptions) {
+			if got.Kind != tt.wantKind || got.Presentation.Summary != tt.wantAsk || !slices.Equal(got.Options, tt.wantOptions) {
 				t.Errorf("got %+v, want kind %s, ask %q, options %v", got, tt.wantKind, tt.wantAsk, tt.wantOptions)
 			}
 		})
-	}
-}
-
-func TestTrimMiddle(t *testing.T) {
-	got := trimMiddle(strings.Repeat("a", 10)+strings.Repeat("b", 10), 9)
-	if got != "aaaa…bbbb" {
-		t.Errorf("trimMiddle = %q", got)
 	}
 }
 
@@ -615,7 +608,48 @@ func TestBashApprovalRetainsExplanation(t *testing.T) {
 	}
 	req := approvalRequestFor(canUseTool{ToolName: "Bash", Input: input})
 	op := req.Details.Operation.(agent.CommandOperation)
-	if op.Explanation != explanation || op.Command != "/opt/bin/git diff" || op.Cwd != "" {
+	if req.Presentation.Explanation != explanation || op.Command != "/opt/bin/git diff" || op.Cwd != "" {
 		t.Fatalf("lost evidence: %+v", op)
+	}
+}
+
+func TestPermissionPresentation(t *testing.T) {
+	for _, tt := range []struct{ tool, input, summary, evidence string }{
+		{"Read", `{"file_path":"/project/file","offset":42,"future":"extra"}`, "Tool: Read", `"future": "extra"`},
+		{"WebFetch", `{"url":"https://example.com","prompt":"full prompt"}`, "Tool: WebFetch", "full prompt"},
+		{"Unknown", `{"nested":{"future":"extra"}}`, "Tool: Unknown", `"future": "extra"`},
+		{"ExitPlanMode", `{"plan":"first\nlast","future":"extra"}`, "Plan approval", "Plan:\nfirst\nlast\nAdditional input:"},
+		{"Unknown", `broken`, "Tool: Unknown", "Input (unparsed):\nbroken"},
+		{"Read", `null`, "Tool: Read", "Tool input unavailable."},
+		{"Read", ``, "Tool: Read", "Tool input unavailable."},
+	} {
+		t.Run(tt.tool+tt.input, func(t *testing.T) {
+			req := approvalRequestFor(canUseTool{ToolName: tt.tool, Input: json.RawMessage(tt.input)})
+			if req.Kind != agent.ApprovalPermissions || req.Presentation.Summary != tt.summary || req.Presentation.Explanation != "" || !strings.Contains(req.Presentation.Evidence, tt.evidence) {
+				t.Fatalf("lost presentation: %+v", req)
+			}
+			if agent.ApprovalPrompt(req) != tt.summary {
+				t.Fatal("permission prompt was independently composed")
+			}
+		})
+	}
+}
+
+func TestCommonOperationSupplementalEvidence(t *testing.T) {
+	for _, tt := range []struct{ tool, input, want string }{
+		{"Bash", `{"command":"git diff","description":"supplied reason","future":"complete unknown"}`, "complete unknown"},
+		{"Write", `{"file_path":"/file","content":"full contents","future":"complete unknown"}`, "complete unknown"},
+		{"Edit", `{"file_path":"/file","old_string":"old","new_string":"new","replace_all":true,"future":"complete unknown"}`, "complete unknown"},
+		{"Write", `{"file_path":"/file","content":123}`, `"content": 123`},
+	} {
+		t.Run(tt.tool+tt.input, func(t *testing.T) {
+			req := approvalRequestFor(canUseTool{ToolName: tt.tool, Input: json.RawMessage(tt.input)})
+			if req.Presentation.Summary != "" || !strings.Contains(req.Presentation.Evidence, tt.want) {
+				t.Fatalf("lost supplemental input: %+v", req.Presentation)
+			}
+			if strings.Contains(req.Presentation.Evidence, "supplied reason") {
+				t.Fatal("extracted explanation duplicated in evidence")
+			}
+		})
 	}
 }

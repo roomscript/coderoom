@@ -70,8 +70,8 @@ func TestApprovalEvents_ClearActivePrompt(t *testing.T) {
 		Alias: testAlias("ada"),
 		ID:    7,
 		Req: agent.ApprovalRequest{
-			Ask:     "approve?",
-			Options: []agent.ApprovalOption{agent.OptionAccept, agent.OptionDecline},
+			Presentation: agent.ApprovalPresentation{Summary: "approve?"},
+			Options:      []agent.ApprovalOption{agent.OptionAccept, agent.OptionDecline},
 		},
 	})
 
@@ -81,8 +81,8 @@ func TestApprovalEvents_ClearActivePrompt(t *testing.T) {
 
 	m = pushEvent(m, session.ApprovalCleared{ID: 7})
 
-	if strings.Contains(m.room.View(), "approve?") {
-		t.Fatalf("expected cleared approval prompt to disappear, got:\n%s", m.room.View())
+	if strings.Contains(m.room.View(), "> accept") {
+		t.Fatalf("expected approval choices to disappear, got:\n%s", m.room.View())
 	}
 	if m.activeApprovalID != 0 {
 		t.Fatalf("active approval id = %d, want 0", m.activeApprovalID)
@@ -95,8 +95,8 @@ func TestApprovalEvents_IgnoreClearForDifferentApproval(t *testing.T) {
 		Alias: testAlias("ada"),
 		ID:    7,
 		Req: agent.ApprovalRequest{
-			Ask:     "approve?",
-			Options: []agent.ApprovalOption{agent.OptionAccept, agent.OptionDecline},
+			Presentation: agent.ApprovalPresentation{Summary: "approve?"},
+			Options:      []agent.ApprovalOption{agent.OptionAccept, agent.OptionDecline},
 		},
 	})
 
@@ -122,8 +122,8 @@ func TestApprovalEvents_ClearRestoresStagedComposer(t *testing.T) {
 		Alias: testAlias("ada"),
 		ID:    7,
 		Req: agent.ApprovalRequest{
-			Ask:     "approve?",
-			Options: []agent.ApprovalOption{agent.OptionAccept, agent.OptionDecline},
+			Presentation: agent.ApprovalPresentation{Summary: "approve?"},
+			Options:      []agent.ApprovalOption{agent.OptionAccept, agent.OptionDecline},
 		},
 	})
 	m = pushEvent(m, session.ApprovalCleared{ID: 7})
@@ -137,7 +137,7 @@ func TestApprovalEvents_ClearRestoresStagedComposer(t *testing.T) {
 	if view := m.room.View(); !strings.Contains(view, "Participants busy: ada.") {
 		t.Fatalf("restored stage status missing: %s", view)
 	}
-	if strings.Contains(m.room.View(), "approve?") {
-		t.Fatalf("expected cleared approval prompt to disappear, got:\n%s", m.room.View())
+	if strings.Contains(m.room.View(), "> accept") {
+		t.Fatalf("expected approval choices to disappear, got:\n%s", m.room.View())
 	}
 }

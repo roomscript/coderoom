@@ -125,18 +125,18 @@ func (c *Client) answerPermission(p permissionRequest, choice agent.ApprovalOpti
 func (c *Client) decide(ctx context.Context, req agent.ApprovalRequest) agent.ApprovalOption {
 	l := c.approvals.listener
 	if l == nil {
-		c.queue.push(logMessage("claude: " + req.Ask + " (auto-decline: no approval listener configured)"))
+		c.queue.push(logMessage("claude: " + agent.ApprovalPrompt(req) + " (auto-decline: no approval listener configured)"))
 		return agent.OptionDecline
 	}
 	decision, err := l.Decide(ctx, req)
 	if err != nil {
 		if ctx.Err() == nil {
-			c.queue.push(logMessage(fmt.Sprintf("claude: %s (auto-decline: approval listener error: %v)", req.Ask, err)))
+			c.queue.push(logMessage(fmt.Sprintf("claude: %s (auto-decline: approval listener error: %v)", agent.ApprovalPrompt(req), err)))
 		}
 		return agent.OptionDecline
 	}
 	if !slices.Contains(req.Options, decision.Choice) {
-		c.queue.push(logMessage(fmt.Sprintf("claude: %s (auto-decline: invalid listener choice %q)", req.Ask, decision.Choice)))
+		c.queue.push(logMessage(fmt.Sprintf("claude: %s (auto-decline: invalid listener choice %q)", agent.ApprovalPrompt(req), decision.Choice)))
 		return agent.OptionDecline
 	}
 	return decision.Choice
@@ -233,7 +233,8 @@ func approvalRequestFor(tool canUseTool) agent.ApprovalRequest {
 	case "Bash":
 		var in bashInput
 		if json.Unmarshal(tool.Input, &in) == nil {
-			req.Details.Operation = agent.CommandOperation{Command: in.Command, Explanation: in.Description}
+			req.Details.Operation = agent.CommandOperation{Command: in.Command}
+			req.Presentation.Explanation = in.Description
 		}
 	case "Read", "Write", "Edit":
 		var in fileInput
@@ -252,17 +253,54 @@ func approvalRequestFor(tool canUseTool) agent.ApprovalRequest {
 			req.Details.Operation = agent.HTTPOperation{Method: "GET", URL: in.URL, FollowsRedirects: true}
 		}
 	}
-	req.Details.Display = supplementalApprovalEvidence(tool, req.Details.Operation)
+	return approvalPresentation(req, tool)
+}
+
+func approvalPresentation(req agent.ApprovalRequest, tool canUseTool) agent.ApprovalRequest {
+	if req.Kind == agent.ApprovalPermissions {
+		req.Presentation.Summary = "Tool: " + tool.ToolName
+		if tool.ToolName == "ExitPlanMode" {
+			req.Presentation.Summary = "Plan approval"
+		}
+		req.Presentation.Evidence = toolApprovalDisplayEvidence(tool)
+	} else {
+		req.Presentation.Evidence = supplementalApprovalEvidence(tool, req.Details.Operation)
+	}
 	return req
 }
 
 func supplementalApprovalEvidence(tool canUseTool, operation agent.Operation) string {
-	switch operation.(type) {
-	case agent.CommandOperation, agent.FileOperation:
-		return ""
+	switch operation := operation.(type) {
+	case agent.CommandOperation:
+		return additionalToolEvidence(tool.Input, "command", "description")
+	case agent.FileOperation:
+		fields := []string{"file_path"}
+		if len(operation.ProposedChanges) > 0 {
+			if tool.ToolName == "Write" {
+				fields = append(fields, "content")
+			} else {
+				fields = append(fields, "old_string", "new_string", "replace_all")
+			}
+		}
+		return additionalToolEvidence(tool.Input, fields...)
 	default:
 		return toolApprovalDisplayEvidence(tool)
 	}
+}
+
+func additionalToolEvidence(input json.RawMessage, renderedFields ...string) string {
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(input, &fields) != nil {
+		return "Input (unparsed):\n" + string(input)
+	}
+	for _, field := range renderedFields {
+		delete(fields, field)
+	}
+	if len(fields) == 0 {
+		return ""
+	}
+	extra, _ := json.MarshalIndent(fields, "", "  ")
+	return "Additional input:\n" + string(extra)
 }
 
 func toolApprovalDisplayEvidence(tool canUseTool) string {
@@ -326,60 +364,10 @@ func proposedFileChanges(tool string, raw json.RawMessage, path string) []agent.
 func displayApprovalRequestFor(tool canUseTool) agent.ApprovalRequest {
 	switch tool.ToolName {
 	case "Bash":
-		var in bashInput
-		_ = json.Unmarshal(tool.Input, &in)
-		ask := "approve command execution: " + orUnknown(trimMiddle(in.Command, 160))
-		if d := strings.TrimSpace(in.Description); d != "" {
-			ask += " (" + trimMiddle(d, 120) + ")"
-		}
-		return agent.ApprovalRequest{Kind: agent.ApprovalCommandExecution, Ask: ask, Options: allOptions}
+		return agent.ApprovalRequest{Kind: agent.ApprovalCommandExecution, Options: allOptions}
 	case "Write", "Edit", "NotebookEdit":
-		var in fileInput
-		_ = json.Unmarshal(tool.Input, &in)
-		path := in.FilePath
-		if path == "" {
-			path = in.NotebookPath
-		}
-		ask := "approve file changes: " + orUnknown(trimMiddle(path, 160))
-		return agent.ApprovalRequest{Kind: agent.ApprovalFileChange, Ask: ask, Options: allOptions}
-	case "ExitPlanMode":
-		var in struct {
-			Plan string `json:"plan"`
-		}
-		_ = json.Unmarshal(tool.Input, &in)
-		ask := "approve plan: " + orUnknown(trimMiddle(firstLine(in.Plan), 160))
-		return agent.ApprovalRequest{Kind: agent.ApprovalPermissions, Ask: ask, Options: acceptDecline}
+		return agent.ApprovalRequest{Kind: agent.ApprovalFileChange, Options: allOptions}
 	default:
-		ask := "approve tool " + tool.ToolName + ": " + trimMiddle(string(tool.Input), 120)
-		return agent.ApprovalRequest{Kind: agent.ApprovalPermissions, Ask: ask, Options: acceptDecline}
+		return agent.ApprovalRequest{Kind: agent.ApprovalPermissions, Options: acceptDecline}
 	}
-}
-
-func orUnknown(s string) string {
-	if strings.TrimSpace(s) == "" {
-		return "<unknown>"
-	}
-	return s
-}
-
-// firstLine returns the first non-empty line, without Markdown heading marks.
-func firstLine(s string) string {
-	for line := range strings.SplitSeq(s, "\n") {
-		if line = strings.TrimSpace(strings.TrimLeft(line, "# ")); line != "" {
-			return line
-		}
-	}
-	return ""
-}
-
-// trimMiddle shortens s to maxLen runes, keeping its start and end.
-func trimMiddle(s string, maxLen int) string {
-	s = strings.TrimSpace(s)
-	runes := []rune(s)
-	if len(runes) <= maxLen {
-		return s
-	}
-	head := maxLen / 2
-	tail := maxLen - head - 1
-	return string(runes[:head]) + "…" + string(runes[len(runes)-tail:])
 }

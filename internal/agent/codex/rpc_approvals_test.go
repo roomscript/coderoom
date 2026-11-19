@@ -28,8 +28,8 @@ func TestCommandApprovalPreservesEvidence(t *testing.T) {
 	if commandOperation.Command != command || commandOperation.Cwd != "/project" || !bytes.Equal(req.Details.Raw, raw) {
 		t.Fatal("structured evidence was lost or shortened")
 	}
-	if len(req.Ask) >= len(command) {
-		t.Fatal("fixture did not exercise shortened display")
+	if req.Presentation.Summary != "" {
+		t.Fatal("command summary must be derived by room")
 	}
 }
 
@@ -44,9 +44,8 @@ func TestFileChangeApprovalPreservesFullScopeAndReason(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "approve file changes (grantRoot: " + root + ") — " + reason
-	if req.Ask != want {
-		t.Fatalf("scope or reason lost: got %q, want %q", req.Ask, want)
+	if req.Presentation.Summary != "" || req.Presentation.Explanation != reason || req.Presentation.Evidence != "Grant root: "+root {
+		t.Fatalf("scope or reason lost: %+v", req.Presentation)
 	}
 	if !bytes.Equal(req.Details.Raw, raw) {
 		t.Fatal("raw evidence changed")
@@ -112,12 +111,12 @@ func TestPermissionsApprovalRetainsFullDisplayScope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{reason, "/outside/project/target", "specific.example", "Working directory: /outside/project"} {
-		if !strings.Contains(req.Details.Display, want) {
-			t.Fatalf("missing %q in %s", want, req.Details.Display)
+	for _, want := range []string{"/outside/project/target", "specific.example", "Working directory: /outside/project"} {
+		if !strings.Contains(req.Presentation.Evidence, want) {
+			t.Fatalf("missing %q in %s", want, req.Presentation.Evidence)
 		}
 	}
-	if strings.Contains(req.Details.Display, "hidden-id") || strings.Contains(req.Details.Display, "startedAtMs") || req.Details.Operation != nil {
+	if strings.Contains(req.Presentation.Evidence, "hidden-id") || strings.Contains(req.Presentation.Evidence, "startedAtMs") || req.Details.Operation != nil {
 		t.Fatal("scope included protocol metadata or policy eligibility")
 	}
 	if !bytes.Equal(req.Details.Raw, raw) || !bytes.Equal(perms, scope) {
@@ -136,7 +135,50 @@ func TestCommandApprovalRetainsExplanation(t *testing.T) {
 		t.Fatal(err)
 	}
 	op := req.Details.Operation.(agent.CommandOperation)
-	if op.Explanation != reason || op.Command != "/opt/bin/git diff" || op.Cwd != "/real/cwd" {
+	if req.Presentation.Explanation != reason || op.Command != "/opt/bin/git diff" || op.Cwd != "/real/cwd" {
 		t.Fatalf("lost evidence: %+v", op)
+	}
+}
+
+func TestPermissionPresentation(t *testing.T) {
+	for _, tt := range []struct{ scope, summary string }{
+		{`{"fileSystem":{}}`, "Additional permissions: filesystem"},
+		{`{"network":{}}`, "Additional permissions: network"},
+		{`{"fileSystem":{},"network":{}}`, "Additional permissions: filesystem+network"},
+		{`{"future":{"unknown":"complete scope"}}`, "Additional permissions"},
+		{`null`, "Additional permissions"},
+	} {
+		t.Run(tt.scope, func(t *testing.T) {
+			reason := "  " + strings.Repeat("full reason\n", 100) + "tail\x1b[2J "
+			raw, err := json.Marshal(map[string]any{"permissions": json.RawMessage(tt.scope), "reason": reason, "cwd": nil})
+			if err != nil {
+				t.Fatal(err)
+			}
+			req, _, err := normalizePermissionsApproval(raw)
+			if err != nil {
+				t.Fatal(err)
+			}
+			assertPermissionPresentation(t, req, tt.summary, reason)
+			if tt.scope == "null" && !strings.Contains(req.Presentation.Evidence, "unavailable") {
+				t.Fatal("missing scope notice")
+			}
+			if strings.Contains(tt.scope, "future") && !strings.Contains(req.Presentation.Evidence, "complete scope") {
+				t.Fatal("unknown fields lost")
+			}
+		})
+	}
+	req, _, err := normalizePermissionsApproval(json.RawMessage(`{}`))
+	if err != nil || !strings.Contains(req.Presentation.Evidence, "unavailable") {
+		t.Fatal("missing scope notice")
+	}
+}
+
+func assertPermissionPresentation(t *testing.T, req agent.ApprovalRequest, summary, reason string) {
+	t.Helper()
+	if agent.ApprovalPrompt(req) != summary+" — "+reason {
+		t.Fatal("permission prompt was independently composed")
+	}
+	if req.Presentation.Summary != summary || req.Presentation.Explanation != reason || strings.Contains(req.Presentation.Evidence, reason) || !strings.Contains(req.Presentation.Evidence, "Working directory: unknown") {
+		t.Fatalf("lost presentation: %+v", req.Details)
 	}
 }

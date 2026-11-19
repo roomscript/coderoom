@@ -68,7 +68,7 @@ func TestPresenter_routingNameColorFollowsCurrentSnapshot(t *testing.T) {
 func TestApprovalPresenter_displaysResolvedInstanceName(t *testing.T) {
 	alias := participant.New("ada", "", participant.InitiativeManual).Alias
 	m := makeReadyModel(t)
-	m, _ = m.presentInterpreterSnapshot(interpreter.Snapshot{Approval: &interpreter.Approval{ID: 7, Alias: alias, Prompt: "approve work?", Options: []interpreter.ApprovalOption{{ID: "accept"}}}})
+	m, _ = m.presentInterpreterSnapshot(interpreter.Snapshot{Approval: &interpreter.Approval{ID: 7, Alias: alias, Summary: "approve work?", Options: []interpreter.ApprovalOption{{ID: "accept"}}}})
 	if !strings.Contains(m.room.View(), "● ada:") || !strings.Contains(m.room.View(), "approve work?") {
 		t.Fatalf("approval header lost participant name: %q", m.room.View())
 	}

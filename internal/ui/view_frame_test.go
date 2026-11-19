@@ -49,7 +49,7 @@ func TestView_longApprovalFitsTerminal(t *testing.T) {
 	const height = 20
 	m := makeReadyModelWithHeight(t, height)
 	m.room = m.room.ShowApproval(interpreter.Approval{
-		Prompt:  strings.Repeat("approval command line\n", 40),
+		Summary: strings.Repeat("approval command line\n", 40),
 		Options: []interpreter.ApprovalOption{{ID: "accept"}, {ID: "decline"}, {ID: "cancel"}},
 	})
 	view := ansi.Strip(m.View().Content)

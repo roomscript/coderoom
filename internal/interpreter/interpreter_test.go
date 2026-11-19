@@ -153,15 +153,15 @@ func TestInterpreter_translatesApprovalState(t *testing.T) {
 		Alias: testAlias("ada"),
 		ID:    42,
 		Req: agent.ApprovalRequest{
-			Kind:    agent.ApprovalCommandExecution,
-			Ask:     "Run tests?",
-			Options: []agent.ApprovalOption{agent.OptionAccept, agent.OptionDecline},
+			Kind:         agent.ApprovalCommandExecution,
+			Presentation: agent.ApprovalPresentation{Explanation: "Run tests?"},
+			Options:      []agent.ApprovalOption{agent.OptionAccept, agent.OptionDecline},
 		},
 	})
 
 	requested := receiveEvent[interpreter.StateChanged](t, events)
 	approval := requested.Snapshot.Approval
-	if approval == nil || approval.ID != 42 || approval.Alias != testAlias("ada") || approval.Prompt != "Run tests?" {
+	if approval == nil || approval.ID != 42 || approval.Alias != testAlias("ada") || approval.Explanation != "Run tests?" || approval.Summary != "shell command" {
 		t.Fatalf("approval = %#v", approval)
 	}
 	if len(approval.Options) != 2 || approval.Options[0].ID != "accept" {
@@ -410,9 +410,9 @@ func approvalRequested(id int64, options ...agent.ApprovalOption) session.Approv
 		Alias: testAlias("ada"),
 		ID:    id,
 		Req: agent.ApprovalRequest{
-			Kind:    agent.ApprovalCommandExecution,
-			Ask:     "Proceed?",
-			Options: options,
+			Kind:         agent.ApprovalCommandExecution,
+			Presentation: agent.ApprovalPresentation{Summary: "Proceed?"},
+			Options:      options,
 		},
 	}
 }

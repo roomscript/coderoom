@@ -51,7 +51,7 @@ func TestNew_consumesEventsQueuedBeforeUIConstruction(t *testing.T) {
 	t.Cleanup(interp.Close)
 	sess.observer.OnEvent(session.AgentReady{Alias: testAlias("ada")})
 	sess.observer.OnEvent(session.AgentMessage{Alias: testAlias("ada"), Msg: agent.Message{StreamID: "output", Mode: agent.ModeStream, Content: agent.Output{Text: "existing output"}}})
-	sess.observer.OnEvent(session.ApprovalRequested{ID: 7, Alias: testAlias("ada"), Req: agent.ApprovalRequest{Ask: "approve existing work?", Options: []agent.ApprovalOption{agent.OptionAccept, agent.OptionDecline}}})
+	sess.observer.OnEvent(session.ApprovalRequested{ID: 7, Alias: testAlias("ada"), Req: agent.ApprovalRequest{Presentation: agent.ApprovalPresentation{Summary: "approve existing work?"}, Options: []agent.ApprovalOption{agent.OptionAccept, agent.OptionDecline}}})
 	if err := interp.Submit("next turn"); err != nil {
 		t.Fatal(err)
 	}

@@ -44,7 +44,7 @@ func TestApprovalMode_enterEmitsApprovalDecisionMsgAndReturnsToCompose(t *testin
 	m := newTestModel(t)
 	m = m.HandleResize(80, 20)
 	m = m.ShowApproval(interpreter.Approval{
-		Prompt:  "approve?",
+		Summary: "approve?",
 		Options: []interpreter.ApprovalOption{{ID: "decline"}, {ID: "accept"}},
 	})
 
@@ -84,7 +84,7 @@ func TestApprovalMode_escEmitsDeclineDecisionMsg(t *testing.T) {
 	m := newTestModel(t)
 	m = m.HandleResize(80, 20)
 	m = m.ShowApproval(interpreter.Approval{
-		Prompt:  "approve?",
+		Summary: "approve?",
 		Options: []interpreter.ApprovalOption{{ID: "decline"}, {ID: "accept"}},
 	})
 
@@ -118,7 +118,7 @@ func TestApprovalMode_ctrlCEmitsCancelDecisionMsg(t *testing.T) {
 	m := newTestModel(t)
 	m = m.HandleResize(80, 20)
 	m = m.ShowApproval(interpreter.Approval{
-		Prompt:  "approve?",
+		Summary: "approve?",
 		Options: []interpreter.ApprovalOption{{ID: "accept"}, {ID: "cancel"}, {ID: "decline"}},
 	})
 
@@ -142,7 +142,7 @@ func TestApprovalMode_ctrlCRestoresStagedComposer(t *testing.T) {
 	m = m.HandleResize(80, 20)
 	m = m.SetComposerStaged("next turn", "Participants busy: ada.")
 	m = m.ShowApproval(interpreter.Approval{
-		Prompt:  "approve?",
+		Summary: "approve?",
 		Options: []interpreter.ApprovalOption{{ID: "accept"}, {ID: "cancel"}, {ID: "decline"}},
 	})
 
@@ -172,7 +172,7 @@ func TestApprovalMode_cancelRestoresHistorySelectionState(t *testing.T) {
 	beforeText := requireHistorySelectedText(t, m)
 
 	m = showApprovalAndRequireInputFocus(t, m, interpreter.Approval{
-		Prompt:  "approve?",
+		Summary: "approve?",
 		Options: []interpreter.ApprovalOption{{ID: "decline"}, {ID: "accept"}},
 	})
 
@@ -263,7 +263,7 @@ func TestApprovalMode_longRequestFitsFrame(t *testing.T) {
 		t.Run(fmt.Sprintf("%dx%d", size.width, size.height), func(t *testing.T) {
 			m := newTestModel(t).HandleResize(size.width, size.height)
 			m = m.ShowApproval(interpreter.Approval{
-				Prompt:  "[→ eve] approve command execution: python3 -I -c '\nprint(\"Monday\")\nprint(\"Tuesday\")\nprint(\"Wednesday\")\nprint(\"Thursday\")\nprint(\"Friday\")\n' (Run a five-line Python script that prints the work days)",
+				Summary: "[→ eve] approve command execution: python3 -I -c '\nprint(\"Monday\")\nprint(\"Tuesday\")\nprint(\"Wednesday\")\nprint(\"Thursday\")\nprint(\"Friday\")\n' (Run a five-line Python script that prints the work days)",
 				Options: []interpreter.ApprovalOption{{ID: "accept"}, {ID: "decline"}, {ID: "cancel"}},
 			})
 			for i := 0; i < 3; i++ {
@@ -290,7 +290,7 @@ func TestApprovalMode_pagingScrollsRequestInsteadOfHistory(t *testing.T) {
 	m := newTestModel(t).HandleResize(40, 12)
 	m = m.AppendSystem(strings.Repeat("history\n", 30))
 	m = m.ShowApproval(interpreter.Approval{
-		Prompt:  strings.Repeat("request\n", 10) + "request tail",
+		Summary: strings.Repeat("request\n", 10) + "request tail",
 		Options: []interpreter.ApprovalOption{{ID: "accept"}, {ID: "decline"}},
 	})
 	historyTop := m.YOffset()
@@ -341,10 +341,17 @@ func TestFileApprovalRestoresStagedComposer(t *testing.T) {
 }
 
 func TestCommandApprovalHistoryAndComposer(t *testing.T) {
+	for _, kind := range []interpreter.ApprovalKind{interpreter.ApprovalCommandExecution, interpreter.ApprovalPermissions} {
+		t.Run(string(kind), func(t *testing.T) { assertCompactApprovalHistoryAndComposer(t, kind) })
+	}
+}
+
+func assertCompactApprovalHistoryAndComposer(t *testing.T, kind interpreter.ApprovalKind) {
+	t.Helper()
 	m := newTestModel(t).HandleResize(80, 24)
 	m = m.AppendSystem(strings.Repeat("command evidence\n", 80))
 	m = m.SetComposerStaged("next turn", "Participants busy: ada.")
-	m = m.ShowApproval(interpreter.Approval{Kind: interpreter.ApprovalCommandExecution, Summary: "make test", Options: []interpreter.ApprovalOption{{ID: "accept"}, {ID: "decline"}}})
+	m = m.ShowApproval(interpreter.Approval{Kind: kind, Summary: "requested action", Options: []interpreter.ApprovalOption{{ID: "accept"}, {ID: "decline"}}})
 	top := m.YOffset()
 	m, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyPgUp}))
 	if m.YOffset() >= top || m.activeFocus != focusInput || !m.input.approval.Active() {

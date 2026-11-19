@@ -87,9 +87,9 @@ func TestApprovalHub_CancelActiveRequestPublishesClearedEvent(t *testing.T) {
 	done := make(chan error, 1)
 	go func() {
 		_, err := listener.Decide(ctx, agent.ApprovalRequest{
-			Kind:    agent.ApprovalCommandExecution,
-			Ask:     "approve?",
-			Options: []agent.ApprovalOption{agent.OptionAccept, agent.OptionDecline},
+			Kind:         agent.ApprovalCommandExecution,
+			Presentation: agent.ApprovalPresentation{Summary: "approve?"},
+			Options:      []agent.ApprovalOption{agent.OptionAccept, agent.OptionDecline},
 		})
 		done <- err
 	}()
@@ -233,7 +233,7 @@ func startApprovalRequestDecision(ctx context.Context, t *testing.T, listener ag
 	go func() {
 		d, err := listener.Decide(ctx, request)
 		if err != nil {
-			t.Errorf("Decide(%q) returned error: %v", request.Ask, err)
+			t.Errorf("Decide(%q) returned error: %v", request.Presentation.Summary, err)
 			return
 		}
 		done <- d
@@ -249,9 +249,9 @@ func startCancelableApproval(ctx context.Context, listener agent.ApprovalListene
 
 func approvalRequest(ask string) agent.ApprovalRequest {
 	return agent.ApprovalRequest{
-		Kind:    agent.ApprovalCommandExecution,
-		Ask:     ask,
-		Options: []agent.ApprovalOption{agent.OptionAccept, agent.OptionDecline},
+		Kind:         agent.ApprovalCommandExecution,
+		Presentation: agent.ApprovalPresentation{Summary: ask},
+		Options:      []agent.ApprovalOption{agent.OptionAccept, agent.OptionDecline},
 	}
 }
 
@@ -268,7 +268,7 @@ func assertApprovalRequestEvent(t *testing.T, ev ApprovalRequested, wantAlias pa
 
 func assertApprovalAsk(t *testing.T, ev ApprovalRequested, want string) {
 	t.Helper()
-	if ev.Req.Ask != want {
+	if ev.Req.Presentation.Summary != want {
 		t.Fatalf("approval req = %#v, want ask %q", ev.Req, want)
 	}
 }

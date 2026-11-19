@@ -383,16 +383,16 @@ func writePermissionsGrantResult(c *Client, rpcID int, perms json.RawMessage, ch
 func decideApproval(ctx context.Context, c *Client, req agent.ApprovalRequest, defaultChoice agent.ApprovalOption) agent.ApprovalOption {
 	l := c.approvals.listener
 	if l == nil {
-		emitApprovalLog(ctx, c, fmt.Sprintf("%s (auto-decline: no approval listener configured)", req.Ask))
+		emitApprovalLog(ctx, c, fmt.Sprintf("%s (auto-decline: no approval listener configured)", agent.ApprovalPrompt(req)))
 		return defaultChoice
 	}
 	decision, err := l.Decide(ctx, req)
 	if err != nil {
-		emitApprovalLog(ctx, c, fmt.Sprintf("%s (auto-decline: approval listener error: %v)", req.Ask, err))
+		emitApprovalLog(ctx, c, fmt.Sprintf("%s (auto-decline: approval listener error: %v)", agent.ApprovalPrompt(req), err))
 		return defaultChoice
 	}
 	if !containsOption(req.Options, decision.Choice) {
-		emitApprovalLog(ctx, c, fmt.Sprintf("%s (auto-decline: invalid listener choice %q)", req.Ask, decision.Choice))
+		emitApprovalLog(ctx, c, fmt.Sprintf("%s (auto-decline: invalid listener choice %q)", agent.ApprovalPrompt(req), decision.Choice))
 		return defaultChoice
 	}
 	return decision.Choice

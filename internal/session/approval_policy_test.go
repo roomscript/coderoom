@@ -248,3 +248,32 @@ func isolateGitTestEnvironment(t *testing.T) {
 		}
 	}
 }
+
+func TestApprovalIdentityExcludesPresentation(t *testing.T) {
+	req := agent.ApprovalRequest{Details: agent.ApprovalDetails{Backend: "codex", RequestID: "request", Tool: "shell", Raw: []byte(`{"reason":"backend reason"}`), Operation: agent.CommandOperation{Command: "git diff", Cwd: "/project"}}}
+	before := approvalIdentity(req.Details)
+	req.Presentation = agent.ApprovalPresentation{Summary: "new label", Explanation: "new reason", Evidence: "new evidence"}
+	if after := approvalIdentity(req.Details); before != after {
+		t.Fatal("presentation changed diagnostic identity")
+	}
+	for _, tt := range []struct {
+		name   string
+		change func(*agent.ApprovalDetails)
+	}{
+		{"backend", func(e *agent.ApprovalDetails) { e.Backend = "claude" }},
+		{"request", func(e *agent.ApprovalDetails) { e.RequestID = "other" }},
+		{"tool", func(e *agent.ApprovalDetails) { e.Tool = "other" }},
+		{"raw", func(e *agent.ApprovalDetails) { e.Raw = []byte(`{"reason":"different backend reason"}`) }},
+		{"operation", func(e *agent.ApprovalDetails) {
+			e.Operation = agent.CommandOperation{Command: "git status", Cwd: "/project"}
+		}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			details := req.Details
+			tt.change(&details)
+			if approvalIdentity(details) == before {
+				t.Fatal("backend identity change was ignored")
+			}
+		})
+	}
+}

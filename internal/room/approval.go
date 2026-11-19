@@ -45,19 +45,7 @@ func (r *Room) approvalPath(path string) string {
 func (r *Room) handleApprovalEventLocked(e session.Event) ([]int, bool) {
 	switch e := e.(type) {
 	case session.ApprovalRequested:
-		if e.Req.Kind == agent.ApprovalCommandExecution {
-			operation, _ := e.Req.Details.Operation.(agent.CommandOperation)
-			cwd := operation.Cwd
-			if cwd == "" {
-				cwd = "unknown"
-			}
-			text := "⚡ Approval: " + CommandSummary(e.Req) + " (cwd: " + cwd + ")\n" + commandApprovalEvidence(operation, false)
-			return r.appendRecordLocked(Record{Kind: KindApproval, Alias: e.Alias, ApprovalID: e.ID, Text: text, Decision: "Waiting for you"}), true
-		}
-		if e.Req.Kind != agent.ApprovalFileChange {
-			return nil, false
-		}
-		text := r.fileApprovalText(e.Req)
+		text := r.approvalText(e.Req)
 		return r.appendRecordLocked(Record{Kind: KindApproval, Alias: e.Alias, ApprovalID: e.ID, Text: text, Decision: "Waiting for you"}), true
 	case session.ApprovalCleared:
 		for i := len(r.records) - 1; i >= 0; i-- {
@@ -71,12 +59,21 @@ func (r *Room) handleApprovalEventLocked(e session.Event) ([]int, bool) {
 	return nil, false
 }
 
-func (r *Room) fileApprovalText(req agent.ApprovalRequest) string {
-	text := "⚡ Approval: File changes\n"
-	if ask := strings.TrimSpace(req.Ask); ask != "" && ask != "approve file changes" {
-		text += req.Ask + "\n"
+func (r *Room) approvalText(req agent.ApprovalRequest) string {
+	presentation := r.DeriveApprovalPresentation(req)
+	text := "⚡ Approval: " + presentation.Summary
+	if req.Kind == agent.ApprovalCommandExecution {
+		operation, _ := req.Details.Operation.(agent.CommandOperation)
+		cwd := operation.Cwd
+		if cwd == "" {
+			cwd = "unknown"
+		}
+		text += " (cwd: " + cwd + ")"
 	}
-	return text + "Files:\n" + strings.Join(r.ApprovalPaths(req), "\n") + "\n\n" + r.approvalDetails(req)
+	if presentation.Explanation != "" {
+		text += "\nExplanation: " + presentation.Explanation
+	}
+	return text + "\n" + presentation.Evidence
 }
 
 // ApprovalPaths returns detached affected paths from normalized file operations.
@@ -94,47 +91,68 @@ func ApprovalPaths(request agent.ApprovalRequest) []string {
 	return paths
 }
 
-// ApprovalDetails returns complete display evidence, without backend metadata.
-func ApprovalDetails(request agent.ApprovalRequest) string {
-	return (&Room{}).approvalDetails(request)
+// ApprovalPresentation is a detached derivation shared by history and the panel.
+// Evidence excludes the explanation and heading; it is not a complete document.
+type ApprovalPresentation struct {
+	Summary     string
+	Explanation string
+	Evidence    string
+	Paths       []string
 }
 
-func (r *Room) approvalDetails(request agent.ApprovalRequest) string {
-	switch operation := request.Details.Operation.(type) {
-	case agent.CommandOperation:
-		return commandApprovalEvidence(operation, true)
-	case agent.FileOperation:
-		if request.Kind == agent.ApprovalFileChange {
-			operation.Write = true
+// DeriveApprovalPresentation derives display data without workspace path shortening.
+func DeriveApprovalPresentation(request agent.ApprovalRequest) ApprovalPresentation {
+	return (&Room{}).DeriveApprovalPresentation(request)
+}
+
+// DeriveApprovalPresentation composes operation and adapter evidence without mutation.
+func (r *Room) DeriveApprovalPresentation(request agent.ApprovalRequest) ApprovalPresentation {
+	p := ApprovalPresentation{Summary: deriveApprovalSummary(request), Explanation: request.Presentation.Explanation}
+	switch request.Kind {
+	case agent.ApprovalCommandExecution:
+		operation, _ := request.Details.Operation.(agent.CommandOperation)
+		p.Evidence = commandApprovalEvidence(operation)
+	case agent.ApprovalFileChange:
+		p.Paths = r.ApprovalPaths(request)
+		operation, _ := request.Details.Operation.(agent.FileOperation)
+		operation.Write = true
+		p.Evidence = "Files:\n" + strings.Join(p.Paths, "\n") + "\n\n" + r.fileApprovalDetails(operation)
+	case agent.ApprovalPermissions:
+		// Permission operations inform policy; adapters retain the full requested action.
+	}
+	if extra := request.Presentation.Evidence; extra != "" {
+		if p.Evidence != "" {
+			p.Evidence += "\n\n"
 		}
-		return r.fileApprovalDetails(operation)
+		p.Evidence += extra
 	}
-	if request.Kind == agent.ApprovalCommandExecution {
-		return "Command evidence unavailable.\nWorking directory: unknown"
+	if p.Evidence == "" {
+		p.Evidence = "Request evidence unavailable."
 	}
-	if request.Details.Display != "" {
-		return request.Details.Display
-	}
-	if request.Kind == agent.ApprovalFileChange {
-		return "Proposed file details unavailable: no matching file-change evidence."
-	}
-	return ""
+	return p
 }
 
-func commandApprovalEvidence(operation agent.CommandOperation, includeCwd bool) string {
+func deriveApprovalSummary(request agent.ApprovalRequest) string {
+	switch request.Kind {
+	case agent.ApprovalCommandExecution:
+		return CommandSummary(request)
+	case agent.ApprovalFileChange:
+		return "File changes"
+	default:
+		if request.Presentation.Summary != "" {
+			return request.Presentation.Summary
+		}
+		if request.Kind == agent.ApprovalPermissions {
+			return "Permission request"
+		}
+		return "Approval request"
+	}
+}
+
+func commandApprovalEvidence(operation agent.CommandOperation) string {
 	text := "Command: " + operation.Command
 	if strings.TrimSpace(operation.Command) == "" {
 		text = "Command evidence unavailable."
-	}
-	if includeCwd {
-		cwd := operation.Cwd
-		if cwd == "" {
-			cwd = "unknown"
-		}
-		text += "\nWorking directory: " + cwd
-	}
-	if operation.Explanation != "" {
-		text += "\nExplanation: " + operation.Explanation
 	}
 	return text
 }

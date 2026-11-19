@@ -9,15 +9,15 @@ import (
 type Model struct {
 	alias            string
 	participantColor string
-	ask              string
+	summary          string
 	explanation      string
+	evidence         string
 	options          []interpreter.ApprovalOption
 	selected         int
 	width            int
 	maxHeight        int
 	requestTop       int
-	fileChange       bool
-	command          bool
+	kind             interpreter.ApprovalKind
 	paths            []string
 }
 
@@ -25,10 +25,10 @@ type Model struct {
 func New() Model { return Model{} }
 
 // Active reports whether an approval is currently being displayed.
-func (m Model) Active() bool { return m.ask != "" && len(m.options) > 0 }
+func (m Model) Active() bool { return len(m.options) > 0 }
 
-// Ask returns the prompt string.
-func (m Model) Ask() string { return m.ask }
+// Summary returns the supplied action label.
+func (m Model) Summary() string { return m.summary }
 
 // Options returns the available options.
 func (m Model) Options() []interpreter.ApprovalOption { return m.options }
@@ -47,23 +47,11 @@ func (m Model) SelectedOption() (interpreter.ApprovalChoice, bool) {
 // Set sets the approval prompt and options and resets selection to 0.
 func (m Model) Set(req interpreter.Approval) Model {
 	m.alias = req.Alias.Name
-	m.fileChange = req.Kind == interpreter.ApprovalFileChange
-	m.command = req.Kind == interpreter.ApprovalCommandExecution
+	m.kind = req.Kind
 	m.paths = append([]string(nil), req.Paths...)
-	m.ask = req.Prompt
-	m.explanation = ""
-	switch {
-	case m.fileChange:
-		m.ask = "File changes"
-	case m.command:
-		m.ask = req.Summary
-		if m.ask == "" {
-			m.ask = "shell command"
-		}
-		m.explanation = req.Explanation
-	case req.Details != "":
-		m.ask += "\n" + req.Details
-	}
+	m.summary = req.Summary
+	m.explanation = req.Explanation
+	m.evidence = req.Evidence
 	m.options = append([]interpreter.ApprovalOption(nil), req.Options...)
 	m.selected = 0
 	m.requestTop = 0
@@ -71,10 +59,12 @@ func (m Model) Set(req interpreter.Approval) Model {
 }
 
 // FileChange reports whether the compact file approval is displayed.
-func (m Model) FileChange() bool { return m.fileChange }
+func (m Model) FileChange() bool { return m.kind == interpreter.ApprovalFileChange }
 
 // Compact reports whether the evidence is retained in history.
-func (m Model) Compact() bool { return m.fileChange || m.command }
+func (m Model) Compact() bool {
+	return m.FileChange() || m.kind == interpreter.ApprovalCommandExecution || m.kind == interpreter.ApprovalPermissions
+}
 
 // SetParticipantColor uses the participant's assigned color for the header.
 func (m Model) SetParticipantColor(color string) Model {
@@ -85,11 +75,11 @@ func (m Model) SetParticipantColor(color string) Model {
 // Clear removes the current approval.
 func (m Model) Clear() Model {
 	m.alias = ""
-	m.fileChange = false
-	m.command = false
+	m.kind = ""
 	m.paths = nil
-	m.ask = ""
+	m.summary = ""
 	m.explanation = ""
+	m.evidence = ""
 	m.options = nil
 	m.selected = 0
 	m.requestTop = 0

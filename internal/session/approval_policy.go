@@ -48,13 +48,15 @@ func (s *Session) decideApproval(ctx context.Context, alias participant.Alias, r
 }
 
 func approvalIdentity(e agent.ApprovalDetails) string {
-	raw := e.Raw
-	e.Raw = nil
 	hash := sha256.New()
 	// The structured fields contain only JSON-supported values. Keep the raw
 	// backend bytes separate so even unknown/malformed evidence is correlated.
-	_ = json.NewEncoder(hash).Encode(e)
-	_, _ = hash.Write(raw)
+	identity := struct {
+		Backend, RequestID, Tool string
+		Operation                agent.Operation
+	}{e.Backend, e.RequestID, e.Tool, e.Operation}
+	_ = json.NewEncoder(hash).Encode(identity)
+	_, _ = hash.Write(e.Raw)
 	return fmt.Sprintf("%x", hash.Sum(nil))
 }
 

@@ -50,16 +50,15 @@ type ApprovalOption struct {
 
 // Approval is the active application-level approval request.
 type Approval struct {
-	ID     int64
-	Alias  participant.Alias
-	Kind   ApprovalKind
-	Prompt string
-	// Summary is the display-only command action label.
+	ID    int64
+	Alias participant.Alias
+	Kind  ApprovalKind
+	// Summary is the display-only command or permission label.
 	Summary string
-	// Explanation is the unshortened context supplied for a command operation.
+	// Explanation is the unshortened supplied command or permission context.
 	Explanation string
-	// Details retains full backend action evidence.
-	Details string
+	// Evidence retains operation and supplemental evidence, excluding the explanation.
+	Evidence string
 	// Paths contains the affected files in backend order.
 	Paths   []string
 	Options []ApprovalOption

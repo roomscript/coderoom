@@ -110,7 +110,7 @@ func (l panelLayout) height() int {
 }
 
 func (m Model) layout() panelLayout {
-	if m.fileChange {
+	if m.FileChange() {
 		return m.fileLayout()
 	}
 	request := m.requestLines()
@@ -120,8 +120,8 @@ func (m Model) layout() panelLayout {
 		options[i] = accent.Render(line)
 	}
 	if m.maxHeight == 0 {
-		if m.command {
-			request = m.commandRequestLines(int(^uint(0) >> 1))
+		if m.Compact() {
+			request = m.compactRequestLines(int(^uint(0) >> 1))
 		}
 		return panelLayout{request: request, requestRows: len(request), separator: true, options: options}
 	}
@@ -138,8 +138,8 @@ func (m Model) layout() panelLayout {
 	if separator {
 		remaining--
 	}
-	if m.command {
-		request = m.commandRequestLines(remaining)
+	if m.Compact() {
+		request = m.compactRequestLines(remaining)
 	}
 	return panelLayout{
 		request: request, requestRows: min(len(request), remaining),
@@ -148,30 +148,33 @@ func (m Model) layout() panelLayout {
 	}
 }
 
-// commandRequestLines reserves the history hint before bounding the summary.
-// Paging belongs to history, so every displayed command row must be reachable
+// compactRequestLines reserves the history hint before bounding summary and explanation.
+// Paging belongs to history, so every displayed request row must be reachable
 // without scrolling the approval body.
-func (m Model) commandRequestLines(rows int) []string {
+func (m Model) compactRequestLines(rows int) []string {
 	request := m.requestLines()
 	hint := m
 	hint.alias = ""
-	hint.ask = "Full command in history"
+	hint.summary = "Full command in history"
+	if m.kind != interpreter.ApprovalCommandExecution {
+		hint.summary = "Full request in history"
+	}
 	hintLines := hint.requestLines()
 	if len(hintLines) >= rows {
 		return hintLines[:rows]
 	}
 	count := rows - len(hintLines)
-	request = m.boundCommandLines(request, count)
+	request = m.boundRequestLines(request, count)
 	if m.explanation != "" && len(request) < count {
 		lines := m.bodyLines(escapeApprovalText(m.explanation))
-		request = append(request, m.boundCommandLines(lines, count-len(request))...)
+		request = append(request, m.boundRequestLines(lines, count-len(request))...)
 	} else if m.explanation != "" && count > 0 {
 		request[count-1] = ansi.Truncate(request[count-1], max(m.width-1, 0), "") + "…"
 	}
 	return append(request, hintLines...)
 }
 
-func (m Model) boundCommandLines(lines []string, rows int) []string {
+func (m Model) boundRequestLines(lines []string, rows int) []string {
 	if len(lines) <= rows {
 		return lines
 	}
@@ -206,7 +209,7 @@ func (m Model) fileLayout() panelLayout {
 			body += fmt.Sprintf("\nand %d more files — see history", omitted)
 		}
 		request := m
-		request.ask = body
+		request.summary = body
 		lines := request.requestLines()
 		if len(lines) <= remaining {
 			layout.request, layout.requestRows = lines, len(lines)
@@ -241,9 +244,18 @@ func (m Model) requestLines() []string {
 			lines = append(lines, "")
 		}
 	}
-	body := "⚡ Approval:\n" + escapeApprovalText(m.ask) + "\nDecision: Waiting for you"
+	text := m.summary
+	if !m.Compact() {
+		if m.explanation != "" {
+			text += "\n" + m.explanation
+		}
+		if m.evidence != "" {
+			text += "\n" + m.evidence
+		}
+	}
+	body := "⚡ Approval:\n" + escapeApprovalText(text) + "\nDecision: Waiting for you"
 	if m.Compact() {
-		body = "⚡ " + escapeApprovalText(m.ask)
+		body = "⚡ " + escapeApprovalText(m.summary)
 	}
 	return append(lines, m.bodyLines(body)...)
 }

@@ -62,7 +62,7 @@ The listener:
 - receives the Codex client's lifecycle context (`ctx`), which is cancelled when
   the agent stops or is shut down — implementations must respect it to avoid
   blocking indefinitely,
-- receives a user-facing prompt (`Ask`) plus a small set of normalized decision
+- receives structured presentation inputs plus a small set of normalized decision
   options,
 - returns a normalized decision (or an error),
 - does **not** need to carry protocol identifiers in the response (Codex client
@@ -88,15 +88,19 @@ const (
 )
 
 type ApprovalRequest struct {
-    Kind ApprovalKind
-
-    // Ask is a human-oriented prompt intended to be rendered directly.
-    // It should be short, stable, and safe to show in the shared room.
-    Ask string
+    Kind         ApprovalKind
+    Details      ApprovalDetails
+    Presentation ApprovalPresentation
 
     // Options is the set of normalized decisions supported by this request in v1.
     // Example: []ApprovalOption{OptionAccept, OptionDecline, OptionCancel}
     Options []ApprovalOption
+}
+
+type ApprovalPresentation struct {
+    Summary     string
+    Explanation string
+    Evidence    string
 }
 
 type ApprovalOption string
@@ -148,7 +152,7 @@ High-level flow:
    - continue scanning stdout.
 3. A single `approvalLoop` goroutine:
    - dequeues jobs in order,
-   - formats `ApprovalRequest{Ask, Options}` for the listener,
+   - normalizes `ApprovalRequest{Details, Presentation, Options}` for the listener,
    - calls `listener.Decide(ctx, req)` (may block; unblocks when `ctx` is cancelled),
    - translates `ApprovalDecision` to the correct schema-specific `result`,
    - writes the JSON-RPC response (`{"id":..., "result":...}`) to stdin.
@@ -229,19 +233,17 @@ If the user calls `/cancel` while an approval request is pending:
   input. Approvals are only meaningful while the Codex process is alive to
   receive the JSON-RPC response.
 
-### Ask formatting (v1)
+### Presentation inputs
 
-The Codex client formats a short `Ask` string per request kind:
-
-- command execution: include the command string (trimmed if very long) and `cwd`
-  when available.
-- file change: include `grantRoot` and/or a short reason when available (Codex
-  does not always provide concrete file paths at request time).
-- permissions: include a short summary of the requested permissions (filesystem
-  and/or network) plus an optional reason, if provided.
-
-Exact formatting is not part of the public contract; it may change as the UI
-improves. It should remain safe to render in the shared room.
+Adapters preserve full supplied reasons in Presentation.Explanation and normalize
+additional request evidence separately. Command/file summaries and operation
+evidence are derived in room. Codex grantRoot is additional file scope evidence;
+permission summaries identify reported filesystem/network scope. Diagnostics use
+agent.ApprovalPrompt with generic kind labels plus full command/cwd or affected
+file paths from the operation and any supplemental command/file evidence. Thus
+missing-listener, listener-error and invalid-choice logs retain the requested
+action even when no manual history record is created.
+Adapters never shorten, escape or style these inputs. See the shared contract below.
 
 ### Choice validation
 
@@ -265,3 +267,31 @@ The Codex client validates that the listener's returned `Choice` is present in
 - Should we support `acceptForSession` in v1 (for command/file approvals)?
   - Decision: yes. If the backend supports it (Codex does), the listener may
     return it.
+
+## Shared permission presentation
+
+All approval kinds use `ApprovalRequest.Presentation` for summary, explanation
+and supplemental evidence. Explanation is supplied context stored once; Evidence
+excludes extracted explanations and supplements common operation data.
+Codex labels reported filesystem
+and network grants, preserves the supplied reason verbatim, and retains complete
+scope JSON including unknown fields. Missing cwd is unknown; missing scope is
+explicitly unavailable. Claude labels the exact tool or `Plan approval`, retaining
+complete inputs (including Read inputs and unknown fields), or the full plan plus
+additional fields. Plans supply no invented explanation. Raw protocol metadata
+is never a display fallback. These fields do not affect Operation or policy.
+
+Room creates one retained approval record on manual activation and updates it
+on authoritative settlement by ID and alias. An empty permission summary displays
+`Permission request`, with an unavailable-evidence notice
+when necessary. Queued requests have no record until activation; accepted choices
+and withdrawals follow the existing Session FIFO and cancellation authority.
+
+Room's pure DeriveApprovalPresentation derives summaries and evidence from common
+operations, appends supplemental evidence and keeps the supplied explanation
+separate. History composes the heading, explanation and evidence; interpreter
+projects the same detached fields and paths. Evidence alone is not a complete
+request document. No consumer assumes evidence already contains an explanation.
+Raw backend data and operations remain policy/identity inputs; presentation does
+not affect policy, response payloads or Session diagnostic identity. See
+[approval presentation contract](approval-presentation-contract.md).
