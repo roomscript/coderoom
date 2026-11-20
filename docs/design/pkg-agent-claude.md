@@ -239,6 +239,9 @@ message, interrupt?}`.
 | `AskUserQuestion` | disallowed; if it ever arrives, denied without forwarding (see below) | |
 | anything else (WebFetch, MCP tools, …) | `permissions` | `approve tool <name>: <short input summary>` |
 
+Bash requests carry no cwd yet, so policy reviews them as
+`shell.cwd_unvalidated`. Proposed fix: [claude-bash-cwd.md](claude-bash-cwd.md).
+
 ### Mapping ApprovalDecision back
 
 | Choice | Response |

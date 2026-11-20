@@ -277,6 +277,68 @@ Clearing the effort falls back to `medium`, not to the project's `low`. The same
 
 So `applied.effort` is what the request carries, and an invalid value is never sent.
 
+### E14: Bash cwd for each approval
+
+Question: can coderoom know the directory a Bash call will run in when its `can_use_tool` request arrives, including after earlier calls changed directories? Claude Code 2.1.325, `haiku`. A `PreToolUse` hook, matched to `Bash` and passed with `--settings`, reads its stdin, sleeps 1 s, appends the input to a log and exits 0 with no output, so it does not affect the decision. Every command writes a file so that it asks for approval, and the harness allows every request. Calls are matched by `tool_use_id`. When a `can_use_tool` request arrives, the harness checks whether the hook log already has that call. Turns 1 to 5 make one call each, turn 6 makes two calls one after the other, and turns 7 and 8 ask for two calls in parallel in one assistant message. `$D` is the project dir and has a `sub/` directory. Three runs gave the same results; the tables are from the last one.
+
+| # | Command | Real cwd (from `pwd` output) | Hook `cwd` | `system/init` cwd of the turn | `blocked_path` |
+|---|---|---|---|---|---|
+| 1 | `pwd && touch m1` | `$D` | `$D` | `$D` | `$D/m1` |
+| 2 | `cd sub && pwd && touch m2` | starts in `$D` | `$D` | `$D` | none |
+| 3 | `pwd && touch m3` | `$D/sub` | `$D/sub` | `$D/sub` | `$D/sub/m3` |
+| 4 | `cd /tmp && pwd` | starts in `$D/sub` | `$D/sub` | `$D/sub` | `/tmp` |
+| 5 | `pwd && touch m5` | `$D` (reset) | `$D` | `$D` | `$D/m5` |
+| 6 | `cd sub && pwd && touch m6` | starts in `$D` | `$D` | `$D` | none |
+| 7 | `pwd && touch m7` (same turn as 6) | `$D/sub` | `$D/sub` | `$D` (stale) | `$D/sub/m7` |
+
+Parallel turns. Both calls of a turn came in one assistant message (same `message.id`):
+
+| # | Command | Real cwd | Hook `cwd` | Order of events |
+|---|---|---|---|---|
+| 8 | `pwd && touch p1` | `$D/sub` | `$D/sub` | prompt, result |
+| 9 | `cd .. && pwd && touch p2` | starts in `$D/sub` | `$D/sub` | then prompt, result |
+| 10 | `cd sub && pwd && touch p3` | starts in `$D` | `$D` | prompt, result |
+| 11 | `pwd && touch p4` | `$D/sub` | `$D/sub` | then prompt, result |
+
+Files landed where `pwd` said: `m1`, `m5`, `p2` in `$D`; `m2`, `m3`, `m6`, `m7`, `p1`, `p3`, `p4` in `$D/sub`.
+
+- `can_use_tool` has no cwd field. This matches the request built in the 2.1.325 binary: tool name, display name, input, `tool_use_id`, description, `permission_suggestions`, `blocked_path`, decision reason fields, matched ask rule, plugin, tool kind.
+- The hook `cwd` was the shell's cwd at the start of the call in every call. This includes a `cd` that persisted (call 3), a `cd` within one turn (call 7), the reset after leaving the project (call 5), and a `cd` by an earlier call of the same parallel batch (call 11).
+- The hook finished before the `can_use_tool` request in every call: the entry was in the log when the request arrived, although the hook sleeps 1 s before writing it. Claude waits for the hook and only then asks for approval.
+- Bash calls requested in parallel ran one at a time: approval for one call, its result, then approval for the next. The hook for the second call ran after the first call finished, so it saw the first call's `cd` (call 11). This is observed behavior, not a documented guarantee.
+- `cd` outside the project dirs is reset after the call: the tool result ends with `Shell cwd was reset to $D`, and the next call runs in `$D`. A `cd` inside the project persists across calls and turns, as in E6.
+- The `system/init` cwd is updated once per turn, so it is stale for every call after a `cd` in the same turn (call 7). It is not a per-call source.
+- `blocked_path` is a resolved absolute path, but only when Claude flags a path, and it is the target rather than the cwd (call 4: `/tmp`; calls 2 and 6: absent). The `addDirectories` suggestion followed the cwd here, but it is a rule suggestion, not a contract.
+
+Not tested:
+
+- A `cd` to another allowed directory (`--add-dir`), which may persist instead of being reset.
+- Hooks under `--safe-mode`, or when the user's own settings define `PreToolUse` hooks that deny or rewrite the input.
+
+### E15: Bash cwd from an in-band hook
+
+E14 again, with the hook registered in the `initialize` request instead of `--settings`, as the Agent SDK does:
+
+```json
+{"subtype":"initialize","hooks":{"PreToolUse":[{"matcher":"Bash","hookCallbackIds":["coderoom-bash-cwd"]}]}}
+```
+
+`initialize` succeeded. Claude then sent one `control_request` per Bash call:
+
+```json
+{"subtype":"hook_callback","callback_id":"coderoom-bash-cwd","tool_use_id":"toolu_…",
+ "input":{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_use_id":"toolu_…","cwd":"$D",
+          "tool_input":{"command":"pwd && touch m1","description":"…"},
+          "permission_mode":"default","effort":{"level":"medium"},"prompt_id":"…","session_id":"…","transcript_path":"…"}}
+```
+
+The harness waited 1 s, then answered `control_response{subtype: success, response: {}}`.
+
+- 11 Bash calls, 11 `hook_callback` requests, one for each call; the outer `tool_use_id` equals `input.tool_use_id`.
+- Every `hook_callback` came before the call's `can_use_tool`. Claude waits for the answer: the request arrived only after the delayed answer.
+- `input.cwd` matched the E14 results for all calls: persisted `cd`, `cd` within a turn, the reset after `cd /tmp`, both parallel cases.
+- Answering `{}` left the flow unchanged: every call still asked for approval, ran, and returned its result; files landed where `pwd` said.
+
 ---
 
 ## Open questions for phase 2
@@ -297,7 +359,7 @@ So `applied.effort` is what the request carries, and an invalid value is never s
 ```
 cd playground
 make pg-claude-stream-json        # all experiments (live, uses your Claude login)
-make pg-claude-stream-json-e3     # one experiment (e1..e13)
+make pg-claude-stream-json-e3     # one experiment (e1..e15)
 cd claude-stream-json && go run . -redact-fixtures   # re-apply redaction to existing fixtures
 ```
 
