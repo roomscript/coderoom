@@ -21,7 +21,7 @@ func TestCompactCommandApproval(t *testing.T) {
 			}
 			assertCommandWidth(t, view, size.width)
 			if size.width == 80 {
-				for _, want := range []string{`bill\x1b[2J`, `git diff\x1b[2J`, "Full command in history", "> accept", "decline"} {
+				for _, want := range []string{`bill\x1b[2J`, `git diff\x1b[2J`, "Full command in history", "> Approve", "Decline"} {
 					if !strings.Contains(view, want) {
 						t.Fatalf("missing %q: %q", want, view)
 					}
@@ -46,7 +46,7 @@ func TestLongCommandSummaryKeepsHistoryHint(t *testing.T) {
 			req := interpreter.Approval{Kind: interpreter.ApprovalCommandExecution, Alias: participant.Alias{Name: "bill"}, Summary: summary, Options: []interpreter.ApprovalOption{{ID: "accept"}, {ID: "acceptForSession"}, {ID: "decline"}, {ID: "cancel"}}}
 			m := New().Set(req).SetSize(80, 12)
 			view := ansi.Strip(m.View())
-			for _, want := range []string{"bill", "…", "Full command in history", "> accept", "accept for session", "decline", "cancel"} {
+			for _, want := range []string{"bill", "…", "Full command in history", "> Approve", "Approve for this session", "Decline", "Decline and stop turn"} {
 				if !strings.Contains(view, want) {
 					t.Fatalf("missing %q: %q", want, view)
 				}
@@ -82,7 +82,7 @@ func TestCommandExplanationLayoutAndReset(t *testing.T) {
 
 func assertCommandExplanation(t *testing.T, view, summary, explanation string) {
 	t.Helper()
-	for _, want := range []string{"Full command in history", "> accept", "decline"} {
+	for _, want := range []string{"Full command in history", "> Approve", "Decline"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("missing %q: %q", want, view)
 		}
@@ -123,7 +123,7 @@ func assertPermissionPanel(t *testing.T, m Model, view string, height int) {
 
 func assertPermissionContent(t *testing.T, view, summary, explanation string) {
 	t.Helper()
-	for _, want := range []string{"Full request in history", "> accept", "decline"} {
+	for _, want := range []string{"Full request in history", "> Approve", "Decline"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("missing %q: %q", want, view)
 		}

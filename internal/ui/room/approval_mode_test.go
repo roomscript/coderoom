@@ -280,7 +280,10 @@ func TestApprovalMode_longRequestFitsFrame(t *testing.T) {
 					}
 				}
 				choice, _ := m.input.approval.SelectedOption()
-				if !strings.Contains(view, "> "+choice.OptionID) {
+				label := []string{"Approve", "Decline", "Decline and stop turn"}[i]
+				// The smallest frame shows only the first wrapped label row.
+				label = strings.Split(ansi.Wrap(label, size.width-2, ""), "\n")[0]
+				if !strings.Contains(view, "> "+label) {
 					t.Fatalf("selected option %q not visible:\n%s", choice.OptionID, view)
 				}
 				m, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
@@ -303,7 +306,7 @@ func TestApprovalMode_pagingScrollsRequestInsteadOfHistory(t *testing.T) {
 	if !strings.Contains(m.View(), "request tail") || m.YOffset() != historyTop {
 		t.Fatalf("paging failed to scroll the approval independently: %q", m.View())
 	}
-	for _, label := range []string{"> accept", "  decline"} {
+	for _, label := range []string{"> Approve", "  Decline"} {
 		if !strings.Contains(m.View(), label) {
 			t.Fatalf("option %q is not pinned: %q", label, m.View())
 		}

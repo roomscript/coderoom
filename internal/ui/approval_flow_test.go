@@ -81,7 +81,7 @@ func TestApprovalEvents_ClearActivePrompt(t *testing.T) {
 
 	m = pushEvent(m, session.ApprovalCleared{ID: 7})
 
-	if strings.Contains(m.room.View(), "> accept") {
+	if strings.Contains(m.room.View(), "> Approve") {
 		t.Fatalf("expected approval choices to disappear, got:\n%s", m.room.View())
 	}
 	if m.activeApprovalID != 0 {
@@ -137,7 +137,7 @@ func TestApprovalEvents_ClearRestoresStagedComposer(t *testing.T) {
 	if view := m.room.View(); !strings.Contains(view, "Participants busy: ada.") {
 		t.Fatalf("restored stage status missing: %s", view)
 	}
-	if strings.Contains(m.room.View(), "> accept") {
+	if strings.Contains(m.room.View(), "> Approve") {
 		t.Fatalf("expected approval choices to disappear, got:\n%s", m.room.View())
 	}
 }

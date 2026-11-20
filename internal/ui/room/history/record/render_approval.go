@@ -19,7 +19,7 @@ func renderApproval(r Record, width int, colors func(participant.Alias) string) 
 
 func renderApprovalTranscript(r Record, width int, colors func(participant.Alias) string) string {
 	header := renderParticipantHeader(approval.EscapeText(r.Alias.Name), colors(r.Alias))
-	body := approval.EscapeText(r.Text + "\nDecision: " + r.Decision)
+	body := approval.EscapeText(r.Text + "\nDecision: " + formatApprovalDecision(r.Decision))
 	// Expand tabs before wrapping so terminal tab stops cannot add hidden rows.
 	body = approval.ExpandTabs(body, 2)
 	lines := strings.Split(body, "\n")
@@ -32,4 +32,15 @@ func renderApprovalTranscript(r Record, width int, colors func(participant.Alias
 		lines[i] = style.Render(agentBodyIndent + strings.ReplaceAll(line, "\n", "\n"+agentBodyIndent))
 	}
 	return header + "\n\n" + strings.Join(lines, "\n")
+}
+
+func formatApprovalDecision(decision string) string {
+	switch decision {
+	case "Approved by you · once":
+		return "Approved by you"
+	case "Canceled by you":
+		return "Declined by you · turn stop requested"
+	default:
+		return decision
+	}
 }

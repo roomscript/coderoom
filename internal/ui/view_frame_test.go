@@ -56,7 +56,7 @@ func TestView_longApprovalFitsTerminal(t *testing.T) {
 	if rows := strings.Count(view, "\n") + 1; rows > height {
 		t.Fatalf("approval frame has %d rows, terminal height %d", rows, height)
 	}
-	for _, label := range []string{"> accept", "  decline", "  cancel"} {
+	for _, label := range []string{"> Approve", "  Decline", "  Decline and stop turn"} {
 		if !strings.Contains(view, label) {
 			t.Fatalf("approval option %q is missing from frame:\n%s", label, view)
 		}

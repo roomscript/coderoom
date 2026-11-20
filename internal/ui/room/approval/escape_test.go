@@ -69,11 +69,11 @@ func TestView_escapesUntrustedText(t *testing.T) {
 			}{
 				"request": {
 					interpreter.Approval{Summary: tt.raw, Options: []interpreter.ApprovalOption{{ID: "accept"}}},
-					expectedApprovalView(tt.shown, "> accept"),
+					expectedApprovalView(tt.shown, "> Approve"),
 				},
 				"evidence": {
 					interpreter.Approval{Summary: "approve?", Evidence: tt.raw, Options: []interpreter.ApprovalOption{{ID: "accept"}}},
-					expectedApprovalView("approve?\n"+tt.shown, "> accept"),
+					expectedApprovalView("approve?\n"+tt.shown, "> Approve"),
 				},
 				"label": {
 					interpreter.Approval{Summary: "approve?", Options: []interpreter.ApprovalOption{{ID: "custom", Label: tt.raw}}},

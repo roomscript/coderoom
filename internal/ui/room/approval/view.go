@@ -307,13 +307,13 @@ func (m Model) optionLines() ([]string, int) {
 func formatOption(opt interpreter.ApprovalOption) string {
 	switch opt.ID {
 	case "accept":
-		return "accept"
+		return "Approve"
 	case "acceptForSession":
-		return "accept for session"
+		return "Approve for this session"
 	case "decline":
-		return "decline"
+		return "Decline"
 	case "cancel":
-		return "cancel"
+		return "Decline and stop turn"
 	default:
 		if opt.Label != "" {
 			return opt.Label

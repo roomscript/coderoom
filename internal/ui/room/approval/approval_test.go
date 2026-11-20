@@ -31,7 +31,7 @@ func TestFileDiffPagingAndEscaping(t *testing.T) {
 		}
 		m, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyPgDown}))
 	}
-	for _, want := range []string{"● bill:", "update: /project/path", "with-newline", "@@", "-old", `+new\x1b[2J`, "+last", "accept for session", "decline", "cancel"} {
+	for _, want := range []string{"● bill:", "update: /project/path", "with-newline", "@@", "-old", `+new\x1b[2J`, "+last", "Approve for this session", "Decline", "Decline and stop turn"} {
 		if !strings.Contains(pages.String(), want) {
 			t.Fatalf("paged evidence missing %q", want)
 		}
@@ -124,12 +124,12 @@ func TestUpdate_requestPagingAndResizePreserveChoice(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		m, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyPgDown}))
 	}
-	if view := m.View(); !strings.Contains(view, "last") || !strings.Contains(view, "> decline") {
+	if view := m.View(); !strings.Contains(view, "last") || !strings.Contains(view, "> Decline") {
 		t.Fatalf("paging lost request tail or selected option: %q", view)
 	}
 	m = m.SetSize(12, 4)
 	choice, _ := m.SelectedOption()
-	if choice.OptionID != "decline" || !strings.Contains(m.View(), "> decline") {
+	if choice.OptionID != "decline" || !strings.Contains(m.View(), "> Decline") {
 		t.Fatalf("resize lost selection: %q", m.View())
 	}
 	m = m.SetSize(40, 6)
@@ -151,7 +151,7 @@ func TestView_showsCompleteRequestWhenSpaceAllows(t *testing.T) {
 		Summary: prompt,
 		Options: []interpreter.ApprovalOption{{ID: "accept"}, {ID: "acceptForSession"}, {ID: "decline"}, {ID: "cancel"}},
 	}).SetSize(80, 36)
-	want := expectedApprovalView(prompt, "> accept\n  accept for session\n  decline\n  cancel")
+	want := expectedApprovalView(prompt, "> Approve\n  Approve for this session\n  Decline\n  Decline and stop turn")
 	if got := ansi.Strip(m.View()); got != want {
 		t.Fatalf("request should fit without paging:\nwant: %q\n got: %q", want, got)
 	}
@@ -216,6 +216,39 @@ func expectedApprovalView(body, options string) string {
 	return "  ⚡ Approval:\n  " + strings.ReplaceAll(body, "\n", "\n  ") + "\n  Decision: Waiting for you\n\n" + options
 }
 
+func TestOptionWordingPreservesSelectedID(t *testing.T) {
+	for _, tt := range []struct{ id, label, want string }{
+		{"accept", "backend label", "Approve"},
+		{"acceptForSession", "", "Approve for this session"},
+		{"decline", "", "Decline"},
+		{"cancel", "", "Decline and stop turn"},
+		{"custom", "Custom response", "Custom response"},
+		{"future", "", "future"},
+	} {
+		t.Run(tt.id, func(t *testing.T) {
+			m := New().Set(interpreter.Approval{Summary: "Request", Options: []interpreter.ApprovalOption{{ID: tt.id, Label: tt.label}}})
+			if got := ansi.Strip(m.View()); got != expectedApprovalView("Request", "> "+tt.want) {
+				t.Fatalf("unexpected option wording: %q", got)
+			}
+			for _, width := range []int{8, 20, 40} {
+				bounded := m.SetSize(width, 4)
+				if bounded.Height() > 4 {
+					t.Fatal("option exceeds panel height")
+				}
+				for _, line := range strings.Split(bounded.View(), "\n") {
+					if ansi.StringWidth(line) > width {
+						t.Fatalf("option exceeds width: %q", line)
+					}
+				}
+				choice, ok := bounded.SelectedOption()
+				if !ok || choice.OptionID != tt.id {
+					t.Fatalf("selection changed: %#v", choice)
+				}
+			}
+		})
+	}
+}
+
 func TestViewParticipantHeaderAndFullEvidence(t *testing.T) {
 	details := strings.Repeat("full evidence\n", 30) + "tail\x1b[8m"
 	m := New().Set(interpreter.Approval{
@@ -262,7 +295,7 @@ func TestUpdate_pagingWithoutVisibleRequestIsNoOp(t *testing.T) {
 func TestActiveApprovalDoesNotRequireSummary(t *testing.T) {
 	for _, kind := range []interpreter.ApprovalKind{interpreter.ApprovalCommandExecution, interpreter.ApprovalFileChange, interpreter.ApprovalPermissions, "future"} {
 		m := New().Set(interpreter.Approval{Kind: kind, Options: []interpreter.ApprovalOption{{ID: "accept"}}}).SetSize(80, 10)
-		if !m.Active() || !strings.Contains(m.View(), "accept") {
+		if !m.Active() || !strings.Contains(m.View(), "Approve") {
 			t.Fatal("empty summary hid approval choices")
 		}
 		if m.Clear().Active() || m.Clear().evidence != "" || m.Clear().explanation != "" || m.Clear().summary != "" {

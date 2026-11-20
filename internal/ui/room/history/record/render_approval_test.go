@@ -8,11 +8,38 @@ import (
 	"github.com/roomscript/coderoom/internal/participant"
 )
 
+func TestApprovalDecisionWording(t *testing.T) {
+	for _, tt := range []struct{ decision, want string }{
+		{"Approved by you · once", "Approved by you"},
+		{"Approved by you · for session", "Approved by you · for session"},
+		{"Declined by you", "Declined by you"},
+		{"Canceled by you", "Declined by you · turn stop requested"},
+		{"Waiting for you", "Waiting for you"},
+		{"Withdrawn", "Withdrawn"},
+		{"Future decision", "Future decision"},
+		{"Approved by you · once more", "Approved by you · once more"},
+		{"Canceled by you\x1b[2J", `Canceled by you\x1b[2J`},
+	} {
+		t.Run(tt.decision, func(t *testing.T) {
+			r := Record{Kind: KindApproval, Text: "Request", Decision: tt.decision}
+			for _, mode := range []RenderMode{RenderViewport, RenderTranscript} {
+				got := ansi.Strip(Render(r, RenderContext{Key: RenderKey{Mode: mode, Width: 80}}))
+				if !strings.HasSuffix(got, "Decision: "+tt.want) {
+					t.Fatalf("mode %v: unexpected decision: %q", mode, got)
+				}
+			}
+			if r.Decision != tt.decision {
+				t.Fatal("render changed canonical decision")
+			}
+		})
+	}
+}
+
 func TestApprovalEvidenceRenderingAndExport(t *testing.T) {
 	r := Record{Kind: KindApproval, Alias: participant.Alias{Name: "bill\x1b[2J"}, Text: "⚡ Approval: File changes\nfile\n" + strings.Repeat("+full evidence\n", 100) + "+tail\x1b[2J\u202e\xff", Decision: "Approved by you · once"}
 	for _, mode := range []RenderMode{RenderViewport, RenderTranscript} {
 		view := ansi.Strip(Render(r, RenderContext{Key: RenderKey{Mode: mode, Width: 60}}))
-		for _, want := range []string{"⚡ Approval: File changes", "● bill\\x1b[2J:", "+tail\\x1b[2J\\u202e\\xff", "Decision: Approved by you · once"} {
+		for _, want := range []string{"⚡ Approval: File changes", "● bill\\x1b[2J:", "+tail\\x1b[2J\\u202e\\xff", "Decision: Approved by you"} {
 			if !strings.Contains(view, want) {
 				t.Fatalf("mode %v missing %q", mode, want)
 			}
